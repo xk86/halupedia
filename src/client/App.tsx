@@ -3,11 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type Status = "idle" | "loading" | "streaming" | "done" | "error";
 
 const DREAMING_MESSAGES = [
-  "The encyclopedia is dreaming this page into existence…",
-  "Consulting the Index Spirit…",
-  "Unshelving a book that has not yet been written…",
-  "The Guild of Exact Invention is deliberating…",
-  "Translating from a dialect spoken only in the footnotes…",
+  "Consulting seventeen conflicting sources…",
+  "Cross-referencing the index…",
+  "Locating the relevant volume…",
+  "Interviewing three anonymous experts…",
+  "Resolving a minor scholarly dispute…",
 ];
 
 function currentSlug(): string {
@@ -188,12 +188,12 @@ export function App() {
         {status === "streaming" && (
           <div className="status">
             <span className="dot" />
-            <span>Transcribing…</span>
+            <span>Retrieving entry…</span>
           </div>
         )}
         {status === "error" && error && (
           <div className="error">
-            The encyclopedia faltered: {error}
+            Something broke, which is ironic for a made-up encyclopedia: {error}
           </div>
         )}
         <article
@@ -203,7 +203,7 @@ export function App() {
       </main>
 
       <footer className="site-footer">
-        Every entry is dreamt on demand. Contradictions preserved.
+        Comprehensive coverage of topics mainstream encyclopedias overlooked.
       </footer>
     </div>
   );

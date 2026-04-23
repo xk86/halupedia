@@ -1,0 +1,21 @@
+name = "hallucinopedia"
+main = "src/worker/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[kv_namespaces]]
+binding = "ARTICLES"
+id = "PLACEHOLDER_KV_ID"
+preview_id = "PLACEHOLDER_KV_PREVIEW_ID"
+
+[vars]
+OPENROUTER_MODEL = "google/gemini-2.0-flash-001"
+MAX_ARTICLES_PER_DAY = "5000"
+
+# OPENROUTER_API_KEY should be set as a secret:
+# pnpm wrangler secret put OPENROUTER_API_KEY

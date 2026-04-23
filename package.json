@@ -1,0 +1,32 @@
+{
+  "name": "hallucinopedia",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n vite,wrangler -c cyan,magenta \"pnpm dev:client\" \"pnpm dev:worker\"",
+    "dev:client": "vite build --watch --mode development",
+    "dev:worker": "wrangler dev",
+    "build": "vite build",
+    "deploy": "pnpm build && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "hono": "^4.6.14",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241224.0",
+    "@types/node": "^25.6.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.2.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "wrangler": "^3.99.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

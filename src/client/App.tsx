@@ -173,6 +173,13 @@ export function App() {
           >
             Stumble
           </a>
+          <a
+            href="https://github.com/BaderBC/halupedia"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
         </nav>
       </header>
 

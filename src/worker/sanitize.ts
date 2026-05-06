@@ -118,3 +118,74 @@ export function looksLikeArticle(html: string): boolean {
   if (linkCount < 5) return false;
   return true;
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Link-hint extraction                                                       */
+/*                                                                             */
+/*  The LLM is instructed to emit `<a href="/x" context="…">` for every named  */
+/*  entity. We harvest those (target_slug → blurb) pairs from the RAW model    */
+/*  output BEFORE running sanitizeHTML, because the sanitizer drops any        */
+/*  attribute outside its tiny whitelist (so context is correctly stripped     */
+/*  from what we serve, but we capture it here for the consistency store).    */
+/* -------------------------------------------------------------------------- */
+
+export interface LinkHint {
+  targetSlug: string;
+  blurb: string;
+}
+
+export function extractLinkHints(rawHtml: string): LinkHint[] {
+  const seen = new Map<string, string>(); // target → first/longest blurb in this article
+  const tagRe = /<a\s+([^>]*)>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(rawHtml)) !== null) {
+    const attrs = m[1];
+    const href = matchAttr(attrs, "href");
+    const ctx = matchAttr(attrs, "context");
+    if (!href || !ctx) continue;
+    const target = hrefToSlug(href);
+    if (!target) continue;
+    const cleaned = cleanBlurb(ctx);
+    if (!cleaned) continue;
+    const prev = seen.get(target);
+    if (!prev || cleaned.length > prev.length) {
+      seen.set(target, cleaned);
+    }
+  }
+  const out: LinkHint[] = [];
+  for (const [targetSlug, blurb] of seen) {
+    out.push({ targetSlug, blurb });
+  }
+  return out;
+}
+
+function matchAttr(attrs: string, name: string): string | null {
+  // Match `name="…"`, `name='…'`, or `name=bare` (case-insensitive).
+  const re = new RegExp(
+    `\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`,
+    "i"
+  );
+  const found = re.exec(attrs);
+  if (!found) return null;
+  return (found[2] ?? found[3] ?? found[4] ?? "").trim();
+}
+
+function hrefToSlug(href: string): string | null {
+  if (!href) return null;
+  if (/^(https?|javascript|data|mailto|vbscript):/i.test(href)) return null;
+  const path = href.replace(/^\/+/, "").split(/[?#]/)[0];
+  if (!path) return null;
+  return slugify(path) || null;
+}
+
+function cleanBlurb(s: string): string {
+  // Strip any HTML tags, collapse whitespace, cap length.
+  const text = s
+    .replace(/<[^>]+>/g, "")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Reasonable bounds — the LLM is told 10-25 words, allow some slack.
+  if (text.length < 8) return "";
+  return text.slice(0, 280);
+}

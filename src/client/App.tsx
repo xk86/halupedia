@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Comments } from "./Comments";
 
 type Status = "idle" | "loading" | "streaming" | "done" | "error";
 
@@ -200,6 +201,7 @@ export function App() {
           className="article"
           dangerouslySetInnerHTML={{ __html: html }}
         />
+        {status === "done" && <Comments slug={slug} />}
       </main>
 
       <footer className="site-footer">

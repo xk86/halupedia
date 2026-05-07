@@ -213,6 +213,14 @@ export function App() {
           >
             GitHub
           </a>
+          <a
+            href="https://discord.gg/SrTdXJwTR4"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="nav-discord"
+          >
+            Discord
+          </a>
         </nav>
       </header>
 
@@ -251,7 +259,9 @@ export function App() {
       </main>
 
       <footer className="site-footer">
-        Comprehensive coverage of topics mainstream encyclopedias overlooked.
+        <p className="footer-tagline-line">
+          Comprehensive coverage of topics mainstream encyclopedias overlooked.
+        </p>
       </footer>
     </div>
   );

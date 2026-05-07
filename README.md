@@ -10,7 +10,9 @@ scholarly press.
 Live at **[halupedia.com](https://halupedia.com)**.
 Cooked on a Cloudflare Worker. Cached forever in KV. Threaded HN-style comments
 under every article, no signup, AI-hallucinated identities. Patrons may
-[buy us tokens](https://buymeacoffee.com/baderbc) so the press can keep printing.
+[buy us tokens](https://buymeacoffee.com/baderbc) so the press can keep
+printing. Editors and conspirators meet in the
+[Discord](https://discord.gg/SrTdXJwTR4).
 
 ---
 
@@ -274,4 +276,5 @@ License as published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 
 If the press has improved your day, you may
-[buy us tokens](https://buymeacoffee.com/baderbc).
+[buy us tokens](https://buymeacoffee.com/baderbc) or join the conversation on
+[Discord](https://discord.gg/SrTdXJwTR4).

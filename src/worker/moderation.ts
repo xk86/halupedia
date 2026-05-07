@@ -31,7 +31,7 @@ const MAX_BATCHES_PER_SWEEP = 10;
 // Hard ceiling on the ?parallel= query param. OpenRouter will rate-limit if
 // we go too wide; 100 fan-out × 30 items = 3,000 in flight is the practical cap.
 const MAX_PARALLEL = 100;
-const MODERATION_SYSTEM_PROMPT = `You are a content moderator for Hallucinopedia, a satirical AI-generated encyclopedia of fictional, absurd entries with a public comments section. Your job is to remove griefing, hate, and spam — NOT to police taste.
+const MODERATION_SYSTEM_PROMPT = `You are a content moderator for Halupedia, a satirical AI-generated encyclopedia of fictional, absurd entries with a public comments section. Your job is to remove griefing, hate, and spam — NOT to police taste.
 
 ALLOW (these are the *point* of the site, do not remove):
 - Absurd, silly, fictional, surreal subjects (the whole encyclopedia is fake)
@@ -165,7 +165,7 @@ async function judgeBatch(
         "Content-Type": "application/json",
         Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
         "HTTP-Referer": "https://hallupedia.com",
-        "X-Title": "Hallucinopedia Moderation",
+        "X-Title": "Halupedia Moderation",
       },
       body: JSON.stringify({
         model,

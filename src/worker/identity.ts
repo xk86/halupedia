@@ -2,11 +2,11 @@
  * Identity hallucinator. On a user's first comment we ask the same model that
  * writes the encyclopedia to invent a fictional commenter — a display name
  * (period-correct, slightly absurd) and a forum-style username. Names match
- * the Hallucinopedia register: deadpan academics, retired bureaucrats,
+ * the Halupedia register: deadpan academics, retired bureaucrats,
  * obsessive amateurs, minor clergy, etc.
  */
 
-const IDENTITY_SYSTEM = `You generate fictional Hallucinopedia commenter identities. Output ONLY a single JSON object on one line, no prose, no code fences. Keys: "name" and "username".
+const IDENTITY_SYSTEM = `You generate fictional Halupedia commenter identities. Output ONLY a single JSON object on one line, no prose, no code fences. Keys: "name" and "username".
 
 - "name" is a plausible-but-faintly-absurd full name in the same register as the encyclopedia: minor scholars, retired municipal clerks, obsessive amateurs, defrocked clergy, rural taxonomists, Belgian phonologists, etc. 2 to 3 words, optional double-barrel surnames, no titles, no "Dr." prefixes. Latin / European / vaguely 19th-century flavor allowed but not required. No real famous people.
 - "username" is a forum handle for the same person: lowercase ASCII, 3–24 chars, only letters/digits/underscore, no leading digit. Often a fragment of the surname plus a number or a hobbyist suffix (e.g. "pellbrick_archivist", "thwaite_1887", "minor_grommet", "vellum_77"). Must look like something a real obsessive would pick.
@@ -38,8 +38,8 @@ export async function hallucinateIdentity(
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": "https://hallucinopedia.app",
-      "X-Title": "Hallucinopedia",
+      "HTTP-Referer": "https://halupedia.com",
+      "X-Title": "Halupedia",
     },
     body: JSON.stringify(body),
   });

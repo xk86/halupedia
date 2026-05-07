@@ -1,10 +1,16 @@
 import { Hono } from "hono";
 import { slugify, slugToTitle } from "./slug";
 import { sanitizeHTML, extractSummary, extractTitle, looksLikeArticle, extractLinkHints } from "./sanitize";
-import { streamGeneration, generateOnce, type GenerateOptions } from "./llm";
+import {
+  streamGeneration,
+  generateOnce,
+  hallucinateSearchTitles,
+  type GenerateOptions,
+} from "./llm";
 import { HOMEPAGE_ARTICLE } from "./seed";
 import { createCommentsApp } from "./comments";
 import { rateLimit, clientIp } from "./ratelimit";
+import { isLikelyVpn } from "./vpn";
 import { loadHints, saveHints } from "./hints";
 import {
   countRecentBansByIp,
@@ -28,6 +34,9 @@ export interface Env {
   // until the oldest strike rolls out of the window.
   BAN_STRIKES_THRESHOLD?: string;
   BAN_STRIKES_WINDOW_HOURS?: string;
+  // Per-IP rate limit for /api/search LLM-backed suggestions. Over the
+  // limit, search still returns DB matches but skips the hallucination call.
+  SEARCH_PER_IP_PER_HOUR?: string;
 }
 
 interface StoredArticle {
@@ -47,7 +56,7 @@ app.route("/", createCommentsApp());
 /* -------------------------------------------------------------------------- */
 /*  Bot detection                                                              */
 /*                                                                             */
-/*  Crawlers love internal-link rabbit holes. Each Hallucinopedia article has  */
+/*  Crawlers love internal-link rabbit holes. Each Halupedia article has  */
 /*  20–40 outbound links, so an unrestricted bot would explode our token bill. */
 /*  Policy: cached articles are served to anyone (cheap KV read), but bots     */
 /*  cannot trigger fresh generation. They get a 404 and move on.               */
@@ -84,7 +93,7 @@ app.get("/robots.txt", (c) => {
 // Reserved slugs are non-article paths the SPA owns. The worker refuses to
 // generate them and the article handler short-circuits with 404 so accidental
 // or malicious hits to /api/page/all-entries don't burn tokens or pollute KV.
-const RESERVED_SLUGS = new Set(["all-entries"]);
+const RESERVED_SLUGS = new Set(["all-entries", "search"]);
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/index  — paginated list of every cached article                  */
@@ -163,6 +172,228 @@ app.get("/api/index", async (c) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/*  GET /api/search?q=…  — mixed search results                                */
+/*                                                                             */
+/*  Returns up to ~15 results for the user's query. Existing cached articles  */
+/*  whose title or slug matches the query come first (marked exists=true);    */
+/*  the rest are AI-hallucinated plausible titles that don't yet exist        */
+/*  (exists=false), which trigger generation if clicked.                      */
+/*                                                                             */
+/*  Hallucinations are cached in KV by normalized query so a repeat search    */
+/*  costs zero LLM tokens. DB matches are NOT cached — they're recomputed on  */
+/*  every hit so newly-generated articles surface immediately.                */
+/*                                                                             */
+/*  Cached unwritten suggestions are re-checked against the live KV index on  */
+/*  every read: if someone clicked through and generated one, it now appears  */
+/*  in the "in the encyclopedia" section instead of "not yet written" — with  */
+/*  the article's actual stored title (which can drift from what the LLM      */
+/*  originally hallucinated, since slugify isn't bijective).                  */
+/*                                                                             */
+/*  The LLM call is rate-limited per IP. Cache hits don't count against the  */
+/*  rate limit. Over the limit with no cache hit, we return DB matches only  */
+/*  and set rate_limited=true so the frontend can explain.                    */
+/* -------------------------------------------------------------------------- */
+
+const SEARCH_TARGET_RESULTS = 15;
+// Cached hallucinations live a week. The LLM is creative; refreshing more
+// often costs tokens for no real benefit, and the per-read re-evaluation
+// against current KV state already keeps "exists" flags accurate.
+const SEARCH_CACHE_TTL_SEC = 60 * 60 * 24 * 7;
+
+interface CachedHallucination {
+  slug: string;
+  title: string;
+}
+
+/** Normalize a query to a stable cache key: lowercased, whitespace collapsed,
+ *  trimmed, capped. Two queries differing only in case or spacing share a
+ *  cache entry. */
+function normalizeSearchKey(q: string): string {
+  return q.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 100);
+}
+
+app.get("/api/search", async (c) => {
+  const qRaw = (c.req.query("q") ?? "").trim();
+  if (!qRaw) {
+    return c.json(
+      { error: "missing query", query: "", results: [], rate_limited: false },
+      400
+    );
+  }
+  // Cap query length so a giant string doesn't get echoed back to the LLM.
+  const q = qRaw.slice(0, 100);
+  const cacheKey = `__search:${normalizeSearchKey(q)}`;
+
+  // 1. Walk the KV namespace once (capped) to build the full title index.
+  //    Both the substring-match step and the hallucination dedup step share
+  //    this single pass — no extra KV reads per hallucinated title.
+  const allKeys: { slug: string; title: string }[] = [];
+  try {
+    let cursor: string | undefined;
+    // 10 pages × 1000 keys = 10k cap. Safely above our current ~5k corpus.
+    for (let i = 0; i < 10; i++) {
+      const page = await c.env.ARTICLES.list<{ title?: string; generatedAt?: number }>(
+        { cursor, limit: 1000 }
+      );
+      for (const k of page.keys) {
+        if (k.name.startsWith("__")) continue;
+        const title =
+          (k.metadata as any)?.title || slugToTitle(k.name);
+        allKeys.push({ slug: k.name, title });
+      }
+      if (page.list_complete) break;
+      cursor = (page as any).cursor;
+      if (!cursor) break;
+    }
+  } catch (e) {
+    console.error("search: KV walk failed", e);
+  }
+
+  const titleBySlug = new Map(allKeys.map((k) => [k.slug, k.title]));
+  const ql = q.toLowerCase();
+
+  const existing: { slug: string; title: string; exists: true }[] = allKeys
+    .filter(
+      (k) =>
+        k.title.toLowerCase().includes(ql) ||
+        k.slug.toLowerCase().includes(ql)
+    )
+    .slice(0, SEARCH_TARGET_RESULTS)
+    .map((k) => ({ slug: k.slug, title: k.title, exists: true as const }));
+
+  // 2. Cache lookup. If we have hallucinations cached for this query, serve
+  //    them — re-evaluating each against the live KV index so any that have
+  //    since been clicked-and-generated bubble up into the "exists" list
+  //    with the article's real stored title.
+  let cachedHalluc: CachedHallucination[] | null = null;
+  try {
+    cachedHalluc = await c.env.ARTICLES.get<CachedHallucination[]>(
+      cacheKey,
+      "json"
+    );
+  } catch {}
+
+  const halluc: { slug: string; title: string; exists: false }[] = [];
+  let cacheHit = false;
+  let rateLimited = false;
+  let retryAfter: number | null = null;
+  const usedSlugs = new Set(existing.map((e) => e.slug));
+
+  if (cachedHalluc && Array.isArray(cachedHalluc) && cachedHalluc.length > 0) {
+    cacheHit = true;
+    for (const ch of cachedHalluc) {
+      if (!ch?.slug || !ch?.title) continue;
+      if (usedSlugs.has(ch.slug)) continue;
+      if (titleBySlug.has(ch.slug)) {
+        // Was unwritten when cached; now exists. Promote it (with real title).
+        if (existing.length < SEARCH_TARGET_RESULTS) {
+          existing.push({
+            slug: ch.slug,
+            title: titleBySlug.get(ch.slug)!,
+            exists: true,
+          });
+          usedSlugs.add(ch.slug);
+        }
+        continue;
+      }
+      // Still unwritten. Drop if banned.
+      try {
+        if (await isSlugBanned(c.env.DB, ch.slug)) continue;
+      } catch {}
+      if (halluc.length + existing.length < SEARCH_TARGET_RESULTS) {
+        halluc.push({ slug: ch.slug, title: ch.title, exists: false });
+        usedSlugs.add(ch.slug);
+      }
+    }
+  }
+
+  // 3. Cache miss → maybe call the LLM. Rate-limit ONLY at this point so
+  //    cache hits are free. If we're capped, we silently fall through and
+  //    surface only the DB matches with rate_limited=true.
+  const remaining = SEARCH_TARGET_RESULTS - existing.length - halluc.length;
+  if (!cacheHit && remaining > 0 && c.env.OPENROUTER_API_KEY) {
+    // VPN / datacenter traffic doesn't get to spend tokens on hallucinated
+    // suggestions; surface DB-only results with the rate-limit banner.
+    if (isLikelyVpn(c)) {
+      rateLimited = true;
+      retryAfter = null;
+    } else {
+    const ip = clientIp(c);
+    const perHour = parseInt(c.env.SEARCH_PER_IP_PER_HOUR || "15", 10);
+    const rl = await rateLimit({
+      kv: c.env.ARTICLES,
+      bucket: "search",
+      ip,
+      limit: perHour,
+      windowSec: 3600,
+    });
+    if (!rl.ok) {
+      rateLimited = true;
+      retryAfter = rl.retryAfter;
+    } else {
+      // Ask for a few extras so post-filter (existing/banned/empty) still
+      // leaves us with enough.
+      const titles = await hallucinateSearchTitles(
+        c.env.OPENROUTER_API_KEY,
+        c.env.OPENROUTER_MODERATION_MODEL ||
+          c.env.OPENROUTER_MODEL ||
+          "google/gemini-2.5-flash-lite",
+        q,
+        Math.min(remaining + 5, 20)
+      );
+
+      const toCache: CachedHallucination[] = [];
+      for (const t of titles) {
+        const slug = slugify(t);
+        if (!slug) continue;
+        if (RESERVED_SLUGS.has(slug)) continue;
+        // Cache the slug regardless of whether it currently exists or is
+        // banned — the per-read re-evaluation handles those branches. But
+        // skip duplicates within the LLM's own response.
+        if (toCache.some((x) => x.slug === slug)) continue;
+        toCache.push({ slug, title: t });
+
+        // Build the served response now.
+        if (usedSlugs.has(slug)) continue;
+        if (titleBySlug.has(slug)) continue; // already covered by `existing`
+        try {
+          if (await isSlugBanned(c.env.DB, slug)) continue;
+        } catch {}
+        if (halluc.length < remaining) {
+          halluc.push({ slug, title: t, exists: false });
+          usedSlugs.add(slug);
+        }
+      }
+
+      // Persist whatever the LLM gave us (slug+title pairs), even items we
+      // didn't show this round. They might surface on a later request as the
+      // corpus grows or filtering changes. Skip caching empty results so a
+      // transient LLM failure doesn't poison the cache.
+      if (toCache.length > 0) {
+        try {
+          await c.env.ARTICLES.put(cacheKey, JSON.stringify(toCache), {
+            expirationTtl: SEARCH_CACHE_TTL_SEC,
+          });
+        } catch (e) {
+          console.error("search: cache write failed", e);
+        }
+      }
+    }
+    }
+  }
+
+  return c.json({
+    query: q,
+    results: [...existing, ...halluc],
+    existing_count: existing.length,
+    hallucinated_count: halluc.length,
+    rate_limited: rateLimited,
+    retry_after: retryAfter,
+    cached: cacheHit,
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /*  GET /api/page/:slug  — streaming article endpoint                          */
 /* -------------------------------------------------------------------------- */
 
@@ -187,6 +418,14 @@ app.get("/api/page/:slug", async (c) => {
     return c.json({ redirect: `/${slug}` }, 200);
   }
 
+  // Homepage seed is authoritative: serve the curated landing page for both
+  // the new root slug and the legacy slug, BEFORE the cache lookup. This
+  // overrides any stale KV entry written by a bot or earlier deploy and
+  // guarantees the landing page is always the deadpan, hand-written one.
+  if (slug === "halupedia" || slug === "hallucinopedia") {
+    return streamString(HOMEPAGE_ARTICLE, true);
+  }
+
   const fromSlugRaw = c.req.query("from");
   const fromSlug = fromSlugRaw ? slugify(fromSlugRaw) : null;
 
@@ -207,22 +446,6 @@ app.get("/api/page/:slug", async (c) => {
     );
   }
 
-  // Special-case the homepage seed so cold installs have somewhere to land.
-  if (slug === "hallucinopedia") {
-    const seed: StoredArticle = {
-      html: HOMEPAGE_ARTICLE,
-      title: "Hallucinopedia",
-      summary:
-        "Hallucinopedia is an encyclopedia of a universe that did not exist before you opened it. Every entry is dreamt on demand and preserved forever.",
-      generatedAt: Date.now(),
-      sourceContext: null,
-    };
-    await c.env.ARTICLES.put(slug, JSON.stringify(seed), {
-      metadata: { title: seed.title, generatedAt: seed.generatedAt },
-    });
-    return streamString(seed.html, true);
-  }
-
   // 2. Bot guard. Crawlers can read what's already in cache (handled above)
   //    but must not be allowed to spawn fresh generations.
   const ua = c.req.header("user-agent");
@@ -230,6 +453,18 @@ app.get("/api/page/:slug", async (c) => {
     return c.json(
       { error: "entry has not yet been written" },
       404,
+      { "x-robots-tag": "noindex" }
+    );
+  }
+
+  // 2b. VPN / datacenter denylist. Almost all spam comes from commercial
+  //     hosting / VPN backbone ASNs. Cache reads above still serve, so
+  //     legitimate users on a VPN can browse — only the LLM-spending path
+  //     is refused.
+  if (isLikelyVpn(c)) {
+    return c.json(
+      { error: "new entries cannot be generated from VPN or datacenter networks" },
+      403,
       { "x-robots-tag": "noindex" }
     );
   }
@@ -353,7 +588,7 @@ app.get("/api/page/:slug", async (c) => {
     headers: {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store",
-      "x-hallucinopedia-cached": "false",
+      "x-halupedia-cached": "false",
     },
   });
 });
@@ -369,7 +604,7 @@ function streamString(text: string, cached: boolean): Response {
     headers: {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "public, max-age=3600",
-      "x-hallucinopedia-cached": cached ? "true" : "false",
+      "x-halupedia-cached": cached ? "true" : "false",
     },
   });
 }
@@ -477,7 +712,7 @@ app.get("/api/random", async (c) => {
     .map((k) => k.name)
     .filter((n) => !n.startsWith("__"));
   if (slugs.length === 0) {
-    return c.json({ slug: "hallucinopedia" });
+    return c.json({ slug: "halupedia" });
   }
   const slug = slugs[Math.floor(Math.random() * slugs.length)];
   return c.json({ slug });
@@ -521,6 +756,13 @@ app.get("/api/moderate", async (c) => {
     return c.json({ error: "sweep failed", detail: String(e?.message ?? e) }, 500);
   }
 });
+
+/* -------------------------------------------------------------------------- */
+/*  Brand-rename redirect: old root slug → new root slug.                      */
+/* -------------------------------------------------------------------------- */
+
+app.get("/halupedia", (c) => c.redirect("/", 301));
+app.get("/hallucinopedia", (c) => c.redirect("/", 301));
 
 /* -------------------------------------------------------------------------- */
 /*  Catch-all: serve SPA assets                                                */

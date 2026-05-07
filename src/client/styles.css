@@ -53,13 +53,12 @@ a:hover {
 
 .site-header {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 0.75rem 0 1.25rem;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0.75rem 0 0;
   border-bottom: 1px solid var(--rule);
   margin-bottom: 2rem;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 0.9rem;
 }
 
 .brand {
@@ -80,11 +79,14 @@ a:hover {
 
 .nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 1.25rem;
   font-family: var(--mono);
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+  padding: 0.55rem 0 0.85rem;
+  border-top: 1px dotted rgba(182, 164, 126, 0.6);
 }
 
 .nav a {
@@ -97,6 +99,14 @@ a:hover {
   color: var(--accent);
   border-bottom-color: var(--accent);
   background: transparent;
+}
+
+.nav-discord {
+  margin-left: auto;
+  color: #5865f2 !important;
+}
+.nav-discord:hover {
+  border-bottom-color: #5865f2 !important;
 }
 
 /* ----------------------- Article ------------------------- */
@@ -232,6 +242,23 @@ a:hover {
 .footer-tagline,
 .footer-donate {
   display: none; /* legacy, kept tagline rules out of the layout */
+}
+.footer-tagline-line {
+  margin: 0 0 0.55rem;
+}
+.footer-discord-line {
+  margin: 0;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+.footer-discord-line a {
+  font-style: italic;
+  border-bottom: 1px dotted rgba(122, 46, 31, 0.5);
 }
 
 /* Brand + donate tagline stacked under the wordmark */

@@ -214,7 +214,7 @@ export function App() {
             GitHub
           </a>
           <a
-            href="https://discord.gg/SrTdXJwTR4"
+            href="https://discord.gg/fKMnyNwtGc"
             target="_blank"
             rel="noopener noreferrer"
             className="nav-discord"

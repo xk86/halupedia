@@ -4,7 +4,7 @@ import { AllEntries } from "./AllEntries";
 
 const RESERVED_ALL_ENTRIES = "all-entries";
 
-type Status = "idle" | "loading" | "streaming" | "done" | "error";
+type Status = "idle" | "loading" | "streaming" | "done" | "error" | "banned";
 
 const DREAMING_MESSAGES = [
   "Consulting seventeen conflicting sources…",
@@ -67,6 +67,11 @@ export function App() {
         const res = await fetch(url, { signal: ctrl.signal });
         if (!res.ok) {
           const j: any = await res.json().catch(() => ({}));
+          if (j?.banned) {
+            if (cancelled) return;
+            setStatus("banned");
+            return;
+          }
           throw new Error(j?.error || `error ${res.status}`);
         }
         const cachedHeader = res.headers.get("x-hallucinopedia-cached");
@@ -247,6 +252,28 @@ export function App() {
             {status === "error" && error && (
               <div className="error">
                 Something broke, which is ironic for a made-up encyclopedia: {error}
+              </div>
+            )}
+            {status === "banned" && (
+              <div className="banned-notice">
+                <h1>Entry redacted</h1>
+                <p>
+                  This article was flagged by moderation and removed from the
+                  register. Hallucinopedia will not regenerate it.
+                </p>
+                <p className="banned-notice-meta">
+                  We keep the encyclopedia maximally absurd but draw the line
+                  at hate speech, slurs, incitement, and keyword-spam. If you
+                  believe this was removed in error, mention it in the{" "}
+                  <a
+                    href="https://discord.gg/fKMnyNwtGc"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Discord
+                  </a>
+                  .
+                </p>
               </div>
             )}
             <article

@@ -214,6 +214,38 @@ a:hover {
   border-radius: 2px;
 }
 
+/* Friendlier panel for moderator-removed entries — distinct from generic
+   transport errors. Styled like a redacted archival notice. */
+.banned-notice {
+  margin: 0 0 2rem;
+  padding: 1.5rem 1.6rem;
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--accent);
+  background: var(--blockquote-bg);
+  color: var(--ink);
+}
+.banned-notice h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 1.7rem;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  border: none;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+.banned-notice p {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.banned-notice p:last-child { margin-bottom: 0; }
+.banned-notice-meta {
+  font-style: italic;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
 /* caret while streaming */
 .streaming .article :last-child::after {
   content: "▍";

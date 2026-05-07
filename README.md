@@ -12,7 +12,7 @@ Cooked on a Cloudflare Worker. Cached forever in KV. Threaded HN-style comments
 under every article, no signup, AI-hallucinated identities. Patrons may
 [buy us tokens](https://buymeacoffee.com/baderbc) so the press can keep
 printing. Editors and conspirators meet in the
-[Discord](https://discord.gg/SrTdXJwTR4).
+[Discord](https://discord.gg/fKMnyNwtGc).
 
 ---
 
@@ -277,4 +277,4 @@ License, or (at your option) any later version.
 
 If the press has improved your day, you may
 [buy us tokens](https://buymeacoffee.com/baderbc) or join the conversation on
-[Discord](https://discord.gg/SrTdXJwTR4).
+[Discord](https://discord.gg/fKMnyNwtGc).

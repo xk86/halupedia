@@ -190,12 +190,23 @@ function parseSort(raw: string | undefined): SortMode {
 /**
  * "Hot score" used for the default Recommended ranking.
  *
- *     hot = score / (age_hours + 2) ^ 1.5
+ *     hot = sqrt(score) / (age_hours + 2) ^ 0.8
  *
- * The +2 hours' grace and 1.5 gravity are HN-ish: a brand-new comment with
- * its 1 self-upvote scores ~0.35 and easily beats older 1-point comments
- * (a 12h-old 1-point comment scores ~0.025). A genuinely strong comment
- * (score 10) sustains the top spot for a day or two before decaying.
+ * sqrt-scaling the score keeps a runaway 40-pt comment from completely
+ * burying solid 5–10-pt comments while still letting it win — the gap
+ * narrows from 40× (linear) to ~6× (sqrt(40) vs sqrt(1)). The softer 0.8
+ * gravity (vs HN's 1.5) suits a small site where vote traffic is sparse:
+ * well-loved comments stay near the top for a couple of days instead of
+ * dropping off in hours. Tiebreak on recency.
+ *
+ * No additive floor: every comment author gets a guaranteed score=1
+ * auto-upvote, and adding `1 +` to that doubled fresh-comment ranking,
+ * which let brand-new 1-pt comments leapfrog 40-pt ones from earlier in
+ * the day. Pure sqrt(score) over softened gravity gives fresh comments
+ * a foothold without overrunning genuinely well-loved ones.
+ *
+ * Why sqrt and not log10: D1's local miniflare doesn't authorize log10;
+ * sqrt and pow are always available, and the ranking shape is similar.
  */
 function rootOrderClause(sort: SortMode): string {
   switch (sort) {
@@ -206,8 +217,8 @@ function rootOrderClause(sort: SortMode): string {
     case "recommended":
     default:
       return (
-        "ORDER BY (CAST(score AS REAL) / " +
-        "pow(((? - created_at) / 3600000.0) + 2.0, 1.5)) DESC, " +
+        "ORDER BY (sqrt(CAST(score AS REAL)) / " +
+        "pow(((? - created_at) / 3600000.0) + 2.0, 0.8)) DESC, " +
         "created_at DESC"
       );
   }
@@ -217,11 +228,15 @@ function compareDTO(sort: SortMode): (a: CommentDTO, b: CommentDTO) => number {
   if (sort === "newest") return (a, b) => b.created_at - a.created_at;
   if (sort === "top")
     return (a, b) => b.score - a.score || b.created_at - a.created_at;
-  // recommended
+  // recommended — must mirror rootOrderClause exactly
   return (a, b) => {
     const now = Date.now();
-    const ha = a.score / Math.pow((now - a.created_at) / 3600000 + 2, 1.5);
-    const hb = b.score / Math.pow((now - b.created_at) / 3600000 + 2, 1.5);
+    const ha =
+      Math.sqrt(a.score) /
+      Math.pow((now - a.created_at) / 3600000 + 2, 0.8);
+    const hb =
+      Math.sqrt(b.score) /
+      Math.pow((now - b.created_at) / 3600000 + 2, 0.8);
     return hb - ha || b.created_at - a.created_at;
   };
 }
@@ -237,14 +252,17 @@ function buildTree(flat: CommentDTO[], sort: SortMode): CommentDTO[] {
       roots.push(c);
     }
   }
-  // Roots arrive in SQL order — preserve it (paginated). Replies sort
-  // recursively by the chosen mode for in-thread display.
+  // The page_roots CTE picks the right roots for this page in the chosen
+  // order, but the outer query has to ORDER BY created_at ASC to satisfy
+  // the recursive descendant join — so by the time `flat` reaches us, root
+  // order is lost. Re-apply the chosen sort here (and recursively to every
+  // descendant subtree).
   const cmp = compareDTO(sort);
-  const sortChildren = (list: CommentDTO[]) => {
+  const sortRecursive = (list: CommentDTO[]) => {
     list.sort(cmp);
-    list.forEach((c) => sortChildren(c.children));
+    list.forEach((c) => sortRecursive(c.children));
   };
-  for (const r of roots) sortChildren(r.children);
+  sortRecursive(roots);
   return roots;
 }
 

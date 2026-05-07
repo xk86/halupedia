@@ -7,9 +7,9 @@ import { createCommentsApp } from "./comments";
 import { rateLimit, clientIp } from "./ratelimit";
 import { loadHints, saveHints } from "./hints";
 import {
+  countRecentBansByIp,
   enqueueArticleForModeration,
   isSlugBanned,
-  moderateArticleNow,
   runSweep,
 } from "./moderation";
 
@@ -23,6 +23,11 @@ export interface Env {
   MAX_ARTICLES_PER_DAY: string;
   GEN_PER_IP_PER_HOUR?: string;
   IDENT_PER_IP_PER_HOUR?: string;
+  // IP-strike block: if an IP gets BAN_STRIKES_THRESHOLD articles banned
+  // within BAN_STRIKES_WINDOW_HOURS hours, it's blocked from generating
+  // until the oldest strike rolls out of the window.
+  BAN_STRIKES_THRESHOLD?: string;
+  BAN_STRIKES_WINDOW_HOURS?: string;
 }
 
 interface StoredArticle {
@@ -247,6 +252,30 @@ app.get("/api/page/:slug", async (c) => {
     );
   }
 
+  // 3b. IP-strike block. If this IP has had too many articles banned
+  //     recently, refuse before any LLM call. This is what stops a botnet
+  //     from grinding tokens forever — after the first few spam slugs get
+  //     auto-moderated, every subsequent submission from that IP is free.
+  const strikeThreshold = parseInt(c.env.BAN_STRIKES_THRESHOLD || "3", 10);
+  const strikeWindowHours = parseInt(
+    c.env.BAN_STRIKES_WINDOW_HOURS || "24",
+    10
+  );
+  const strikeWindowMs = strikeWindowHours * 3600 * 1000;
+  const recentBans = await countRecentBansByIp(c.env.DB, ip, strikeWindowMs);
+  if (recentBans >= strikeThreshold) {
+    return c.json(
+      {
+        error: `too many of your recent submissions were removed by moderation; new entries from this address are paused for ${strikeWindowHours}h`,
+      },
+      429,
+      {
+        "retry-after": String(strikeWindowHours * 3600),
+        "x-robots-tag": "noindex",
+      }
+    );
+  }
+
   // 4. Daily soft cap (per-namespace counter).
   const today = new Date().toISOString().slice(0, 10);
   const counterKey = `__counter:${today}`;
@@ -315,7 +344,7 @@ app.get("/api/page/:slug", async (c) => {
 
   // Collect + persist after stream ends (waitUntil keeps worker alive).
   c.executionCtx.waitUntil(
-    collectAndStore(toStore, slug, genOpts, fromSlug, c.env).catch((e) =>
+    collectAndStore(toStore, slug, genOpts, fromSlug, ip, c.env).catch((e) =>
       console.error("collectAndStore error", e)
     )
   );
@@ -350,6 +379,7 @@ async function collectAndStore(
   slug: string,
   genOpts: GenerateOptions,
   fromSlug: string | null,
+  createdIp: string,
   env: Env
 ): Promise<void> {
   const reader = stream.getReader();
@@ -426,15 +456,14 @@ async function collectAndStore(
     console.error("saveHints failed", e);
   }
 
-  // Background moderation: enqueue and judge this single fresh title now.
-  // We're already inside a waitUntil, so awaiting here is fine — the user's
-  // stream finished long before we get here. moderateArticleNow handles its
-  // own errors and will delete the KV entry + decrement __total if banned.
+  // Enqueue this slug for moderation and stop. The actual LLM judgment is
+  // deferred to the next /api/moderate sweep, which batches 30 titles into
+  // a single LLM call — amortizing the ~990-token system prompt across the
+  // batch instead of paying it once per article.
   try {
-    await enqueueArticleForModeration(env.DB, slug);
-    await moderateArticleNow(slug, article.title, env);
+    await enqueueArticleForModeration(env.DB, slug, createdIp);
   } catch (e) {
-    console.error("article moderation failed", e);
+    console.error("enqueue moderation failed", e);
   }
 }
 

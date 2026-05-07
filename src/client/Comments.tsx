@@ -104,8 +104,13 @@ function sortChildren(list: Comment[], sort: SortMode): Comment[] {
     if (sort === "newest") return b.created_at - a.created_at;
     if (sort === "top")
       return b.score - a.score || b.created_at - a.created_at;
-    const ha = a.score / Math.pow((now - a.created_at) / 3600000 + 2, 1.5);
-    const hb = b.score / Math.pow((now - b.created_at) / 3600000 + 2, 1.5);
+    // recommended — must match src/worker/comments.ts compareDTO
+    const ha =
+      Math.sqrt(a.score) /
+      Math.pow((now - a.created_at) / 3600000 + 2, 0.8);
+    const hb =
+      Math.sqrt(b.score) /
+      Math.pow((now - b.created_at) / 3600000 + 2, 0.8);
     return hb - ha || b.created_at - a.created_at;
   };
   return [...list]

@@ -212,22 +212,53 @@ async function judgeBatch(
 /*  Per-write enqueue helpers                                                  */
 /* -------------------------------------------------------------------------- */
 
-/** Insert (or upsert to pending) a moderation row for a freshly-stored slug. */
+/** Insert (or upsert to pending) a moderation row for a freshly-stored slug.
+ *
+ *  The originating IP is stored so a later sweep ban contributes a "strike"
+ *  attributable to that IP — see {@link countRecentBansByIp}. On conflict we
+ *  only refresh status/timestamps; the original `created_ip` is preserved so
+ *  re-generations don't reset attribution. */
 export async function enqueueArticleForModeration(
   db: D1Database,
-  slug: string
+  slug: string,
+  ip: string | null
 ): Promise<void> {
   try {
     await db
       .prepare(
-        `INSERT INTO article_moderation (slug, status, enqueued_at)
-         VALUES (?, 'pending', ?)
+        `INSERT INTO article_moderation (slug, status, enqueued_at, created_ip)
+         VALUES (?, 'pending', ?, ?)
          ON CONFLICT(slug) DO UPDATE SET status='pending', enqueued_at=excluded.enqueued_at, checked_at=NULL, reason=NULL`
       )
-      .bind(slug, Date.now())
+      .bind(slug, Date.now(), ip && ip !== "unknown" ? ip : null)
       .run();
   } catch (e) {
     console.error("enqueueArticleForModeration failed", e);
+  }
+}
+
+/** Count how many articles created by this IP have been banned within the
+ *  last `windowMs` milliseconds. Used to short-circuit generation for IPs
+ *  that have already shown a pattern. */
+export async function countRecentBansByIp(
+  db: D1Database,
+  ip: string,
+  windowMs: number
+): Promise<number> {
+  if (!ip || ip === "unknown") return 0;
+  try {
+    const since = Date.now() - windowMs;
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM article_moderation
+          WHERE created_ip = ? AND status = 'banned' AND checked_at > ?`
+      )
+      .bind(ip, since)
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  } catch (e) {
+    console.error("countRecentBansByIp failed", e);
+    return 0;
   }
 }
 
@@ -256,47 +287,21 @@ export async function isSlugBanned(
 /*  Single-item background check (waitUntil after a write)                     */
 /* -------------------------------------------------------------------------- */
 
-/** Judge a single freshly-written article title. If banned, delete from KV
- *  and mark banned. Otherwise mark ok. */
-export async function moderateArticleNow(
-  slug: string,
-  title: string,
-  env: ModerationEnv
-): Promise<void> {
-  const banned = await judgeBatch(
-    [{ index: 1, text: title }],
-    "article title",
-    env
-  );
-  if (banned.has(1)) {
-    await banArticle(slug, "auto-flagged on creation", env);
-  } else {
-    await markArticleOk(slug, env.DB);
-  }
-}
-
-/** Judge a single freshly-posted comment. If banned, delete it. */
+/** Cheap synchronous spam-fingerprint check on a freshly-posted comment.
+ *  Deletes the comment outright if it matches the engagement-bait botnet
+ *  pattern. Anything that passes this check stays 'pending' (column default)
+ *  for the next sweep to judge in a 30-item batch — that amortizes the
+ *  ~990-token moderation system prompt across the whole batch instead of
+ *  paying it once per comment. */
 export async function moderateCommentNow(
   commentId: string,
   body: string,
   env: ModerationEnv
 ): Promise<void> {
-  // Cheap deterministic check first. Skips the LLM entirely for the
-  // engagement-bait botnet that dominates the comment spam.
   if (isObviousCommentSpam(body)) {
     await deleteComment(commentId, env.DB, "spam-fingerprint on creation");
-    return;
   }
-  const banned = await judgeBatch(
-    [{ index: 1, text: body }],
-    "comment",
-    env
-  );
-  if (banned.has(1)) {
-    await deleteComment(commentId, env.DB, "auto-flagged on creation");
-  } else {
-    await markCommentOk(commentId, env.DB);
-  }
+  // Otherwise: nothing. The row is already 'pending'; the sweep handles it.
 }
 
 /* -------------------------------------------------------------------------- */

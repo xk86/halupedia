@@ -11,6 +11,7 @@ import { HOMEPAGE_ARTICLE } from "./seed";
 import { createCommentsApp } from "./comments";
 import { rateLimit, clientIp } from "./ratelimit";
 import { isLikelyVpn } from "./vpn";
+import { isPermanentlyBlockedSlug } from "./blocklist";
 import { loadHints, saveHints } from "./hints";
 import {
   countRecentBansByIp,
@@ -347,6 +348,7 @@ app.get("/api/search", async (c) => {
         const slug = slugify(t);
         if (!slug) continue;
         if (RESERVED_SLUGS.has(slug)) continue;
+        if (isPermanentlyBlockedSlug(slug)) continue;
         // Cache the slug regardless of whether it currently exists or is
         // banned — the per-read re-evaluation handles those branches. But
         // skip duplicates within the LLM's own response.
@@ -408,6 +410,17 @@ app.get("/api/page/:slug", async (c) => {
   if (RESERVED_SLUGS.has(slug)) {
     return c.json(
       { error: "reserved path", reserved: true },
+      404,
+      { "x-robots-tag": "noindex" }
+    );
+  }
+
+  // Permanent pattern block. Skips cache, never enqueues moderation, just
+  // returns the same shape as a moderation-banned slug so the SPA renders
+  // the redacted-entry notice.
+  if (isPermanentlyBlockedSlug(slug)) {
+    return c.json(
+      { error: "this entry has been removed by moderation", banned: true },
       404,
       { "x-robots-tag": "noindex" }
     );

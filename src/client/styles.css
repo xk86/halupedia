@@ -341,8 +341,39 @@ a:hover {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
   margin-bottom: 1rem;
+}
+.comments-sort {
+  display: inline-flex;
+  gap: 0.25rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+.comments-sort-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 0.15rem 0.55rem;
+  color: var(--ink-fade);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.comments-sort-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--rule);
+}
+.comments-sort-btn.active {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+  background: var(--paper-soft, transparent);
+  cursor: default;
 }
 .comments-header h2 {
   font-family: var(--serif);
@@ -410,6 +441,18 @@ a:hover {
   font-size: 0.85rem;
   color: var(--ink-fade);
   margin: 1rem 0;
+}
+
+.comments-loadmore {
+  display: flex;
+  justify-content: center;
+  margin: 1.25rem 0 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px dotted var(--rule);
+}
+.comments-loadmore button {
+  font-family: var(--mono);
+  font-size: 0.85rem;
 }
 
 /* ----- Composer ----- */

@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /* -------------------------------------------------------------------------- */
 /*  Types — kept in sync with src/worker/comments.ts                           */
@@ -30,9 +24,15 @@ export interface Comment {
 interface ThreadResponse {
   slug: string;
   total: number;
+  roots_total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
   comments: Comment[];
   user: CommentUser | null;
 }
+
+const PAGE_SIZE = 50;
 
 /* -------------------------------------------------------------------------- */
 /*  Time formatting (HN-ish)                                                   */
@@ -71,24 +71,46 @@ function mapTree(
   return out;
 }
 
-function insertChild(
-  list: Comment[],
+/** Recursively walk a tree, insert `child` under `parentId` if found, and
+ *  re-sort the children of that parent according to the active sort mode. */
+function insertAndSort(
+  node: Comment,
   parentId: string,
-  child: Comment
-): Comment[] {
-  return list.map((c) => {
-    if (c.id === parentId) {
-      return { ...c, children: [child, ...c.children] };
-    }
-    return { ...c, children: insertChild(c.children, parentId, child) };
-  });
+  child: Comment,
+  sort: SortMode
+): Comment {
+  if (node.id === parentId) {
+    return { ...node, children: sortChildren([child, ...node.children], sort) };
+  }
+  return {
+    ...node,
+    children: node.children.map((c) => insertAndSort(c, parentId, child, sort)),
+  };
 }
 
-function sortTree(list: Comment[]): Comment[] {
-  const sorted = [...list].sort(
-    (a, b) => b.score - a.score || a.created_at - b.created_at
-  );
-  return sorted.map((c) => ({ ...c, children: sortTree(c.children) }));
+type SortMode = "recommended" | "top" | "newest";
+
+const SORT_LABELS: Record<SortMode, string> = {
+  recommended: "Recommended",
+  top: "Top",
+  newest: "Newest",
+};
+
+/** Local re-sort for replies (children) — must match the server's logic in
+ *  src/worker/comments.ts so a freshly-posted reply slots in correctly. */
+function sortChildren(list: Comment[], sort: SortMode): Comment[] {
+  const now = Date.now();
+  const cmp = (a: Comment, b: Comment) => {
+    if (sort === "newest") return b.created_at - a.created_at;
+    if (sort === "top")
+      return b.score - a.score || b.created_at - a.created_at;
+    const ha = a.score / Math.pow((now - a.created_at) / 3600000 + 2, 1.5);
+    const hb = b.score / Math.pow((now - b.created_at) / 3600000 + 2, 1.5);
+    return hb - ha || b.created_at - a.created_at;
+  };
+  return [...list]
+    .sort(cmp)
+    .map((c) => ({ ...c, children: sortChildren(c.children, sort) }));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -103,15 +125,20 @@ export function Comments({ slug }: Props) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [user, setUser] = useState<CommentUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [serverTotal, setServerTotal] = useState(0);
+  const [rootsTotal, setRootsTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [sort, setSort] = useState<SortMode>("recommended");
   const abortRef = useRef<AbortController | null>(null);
 
-  /* ----- Fetch on slug change ----- */
+  /* ----- Fetch on slug or sort change ----- */
   useEffect(() => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -122,11 +149,14 @@ export function Comments({ slug }: Props) {
     setReplyTo(null);
     setReplyDraft("");
     setCollapsed(new Set());
+    setServerTotal(0);
+    setRootsTotal(0);
+    setHasMore(false);
 
     (async () => {
       try {
         const res = await fetch(
-          `/api/comments/${encodeURIComponent(slug)}`,
+          `/api/comments/${encodeURIComponent(slug)}?offset=0&limit=${PAGE_SIZE}&sort=${sort}`,
           { signal: ctrl.signal, credentials: "same-origin" }
         );
         if (!res.ok) {
@@ -137,6 +167,9 @@ export function Comments({ slug }: Props) {
         if (ctrl.signal.aborted) return;
         setComments(data.comments);
         setUser(data.user);
+        setServerTotal(data.total);
+        setRootsTotal(data.roots_total);
+        setHasMore(data.has_more);
         setLoading(false);
       } catch (e: any) {
         if (ctrl.signal.aborted || e?.name === "AbortError") return;
@@ -146,9 +179,32 @@ export function Comments({ slug }: Props) {
     })();
 
     return () => ctrl.abort();
-  }, [slug]);
+  }, [slug, sort]);
 
-  const total = useMemo(() => countTotal(comments), [comments]);
+  /* ----- Load next page of root comments ----- */
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/comments/${encodeURIComponent(slug)}?offset=${comments.length}&limit=${PAGE_SIZE}&sort=${sort}`,
+        { credentials: "same-origin" }
+      );
+      if (!res.ok) {
+        const j: any = await res.json().catch(() => ({}));
+        throw new Error(j?.error || `error ${res.status}`);
+      }
+      const data: ThreadResponse = await res.json();
+      setComments((cur) => [...cur, ...data.comments]);
+      setServerTotal(data.total);
+      setRootsTotal(data.roots_total);
+      setHasMore(data.has_more);
+    } catch (e: any) {
+      setError(e?.message || "failed to load more");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [comments.length, hasMore, loadingMore, slug, sort]);
 
   /* ----- Submit a new top-level comment ----- */
   const submitTopLevel = useCallback(async () => {
@@ -168,7 +224,11 @@ export function Comments({ slug }: Props) {
       }
       const j: { comment: Comment; user: CommentUser } = await res.json();
       setUser(j.user);
-      setComments((cur) => sortTree([j.comment, ...cur]));
+      // Always prepend so the user sees their fresh post regardless of sort
+      // mode. The server’s ranking will catch up on the next refresh.
+      setComments((cur) => [j.comment, ...cur]);
+      setServerTotal((n) => n + 1);
+      setRootsTotal((n) => n + 1);
       setDraft("");
     } catch (e: any) {
       setError(e?.message || "failed to post");
@@ -196,7 +256,11 @@ export function Comments({ slug }: Props) {
         }
         const j: { comment: Comment; user: CommentUser } = await res.json();
         setUser(j.user);
-        setComments((cur) => sortTree(insertChild(cur, parentId, j.comment)));
+        // Insert the reply in-place; re-sort only the affected subtree.
+        setComments((cur) =>
+          cur.map((root) => insertAndSort(root, parentId, j.comment, sort))
+        );
+        setServerTotal((n) => n + 1);
         setReplyTo(null);
         setReplyDraft("");
       } catch (e: any) {
@@ -205,7 +269,7 @@ export function Comments({ slug }: Props) {
         setSubmitting(false);
       }
     },
-    [replyDraft, slug, submitting]
+    [replyDraft, slug, sort, submitting]
   );
 
   /* ----- Toggle vote ----- */
@@ -261,8 +325,24 @@ export function Comments({ slug }: Props) {
       <header className="comments-header">
         <h2>Reader speculations</h2>
         <span className="comments-count">
-          {loading ? "—" : `${total} entr${total === 1 ? "y" : "ies"}`}
+          {loading
+            ? "—"
+            : `${serverTotal} entr${serverTotal === 1 ? "y" : "ies"}`}
         </span>
+        <div className="comments-sort" role="tablist" aria-label="Sort comments">
+          {(Object.keys(SORT_LABELS) as SortMode[]).map((mode) => (
+            <button
+              key={mode}
+              role="tab"
+              aria-selected={sort === mode}
+              className={`comments-sort-btn ${sort === mode ? "active" : ""}`}
+              onClick={() => setSort(mode)}
+              disabled={loading || sort === mode}
+            >
+              {SORT_LABELS[mode]}
+            </button>
+          ))}
+        </div>
       </header>
 
       {/* Identity strip — only shown after a user has been minted. */}
@@ -299,24 +379,39 @@ export function Comments({ slug }: Props) {
           No reader has yet commented on this entry.
         </p>
       ) : (
-        <ol className="comments-list">
-          {comments.map((c) => (
-            <CommentNode
-              key={c.id}
-              comment={c}
-              depth={0}
-              replyTo={replyTo}
-              setReplyTo={setReplyTo}
-              replyDraft={replyDraft}
-              setReplyDraft={setReplyDraft}
-              submitReply={submitReply}
-              submitting={submitting}
-              toggleVote={toggleVote}
-              collapsed={collapsed}
-              toggleCollapse={toggleCollapse}
-            />
-          ))}
-        </ol>
+        <>
+          <ol className="comments-list">
+            {comments.map((c) => (
+              <CommentNode
+                key={c.id}
+                comment={c}
+                depth={0}
+                replyTo={replyTo}
+                setReplyTo={setReplyTo}
+                replyDraft={replyDraft}
+                setReplyDraft={setReplyDraft}
+                submitReply={submitReply}
+                submitting={submitting}
+                toggleVote={toggleVote}
+                collapsed={collapsed}
+                toggleCollapse={toggleCollapse}
+              />
+            ))}
+          </ol>
+          {hasMore && (
+            <div className="comments-loadmore">
+              <button
+                className="comment-link"
+                onClick={loadMore}
+                disabled={loadingMore}
+              >
+                {loadingMore
+                  ? "Fetching more marginalia…"
+                  : `Load more (${rootsTotal - comments.length} remaining)`}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </section>
   );

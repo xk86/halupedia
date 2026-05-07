@@ -24,7 +24,6 @@ const COOKIE_NAME = "hu_uid";
 // actually expire.
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 400;
 const MAX_BODY_LEN = 2000;
-const MAX_COMMENTS_PER_SLUG = 500;
 
 export interface UserRow {
   id: string;
@@ -181,7 +180,53 @@ function rowToDTO(
   };
 }
 
-function buildTree(flat: CommentDTO[]): CommentDTO[] {
+type SortMode = "recommended" | "top" | "newest";
+
+function parseSort(raw: string | undefined): SortMode {
+  if (raw === "top" || raw === "newest" || raw === "recommended") return raw;
+  return "recommended";
+}
+
+/**
+ * "Hot score" used for the default Recommended ranking.
+ *
+ *     hot = score / (age_hours + 2) ^ 1.5
+ *
+ * The +2 hours' grace and 1.5 gravity are HN-ish: a brand-new comment with
+ * its 1 self-upvote scores ~0.35 and easily beats older 1-point comments
+ * (a 12h-old 1-point comment scores ~0.025). A genuinely strong comment
+ * (score 10) sustains the top spot for a day or two before decaying.
+ */
+function rootOrderClause(sort: SortMode): string {
+  switch (sort) {
+    case "newest":
+      return "ORDER BY created_at DESC";
+    case "top":
+      return "ORDER BY score DESC, created_at DESC";
+    case "recommended":
+    default:
+      return (
+        "ORDER BY (CAST(score AS REAL) / " +
+        "pow(((? - created_at) / 3600000.0) + 2.0, 1.5)) DESC, " +
+        "created_at DESC"
+      );
+  }
+}
+
+function compareDTO(sort: SortMode): (a: CommentDTO, b: CommentDTO) => number {
+  if (sort === "newest") return (a, b) => b.created_at - a.created_at;
+  if (sort === "top")
+    return (a, b) => b.score - a.score || b.created_at - a.created_at;
+  // recommended
+  return (a, b) => {
+    const now = Date.now();
+    const ha = a.score / Math.pow((now - a.created_at) / 3600000 + 2, 1.5);
+    const hb = b.score / Math.pow((now - b.created_at) / 3600000 + 2, 1.5);
+    return hb - ha || b.created_at - a.created_at;
+  };
+}
+
+function buildTree(flat: CommentDTO[], sort: SortMode): CommentDTO[] {
   const byId = new Map<string, CommentDTO>();
   for (const c of flat) byId.set(c.id, c);
   const roots: CommentDTO[] = [];
@@ -192,12 +237,14 @@ function buildTree(flat: CommentDTO[]): CommentDTO[] {
       roots.push(c);
     }
   }
-  // HN-style: sort by score desc, then created_at asc.
-  const sortRec = (list: CommentDTO[]) => {
-    list.sort((a, b) => b.score - a.score || a.created_at - b.created_at);
-    list.forEach((c) => sortRec(c.children));
+  // Roots arrive in SQL order — preserve it (paginated). Replies sort
+  // recursively by the chosen mode for in-thread display.
+  const cmp = compareDTO(sort);
+  const sortChildren = (list: CommentDTO[]) => {
+    list.sort(cmp);
+    list.forEach((c) => sortChildren(c.children));
   };
-  sortRec(roots);
+  for (const r of roots) sortChildren(r.children);
   return roots;
 }
 
@@ -218,41 +265,95 @@ export function createCommentsApp() {
     });
   });
 
-  /** Threaded comments for an article slug. */
+  /** Threaded comments for an article slug, paginated by ROOT comment.
+   *
+   *   ?offset=0&limit=50&sort=recommended|top|newest
+   *
+   * Each page returns up to `limit` top-level comments plus their full
+   * descendant subtrees. Default sort is "recommended" (HN-style hot score
+   * — score / (age_hours+2)^1.5), so brand-new comments surface immediately
+   * before sliding down as they age. */
   app.get("/api/comments/:slug", async (c) => {
     const slug = slugify(c.req.param("slug"));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
 
+    const limit = Math.min(
+      Math.max(parseInt(c.req.query("limit") || "50", 10) || 50, 1),
+      200
+    );
+    const offset = Math.max(parseInt(c.req.query("offset") || "0", 10) || 0, 0);
+    const sort = parseSort(c.req.query("sort"));
+
     const viewerId = getCookie(c, COOKIE_NAME);
     const viewer = await lookupUser(c.env.DB, viewerId);
 
-    // Pull comments + author info in a single join.
+    // Counts come from SQL — the previous client-side counter blew up with
+    // O(n) work in JS for slugs with thousands of comments.
+    const [totalRow, rootsRow] = await Promise.all([
+      c.env.DB
+        .prepare("SELECT COUNT(*) AS n FROM comments WHERE slug = ?")
+        .bind(slug)
+        .first<{ n: number }>(),
+      c.env.DB
+        .prepare(
+          "SELECT COUNT(*) AS n FROM comments WHERE slug = ? AND parent_id IS NULL"
+        )
+        .bind(slug)
+        .first<{ n: number }>(),
+    ]);
+    const total = totalRow?.n ?? 0;
+    const rootsTotal = rootsRow?.n ?? 0;
+
+    // Pull a page of top-level comments + every descendant in their threads
+    // via a recursive CTE. One round trip, regardless of thread depth.
+    const orderClause = rootOrderClause(sort);
+    const now = Date.now();
+    // Recommended sort needs an extra ?-bind for the current timestamp; the
+    // others don't. Build the bind list accordingly.
+    const rootBinds: any[] =
+      sort === "recommended" ? [slug, now, limit, offset] : [slug, limit, offset];
+
     const { results } = await c.env.DB
       .prepare(
-        `SELECT c.id, c.slug, c.parent_id, c.user_id, c.body, c.created_at, c.score,
+        `WITH RECURSIVE
+           page_roots AS (
+             SELECT id FROM comments
+              WHERE slug = ? AND parent_id IS NULL
+              ${orderClause}
+              LIMIT ? OFFSET ?
+           ),
+           thread(id) AS (
+             SELECT id FROM page_roots
+             UNION ALL
+             SELECT c.id FROM comments c JOIN thread t ON c.parent_id = t.id
+           )
+         SELECT c.id, c.slug, c.parent_id, c.user_id, c.body, c.created_at, c.score,
                 u.name AS u_name, u.username AS u_username
            FROM comments c
            JOIN users u ON u.id = c.user_id
-          WHERE c.slug = ?
-          ORDER BY c.created_at ASC
-          LIMIT ?`
+          WHERE c.id IN (SELECT id FROM thread)
+          ORDER BY c.created_at ASC`
       )
-      .bind(slug, MAX_COMMENTS_PER_SLUG)
-      .all<
-        CommentRow & { u_name: string; u_username: string }
-      >();
+      .bind(...rootBinds)
+      .all<CommentRow & { u_name: string; u_username: string }>();
 
     let votedSet = new Set<string>();
     if (viewer && results.length > 0) {
       const ids = results.map((r) => r.id);
-      const placeholders = ids.map(() => "?").join(",");
-      const v = await c.env.DB
-        .prepare(
-          `SELECT comment_id FROM votes WHERE user_id = ? AND comment_id IN (${placeholders})`
-        )
-        .bind(viewer.id, ...ids)
-        .all<{ comment_id: string }>();
-      votedSet = new Set(v.results.map((r) => r.comment_id));
+      // SQLite default param limit is 999. Page sizes are bounded so this
+      // is rarely an issue, but huge subtrees + 200 roots could approach it.
+      const CHUNK = 800;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const slice = ids.slice(i, i + CHUNK);
+        const placeholders = slice.map(() => "?").join(",");
+        const v = await c.env.DB
+          .prepare(
+            `SELECT comment_id FROM votes WHERE user_id = ? AND comment_id IN (${placeholders})`
+          )
+          .bind(viewer.id, ...slice)
+          .all<{ comment_id: string }>();
+        for (const r of v.results) votedSet.add(r.comment_id);
+      }
     }
 
     const flat = results.map((r) =>
@@ -262,11 +363,16 @@ export function createCommentsApp() {
         votedSet.has(r.id)
       )
     );
-    const tree = buildTree(flat);
+    const tree = buildTree(flat, sort);
 
     return c.json({
       slug,
-      total: flat.length,
+      sort,
+      total,
+      roots_total: rootsTotal,
+      offset,
+      limit,
+      has_more: offset + tree.length < rootsTotal,
       comments: tree,
       user: viewer
         ? { id: viewer.id, name: viewer.name, username: viewer.username }

@@ -483,8 +483,9 @@ app.get("/api/moderate", async (c) => {
   if (!c.env.OPENROUTER_API_KEY) {
     return c.json({ error: "OPENROUTER_API_KEY is not configured" }, 500);
   }
+  const parallel = parseInt(c.req.query("parallel") || "1", 10) || 1;
   try {
-    const result = await runSweep(c.env);
+    const result = await runSweep(c.env, parallel);
     return c.json(result);
   } catch (e: any) {
     console.error("moderation sweep failed", e);

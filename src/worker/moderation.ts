@@ -28,33 +28,109 @@ const BATCH_SIZE = 30;
 // and a single hammer-the-API endpoint shouldn't stall forever. Re-hits drain
 // the rest, so this is just a per-call cap.
 const MAX_BATCHES_PER_SWEEP = 10;
-// How many KV keys to scan per sweep when backfilling moderation rows for
-// articles created before this system existed (or via direct KV writes).
-const KV_BACKFILL_LIMIT = 500;
+// Hard ceiling on the ?parallel= query param. OpenRouter will rate-limit if
+// we go too wide; 100 fan-out × 30 items = 3,000 in flight is the practical cap.
+const MAX_PARALLEL = 100;
+const MODERATION_SYSTEM_PROMPT = `You are a content moderator for Hallucinopedia, a satirical AI-generated encyclopedia of fictional, absurd entries with a public comments section. Your job is to remove griefing, hate, and spam — NOT to police taste.
 
-const MODERATION_SYSTEM_PROMPT = `You are a content moderator for Hallucinopedia, a satirical AI-generated encyclopedia of fictional, absurd entries with a public comments section.
+ALLOW (these are the *point* of the site, do not remove):
+- Absurd, silly, fictional, surreal subjects (the whole encyclopedia is fake)
+- Vulgarity, profanity, dark humor, mockery of fictional characters / institutions
+- Criticism of governments, religions, ideologies, corporations, public figures
+- Edgy, offensive, in-poor-taste jokes that target ideas, not people
+- Real-sounding nonsense like "1816 Chicken President Debacle", "1754 French Moon Landings", "17th of Floridor", "Decree of Bedding the Neighbour's Wife"
 
-Be MAXIMALLY LIBERAL. The site is intentionally weird, silly, vulgar, and irreverent. ALLOW:
-- Absurd, silly, fictional subjects (the entire encyclopedia is fake)
-- Vulgarity, profanity, dark humor, mockery, sarcasm
-- Criticism of governments, religions, ideologies, public figures
-- Edgy or offensive jokes that punch in any direction
-- Anything weird, surreal, or in poor taste
+REMOVE if ANY of the following clearly applies:
 
-ONLY flag items that clearly fall into these narrow categories:
-1. Promotion or glorification of Nazism, fascism, or genocide
-2. Slurs or dehumanizing attacks targeting a protected group (race, religion, ethnicity, sexuality, gender identity, disability) — note: mocking an ideology or institution is NOT a slur against its adherents
-3. Direct incitement of real-world violence against identifiable people
-4. Sexual content involving minors
-5. Obvious keyword-mashing spam (long repetitive concatenations of the same word/phrase, gibberish strings of digits, copy-paste flooding)
+(A) HATE / DEHUMANIZATION targeting a protected group — race, ethnicity, religion, nationality (incl. Jews, Muslims, Christians, etc.), sexuality, gender identity, disability. The TARGET matters: mocking "Islam" or "the Catholic Church" as institutions is fine; "Fuck Jews", "Islamists rape children", "Niggers", "Faggots", any title that asserts a slur or sexual/violent claim *about a group of people* is NOT fine. Err toward removing when the title names a protected group + a slur, sexual act, or crime.
 
-When in doubt, ALLOW. False positives ruin the site. A weird fictional title is not spam.
+(B) NAZI / FASCIST / GENOCIDAL promotion (not mockery — actual glorification, calls for ethnic cleansing, holocaust denial as endorsement).
 
-You will be given a numbered list of items. Respond with ONLY a JSON array of the 1-based indices to remove, like [1,4,7] or [] if nothing should be removed. No prose, no explanation, no code fences. Just the JSON array.`;
+(C) INCITEMENT to real-world violence against identifiable real people.
+
+(D) SEXUAL CONTENT INVOLVING MINORS — any. Zero tolerance.
+
+(E) SPAM / GRIEFING. Be strict here. The site is being attacked by trolls submitting numeric-prefix copypasta. Remove:
+   - Pure digit strings or near-pure digit strings: "00000000000000000", "1238283882123", "1111111 Pornhub Dot Com", "0000067 Fuck This Ai Slop"
+   - Titles that look like a botnet enumerating: "0 Fuck This Ai Slop", "00 Fuck This Ai Slop", "000 Fuck This Ai Slop", "0000 Fuck This Ai Slop" — the leading-digit + same-phrase pattern is a giveaway
+   - Repetitive concatenation: "islamistsrapechildrenislamistsrapechildrenislamistsrapechildren..."
+   - "Strama to Cwel" / "Strama jest Cwel" or any phrase clearly used as a personal-target slur or grief copypasta — these target a real person ("Strama") and are not fictional
+   - Single-word vulgarities prefixed with digits: "0 Cum Penis", "01 Hentai Gooners"
+   - Direct anti-AI griefing: "Fuck This Ai Slop", "Fuck Ai" (these are not encyclopedia entries, they're protest spam)
+
+POSITIVE EXAMPLES — these are fine, do NOT remove:
+- "1480s", "1816 Chicken President Debacle", "17th Century Scholasticism", "1754 Lunar Landings", "1932 London Megaflan Incident", "Marquis De Chinchilla", "Pellbrick", "Vellum School of Footnote Drift"
+
+NEGATIVE EXAMPLES — definitely remove:
+- "Fuck Niggers", "0 Islamists Suck Big Black Cocks", "014 Fuck Jews and Islamists Scale", "1111111 Pornhub Dot Com", "00000000000000000", "0 Fuck This Ai Slop", "Strama to Cwel 672253", "0 Cum Penis"
+
+When the title is a plausible-sounding fake-history entry, ALLOW. When the title is a slur-against-a-group, a personal attack, a numeric-prefix copypasta, or pure digit gibberish, REMOVE.
+
+Respond with ONLY a JSON array of the 1-based indices to remove, like [1,4,7] or [] if nothing should be removed. No prose, no explanation, no code fences. Just the JSON array.`;
 
 interface JudgeItem {
   index: number; // 1-based
   text: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Deterministic comment-spam detector                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Returns true if a comment body is obvious link-farm / engagement-bait spam.
+ *
+ * Bots are posting templated "nice article 🙂" comments with a trailing
+ * `[<10-hex>-<digits>]` tracking fingerprint, which is the operator's beacon
+ * to confirm placement and attribute campaigns. Format examples observed in
+ * the wild:
+ *     "this helped me understand it better 👌 [f292d40e12-4]"
+ *     "solid post 🚀 [47b99754ba-4]"
+ *     "well written article 🙂 [2d07833ce1-6]"
+ *
+ * Strategy:
+ *   1. Trailing `[hex-digit]` fingerprint  -> instant ban (exclusively a bot
+ *      signature; no real user types this).
+ *   2. Empty/short body that's just a templated engagement-bait phrase ->
+ *      ban (covers the same operator running silent variants without the
+ *      fingerprint).
+ *
+ * Cheaper, faster, and more reliable than asking the LLM. Also saves tokens.
+ */
+const SPAM_FINGERPRINT = /\[[0-9a-f]{6,16}-\d{1,4}\]\s*$/i;
+const ENGAGEMENT_BAIT_PHRASES = [
+  "nice article",
+  "solid post",
+  "great explanation",
+  "well written article",
+  "thanks for writing this",
+  "this helped me understand",
+  "interesting point of view",
+  "i enjoyed reading this",
+  "very useful",
+  "helpful post",
+  "good read",
+  "informative article",
+];
+export function isObviousCommentSpam(body: string): boolean {
+  const trimmed = body.trim();
+  if (SPAM_FINGERPRINT.test(trimmed)) return true;
+  // Strip emojis/punctuation and check if what remains is ONLY a bait phrase.
+  const stripped = trimmed
+    .toLowerCase()
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Only flag if the whole comment is short AND consists of one bait phrase.
+  // Real users may casually say "nice article" inside a longer comment.
+  if (stripped.length > 0 && stripped.length <= 60) {
+    for (const phrase of ENGAGEMENT_BAIT_PHRASES) {
+      if (stripped === phrase || stripped.startsWith(phrase + " ")) return true;
+      if (stripped.endsWith(" " + phrase)) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -205,6 +281,12 @@ export async function moderateCommentNow(
   body: string,
   env: ModerationEnv
 ): Promise<void> {
+  // Cheap deterministic check first. Skips the LLM entirely for the
+  // engagement-bait botnet that dominates the comment spam.
+  if (isObviousCommentSpam(body)) {
+    await deleteComment(commentId, env.DB, "spam-fingerprint on creation");
+    return;
+  }
   const banned = await judgeBatch(
     [{ index: 1, text: body }],
     "comment",
@@ -225,35 +307,78 @@ interface SweepResult {
   articles: { checked: number; banned: number; remaining: number };
   comments: { checked: number; banned: number; remaining: number };
   backfilled: number;
+  parallel: number;
+  rounds: number;
 }
 
-export async function runSweep(env: ModerationEnv): Promise<SweepResult> {
+export async function runSweep(
+  env: ModerationEnv,
+  parallel: number = 1
+): Promise<SweepResult> {
+  const fanout = Math.max(1, Math.min(MAX_PARALLEL, Math.floor(parallel) || 1));
+
   const backfilled = await backfillArticleModerationRows(env);
 
-  // Drain articles and comments in interleaved batches so neither starves.
+  // Recovery: any rows stuck in 'checking' from a crashed previous sweep
+  // (worker timeout, exception, etc.) older than 5 minutes get reset to
+  // 'pending' so they're picked up again. Fresh claims (this sweep) are safe
+  // because we run synchronously and can't be older than 'now'.
+  const staleCutoff = Date.now() - 5 * 60 * 1000;
+  try {
+    await env.DB.batch([
+      env.DB
+        .prepare(
+          `UPDATE article_moderation SET status='pending'
+            WHERE status='checking' AND (checked_at IS NULL OR checked_at < ?)`
+        )
+        .bind(staleCutoff),
+      env.DB
+        .prepare(
+          `UPDATE comments SET moderation_status='pending'
+            WHERE moderation_status='checking'
+              AND created_at < ?`
+        )
+        .bind(staleCutoff),
+    ]);
+  } catch (e) {
+    console.error("stale recovery failed", e);
+  }
+
+  // Each round fires `fanout` article batches + `fanout` comment batches
+  // concurrently. Items are atomically claimed (status='checking') before
+  // dispatch so parallel batches don't fight over the same rows.
   let articlesChecked = 0;
   let articlesBanned = 0;
   let commentsChecked = 0;
   let commentsBanned = 0;
+  let rounds = 0;
 
   for (let i = 0; i < MAX_BATCHES_PER_SWEEP; i++) {
-    const did = await Promise.all([
-      sweepOneArticleBatch(env),
-      sweepOneCommentBatch(env),
-    ]);
-    const [a, cm] = did;
-    articlesChecked += a.checked;
-    articlesBanned += a.banned;
-    commentsChecked += cm.checked;
-    commentsBanned += cm.banned;
-    if (a.checked === 0 && cm.checked === 0) break;
+    rounds++;
+    const tasks: Promise<BatchOutcome>[] = [];
+    for (let p = 0; p < fanout; p++) tasks.push(sweepOneArticleBatch(env));
+    for (let p = 0; p < fanout; p++) tasks.push(sweepOneCommentBatch(env));
+    const results = await Promise.all(tasks);
+    let roundChecked = 0;
+    for (let k = 0; k < results.length; k++) {
+      const r = results[k];
+      if (k < fanout) {
+        articlesChecked += r.checked;
+        articlesBanned += r.banned;
+      } else {
+        commentsChecked += r.checked;
+        commentsBanned += r.banned;
+      }
+      roundChecked += r.checked;
+    }
+    if (roundChecked === 0) break;
   }
 
   const aRem = await env.DB
-    .prepare("SELECT COUNT(*) AS n FROM article_moderation WHERE status='pending'")
+    .prepare("SELECT COUNT(*) AS n FROM article_moderation WHERE status IN ('pending','checking')")
     .first<{ n: number }>();
   const cRem = await env.DB
-    .prepare("SELECT COUNT(*) AS n FROM comments WHERE moderation_status='pending'")
+    .prepare("SELECT COUNT(*) AS n FROM comments WHERE moderation_status IN ('pending','checking')")
     .first<{ n: number }>();
 
   return {
@@ -268,43 +393,53 @@ export async function runSweep(env: ModerationEnv): Promise<SweepResult> {
       remaining: cRem?.n ?? 0,
     },
     backfilled,
+    parallel: fanout,
+    rounds,
   };
 }
 
 /**
  * Find KV article slugs that have no row in article_moderation and seed them
- * as 'pending'. Bounded per invocation so a giant cold-start doesn't blow
- * past the worker time budget — repeated /api/moderate hits will finish.
+ * as 'pending'. Walks the *entire* KV namespace each call (idempotent via
+ * INSERT OR IGNORE) — listing 5k keys is roughly 25 list ops which is fast.
+ * The previous bounded-by-scan-count version restarted from cursor=undefined
+ * each call and got stuck re-walking the first 500 keys forever, so deeper
+ * slugs were never queued.
  */
 async function backfillArticleModerationRows(
   env: ModerationEnv
 ): Promise<number> {
   let cursor: string | undefined;
-  let scanned = 0;
   let inserted = 0;
-  while (scanned < KV_BACKFILL_LIMIT) {
-    const page = await env.ARTICLES.list({ cursor, limit: 200 });
+  // Hard ceiling so a runaway namespace can't stall the worker. 200 pages
+  // × 1000 keys per page = up to 200,000 slugs scanned.
+  const MAX_PAGES = 200;
+  for (let pageNum = 0; pageNum < MAX_PAGES; pageNum++) {
+    const page = await env.ARTICLES.list({ cursor, limit: 1000 });
     const slugs = page.keys
       .map((k) => k.name)
       .filter((n) => !n.startsWith("__"));
-    scanned += slugs.length;
     if (slugs.length > 0) {
-      // Bulk INSERT OR IGNORE so existing rows are untouched.
-      const stmts = slugs.map((s) =>
-        env.DB
-          .prepare(
-            `INSERT OR IGNORE INTO article_moderation (slug, status, enqueued_at) VALUES (?, 'pending', ?)`
-          )
-          .bind(s, Date.now())
-      );
-      try {
-        const results = await env.DB.batch(stmts);
-        for (const r of results) {
-          // D1 result has `meta.changes` (1 if inserted, 0 if ignored).
-          inserted += (r as any)?.meta?.changes ?? 0;
+      // D1 batch handles ~100 stmts comfortably; chunk to stay under that.
+      const CHUNK = 100;
+      for (let i = 0; i < slugs.length; i += CHUNK) {
+        const chunk = slugs.slice(i, i + CHUNK);
+        const stmts = chunk.map((s) =>
+          env.DB
+            .prepare(
+              `INSERT OR IGNORE INTO article_moderation (slug, status, enqueued_at) VALUES (?, 'pending', ?)`
+            )
+            .bind(s, Date.now())
+        );
+        try {
+          const results = await env.DB.batch(stmts);
+          for (const r of results) {
+            // D1 result has `meta.changes` (1 if inserted, 0 if ignored).
+            inserted += (r as any)?.meta?.changes ?? 0;
+          }
+        } catch (e) {
+          console.error("backfill batch failed", e);
         }
-      } catch (e) {
-        console.error("backfill batch failed", e);
       }
     }
     if (page.list_complete) break;
@@ -317,23 +452,28 @@ async function backfillArticleModerationRows(
 interface BatchOutcome { checked: number; banned: number }
 
 async function sweepOneArticleBatch(env: ModerationEnv): Promise<BatchOutcome> {
+  // Atomically claim a batch by flipping status pending → checking and
+  // returning the affected rows. UPDATE…RETURNING is one statement so
+  // concurrent batches in the same sweep get disjoint sets.
   const { results } = await env.DB
     .prepare(
-      `SELECT slug FROM article_moderation WHERE status='pending' LIMIT ?`
+      `UPDATE article_moderation
+          SET status='checking', checked_at=?
+        WHERE slug IN (
+          SELECT slug FROM article_moderation
+           WHERE status='pending'
+           LIMIT ?
+        )
+        RETURNING slug`
     )
-    .bind(BATCH_SIZE)
+    .bind(Date.now(), BATCH_SIZE)
     .all<{ slug: string }>();
   if (!results || results.length === 0) return { checked: 0, banned: 0 };
 
   // Resolve titles. Cheap path: KV metadata. Fallback: deslugify.
-  const items: JudgeItem[] = [];
-  const slugs: string[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const slug = results[i].slug;
-    slugs.push(slug);
-    const title = await readTitle(env.ARTICLES, slug);
-    items.push({ index: i + 1, text: title });
-  }
+  const slugs: string[] = results.map((r) => r.slug);
+  const titles = await Promise.all(slugs.map((s) => readTitle(env.ARTICLES, s)));
+  const items: JudgeItem[] = titles.map((t, i) => ({ index: i + 1, text: t }));
 
   const banned = await judgeBatch(items, "article title", env);
 
@@ -354,27 +494,51 @@ async function sweepOneArticleBatch(env: ModerationEnv): Promise<BatchOutcome> {
 async function sweepOneCommentBatch(env: ModerationEnv): Promise<BatchOutcome> {
   const { results } = await env.DB
     .prepare(
-      `SELECT id, body FROM comments WHERE moderation_status='pending' LIMIT ?`
+      `UPDATE comments
+          SET moderation_status='checking'
+        WHERE id IN (
+          SELECT id FROM comments
+           WHERE moderation_status='pending'
+           LIMIT ?
+        )
+        RETURNING id, body`
     )
     .bind(BATCH_SIZE)
     .all<{ id: string; body: string }>();
   if (!results || results.length === 0) return { checked: 0, banned: 0 };
 
-  const items: JudgeItem[] = results.map((r, i) => ({
+  // Pre-filter with the deterministic spam detector. Anything matching is
+  // banned without consulting the LLM — saves ~30 tokens × N items per batch
+  // and is 100% reliable for the templated engagement-bait botnet.
+  const remaining: { id: string; body: string }[] = [];
+  let bannedCount = 0;
+  for (const r of results) {
+    if (isObviousCommentSpam(r.body)) {
+      await deleteComment(r.id, env.DB, "spam-fingerprint in sweep");
+      bannedCount++;
+    } else {
+      remaining.push(r);
+    }
+  }
+
+  if (remaining.length === 0) {
+    return { checked: results.length, banned: bannedCount };
+  }
+
+  const items: JudgeItem[] = remaining.map((r, i) => ({
     index: i + 1,
     text: r.body,
   }));
 
   const banned = await judgeBatch(items, "comment", env);
 
-  let bannedCount = 0;
-  for (let i = 0; i < results.length; i++) {
+  for (let i = 0; i < remaining.length; i++) {
     const idx = i + 1;
     if (banned.has(idx)) {
-      await deleteComment(results[i].id, env.DB, "auto-flagged in sweep");
+      await deleteComment(remaining[i].id, env.DB, "auto-flagged in sweep");
       bannedCount++;
     } else {
-      await markCommentOk(results[i].id, env.DB);
+      await markCommentOk(remaining[i].id, env.DB);
     }
   }
   return { checked: results.length, banned: bannedCount };
@@ -456,12 +620,40 @@ async function deleteComment(
   _reason: string
 ): Promise<void> {
   try {
-    // Cascade: votes referencing this comment must go too. We don't have ON
-    // DELETE CASCADE on the existing schema, so do it manually.
-    await db.batch([
-      db.prepare("DELETE FROM votes WHERE comment_id = ?").bind(id),
-      db.prepare("DELETE FROM comments WHERE id = ?").bind(id),
-    ]);
+    // A comment with replies can't be deleted directly — the comments table
+    // has FOREIGN KEY (parent_id) REFERENCES comments(id), so deleting the
+    // parent before the children violates the constraint and the row stays
+    // forever (the moderation queue then loops on it indefinitely). Walk the
+    // descendant tree via a recursive CTE and nuke bottom-up.
+    const { results } = await db
+      .prepare(
+        `WITH RECURSIVE descendants(id) AS (
+           SELECT id FROM comments WHERE id = ?
+           UNION ALL
+           SELECT c.id FROM comments c JOIN descendants d ON c.parent_id = d.id
+         )
+         SELECT id FROM descendants`
+      )
+      .bind(id)
+      .all<{ id: string }>();
+    const ids = (results ?? []).map((r) => r.id);
+    if (ids.length === 0) return;
+
+    // Build IN-clause statements. SQLite has a 999-param default limit; chunk
+    // defensively (huge thread bombs are unlikely but cheap to guard).
+    const CHUNK = 200;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const placeholders = slice.map(() => "?").join(",");
+      await db.batch([
+        db
+          .prepare(`DELETE FROM votes WHERE comment_id IN (${placeholders})`)
+          .bind(...slice),
+        db
+          .prepare(`DELETE FROM comments WHERE id IN (${placeholders})`)
+          .bind(...slice),
+      ]);
+    }
   } catch (e) {
     console.error("deleteComment failed", id, e);
   }

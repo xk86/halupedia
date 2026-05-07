@@ -1,9 +1,9 @@
-export const SYSTEM_PROMPT = `You are the sole author of Hallucinopedia, an encyclopedia of things that do not exist. You write encyclopedia articles in a deadpan, matter-of-fact tone — the exact register of Wikipedia — but the subject matter itself is silly, absurd, petty, bureaucratic, and weird. The humor comes entirely from the contrast between the serious tone and the ridiculous content. You never wink at the reader. You never acknowledge that anything is funny or fictional. Everything is reported as though it is completely normal and well-documented.
+export const SYSTEM_PROMPT = `You are the sole author of Halupedia, an encyclopedia of things that do not exist. You write encyclopedia articles in a deadpan, matter-of-fact tone — the exact register of Wikipedia — but the subject matter itself is silly, absurd, petty, bureaucratic, and weird. The humor comes entirely from the contrast between the serious tone and the ridiculous content. You never wink at the reader. You never acknowledge that anything is funny or fictional. Everything is reported as though it is completely normal and well-documented.
 
 RULES:
 - Output ONLY valid HTML. Begin immediately with <h1>TITLE</h1>. Use <h2> for sections, <p> for paragraphs, <blockquote> for quotes from (fictional) sources, <cite> inside blockquotes for attribution. Do NOT use <ul>, <ol>, or <li> — no bullet points or lists of any kind, ever. Do NOT output <html>, <head>, <body>, <script>, <style>, markdown, or code fences. No backticks anywhere.
 - Every proper noun — every person, place, event, organization, book, artwork, concept, species, deity, war, treaty, theorem, school of thought, ritual, instrument, substance — MUST be wrapped in <a href="/slug-of-the-thing" context="…">Name</a>. Slugs are lowercase, hyphenated, ASCII only, no accents, no special characters. Aim for 20 to 40 links per article. This is non-negotiable. Do NOT link common nouns or adjectives, only named entities.
-- Every <a> MUST include a context="…" attribute, in addition to href. WHY THIS MATTERS: Hallucinopedia is randomly hallucinated, but it must remain INTERNALLY CONSISTENT. When a future article is later written about that linked target, your context value will be handed to that future writer as established lore they MUST honor. So you are seeding canon for every entity you mention. Without this, two articles about the same name will contradict each other.
+- Every <a> MUST include a context="…" attribute, in addition to href. WHY THIS MATTERS: Halupedia is randomly hallucinated, but it must remain INTERNALLY CONSISTENT. When a future article is later written about that linked target, your context value will be handed to that future writer as established lore they MUST honor. So you are seeding canon for every entity you mention. Without this, two articles about the same name will contradict each other.
 - The context value is a single dense sentence (10–25 words) stating: (a) what the entity is — person, place, object, concept, ritual, organization, etc.; (b) its century / era / period; (c) its specific role or relation to the current article. Be concrete: invent dates, professions, geographic placements, instruments. NEVER use double quotes inside context (use commas or single quotes if needed). NEVER use raw < or > inside context. Examples (do not copy verbatim):
   context='19th-century Belgian phonologist, founded the Vellum School of footnote drift, mentor to Pellbrick'
   context='brass measuring instrument used in the Anatolian sheep census, obsolete since 1922'
@@ -27,14 +27,14 @@ export interface GenerateOptions {
 
 export function buildUserMessage(opts: GenerateOptions): string {
   const lines = [
-    `Write the Hallucinopedia article titled: "${opts.title}".`,
-    `CRITICAL REMINDER: Even if "${opts.title}" exists in the real world, in Hallucinopedia it is something COMPLETELY DIFFERENT. Do not write about the real version. Invent a new, absurd, fictional nature for this name.`,
+    `Write the Halupedia article titled: "${opts.title}".`,
+    `CRITICAL REMINDER: Even if "${opts.title}" exists in the real world, in Halupedia it is something COMPLETELY DIFFERENT. Do not write about the real version. Invent a new, absurd, fictional nature for this name.`,
     `The canonical URL slug for this article is: /${opts.slug}`,
   ];
   if (opts.sourceContext) {
     lines.push(
       "",
-      "This article is referenced from another Hallucinopedia entry for loose continuity:",
+      "This article is referenced from another Halupedia entry for loose continuity:",
       `- Referring article: "${opts.sourceContext.fromTitle}"`,
       `- Referring context: ${opts.sourceContext.fromSummary}`,
       "",
@@ -44,7 +44,7 @@ export function buildUserMessage(opts: GenerateOptions): string {
   if (opts.priorHints && opts.priorHints.length > 0) {
     lines.push(
       "",
-      `PRIOR REFERENCES TO "${opts.title}". Other Hallucinopedia entries have already mentioned this topic with these descriptions, in this order from most to least recent:`
+      `PRIOR REFERENCES TO "${opts.title}". Other Halupedia entries have already mentioned this topic with these descriptions, in this order from most to least recent:`
     );
     for (const h of opts.priorHints) {
       lines.push(`  • ${h}`);
@@ -79,8 +79,8 @@ export async function streamGeneration(opts: GenerateOptions): Promise<ReadableS
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${opts.apiKey}`,
-      "HTTP-Referer": "https://hallucinopedia.app",
-      "X-Title": "Hallucinopedia",
+      "HTTP-Referer": "https://halupedia.com",
+      "X-Title": "Halupedia",
     },
     body: JSON.stringify(body),
   });
@@ -132,6 +132,75 @@ export async function streamGeneration(opts: GenerateOptions): Promise<ReadableS
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Search-suggestion hallucinator                                             */
+/* -------------------------------------------------------------------------- */
+
+const SEARCH_SYSTEM_PROMPT = `You generate plausible Halupedia article titles for a search query.
+
+Halupedia is an encyclopedia of things that do not exist, written in deadpan Wikipedia tone with absurd subject matter (petty academic feuds, bureaucratic committees, obsolete instruments, fictional treaties, bogus taxonomies, minor 18th-century scandals, fictional scholars, made-up rituals). Titles are typically:
+- A name + date/era ("The 1816 Chicken President Debacle", "1754 Lunar Landings")
+- An institution or office ("Vellum School of Footnote Drift", "Hatpin Subcommittee of 1881")
+- A person + role ("Marquis De Chinchilla", "Pellbrick the Younger")
+- An object or concept ("Sheep Census Brass Standard", "Decree of Bedding the Neighbour's Wife")
+- A place ("Lower Vellumshire", "The Glass Bishopric of Novgorod")
+
+Given a search query, invent diverse, plausible titles thematically related to the query. Each title should approach the topic from a DIFFERENT angle — a person, an event, an object, an institution, a treaty, a ritual, etc. Prefer specific dates, fictional places, and invented institutions over generic abstractions. Mix obscure-sounding nouns. NEVER reuse real-world specifics.
+
+Reply with ONLY a JSON array of N strings. No prose, no code fences, no explanations.`;
+
+/** Ask the moderation-class model for a JSON array of fictional titles
+ *  inspired by `query`. Returns at most `count` clean titles, possibly
+ *  fewer if the model misbehaves. Never throws. */
+export async function hallucinateSearchTitles(
+  apiKey: string,
+  model: string,
+  query: string,
+  count: number
+): Promise<string[]> {
+  const userMsg = `Search query: "${query}"\n\nReturn a JSON array of exactly ${count} plausible Halupedia titles inspired by this query. No commentary.`;
+  let raw = "";
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://halupedia.com",
+        "X-Title": "Halupedia Search",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 1.1,
+        max_tokens: 600,
+        messages: [
+          { role: "system", content: SEARCH_SYSTEM_PROMPT },
+          { role: "user", content: userMsg },
+        ],
+      }),
+    });
+    if (!res.ok) return [];
+    const json: any = await res.json();
+    raw = json?.choices?.[0]?.message?.content ?? "";
+  } catch {
+    return [];
+  }
+  const m = raw.match(/\[[\s\S]*\]/);
+  if (!m) return [];
+  let arr: unknown;
+  try { arr = JSON.parse(m[0]); } catch { return []; }
+  if (!Array.isArray(arr)) return [];
+  const out: string[] = [];
+  for (const v of arr) {
+    if (typeof v !== "string") continue;
+    const t = v.trim().replace(/^["'\s]+|["'\s]+$/g, "");
+    if (t.length === 0 || t.length > 200) continue;
+    out.push(t);
+    if (out.length >= count) break;
+  }
+  return out;
+}
+
 /**
  * Non-streaming fallback (used for retry on malformed output).
  */
@@ -141,8 +210,8 @@ export async function generateOnce(opts: GenerateOptions): Promise<string> {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${opts.apiKey}`,
-      "HTTP-Referer": "https://hallucinopedia.app",
-      "X-Title": "Hallucinopedia",
+      "HTTP-Referer": "https://halupedia.com",
+      "X-Title": "Halupedia",
     },
     body: JSON.stringify({
       model: opts.model,

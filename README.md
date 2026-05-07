@@ -1,4 +1,4 @@
-# Hallucinopedia
+# Halupedia
 
 > *"Comprehensive coverage of topics mainstream encyclopedias overlooked."*
 
@@ -34,7 +34,7 @@ printing. Editors and conspirators meet in the
 
 ## What it is
 
-Hallucinopedia is a single-page Cloudflare Worker that:
+Halupedia is a single-page Cloudflare Worker that:
 
 1. Serves a React SPA that looks like an old print encyclopedia.
 2. On a request for any unknown slug, calls an LLM (via OpenRouter) that
@@ -93,7 +93,7 @@ paint is sub-second; the worker continues writing to KV under
 
 The hardest problem with an infinite, on-demand encyclopedia is internal
 contradiction: article A says Mortimer Vellum died in 1843; article B,
-generated three weeks later, says he was alive in 1881. Hallucinopedia solves
+generated three weeks later, says he was alive in 1881. Halupedia solves
 this with **link hints**:
 
 - When the LLM writes an article, it is required to add a `context="…"`
@@ -132,7 +132,7 @@ D1 (free tier). Notable behaviours:
 
 ## Defenses against runaway costs
 
-LLM tokens cost real money and Hallucinopedia is run by one person who lacks
+LLM tokens cost real money and Halupedia is run by one person who lacks
 a corporate Amex. The worker has a layered defense:
 
 | Layer | Catches | Implementation |
@@ -265,7 +265,7 @@ Pull requests welcome, especially anything that:
 - Catches a "griffing" / prompt-injection vector you found in the wild.
 
 Please open an issue first for anything user-facing so we can discuss tone —
-Hallucinopedia lives or dies by its voice and an out-of-register entry is
+Halupedia lives or dies by its voice and an out-of-register entry is
 worse than no entry at all.
 
 ## License

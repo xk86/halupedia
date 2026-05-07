@@ -76,7 +76,7 @@ export function AllEntries({ onNavigate }: Props) {
   }, []);
 
   useEffect(() => {
-    document.title = "All entries — Hallucinopedia";
+    document.title = "All entries — Halupedia";
     fetchPage(null, false);
   }, [fetchPage]);
 

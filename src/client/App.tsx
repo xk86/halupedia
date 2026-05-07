@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Comments } from "./Comments";
 import { AllEntries } from "./AllEntries";
+import { SearchResults } from "./SearchResults";
 
 const RESERVED_ALL_ENTRIES = "all-entries";
+const RESERVED_SEARCH = "search";
 
 type Status = "idle" | "loading" | "streaming" | "done" | "error" | "banned";
 
@@ -16,32 +18,45 @@ const DREAMING_MESSAGES = [
 
 function currentSlug(): string {
   const path = window.location.pathname.replace(/^\/+/, "");
-  if (!path || path === "") return "hallucinopedia";
+  if (!path || path === "") return "halupedia";
   // Strip trailing slash.
   return decodeURIComponent(path.replace(/\/+$/, ""));
 }
 
+/** Read the ?q=… search param from the URL (only meaningful on /search). */
+function currentSearchQuery(): string {
+  return new URLSearchParams(window.location.search).get("q") || "";
+}
+
 export function App() {
   const [slug, setSlug] = useState<string>(() => currentSlug());
+  const [searchQuery, setSearchQuery] = useState<string>(() =>
+    currentSlug() === RESERVED_SEARCH ? currentSearchQuery() : ""
+  );
   const [html, setHtml] = useState<string>("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [dreamMsg, setDreamMsg] = useState<string>(DREAMING_MESSAGES[0]);
+  const [headerSearchDraft, setHeaderSearchDraft] = useState<string>("");
   const prevSlugRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   /* ----- Popstate (back/forward) ----- */
   useEffect(() => {
-    const onPop = () => setSlug(currentSlug());
+    const onPop = () => {
+      const s = currentSlug();
+      setSlug(s);
+      setSearchQuery(s === RESERVED_SEARCH ? currentSearchQuery() : "");
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   /* ----- Fetch + stream on every slug change ----- */
   useEffect(() => {
-    // Reserved client-only routes (e.g. the all-entries index) bypass the
-    // article fetch entirely — the SPA renders them itself.
-    if (slug === RESERVED_ALL_ENTRIES) {
+    // Reserved client-only routes (all-entries, search) bypass the article
+    // fetch entirely — the SPA renders them itself.
+    if (slug === RESERVED_ALL_ENTRIES || slug === RESERVED_SEARCH) {
       abortRef.current?.abort();
       setHtml("");
       setError(null);
@@ -74,7 +89,7 @@ export function App() {
           }
           throw new Error(j?.error || `error ${res.status}`);
         }
-        const cachedHeader = res.headers.get("x-hallucinopedia-cached");
+        const cachedHeader = res.headers.get("x-halupedia-cached");
         const isCached = cachedHeader === "true";
 
         if (!res.body) {
@@ -124,7 +139,7 @@ export function App() {
     const m = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
     if (m) {
       const title = m[1].replace(/<[^>]+>/g, "").trim();
-      if (title) document.title = `${title} — Hallucinopedia`;
+      if (title) document.title = `${title} — Halupedia`;
     }
   }, [html]);
 
@@ -141,14 +156,38 @@ export function App() {
 
   const navigateTo = useCallback(
     (nextSlug: string) => {
-      const clean = nextSlug.replace(/^\/+|\/+$/g, "") || "hallucinopedia";
-      if (clean === slug) return;
+      const clean = nextSlug.replace(/^\/+|\/+$/g, "") || "halupedia";
+      if (clean === slug && slug !== RESERVED_SEARCH) return;
       prevSlugRef.current = slug;
-      window.history.pushState({}, "", `/${clean}`);
+      // Homepage lives at "/", not "/halupedia". The internal slug stays
+      // "halupedia" so the worker can still key its cache by it.
+      const url = clean === "halupedia" ? "/" : `/${clean}`;
+      window.history.pushState({}, "", url);
       window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
       setSlug(clean);
+      setSearchQuery("");
     },
     [slug]
+  );
+
+  /** Navigate to /search?q=…  (keeps the query string in the URL, so back/
+   *  forward and direct links work). */
+  const navigateToSearch = useCallback(
+    (q: string) => {
+      const trimmed = q.trim();
+      if (!trimmed) return;
+      // If the user re-submits the same query while on /search, force a
+      // re-render by bumping state even though the URL is unchanged.
+      const url = `/search?q=${encodeURIComponent(trimmed)}`;
+      if (slug !== RESERVED_SEARCH || searchQuery !== trimmed) {
+        prevSlugRef.current = slug;
+        window.history.pushState({}, "", url);
+      }
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setSlug(RESERVED_SEARCH);
+      setSearchQuery(trimmed);
+    },
+    [slug, searchQuery]
   );
 
   const onStumble = useCallback(async () => {
@@ -164,14 +203,14 @@ export function App() {
       <header className="site-header">
         <div className="brand-stack">
           <a
-            href="/hallucinopedia"
+            href="/"
             className="brand"
             onClick={(e) => {
               e.preventDefault();
-              navigateTo("hallucinopedia");
+              navigateTo("halupedia");
             }}
           >
-            Hallucin<span className="amp">&middot;</span>opedia
+            Halu<span className="amp">&middot;</span>pedia
           </a>
           <a
             href="https://buymeacoffee.com/baderbc"
@@ -185,10 +224,10 @@ export function App() {
         </div>
         <nav className="nav">
           <a
-            href="/hallucinopedia"
+            href="/"
             onClick={(e) => {
               e.preventDefault();
-              navigateTo("hallucinopedia");
+              navigateTo("halupedia");
             }}
           >
             Index
@@ -227,6 +266,35 @@ export function App() {
             Discord
           </a>
         </nav>
+
+        {slug !== RESERVED_SEARCH && (
+          <form
+            className="header-search"
+            onSubmit={(e) => {
+              e.preventDefault();
+              navigateToSearch(headerSearchDraft);
+              setHeaderSearchDraft("");
+            }}
+            role="search"
+          >
+            <input
+              type="search"
+              className="header-search-input"
+              placeholder="Search…"
+              value={headerSearchDraft}
+              onChange={(e) => setHeaderSearchDraft(e.target.value)}
+              maxLength={100}
+              aria-label="Search Halupedia"
+            />
+            <button
+              type="submit"
+              className="header-search-submit"
+              disabled={!headerSearchDraft.trim()}
+            >
+              Search
+            </button>
+          </form>
+        )}
       </header>
 
       <main
@@ -235,6 +303,12 @@ export function App() {
       >
         {slug === RESERVED_ALL_ENTRIES ? (
           <AllEntries onNavigate={navigateTo} />
+        ) : slug === RESERVED_SEARCH ? (
+          <SearchResults
+            q={searchQuery}
+            onNavigate={navigateTo}
+            onSearch={navigateToSearch}
+          />
         ) : (
           <>
             {status === "loading" && !html && (
@@ -259,7 +333,7 @@ export function App() {
                 <h1>Entry redacted</h1>
                 <p>
                   This article was flagged by moderation and removed from the
-                  register. Hallucinopedia will not regenerate it.
+                  register. Halupedia will not regenerate it.
                 </p>
                 <p className="banned-notice-meta">
                   We keep the encyclopedia maximally absurd but draw the line

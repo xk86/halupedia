@@ -1,4 +1,4 @@
--- Hallucinopedia comments schema. HN-style threaded comments with upvotes.
+-- Halupedia comments schema. HN-style threaded comments with upvotes.
 -- Users are ephemeral identities created on first comment; no auth.
 
 CREATE TABLE IF NOT EXISTS users (

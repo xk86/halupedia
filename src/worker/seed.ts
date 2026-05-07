@@ -5,10 +5,10 @@
  *
  * This is never regenerated — it is cached on first request forever.
  * 
- * For dev reset with this: pnpm wrangler kv key delete --binding=ARTICLES --local --preview false "hallucinopedia"
+ * For dev reset with this: pnpm wrangler kv key delete --binding=ARTICLES --local --preview false "halupedia"
  */
-export const HOMEPAGE_ARTICLE = `<h1>Hallucinopedia</h1>
-<p><strong>Hallucinopedia</strong> is an encyclopedia covering topics that have received insufficient attention in mainstream reference works. Coverage spans historical events, scientific disciplines, geographical features, notable persons, organizations, treaties, academic disputes, and cultural phenomena. Articles are generated on demand and stored permanently upon first request.</p>
+export const HOMEPAGE_ARTICLE = `<h1>Halupedia</h1>
+<p><strong>Halupedia</strong> is an encyclopedia covering topics that have received insufficient attention in mainstream reference works. Coverage spans historical events, scientific disciplines, geographical features, notable persons, organizations, treaties, academic disputes, and cultural phenomena. Articles are generated on demand and stored permanently upon first request.</p>
 
 <p>The encyclopedia approaches all subjects with equal seriousness regardless of their prominence, scope, or the number of people aware of their existence. Entries follow standard encyclopedic structure and cite relevant scholarly literature throughout.</p>
 

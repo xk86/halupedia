@@ -6,6 +6,12 @@ import { HOMEPAGE_ARTICLE } from "./seed";
 import { createCommentsApp } from "./comments";
 import { rateLimit, clientIp } from "./ratelimit";
 import { loadHints, saveHints } from "./hints";
+import {
+  enqueueArticleForModeration,
+  isSlugBanned,
+  moderateArticleNow,
+  runSweep,
+} from "./moderation";
 
 export interface Env {
   ARTICLES: KVNamespace;
@@ -13,6 +19,7 @@ export interface Env {
   ASSETS: Fetcher;
   OPENROUTER_API_KEY: string;
   OPENROUTER_MODEL: string;
+  OPENROUTER_MODERATION_MODEL?: string;
   MAX_ARTICLES_PER_DAY: string;
   GEN_PER_IP_PER_HOUR?: string;
   IDENT_PER_IP_PER_HOUR?: string;
@@ -182,6 +189,17 @@ app.get("/api/page/:slug", async (c) => {
   const cached = await c.env.ARTICLES.get(slug, "json") as StoredArticle | null;
   if (cached) {
     return streamString(cached.html, /* cached */ true);
+  }
+
+  // 1b. Banned-slug guard. If a previous moderation sweep killed this title,
+  //     refuse to regenerate it — otherwise the same spam slug returns the
+  //     instant the bot retries.
+  if (await isSlugBanned(c.env.DB, slug)) {
+    return c.json(
+      { error: "this entry has been removed by moderation", banned: true },
+      404,
+      { "x-robots-tag": "noindex" }
+    );
   }
 
   // Special-case the homepage seed so cold installs have somewhere to land.
@@ -407,6 +425,17 @@ async function collectAndStore(
   } catch (e) {
     console.error("saveHints failed", e);
   }
+
+  // Background moderation: enqueue and judge this single fresh title now.
+  // We're already inside a waitUntil, so awaiting here is fine — the user's
+  // stream finished long before we get here. moderateArticleNow handles its
+  // own errors and will delete the KV entry + decrement __total if banned.
+  try {
+    await enqueueArticleForModeration(env.DB, slug);
+    await moderateArticleNow(slug, article.title, env);
+  } catch (e) {
+    console.error("article moderation failed", e);
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -439,6 +468,28 @@ app.get("/api/meta/:slug", async (c) => {
     summary: a.summary,
     generatedAt: a.generatedAt,
   });
+});
+
+/* -------------------------------------------------------------------------- */
+/*  GET /api/moderate  — drain pending moderation queue                        */
+/*                                                                             */
+/*  Public + idempotent. Each hit processes a bounded batch (so it can't run   */
+/*  past Workers' CPU limit); already-judged items are skipped. Hammer it      */
+/*  from cron / a watchdog / a browser tab — whatever. If nothing's pending    */
+/*  it just returns zeros.                                                     */
+/* -------------------------------------------------------------------------- */
+
+app.get("/api/moderate", async (c) => {
+  if (!c.env.OPENROUTER_API_KEY) {
+    return c.json({ error: "OPENROUTER_API_KEY is not configured" }, 500);
+  }
+  try {
+    const result = await runSweep(c.env);
+    return c.json(result);
+  } catch (e: any) {
+    console.error("moderation sweep failed", e);
+    return c.json({ error: "sweep failed", detail: String(e?.message ?? e) }, 500);
+  }
 });
 
 /* -------------------------------------------------------------------------- */

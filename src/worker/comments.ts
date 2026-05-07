@@ -7,12 +7,14 @@ import {
 } from "./identity";
 import { slugify } from "./slug";
 import { rateLimit, clientIp } from "./ratelimit";
+import { moderateCommentNow } from "./moderation";
 
 export interface CommentsEnv {
   DB: D1Database;
   ARTICLES: KVNamespace;
   OPENROUTER_API_KEY: string;
   OPENROUTER_MODEL: string;
+  OPENROUTER_MODERATION_MODEL?: string;
   IDENT_PER_IP_PER_HOUR?: string;
 }
 
@@ -345,6 +347,14 @@ export function createCommentsApp() {
       voted: true,
       children: [],
     };
+
+    // Background moderation: accept the comment immediately, then judge it
+    // out-of-band. If banned, moderateCommentNow deletes it (and its votes).
+    c.executionCtx.waitUntil(
+      moderateCommentNow(id, body, c.env).catch((e) =>
+        console.error("comment moderation failed", e)
+      )
+    );
 
     return c.json({
       comment: dto,

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Comments } from "./Comments";
+import { AllEntries } from "./AllEntries";
+
+const RESERVED_ALL_ENTRIES = "all-entries";
 
 type Status = "idle" | "loading" | "streaming" | "done" | "error";
 
@@ -36,6 +39,16 @@ export function App() {
 
   /* ----- Fetch + stream on every slug change ----- */
   useEffect(() => {
+    // Reserved client-only routes (e.g. the all-entries index) bypass the
+    // article fetch entirely — the SPA renders them itself.
+    if (slug === RESERVED_ALL_ENTRIES) {
+      abortRef.current?.abort();
+      setHtml("");
+      setError(null);
+      setStatus("done");
+      return;
+    }
+
     let cancelled = false;
     abortRef.current?.abort();
     const ctrl = new AbortController();
@@ -144,16 +157,27 @@ export function App() {
   return (
     <div className="site">
       <header className="site-header">
-        <a
-          href="/hallucinopedia"
-          className="brand"
-          onClick={(e) => {
-            e.preventDefault();
-            navigateTo("hallucinopedia");
-          }}
-        >
-          Hallucin<span className="amp">&middot;</span>opedia
-        </a>
+        <div className="brand-stack">
+          <a
+            href="/hallucinopedia"
+            className="brand"
+            onClick={(e) => {
+              e.preventDefault();
+              navigateTo("hallucinopedia");
+            }}
+          >
+            Hallucin<span className="amp">&middot;</span>opedia
+          </a>
+          <a
+            href="https://buymeacoffee.com/baderbc"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="brand-donate"
+            title="Donations go directly to LLM tokens so the press can keep printing."
+          >
+            Buy us tokens →
+          </a>
+        </div>
         <nav className="nav">
           <a
             href="/hallucinopedia"
@@ -163,6 +187,15 @@ export function App() {
             }}
           >
             Index
+          </a>
+          <a
+            href="/all-entries"
+            onClick={(e) => {
+              e.preventDefault();
+              navigateTo("all-entries");
+            }}
+          >
+            All entries
           </a>
           <a
             href="#stumble"
@@ -187,28 +220,34 @@ export function App() {
         className={status === "streaming" ? "streaming" : ""}
         onClick={onContainerClick}
       >
-        {status === "loading" && !html && (
-          <div className="status">
-            <span className="dot" />
-            <span>{dreamMsg}</span>
-          </div>
+        {slug === RESERVED_ALL_ENTRIES ? (
+          <AllEntries onNavigate={navigateTo} />
+        ) : (
+          <>
+            {status === "loading" && !html && (
+              <div className="status">
+                <span className="dot" />
+                <span>{dreamMsg}</span>
+              </div>
+            )}
+            {status === "streaming" && (
+              <div className="status">
+                <span className="dot" />
+                <span>Retrieving entry…</span>
+              </div>
+            )}
+            {status === "error" && error && (
+              <div className="error">
+                Something broke, which is ironic for a made-up encyclopedia: {error}
+              </div>
+            )}
+            <article
+              className="article"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+            {status === "done" && <Comments slug={slug} />}
+          </>
         )}
-        {status === "streaming" && (
-          <div className="status">
-            <span className="dot" />
-            <span>Retrieving entry…</span>
-          </div>
-        )}
-        {status === "error" && error && (
-          <div className="error">
-            Something broke, which is ironic for a made-up encyclopedia: {error}
-          </div>
-        )}
-        <article
-          className="article"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-        {status === "done" && <Comments slug={slug} />}
       </main>
 
       <footer className="site-footer">

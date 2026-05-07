@@ -229,6 +229,34 @@ a:hover {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.footer-tagline,
+.footer-donate {
+  display: none; /* legacy, kept tagline rules out of the layout */
+}
+
+/* Brand + donate tagline stacked under the wordmark */
+.brand-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  line-height: 1.1;
+}
+.brand-donate {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px dotted rgba(122, 46, 31, 0.4);
+  padding-bottom: 1px;
+  align-self: flex-start;
+}
+.brand-donate:hover {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent-hover);
+  background: transparent;
+}
 
 /* Selection */
 ::selection { background: rgba(122, 46, 31, 0.25); }
@@ -503,4 +531,166 @@ a:hover {
     border-left: 1px dotted var(--rule);
     padding-left: 0.6rem;
   }
+}
+
+/* ----------------------- All-entries index ------------------------- */
+
+.all-entries {
+  font-family: var(--serif);
+  color: var(--ink);
+}
+
+.all-entries-header {
+  margin-bottom: 1.4rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--rule);
+}
+.all-entries-header h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 2.2rem;
+  margin: 0 0 0.4rem;
+  letter-spacing: -0.005em;
+}
+.all-entries-subtitle {
+  margin: 0;
+  font-style: italic;
+  color: var(--ink-soft);
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.all-entries-total {
+  margin: 0.6rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.all-entries-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.all-entries-search {
+  flex: 1;
+  min-width: 12rem;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 0.55rem 0.8rem;
+  font-family: var(--serif);
+  font-size: 1rem;
+  color: var(--ink);
+}
+.all-entries-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: #fff;
+}
+
+.all-entries-count {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-fade);
+}
+
+.all-entries-error {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--accent);
+  background: rgba(122, 46, 31, 0.08);
+  color: var(--accent);
+  margin-bottom: 1rem;
+}
+
+.all-entries-status,
+.all-entries-empty {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--ink-fade);
+  margin: 1.5rem 0;
+}
+
+.all-entries-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+}
+
+.all-entries-group {
+  break-inside: avoid;
+}
+
+.all-entries-letter {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 1.6rem;
+  color: var(--accent);
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid rgba(182, 164, 126, 0.5);
+  letter-spacing: 0.02em;
+}
+
+.all-entries-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  columns: 2;
+  column-gap: 2rem;
+}
+.all-entries-list li {
+  break-inside: avoid;
+  margin: 0 0 0.25rem;
+  font-size: 0.98rem;
+  line-height: 1.4;
+}
+.all-entries-list a {
+  border-bottom: none;
+  padding-bottom: 1px;
+  border-bottom: 1px dotted rgba(122, 46, 31, 0.25);
+}
+.all-entries-list a:hover {
+  border-bottom: 1px solid var(--accent-hover);
+}
+
+.all-entries-more {
+  display: flex;
+  justify-content: center;
+  margin: 2.5rem 0 0.5rem;
+}
+.all-entries-more-btn {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  background: var(--ink);
+  color: var(--parchment);
+  border: 1px solid var(--ink);
+  padding: 0.5rem 1.2rem;
+  cursor: pointer;
+  border-radius: 1px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.all-entries-more-btn:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.all-entries-more-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  .all-entries-list { columns: 1; }
+  .all-entries-header h1 { font-size: 1.7rem; }
 }

@@ -66,6 +66,91 @@ app.get("/robots.txt", (c) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/*  Reserved slugs                                                             */
+/* -------------------------------------------------------------------------- */
+
+// Reserved slugs are non-article paths the SPA owns. The worker refuses to
+// generate them and the article handler short-circuits with 404 so accidental
+// or malicious hits to /api/page/all-entries don't burn tokens or pollute KV.
+const RESERVED_SLUGS = new Set(["all-entries"]);
+
+/* -------------------------------------------------------------------------- */
+/*  GET /api/index  — paginated list of every cached article                  */
+/* -------------------------------------------------------------------------- */
+
+const TOTAL_KEY = "__total";
+
+async function readTotal(env: Env): Promise<number | null> {
+  const v = await env.ARTICLES.get(TOTAL_KEY);
+  if (!v) return null;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Walk every key once to seed __total. Cheap if we have <few thousand. */
+async function backfillTotal(env: Env): Promise<number> {
+  let cursor: string | undefined;
+  let count = 0;
+  for (let i = 0; i < 50; i++) {
+    const page = await env.ARTICLES.list({ cursor, limit: 1000 });
+    count += page.keys.filter((k) => !k.name.startsWith("__")).length;
+    if (page.list_complete) {
+      try { await env.ARTICLES.put(TOTAL_KEY, String(count)); } catch {}
+      return count;
+    }
+    cursor = (page as any).cursor;
+    if (!cursor) break;
+  }
+  return count;
+}
+
+app.get("/api/index", async (c) => {
+  const cursorRaw = c.req.query("cursor");
+  const cursor = cursorRaw && cursorRaw.length > 0 ? cursorRaw : undefined;
+  const limit = Math.min(
+    Math.max(parseInt(c.req.query("limit") || "100", 10) || 100, 1),
+    200
+  );
+
+  const list = await c.env.ARTICLES.list<{
+    title?: string;
+    generatedAt?: number;
+  }>({ cursor, limit });
+
+  const items = list.keys
+    .filter((k) => !k.name.startsWith("__")) // drop counters / rate-limit buckets
+    .map((k) => ({
+      slug: k.name,
+      title: k.metadata?.title ?? slugToTitle(k.name),
+      generatedAt: k.metadata?.generatedAt ?? null,
+    }));
+
+  // Total is only computed on the first page request — subsequent paginated
+  // calls don't need it, and it costs an extra KV read (or full sweep).
+  let total: number | null = null;
+  const forceRefresh = c.req.query("refresh") === "1";
+  if (!cursor) {
+    total = forceRefresh ? null : await readTotal(c.env);
+    if (total === null) {
+      // Counter missing or refresh requested. Backfill (full KV sweep).
+      total = await backfillTotal(c.env);
+    }
+    // If this first page is the entire dataset, opportunistically reconcile.
+    if (list.list_complete && total !== items.length) {
+      total = items.length;
+      try { await c.env.ARTICLES.put(TOTAL_KEY, String(total)); } catch {}
+    }
+  }
+
+  return c.json({
+    items,
+    cursor: list.list_complete ? null : (list as any).cursor ?? null,
+    complete: list.list_complete,
+    total,
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /*  GET /api/page/:slug  — streaming article endpoint                          */
 /* -------------------------------------------------------------------------- */
 
@@ -75,6 +160,14 @@ app.get("/api/page/:slug", async (c) => {
 
   if (!slug) {
     return c.json({ error: "invalid slug" }, 400);
+  }
+
+  if (RESERVED_SLUGS.has(slug)) {
+    return c.json(
+      { error: "reserved path", reserved: true },
+      404,
+      { "x-robots-tag": "noindex" }
+    );
   }
 
   // Canonicalize: if the client hit a non-canonical form, tell them.
@@ -101,7 +194,9 @@ app.get("/api/page/:slug", async (c) => {
       generatedAt: Date.now(),
       sourceContext: null,
     };
-    await c.env.ARTICLES.put(slug, JSON.stringify(seed));
+    await c.env.ARTICLES.put(slug, JSON.stringify(seed), {
+      metadata: { title: seed.title, generatedAt: seed.generatedAt },
+    });
     return streamString(seed.html, true);
   }
 
@@ -277,7 +372,29 @@ async function collectAndStore(
       : null,
   };
 
-  await env.ARTICLES.put(slug, JSON.stringify(article));
+  // Detect whether this is a brand-new entry (vs. a regeneration) BEFORE we
+  // overwrite, so the __total counter only ticks on first creation.
+  const wasExisting = (await env.ARTICLES.get(slug)) !== null;
+
+  await env.ARTICLES.put(slug, JSON.stringify(article), {
+    metadata: { title: article.title, generatedAt: article.generatedAt },
+  });
+
+  if (!wasExisting) {
+    // Only increment if the counter has already been seeded by /api/index's
+    // backfill. If it's missing, leave it missing — the next index visit
+    // will count everything (including this new entry) correctly.
+    try {
+      const curStr = await env.ARTICLES.get(TOTAL_KEY);
+      if (curStr !== null) {
+        const cur = parseInt(curStr, 10);
+        await env.ARTICLES.put(
+          TOTAL_KEY,
+          String((Number.isFinite(cur) ? cur : 0) + 1)
+        );
+      }
+    } catch {}
+  }
 
   // Harvest the LLM's `context="…"` attributes from the RAW (pre-sanitize) HTML
   // and persist them as hints for the targets this article links to. The

@@ -46,7 +46,7 @@ a:hover {
 /* ----------------------- Layout ------------------------- */
 
 .site {
-  max-width: 760px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 1.25rem 1.5rem 6rem;
 }
@@ -1017,4 +1017,516 @@ a:hover {
 @media (max-width: 600px) {
   .all-entries-list { columns: 1; }
   .all-entries-header h1 { font-size: 1.7rem; }
+}
+
+/* ====================================================================
+   Sidebar / "Reader's column"  (frontend PoC, mock data)
+   ==================================================================== */
+
+/* Two-column layout: main content + right sidebar. Comments are a sibling
+   of <main> (not a child) so we can place them independently in the grid.
+   Desktop reads article → comments down the left column, with the sidebar
+   sticky on the right spanning both rows. Below 980px everything stacks
+   and the order becomes article → sidebar → comments. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 2.4rem;
+  align-items: start;
+}
+
+.layout-main {
+  min-width: 0;     /* prevents long words from blowing out the grid */
+  max-width: 760px; /* preserve original reading measure */
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.layout > .comments {
+  grid-column: 1;
+  grid-row: 2;
+  /* match the article's reading measure so comments don't sprawl wider
+     than the body copy above them on desktop */
+  max-width: 760px;
+  min-width: 0;
+}
+
+.sidebar {
+  position: sticky;
+  top: 1rem;
+  /* Span both content rows on desktop so the sticky rail aligns to the
+     top of the article and stays visible while the user scrolls past
+     the comments. `align-self: start` keeps the sticky behaviour intact
+     (a stretched item can't be sticky). */
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  font-family: var(--serif);
+  color: var(--ink);
+}
+
+/* Mobile: collapse to a single column and reorder children so the visual
+   flow is article → sidebar → comments. This block MUST come after the
+   base .sidebar rule above; otherwise the desktop `grid-column: 2` wins
+   the cascade (equal specificity, source order) and the sidebar stays
+   pinned to the right column at every viewport — which is exactly the
+   bug that prompted this rewrite. */
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .layout-main        { grid-column: 1; grid-row: 1; }
+  .sidebar            { grid-column: 1; grid-row: 2; }
+  .layout > .comments { grid-column: 1; grid-row: 3; max-width: none; }
+
+  .sidebar {
+    position: static;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.5rem;
+  }
+}
+
+/* --- Panel chrome ---------------------------------------------------- */
+
+.sb-panel {
+  padding: 0.9rem 0 1rem;
+  border-top: 1px solid var(--rule);
+}
+.sb-panel:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.sb-heading {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-fade);
+  margin: 0 0 0.7rem;
+  font-weight: 500;
+}
+
+.sb-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.6rem;
+}
+
+.sb-list li {
+  padding: 0.3rem 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  border-bottom: 1px dotted rgba(182, 164, 126, 0.4);
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.sb-list li:last-child { border-bottom: none; }
+
+.sb-list a {
+  flex: 1;
+  border-bottom: none;
+  color: var(--ink);
+}
+.sb-list a:hover {
+  color: var(--accent-hover);
+  background: transparent;
+}
+
+.sb-list-numbered .sb-rank {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-fade);
+  min-width: 1.3rem;
+}
+
+.sb-score {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.sb-when {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--ink-fade);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+  font-style: italic;
+}
+
+.sb-list-plain li { border-bottom: none; padding: 0.18rem 0; }
+
+.sb-more {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px dotted rgba(122, 46, 31, 0.4);
+  padding-bottom: 1px;
+}
+.sb-more:hover {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent-hover);
+  background: transparent;
+}
+
+/* --- Reader card ----------------------------------------------------- */
+
+.sb-reader-name {
+  display: inline-block;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.1rem;
+  color: var(--ink);
+  border-bottom: 1px dotted rgba(122, 46, 31, 0.3);
+  padding-bottom: 1px;
+}
+.sb-reader-name:hover {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent-hover);
+  background: transparent;
+}
+
+.sb-reader-handle {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-fade);
+  margin: 0.1rem 0 0.7rem;
+}
+
+.sb-reader-stats {
+  display: flex;
+  gap: 1.2rem;
+  margin: 0;
+  padding-top: 0.6rem;
+  border-top: 1px dotted rgba(182, 164, 126, 0.5);
+}
+.sb-reader-stats > div { margin: 0; }
+.sb-reader-stats dt {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-fade);
+  margin-bottom: 0.1rem;
+}
+.sb-reader-stats dd {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  color: var(--ink);
+  font-feature-settings: "lnum";
+}
+
+.sb-reader-intro {
+  font-style: italic;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  margin: 0 0 0.7rem;
+  line-height: 1.45;
+}
+
+.sb-fineprint {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--ink-fade);
+  margin: 0.5rem 0 0;
+  line-height: 1.4;
+}
+
+/* --- Featured panel -------------------------------------------------- */
+
+.sb-featured {
+  background: var(--blockquote-bg);
+  border-left: 3px solid var(--accent);
+  padding-left: 0.9rem;
+  padding-right: 0.5rem;
+  border-top: none;
+}
+.sb-featured + .sb-panel { border-top: 1px solid var(--rule); }
+
+.sb-featured-title {
+  display: inline-block;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--ink);
+  border-bottom: 1px dotted rgba(122, 46, 31, 0.4);
+  margin-bottom: 0.4rem;
+  line-height: 1.3;
+}
+.sb-featured-title:hover {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent-hover);
+  background: transparent;
+}
+
+.sb-featured-blurb {
+  margin: 0;
+  font-size: 0.88rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+/* --- Patronage panel ------------------------------------------------- */
+
+.sb-patron-blurb {
+  margin: 0 0 0.7rem;
+  font-style: italic;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.sb-discord-link {
+  display: block;
+  margin-top: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5865f2;
+  border-bottom: 1px dotted rgba(88, 101, 242, 0.4);
+  padding-bottom: 1px;
+}
+.sb-discord-link:hover {
+  color: #5865f2;
+  border-bottom-color: #5865f2;
+  background: transparent;
+}
+
+/* --- Calls to action ------------------------------------------------- */
+
+.sb-cta {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: var(--parchment);
+  border: 1px solid var(--ink);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  border-radius: 1px;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.sb-cta:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--parchment);
+}
+
+.sb-cta-outline {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--ink-soft);
+}
+.sb-cta-outline:hover {
+  background: var(--accent);
+  color: var(--parchment);
+  border-color: var(--accent);
+}
+
+/* --- Live presence: "fellow readers" + "currently being consulted" --- */
+
+/* Standalone panel variant: no top divider, since there's no reader-card
+   above it whose visual weight we need to separate from. */
+.sb-fellow-panel {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+.sb-fellow-panel .sb-fellow-readers {
+  margin: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.sb-fellow-readers {
+  margin: 0.9rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px dotted var(--rule);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  letter-spacing: 0.02em;
+}
+.sb-fellow-readers strong {
+  color: var(--ink);
+  font-weight: 600;
+  font-feature-settings: "lnum", "tnum";
+}
+.sb-fellow-dot {
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: #2f7a2f;
+  box-shadow: 0 0 0 0 rgba(47, 122, 47, 0.55);
+  animation: sb-fellow-pulse 2.4s ease-out infinite;
+  flex: 0 0 auto;
+  transform: translateY(-1px);
+}
+@keyframes sb-fellow-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(47, 122, 47, 0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(47, 122, 47, 0);    }
+  100% { box-shadow: 0 0 0 0   rgba(47, 122, 47, 0);    }
+}
+
+/* Highlight the row that matches the article the viewer is currently on. */
+.sb-now-current > a {
+  font-weight: 600;
+  color: var(--ink);
+}
+.sb-now-current::before {
+  content: "‣ ";
+  color: var(--accent);
+  margin-left: -0.6rem;
+}
+
+.sb-now-fineprint {
+  font-style: italic;
+  margin-top: 0.6rem;
+}
+
+/* --- Article vote: compact, vertical, sits to the left of the h1 ----- */
+
+/*
+ * The vote element is absolutely positioned at the top-left of
+ * `.article-frame`. The frame wraps the React-rendered <ArticleVote /> and
+ * the streamed <article>. To carve out room for it we reserve left padding
+ * on the article's first <h1> via a single selector — exactly as agreed:
+ * a simple selector that matches the first h1 of the article.
+ *
+ * Tablets and below: the absolute positioning + h1 padding falls back to
+ * a normal block flow above the title (see media query at the bottom).
+ */
+
+.article-frame {
+  position: relative;
+}
+
+/* h1 left-padding only kicks in on votable articles. The homepage
+   ("/") shares the same wrapper for layout consistency but doesn't get
+   the vote button, so it must not waste 3.6rem on the title row. */
+.article-frame-votable .article > h1:first-of-type {
+  padding-left: 3.6rem;
+  min-height: 2.6rem;
+}
+
+.article-vote {
+  position: absolute;
+  top: 0.15rem;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  font-family: var(--mono);
+  z-index: 1;
+}
+
+.article-vote-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  width: 2.8rem;
+  padding: 0.35rem 0.25rem;
+  background: transparent;
+  border: 1px solid var(--ink-soft);
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  line-height: 1;
+  transition: color 120ms ease, border-color 120ms ease,
+    background 120ms ease, transform 120ms ease;
+  font-feature-settings: "lnum", "tnum";
+}
+.article-vote-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.article-vote-btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.article-vote-btn.voted {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--blockquote-bg);
+}
+
+.article-vote-arrow {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.article-vote-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-width: 1ch;
+  text-align: center;
+}
+
+/* The "Endorse / Endorsed" label is now visually redundant next to a
+   self-explanatory ▲+number pill; hide it but keep it in the DOM as
+   a screen-reader aid. */
+.article-vote-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.article-vote-error {
+  font-size: 0.66rem;
+  font-style: italic;
+  color: #b85a3a;
+  max-width: 4rem;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* Narrow viewports: there's not enough horizontal room next to the h1
+   for the absolute-positioned button. Fall back to a stacked layout. */
+@media (max-width: 640px) {
+  .article-frame-votable .article > h1:first-of-type {
+    padding-left: 0;
+    min-height: 0;
+  }
+  .article-vote {
+    position: static;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.7rem;
+  }
+  .article-vote-btn {
+    flex-direction: row;
+    width: auto;
+    padding: 0.25rem 0.6rem;
+    gap: 0.4rem;
+  }
 }

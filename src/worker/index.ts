@@ -38,6 +38,8 @@ export interface Env {
   // Per-IP rate limit for /api/search LLM-backed suggestions. Over the
   // limit, search still returns DB matches but skips the hallucination call.
   SEARCH_PER_IP_PER_HOUR?: string;
+  // Single Durable Object tracking live readers per slug. See presence.ts.
+  PRESENCE: DurableObjectNamespace;
 }
 
 interface StoredArticle {
@@ -771,6 +773,26 @@ app.get("/api/moderate", async (c) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/*  GET /api/presence  — single global Durable Object, WS-only                  */
+/*                                                                              */
+/*  Clients open exactly one WebSocket for the lifetime of the SPA and send     */
+/*  a `{t:"r", s, ti}` message whenever they navigate to a new slug. The DO     */
+/*  fans back two stream types: a global top-N broadcast and a per-client       */
+/*  count for the slug they're on. Closing the WS removes them from counts.    */
+/* -------------------------------------------------------------------------- */
+
+app.get("/api/presence", (c) => {
+  if (c.req.header("upgrade")?.toLowerCase() !== "websocket") {
+    return c.json({ error: "expected websocket upgrade" }, 426);
+  }
+  // Single global DO. Sharding (if ever needed) would key idFromName by a
+  // client-hash; for now everyone lands on "global".
+  const id = c.env.PRESENCE.idFromName("global");
+  const stub = c.env.PRESENCE.get(id);
+  return stub.fetch(c.req.raw);
+});
+
+/* -------------------------------------------------------------------------- */
 /*  Brand-rename redirect: old root slug → new root slug.                      */
 /* -------------------------------------------------------------------------- */
 
@@ -785,4 +807,5 @@ app.all("*", async (c) => {
   return c.env.ASSETS.fetch(c.req.raw);
 });
 
+export { PresenceDO } from "./presence";
 export default app;

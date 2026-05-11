@@ -551,5 +551,170 @@ export function createCommentsApp() {
     }
   });
 
+  /* ------------------------------------------------------------------ */
+  /*  Article-level upvotes                                              */
+  /*                                                                     */
+  /*  KV stores the article HTML; D1 stores the score + per-user vote    */
+  /*  rows. Rows in `articles` are created lazily on the first upvote so */
+  /*  we don't have a table entry for every generated slug — most never  */
+  /*  attract a vote and don't need one.                                 */
+  /* ------------------------------------------------------------------ */
+
+  /** Vote state for one article: { score, voted }. Cheap call (no auth
+   *  required if the user has no cookie — they just see voted=false). */
+  app.get("/api/articles/:slug/meta", async (c) => {
+    const slug = slugify(c.req.param("slug"));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+
+    const row = await c.env.DB
+      .prepare("SELECT score FROM articles WHERE slug = ?")
+      .bind(slug)
+      .first<{ score: number }>();
+
+    let voted = false;
+    const viewerId = getCookie(c, COOKIE_NAME);
+    if (viewerId) {
+      const v = await c.env.DB
+        .prepare(
+          "SELECT 1 AS x FROM article_votes WHERE user_id = ? AND slug = ?"
+        )
+        .bind(viewerId, slug)
+        .first<{ x: number }>();
+      voted = !!v;
+    }
+
+    return c.json({ slug, score: row?.score ?? 0, voted });
+  });
+
+  /** Top-N articles by score. Used by the "Top Folios" sidebar panel.
+   *  ?limit=5 default, capped at 25. Cheap: indexed scan on (score DESC). */
+  app.get("/api/articles/top", async (c) => {
+    const limit = Math.min(
+      Math.max(parseInt(c.req.query("limit") || "5", 10) || 5, 1),
+      25
+    );
+    const { results } = await c.env.DB
+      .prepare(
+        `SELECT slug, title, score
+           FROM articles
+          WHERE score > 0
+          ORDER BY score DESC, created_at ASC
+          LIMIT ?`
+      )
+      .bind(limit)
+      .all<{ slug: string; title: string; score: number }>();
+    return c.json({ items: results });
+  });
+
+  /** Toggle an upvote on an article. Mirrors the comment-vote flow:
+   *  ensureUser → check existing → INSERT/DELETE in a batch with the
+   *  score update. Returns the new {score, voted} so the client can
+   *  reconcile its optimistic update. */
+  app.post("/api/articles/:slug/vote", async (c) => {
+    const slug = slugify(c.req.param("slug"));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+
+    // Refuse to vote on slugs the SPA owns (search/all-entries) or the
+    // homepage. The client doesn't expose the button on those views, but
+    // a hand-rolled POST should still get 400'd.
+    if (slug === "all-entries" || slug === "search" || slug === "halupedia") {
+      return c.json({ error: "this entry is not votable" }, 400);
+    }
+
+    // Confirm the article actually exists in KV before letting anyone
+    // vote on it. This stops a malicious POST from inserting an
+    // articles-row for a never-generated slug, polluting the top panel.
+    const exists = await c.env.ARTICLES.get(slug);
+    if (!exists) return c.json({ error: "entry not found" }, 404);
+
+    let user: UserRow;
+    try {
+      user = await ensureUser(c, c.env);
+    } catch (e: any) {
+      if (e?.status === 429) {
+        return c.json({ error: e.message }, 429, {
+          "retry-after": String(e.retryAfter ?? 60),
+        });
+      }
+      throw e;
+    }
+
+    const existing = await c.env.DB
+      .prepare(
+        "SELECT user_id FROM article_votes WHERE user_id = ? AND slug = ?"
+      )
+      .bind(user.id, slug)
+      .first();
+
+    if (existing) {
+      // Retract upvote.
+      await c.env.DB.batch([
+        c.env.DB
+          .prepare(
+            "DELETE FROM article_votes WHERE user_id = ? AND slug = ?"
+          )
+          .bind(user.id, slug),
+        c.env.DB
+          .prepare(
+            "UPDATE articles SET score = MAX(score - 1, 0) WHERE slug = ?"
+          )
+          .bind(slug),
+      ]);
+      const row = await c.env.DB
+        .prepare("SELECT score FROM articles WHERE slug = ?")
+        .bind(slug)
+        .first<{ score: number }>();
+      return c.json({
+        voted: false,
+        score: row?.score ?? 0,
+        user: { id: user.id, name: user.name, username: user.username },
+      });
+    }
+
+    // First-time vote: lazily create the articles row if missing. Title
+    // comes from KV metadata so the top-N panel doesn't need extra
+    // lookups. We INSERT with score=1 and OR IGNORE on conflict; if the
+    // row already existed, the subsequent UPDATE bumps its score.
+    let title = slug;
+    try {
+      const stored = (await c.env.ARTICLES.get(slug, "json")) as
+        | { title?: string }
+        | null;
+      if (stored?.title) title = stored.title;
+    } catch {
+      /* fallback to slug as title */
+    }
+
+    const now = Date.now();
+    await c.env.DB.batch([
+      c.env.DB
+        .prepare(
+          `INSERT OR IGNORE INTO articles (slug, title, score, created_at)
+           VALUES (?, ?, 0, ?)`
+        )
+        .bind(slug, title, now),
+      c.env.DB
+        .prepare(
+          `INSERT INTO article_votes (user_id, slug, created_at)
+           VALUES (?, ?, ?)`
+        )
+        .bind(user.id, slug, now),
+      c.env.DB
+        .prepare("UPDATE articles SET score = score + 1 WHERE slug = ?")
+        .bind(slug),
+    ]);
+
+    const row = await c.env.DB
+      .prepare("SELECT score FROM articles WHERE slug = ?")
+      .bind(slug)
+      .first<{ score: number }>();
+
+    return c.json({
+      voted: true,
+      score: row?.score ?? 1,
+      user: { id: user.id, name: user.name, username: user.username },
+    });
+  });
+
   return app;
 }

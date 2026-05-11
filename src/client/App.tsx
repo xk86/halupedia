@@ -2,9 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Comments } from "./Comments";
 import { AllEntries } from "./AllEntries";
 import { SearchResults } from "./SearchResults";
+import { Sidebar } from "./Sidebar";
+import { usePresence } from "./usePresence";
+import { ArticleVote } from "./ArticleVote";
 
 const RESERVED_ALL_ENTRIES = "all-entries";
 const RESERVED_SEARCH = "search";
+/** The "/" homepage maps to this internal slug (see seed.ts). It is not
+ *  votable and must not pollute the live "currently being consulted" list. */
+const HOMEPAGE_SLUG = "halupedia";
 
 type Status = "idle" | "loading" | "streaming" | "done" | "error" | "banned";
 
@@ -38,6 +44,11 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [dreamMsg, setDreamMsg] = useState<string>(DREAMING_MESSAGES[0]);
   const [headerSearchDraft, setHeaderSearchDraft] = useState<string>("");
+  // Title of the currently-rendered article (extracted from the streamed
+  // <h1>). Declared up here because the slug-change fetch effect needs to
+  // reset it synchronously to avoid leaking a stale title into the next
+  // article's presence broadcast.
+  const [articleTitle, setArticleTitle] = useState<string>("");
   const prevSlugRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -45,6 +56,11 @@ export function App() {
   useEffect(() => {
     const onPop = () => {
       const s = currentSlug();
+      // Clear the title in the same render as the slug change so the
+      // presence effect below never sees the {new slug, old title} pair
+      // mid-transition. (Backend is now resilient to that, but there's
+      // no reason to ship known-wrong data.)
+      setArticleTitle("");
       setSlug(s);
       setSearchQuery(s === RESERVED_SEARCH ? currentSearchQuery() : "");
     };
@@ -72,6 +88,11 @@ export function App() {
     setHtml("");
     setError(null);
     setStatus("loading");
+    // Clear the previous article's title in the same tick the slug changes
+    // so usePresence doesn't broadcast {s:newSlug, ti:oldTitle} during the
+    // window before the new article's <h1> streams in. That stale pairing
+    // was poisoning the server-side title cache for the new slug.
+    setArticleTitle("");
     setDreamMsg(DREAMING_MESSAGES[Math.floor(Math.random() * DREAMING_MESSAGES.length)]);
 
     const from = prevSlugRef.current;
@@ -133,15 +154,61 @@ export function App() {
     };
   }, [slug]);
 
-  /* ----- Update document.title when article arrives ----- */
+  /* ----- Extract h1 title from the article HTML ----- */
+  // Used both for `document.title` and for the presence broadcast (so the
+  // "currently being read" panel shows real titles instead of slugified
+  // fallbacks). State declared above with the rest because the slug-change
+  // fetch effect resets it.
   useEffect(() => {
-    if (!html) return;
+    if (!html) {
+      setArticleTitle("");
+      return;
+    }
     const m = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
     if (m) {
       const title = m[1].replace(/<[^>]+>/g, "").trim();
-      if (title) document.title = `${title} — Halupedia`;
+      if (title) {
+        document.title = `${title} — Halupedia`;
+        setArticleTitle(title);
+      }
     }
   }, [html]);
+
+  /* ----- Presence: live "who is reading what" over a single WS ----- */
+  // We feed the hook null on non-article views (search, all-entries) AND
+  // on the homepage so "Halupedia" itself never shows up in the live
+  // "currently being consulted" list. The WS stays connected; the user
+  // is just counted as "idle" until they open a real folio.
+  const presenceSlug =
+    slug === RESERVED_ALL_ENTRIES ||
+    slug === RESERVED_SEARCH ||
+    slug === HOMEPAGE_SLUG
+      ? null
+      : slug;
+  const presence = usePresence(presenceSlug, articleTitle);
+
+  /* ----- Top folios (all-time, by upvotes) ----- */
+  // Plain D1-backed list, no real-time bells. Refetched on first SPA load
+  // and whenever the user successfully upvotes/retracts an article.
+  const [topArticles, setTopArticles] = useState<
+    { slug: string; title: string; score: number }[]
+  >([]);
+  const refreshTopArticles = useCallback(async () => {
+    try {
+      const res = await fetch("/api/articles/top?limit=5", {
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      const j: { items: { slug: string; title: string; score: number }[] } =
+        await res.json();
+      setTopArticles(j.items ?? []);
+    } catch {
+      /* keep stale list */
+    }
+  }, []);
+  useEffect(() => {
+    refreshTopArticles();
+  }, [refreshTopArticles]);
 
   /* ----- Internal link interception ----- */
   const onContainerClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
@@ -164,6 +231,10 @@ export function App() {
       const url = clean === "halupedia" ? "/" : `/${clean}`;
       window.history.pushState({}, "", url);
       window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      // Batch the title clear with the slug change. React renders both
+      // state updates together, so the presence effect sees the new slug
+      // with an empty title rather than the previous article's title.
+      setArticleTitle("");
       setSlug(clean);
       setSearchQuery("");
     },
@@ -297,67 +368,96 @@ export function App() {
         )}
       </header>
 
-      <main
-        className={status === "streaming" ? "streaming" : ""}
-        onClick={onContainerClick}
-      >
-        {slug === RESERVED_ALL_ENTRIES ? (
-          <AllEntries onNavigate={navigateTo} />
-        ) : slug === RESERVED_SEARCH ? (
-          <SearchResults
-            q={searchQuery}
-            onNavigate={navigateTo}
-            onSearch={navigateToSearch}
-          />
-        ) : (
-          <>
-            {status === "loading" && !html && (
-              <div className="status">
-                <span className="dot" />
-                <span>{dreamMsg}</span>
-              </div>
-            )}
-            {status === "streaming" && (
-              <div className="status">
-                <span className="dot" />
-                <span>Retrieving entry…</span>
-              </div>
-            )}
-            {status === "error" && error && (
-              <div className="error">
-                Something broke, which is ironic for a made-up encyclopedia: {error}
-              </div>
-            )}
-            {status === "banned" && (
-              <div className="banned-notice">
-                <h1>Entry redacted</h1>
-                <p>
-                  This article was flagged by moderation and removed from the
-                  register. Halupedia will not regenerate it.
-                </p>
-                <p className="banned-notice-meta">
-                  We keep the encyclopedia maximally absurd but draw the line
-                  at hate speech, slurs, incitement, and keyword-spam. If you
-                  believe this was removed in error, mention it in the{" "}
-                  <a
-                    href="https://discord.gg/fKMnyNwtGc"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Discord
-                  </a>
-                  .
-                </p>
-              </div>
-            )}
-            <article
-              className="article"
-              dangerouslySetInnerHTML={{ __html: html }}
+      <div className="layout">
+        <main
+          className={`layout-main${status === "streaming" ? " streaming" : ""}`}
+          onClick={onContainerClick}
+        >
+          {slug === RESERVED_ALL_ENTRIES ? (
+            <AllEntries onNavigate={navigateTo} />
+          ) : slug === RESERVED_SEARCH ? (
+            <SearchResults
+              q={searchQuery}
+              onNavigate={navigateTo}
+              onSearch={navigateToSearch}
             />
-            {status === "done" && <Comments slug={slug} />}
-          </>
-        )}
-      </main>
+          ) : (
+            <>
+              {status === "loading" && !html && (
+                <div className="status">
+                  <span className="dot" />
+                  <span>{dreamMsg}</span>
+                </div>
+              )}
+              {status === "streaming" && (
+                <div className="status">
+                  <span className="dot" />
+                  <span>Retrieving entry…</span>
+                </div>
+              )}
+              {status === "error" && error && (
+                <div className="error">
+                  Something broke, which is ironic for a made-up encyclopedia: {error}
+                </div>
+              )}
+              {status === "banned" && (
+                <div className="banned-notice">
+                  <h1>Entry redacted</h1>
+                  <p>
+                    This article was flagged by moderation and removed from the
+                    register. Halupedia will not regenerate it.
+                  </p>
+                  <p className="banned-notice-meta">
+                    We keep the encyclopedia maximally absurd but draw the line
+                    at hate speech, slurs, incitement, and keyword-spam. If you
+                    believe this was removed in error, mention it in the{" "}
+                    <a
+                      href="https://discord.gg/fKMnyNwtGc"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Discord
+                    </a>
+                    .
+                  </p>
+                </div>
+              )}
+              <div
+                className={`article-frame${
+                  slug !== HOMEPAGE_SLUG ? " article-frame-votable" : ""
+                }`}
+              >
+                {status === "done" && html && (
+                  <ArticleVote
+                    slug={presenceSlug}
+                    onVoted={refreshTopArticles}
+                  />
+                )}
+                <article
+                  className="article"
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+              </div>
+            </>
+          )}
+        </main>
+
+        <Sidebar
+          slug={presenceSlug}
+          onNavigate={navigateTo}
+          presenceTop={presence.top}
+          presenceHereCount={presence.hereCount}
+          topArticles={topArticles}
+        />
+
+        {/* Comments live as a sibling of <main> (not a child) so the grid
+            can place them BELOW the sidebar on mobile (where the column
+            order should read article → sidebar → comments) while still
+            sitting directly under the article on desktop. */}
+        {slug !== RESERVED_ALL_ENTRIES &&
+          slug !== RESERVED_SEARCH &&
+          status === "done" && <Comments slug={slug} />}
+      </div>
 
       <footer className="site-footer">
         <p className="footer-tagline-line">

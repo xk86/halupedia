@@ -46,3 +46,13 @@ SEARCH_PER_IP_PER_HOUR = "15"
 
 # OPENROUTER_API_KEY should be set as a secret:
 # pnpm wrangler secret put OPENROUTER_API_KEY
+
+# Live presence (who is reading what, in real time). Single global DO,
+# WebSocket-only API at /api/presence. SQLite-backed (the modern default).
+[[durable_objects.bindings]]
+name = "PRESENCE"
+class_name = "PresenceDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PresenceDO"]

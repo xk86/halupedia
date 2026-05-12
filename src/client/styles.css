@@ -1305,6 +1305,59 @@ a:hover {
   background: transparent;
 }
 
+/* --- Solana tip jar (Patronage panel) -------------------------------- */
+
+.sb-solana {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.8rem;
+}
+.sb-solana-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-fade);
+}
+.sb-solana-addr {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  text-align: left;
+  background: rgba(122, 46, 31, 0.04);
+  border: 1px dashed rgba(122, 46, 31, 0.35);
+  border-radius: 2px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.sb-solana-addr:hover {
+  background: rgba(122, 46, 31, 0.08);
+  border-color: var(--accent);
+}
+.sb-solana-addr code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-solana-copy {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
 /* --- Calls to action ------------------------------------------------- */
 
 .sb-cta {

@@ -14,7 +14,12 @@
  *   5. Patronage       — tip jar + Discord (real links)
  */
 
+import { useState } from "react";
 import type { PresenceTopItem } from "./usePresence";
+
+/** Solana wallet for direct on-chain patronage. Sits alongside the BMC link
+ *  for readers who'd rather skip Stripe's cut and send a few lamports. */
+const SOLANA_ADDRESS = "EboTHi6QY9GxfknLj3nBNcZ2cx9nha6XDHhA8NZKUgoc";
 
 interface SidebarProps {
   /** Current article slug. Pass null on non-article views (search, all-entries). */
@@ -397,6 +402,7 @@ function PatronagePanel() {
       >
         Buy us tokens →
       </a>
+      <SolanaTipJar />
       <a
         href="https://discord.gg/fKMnyNwtGc"
         target="_blank"
@@ -406,5 +412,39 @@ function PatronagePanel() {
         Join Discord
       </a>
     </section>
+  );
+}
+
+/** Small click-to-copy chip for the project's Solana wallet. Kept inline
+ *  in the Patronage panel so it sits right next to the BMC button. */
+function SolanaTipJar() {
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(SOLANA_ADDRESS);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can fail on insecure contexts / older browsers.
+      // Falling back silently is fine — the address is visible on screen.
+    }
+  };
+
+  return (
+    <div className="sb-solana" aria-label="Solana wallet address">
+      <span className="sb-solana-label">or send SOL</span>
+      <button
+        type="button"
+        className="sb-solana-addr"
+        onClick={onCopy}
+        title="Copy Solana address"
+      >
+        <code>{SOLANA_ADDRESS}</code>
+        <span className="sb-solana-copy" aria-live="polite">
+          {copied ? "copied" : "copy"}
+        </span>
+      </button>
+    </div>
   );
 }

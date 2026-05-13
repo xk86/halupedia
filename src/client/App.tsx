@@ -329,6 +329,14 @@ export function App() {
             GitHub
           </a>
           <a
+            href="https://reddit.com/r/halupedia"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="nav-reddit"
+          >
+            Reddit
+          </a>
+          <a
             href="https://discord.gg/fKMnyNwtGc"
             target="_blank"
             rel="noopener noreferrer"

@@ -101,8 +101,15 @@ a:hover {
   background: transparent;
 }
 
-.nav-discord {
+.nav-reddit {
   margin-left: auto;
+  color: #ff4500 !important;
+}
+.nav-reddit:hover {
+  border-bottom-color: #ff4500 !important;
+}
+
+.nav-discord {
   color: #5865f2 !important;
 }
 .nav-discord:hover {
@@ -1053,7 +1060,15 @@ a:hover {
 
 .sidebar {
   position: sticky;
-  top: 1rem;
+  /* Anchor the rail to the *bottom* of the viewport rather than the top.
+     For sidebars taller than the viewport this gives the right UX:
+     the rail scrolls in lock-step with the article until its bottom
+     reaches the viewport bottom, then pins there so the article + comments
+     continue scrolling past it. With `top: 1rem` the top was pinned from
+     the first scroll tick, which meant the lower panels (Patronage / SOL
+     wallet) were never reachable without scrolling through the entire
+     article AND the comments first. */
+  bottom: 1rem;
   /* Span both content rows on desktop so the sticky rail aligns to the
      top of the article and stays visible while the user scrolls past
      the comments. `align-self: start` keeps the sticky behaviour intact

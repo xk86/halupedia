@@ -19,6 +19,7 @@ printing. Editors and conspirators meet in the
 ## Table of contents
 
 - [What it is](#what-it-is)
+- [Star history](#star-history)
 - [How a page is born](#how-a-page-is-born)
 - [Consistency in a hallucinated universe](#consistency-in-a-hallucinated-universe)
 - [Comments](#comments)
@@ -47,6 +48,16 @@ Halupedia is a single-page Cloudflare Worker that:
 
 There is no editorial staff, no truth, no warranty. Every article is invented
 on demand. The footnotes are also lies.
+
+## Star history
+
+<a href="https://www.star-history.com/?repos=BaderBC%2Fhalupedia&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=BaderBC/halupedia&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=BaderBC/halupedia&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=BaderBC/halupedia&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ## How a page is born
 

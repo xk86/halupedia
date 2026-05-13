@@ -34,6 +34,14 @@ interface ThreadResponse {
 
 const PAGE_SIZE = 50;
 
+/** When a thread has more than this many root comments, the list is
+ *  truncated to a preview on first render with an "Expand" button. This is
+ *  purely client-side: the comments are already in `comments` state, we
+ *  just don't render past `INITIAL_VISIBLE_ROOTS` until the reader asks.
+ *  The expanded flag resets on full page reload (which is the intended UX
+ *  — long threads should feel concise by default each visit). */
+const INITIAL_VISIBLE_ROOTS = 5;
+
 /* -------------------------------------------------------------------------- */
 /*  Time formatting (HN-ish)                                                   */
 /* -------------------------------------------------------------------------- */
@@ -141,6 +149,10 @@ export function Comments({ slug }: Props) {
   const [rootsTotal, setRootsTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [sort, setSort] = useState<SortMode>("recommended");
+  // Client-side preview-vs-full toggle for long threads. Resets to false on
+  // slug/sort change (see effect below) and on full page reload (state is
+  // not persisted anywhere).
+  const [expanded, setExpanded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   /* ----- Fetch on slug or sort change ----- */
@@ -157,6 +169,7 @@ export function Comments({ slug }: Props) {
     setServerTotal(0);
     setRootsTotal(0);
     setHasMore(false);
+    setExpanded(false);
 
     (async () => {
       try {
@@ -385,25 +398,48 @@ export function Comments({ slug }: Props) {
         </p>
       ) : (
         <>
-          <ol className="comments-list">
-            {comments.map((c) => (
-              <CommentNode
-                key={c.id}
-                comment={c}
-                depth={0}
-                replyTo={replyTo}
-                setReplyTo={setReplyTo}
-                replyDraft={replyDraft}
-                setReplyDraft={setReplyDraft}
-                submitReply={submitReply}
-                submitting={submitting}
-                toggleVote={toggleVote}
-                collapsed={collapsed}
-                toggleCollapse={toggleCollapse}
-              />
-            ))}
-          </ol>
-          {hasMore && (
+          {(() => {
+            const truncated =
+              !expanded && comments.length > INITIAL_VISIBLE_ROOTS;
+            const visible = truncated
+              ? comments.slice(0, INITIAL_VISIBLE_ROOTS)
+              : comments;
+            const hiddenCount = comments.length - visible.length;
+            return (
+              <>
+                <ol className="comments-list">
+                  {visible.map((c) => (
+                    <CommentNode
+                      key={c.id}
+                      comment={c}
+                      depth={0}
+                      replyTo={replyTo}
+                      setReplyTo={setReplyTo}
+                      replyDraft={replyDraft}
+                      setReplyDraft={setReplyDraft}
+                      submitReply={submitReply}
+                      submitting={submitting}
+                      toggleVote={toggleVote}
+                      collapsed={collapsed}
+                      toggleCollapse={toggleCollapse}
+                    />
+                  ))}
+                </ol>
+                {truncated && (
+                  <div className="comments-loadmore comments-expand">
+                    <button
+                      className="comment-link"
+                      onClick={() => setExpanded(true)}
+                    >
+                      Expand ({hiddenCount} more
+                      {hasMore ? " loaded" : ""})
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+          {hasMore && (!expanded ? comments.length <= INITIAL_VISIBLE_ROOTS : true) && (
             <div className="comments-loadmore">
               <button
                 className="comment-link"

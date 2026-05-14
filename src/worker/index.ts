@@ -19,6 +19,7 @@ import {
   isSlugBanned,
   runSweep,
 } from "./moderation";
+import { createAdminApp } from "./admin";
 
 export interface Env {
   ARTICLES: KVNamespace;
@@ -40,6 +41,7 @@ export interface Env {
   SEARCH_PER_IP_PER_HOUR?: string;
   // Single Durable Object tracking live readers per slug. See presence.ts.
   PRESENCE: DurableObjectNamespace;
+  // Admin accounts live in D1 (`admins` table). No env-based password.
 }
 
 interface StoredArticle {
@@ -55,6 +57,10 @@ const app = new Hono<{ Bindings: Env }>();
 // Comments / users / votes (D1-backed). Mounted at root so route paths like
 // `/api/comments/:slug` and `/api/me` are stable.
 app.route("/", createCommentsApp());
+
+// Admin panel API (basic-auth gated). Mounted at root so the routes inside
+// keep their canonical /api/admin/* paths.
+app.route("/", createAdminApp());
 
 /* -------------------------------------------------------------------------- */
 /*  Bot detection                                                              */
@@ -96,7 +102,7 @@ app.get("/robots.txt", (c) => {
 // Reserved slugs are non-article paths the SPA owns. The worker refuses to
 // generate them and the article handler short-circuits with 404 so accidental
 // or malicious hits to /api/page/all-entries don't burn tokens or pollute KV.
-const RESERVED_SLUGS = new Set(["all-entries", "search"]);
+const RESERVED_SLUGS = new Set(["all-entries", "search", "admin"]);
 
 /* -------------------------------------------------------------------------- */
 /*  GET /api/index  — paginated list of every cached article                  */

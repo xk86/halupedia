@@ -5,9 +5,11 @@ import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
 import { usePresence } from "./usePresence";
 import { ArticleVote } from "./ArticleVote";
+import { Admin } from "./Admin";
 
 const RESERVED_ALL_ENTRIES = "all-entries";
 const RESERVED_SEARCH = "search";
+const RESERVED_ADMIN = "admin";
 /** The "/" homepage maps to this internal slug (see seed.ts). It is not
  *  votable and must not pollute the live "currently being consulted" list. */
 const HOMEPAGE_SLUG = "halupedia";
@@ -70,9 +72,13 @@ export function App() {
 
   /* ----- Fetch + stream on every slug change ----- */
   useEffect(() => {
-    // Reserved client-only routes (all-entries, search) bypass the article
-    // fetch entirely — the SPA renders them itself.
-    if (slug === RESERVED_ALL_ENTRIES || slug === RESERVED_SEARCH) {
+    // Reserved client-only routes (all-entries, search, admin) bypass the
+    // article fetch entirely — the SPA renders them itself.
+    if (
+      slug === RESERVED_ALL_ENTRIES ||
+      slug === RESERVED_SEARCH ||
+      slug === RESERVED_ADMIN
+    ) {
       abortRef.current?.abort();
       setHtml("");
       setError(null);
@@ -182,6 +188,7 @@ export function App() {
   const presenceSlug =
     slug === RESERVED_ALL_ENTRIES ||
     slug === RESERVED_SEARCH ||
+    slug === RESERVED_ADMIN ||
     slug === HOMEPAGE_SLUG
       ? null
       : slug;
@@ -389,6 +396,8 @@ export function App() {
               onNavigate={navigateTo}
               onSearch={navigateToSearch}
             />
+          ) : slug === RESERVED_ADMIN ? (
+            <Admin />
           ) : (
             <>
               {status === "loading" && !html && (
@@ -464,6 +473,7 @@ export function App() {
             sitting directly under the article on desktop. */}
         {slug !== RESERVED_ALL_ENTRIES &&
           slug !== RESERVED_SEARCH &&
+          slug !== RESERVED_ADMIN &&
           status === "done" && <Comments slug={slug} />}
       </div>
 

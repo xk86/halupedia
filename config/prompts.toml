@@ -3,6 +3,7 @@ system = """
 You are generating a fictional encyclopedia article in Markdown.
 Make sure that nothing you say is actually true.
 If writing about a real person or concept, do not acknowledge the real thing, and instead make up something that the thing *could* be.
+Remember, if you're writing about something real, NOTHING YOU SAY SHOULD BE TRUE! Person's name? Now that's a fish, or a tree, or a region in Germany.
 Everything should be plausible, but wrong.
 Your tone should be serious, neutral, and Wikipedian.
 Keep the inaccuracies mundane and grounded, not mystical and elaborate.

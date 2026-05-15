@@ -6,8 +6,8 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { loadConfig } from "./config";
 import { deleteArticleBySlug, getAdminOverview, getArticleByLookup, getCanonicalSlugForTarget, listArticles, listBacklinks, listIncomingHints, openDatabase, saveArticle, searchCorpus, wipeGeneratedCorpus } from "./db";
-import { OpenAICompatClient } from "./llm";
-import { logSection } from "./logger";
+import { OpenAICompatClient, type LlmClient } from "./llm";
+import { createConsoleLogger, type Logger } from "./logger";
 import { extractInternalLinks, extractTitle, markdownToPlainText, normalizeMarkdown, renderMarkdown, sectionSlice, stripFootnoteArtifacts, stripTopLevelSections } from "./markdown";
 import { getPrompt, renderTemplate } from "./prompts";
 import { indexArticleChunks, retrieveContext } from "./retrieval";
@@ -32,6 +32,8 @@ export interface CreateAppOptions {
   databasePath?: string;
   distRoot?: string;
   skipLlmProbe?: boolean;
+  logger?: Logger;
+  llmClient?: LlmClient;
 }
 
 function titleMatchesRequested(title: string, requestedTitle: string, requestedSlug: string): boolean {
@@ -187,7 +189,7 @@ function assembleArticleMarkdown(
 }
 
 async function generateSeeAlsoCandidates(
-  llm: OpenAICompatClient,
+  llm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   bodyMarkdown: string,
@@ -227,7 +229,7 @@ function buildLinkedPromptSystem(promptConfig: ReturnType<typeof loadConfig>["pr
 }
 
 async function generateLinkSelection(
-  llm: OpenAICompatClient,
+  llm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   selectedText: string,
@@ -262,7 +264,7 @@ async function generateLinkSelection(
 }
 
 async function generateLinkSuggestion(
-  llm: OpenAICompatClient,
+  llm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   selectedText: string,
@@ -298,6 +300,7 @@ async function generateLinkSuggestion(
 }
 
 export async function createApp(options: CreateAppOptions = {}) {
+  const logger = options.logger ?? createConsoleLogger();
   let runtime = loadConfig();
   if (options.databasePath) {
     runtime = {
@@ -312,7 +315,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
   const db = openDatabase(runtime.app.storage.database_path);
-  let llm = new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings);
+  let llm: LlmClient = options.llmClient ?? new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings, logger);
   const app = new Hono();
   const distRoot = options.distRoot ? resolve(options.distRoot) : resolve(process.cwd(), "dist");
 
@@ -330,17 +333,19 @@ export async function createApp(options: CreateAppOptions = {}) {
           },
         }
       : nextRuntime;
-    llm = new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings);
-    logSection("startup", [
-      `server=http://${runtime.app.server.host}:${runtime.app.server.port}`,
-      `database=${runtime.app.storage.database_path}`,
-      `chat_base_url=${runtime.llm.chat.base_url}`,
-      `chat_model=${runtime.llm.chat.model}`,
-      `embeddings_enabled=${String(runtime.llm.embeddings.enabled)}`,
-      `embeddings_base_url=${runtime.llm.embeddings.base_url}`,
-      `embeddings_model=${runtime.llm.embeddings.model}`,
-      `rag_enabled=${String(runtime.app.rag.enabled)}`,
-    ]);
+    if (!options.llmClient) {
+      llm = new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings, logger);
+    }
+    logger.info("startup", {
+      server: `http://${runtime.app.server.host}:${runtime.app.server.port}`,
+      database: runtime.app.storage.database_path,
+      chat_base_url: runtime.llm.chat.base_url,
+      chat_model: runtime.llm.chat.model,
+      embeddings_enabled: runtime.llm.embeddings.enabled,
+      embeddings_base_url: runtime.llm.embeddings.base_url,
+      embeddings_model: runtime.llm.embeddings.model,
+      rag_enabled: runtime.app.rag.enabled,
+    });
     if (!options.skipLlmProbe) {
       await llm.probeConnections();
     }
@@ -364,7 +369,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   async function buildArticle(slug: string, requestedTitle: string, onProgress?: (html: string) => void) {
-    console.log(`[page] generation_start slug=${slug}`);
+    logger.info("page.generation_start", { slug, requested_title: requestedTitle });
     const hints = listIncomingHints(db, slug);
     const retrieved = await retrieveContext(
       db,
@@ -373,7 +378,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       hints,
       runtime.app.rag.enabled,
       runtime.app.rag.max_results,
-      runtime.llm.embeddings.enabled
+      runtime.llm.embeddings.enabled,
+      logger
     );
 
     const prompt = getPrompt(runtime.prompts, "article");
@@ -408,9 +414,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     const resolvedTitle = extractTitle(markdown, requestedTitle);
     const uniqueLinkCount = extractInternalLinks(markdown).length;
     const titleOk = titleMatchesRequested(resolvedTitle, requestedTitle, slug);
-    console.log(
-      `[page] generation_attempt slug=${slug} title=${JSON.stringify(resolvedTitle)} title_ok=${titleOk} body_unique_links=${uniqueLinkCount} retrieved_sources=${deterministicReferences.length}`
-    );
+    logger.info("page.generation_attempt", {
+      slug,
+      title: resolvedTitle,
+      title_ok: titleOk,
+      body_unique_links: uniqueLinkCount,
+      retrieved_sources: deterministicReferences.length,
+    });
     if (!titleOk) {
       throw new Error(`generated article title did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
     }
@@ -448,9 +458,14 @@ export async function createApp(options: CreateAppOptions = {}) {
       normalizedSlug,
       markdown,
       runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
-      runtime.app.rag.chunk_size
+      runtime.app.rag.chunk_size,
+      logger
     );
-    console.log(`[page] generation_done slug=${slug} title=${JSON.stringify(article.title)} links=${links.length}`);
+    logger.info("page.generation_done", {
+      slug,
+      title: article.title,
+      links: links.length,
+    });
     return article;
   }
 
@@ -468,14 +483,22 @@ export async function createApp(options: CreateAppOptions = {}) {
     const lookupSlug = slugify(requestedTitle);
     if (!lookupSlug || !requestedTitle) return c.json({ error: "invalid slug" }, 400);
     const requestedPath = `/wiki/${requestedSegment}`;
-    console.log(`[page] request slug=${lookupSlug} requested_title=${JSON.stringify(requestedTitle)} path=${requestedPath}`);
+    logger.info("page.request", {
+      slug: lookupSlug,
+      requested_title: requestedTitle,
+      path: requestedPath,
+    });
 
     let article = getArticleByLookup(db, lookupSlug);
     if (article) {
       const cachedLinks = extractInternalLinks(article.markdown).length;
       if (!cachedArticleNeedsRepair(article.markdown)) {
         const canonicalPath = canonicalPathForArticle(article);
-        console.log(`[page] cache_hit slug=${article.slug} links=${cachedLinks}`);
+        logger.info("page.cache_hit", {
+          slug: article.slug,
+          links: cachedLinks,
+          canonical_path: canonicalPath,
+        });
         return c.json({
           cached: true,
           redirectedFrom: canonicalPath !== requestedPath ? requestedPath : undefined,
@@ -484,11 +507,15 @@ export async function createApp(options: CreateAppOptions = {}) {
           backlinks: listBacklinks(db, article.slug),
         });
       }
-      console.warn(`[page] cache_repair slug=${article.slug} links=${cachedLinks} reason=semantic_validation_failed`);
+      logger.warn("page.cache_repair", {
+        slug: article.slug,
+        links: cachedLinks,
+        reason: "semantic_validation_failed",
+      });
       article = null;
     }
     if (!article) {
-      console.log(`[page] cache_miss slug=${lookupSlug}`);
+      logger.info("page.cache_miss", { slug: lookupSlug });
     }
 
     const encoder = new TextEncoder();
@@ -513,7 +540,10 @@ export async function createApp(options: CreateAppOptions = {}) {
           });
           controller.close();
         } catch (error) {
-          console.error(`[page] generation_failed slug=${lookupSlug}`, error);
+          logger.error("page.generation_failed", {
+            slug: lookupSlug,
+            error: error instanceof Error ? error.message : String(error),
+          });
           send({
             type: "error",
             message: error instanceof Error ? error.message : String(error),
@@ -550,7 +580,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       hints,
       runtime.app.rag.enabled,
       runtime.app.rag.max_results,
-      runtime.llm.embeddings.enabled
+      runtime.llm.embeddings.enabled,
+      logger
     );
     const excerpt = extractSelectionExcerpt(article.markdown, selectedText);
     const selectedPhrase = shouldRefineSelection(selectedText)
@@ -603,7 +634,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       nextArticle.slug,
       nextMarkdown,
       runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
-      runtime.app.rag.chunk_size
+      runtime.app.rag.chunk_size,
+      logger
     );
 
     return c.json({
@@ -642,7 +674,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.post("/api/admin/wipe", (c) => {
     wipeGeneratedCorpus(db);
-    console.warn("[admin] wiped generated corpus");
+    logger.warn("admin.wipe_generated_corpus");
     return c.json({ ok: true });
   });
 
@@ -693,7 +725,11 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const bareSlug = routeSlug(path);
     if (bareSlug && !path.startsWith("/wiki/")) {
-      console.log(`[page] redirect bare_slug=${bareSlug} from=${path}`);
+      logger.info("page.redirect", {
+        bare_slug: bareSlug,
+        from: path,
+        to: `/wiki/${bareSlug}`,
+      });
       return c.redirect(`/wiki/${bareSlug}`, 302);
     }
 
@@ -727,6 +763,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
 async function bootstrap() {
   const { app, runtime } = await createApp();
+  const logger = createConsoleLogger();
   serve(
     {
       fetch: app.fetch,
@@ -734,7 +771,10 @@ async function bootstrap() {
       port: runtime.app.server.port,
     },
     (info) => {
-      console.log(`[halupedia] listening on http://${info.address}:${info.port}`);
+      logger.info("server.listening", {
+        address: String(info.address),
+        port: info.port,
+      });
     }
   );
 }
@@ -743,7 +783,9 @@ const isEntrypoint = process.argv[1] ? import.meta.url === pathToFileURL(process
 
 if (isEntrypoint) {
   bootstrap().catch((error) => {
-    console.error("[halupedia] startup_failed", error);
+    createConsoleLogger().error("server.startup_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     process.exit(1);
   });
 }

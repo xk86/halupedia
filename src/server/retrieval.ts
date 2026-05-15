@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import { OpenAICompatClient } from "./llm";
+import type { LlmClient } from "./llm";
+import type { Logger } from "./logger";
 
 export interface RetrievedContextPacket {
   context: string;
@@ -57,11 +58,12 @@ function lexicalScore(queryWords: string[], content: string): number {
 
 export async function indexArticleChunks(
   db: DatabaseSync,
-  llm: OpenAICompatClient,
+  llm: LlmClient,
   slug: string,
   markdown: string,
   useEmbeddings: boolean,
-  chunkSize: number
+  chunkSize: number,
+  logger?: Logger
 ) {
   const chunks = chunkText(markdown, chunkSize);
   const embeddings = useEmbeddings && chunks.length ? await llm.embed(chunks) : [];
@@ -82,18 +84,32 @@ export async function indexArticleChunks(
     db.exec("ROLLBACK");
     throw error;
   }
+  logger?.info("rag.index_complete", {
+    slug,
+    chunks: chunks.length,
+    embeddings_enabled: useEmbeddings,
+    embedded_chunks: embeddings.length,
+  });
 }
 
 export async function retrieveContext(
   db: DatabaseSync,
-  llm: OpenAICompatClient,
+  llm: LlmClient,
   slug: string,
   hints: string[],
   enabled: boolean,
   maxResults: number,
-  useEmbeddings: boolean
+  useEmbeddings: boolean,
+  logger?: Logger
 ): Promise<RetrievedContextPacket> {
-  if (!enabled) return { context: "", relatedTitles: [], sourceArticles: [] };
+  if (!enabled) {
+    logger?.info("rag.retrieve_skipped", {
+      slug,
+      hints: hints.length,
+      enabled,
+    });
+    return { context: "", relatedTitles: [], sourceArticles: [] };
+  }
 
   const rows = db
     .prepare(
@@ -103,11 +119,18 @@ export async function retrieveContext(
               c.embedding_json
        FROM article_chunks c
        LEFT JOIN articles a ON a.slug = c.slug
-       WHERE slug != ?`
+       WHERE c.slug != ?`
     )
     .all(slug) as Array<{ slug: string; title: string; content: string; embedding_json: string | null }>;
 
-  if (rows.length === 0) return { context: "", relatedTitles: [], sourceArticles: [] };
+  if (rows.length === 0) {
+    logger?.info("rag.retrieve_empty", {
+      slug,
+      hints: hints.length,
+      corpus_chunks: 0,
+    });
+    return { context: "", relatedTitles: [], sourceArticles: [] };
+  }
 
   const query = [slug, ...hints.slice(0, 8)].join("\n");
 
@@ -141,6 +164,14 @@ export async function retrieveContext(
   }
 
   const picked = ranked.slice(0, maxResults);
+  logger?.info("rag.retrieve_complete", {
+    slug,
+    hints: hints.length,
+    strategy: useEmbeddings ? "embeddings" : "lexical",
+    corpus_chunks: rows.length,
+    ranked_chunks: ranked.length,
+    picked: picked.length,
+  });
   return {
     context: picked
       .map((row) => `- ${row.title} (slug: ${row.slug}): ${row.content.replace(/\s+/g, " ").trim()}`)

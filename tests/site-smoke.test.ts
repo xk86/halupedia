@@ -5,7 +5,58 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, saveArticle } from "../src/server/db";
 import { createApp } from "../src/server/index";
+import type { LlmClient } from "../src/server/llm";
+import type { LogFields, Logger } from "../src/server/logger";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
+
+interface CapturedLogEntry {
+  level: "debug" | "info" | "warn" | "error";
+  event: string;
+  fields?: LogFields;
+}
+
+function createMemoryLogger(entries: CapturedLogEntry[]): Logger {
+  return {
+    debug(event, fields) {
+      entries.push({ level: "debug", event, fields });
+    },
+    info(event, fields) {
+      entries.push({ level: "info", event, fields });
+    },
+    warn(event, fields) {
+      entries.push({ level: "warn", event, fields });
+    },
+    error(event, fields) {
+      entries.push({ level: "error", event, fields });
+    },
+  };
+}
+
+class FakeLlmClient implements LlmClient {
+  async chat(): Promise<string> {
+    return JSON.stringify({ items: [] });
+  }
+
+  async streamChat(
+    _system: string,
+    _user: string,
+    onChunk: (delta: string, accumulated: string) => void
+  ): Promise<{ content: string; finishReason: string }> {
+    const content = [
+      "# Fresh Page",
+      "",
+      "This article links to [Alpha](halu:alpha), [Beta](halu:beta), [Gamma](halu:gamma), [Delta](halu:delta), and [Epsilon](halu:epsilon).",
+    ].join("\n");
+    onChunk(content, content);
+    return { content, finishReason: "stop" };
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
 
 function buildArticleMarkdown() {
   return [
@@ -74,9 +125,20 @@ function createSeedDatabasePath() {
   return { root, databasePath };
 }
 
-async function createTestServer() {
-  const { root, databasePath } = createSeedDatabasePath();
-  const { app } = await createApp({ databasePath, skipLlmProbe: true });
+async function createTestServer(options: { logger?: Logger; llmClient?: LlmClient; seed?: boolean } = {}) {
+  const seeded = options.seed ?? true;
+  const { root, databasePath } = seeded
+    ? createSeedDatabasePath()
+    : (() => {
+        const tempRoot = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+        return { root: tempRoot, databasePath: join(tempRoot, "halupedia.sqlite") };
+      })();
+  const { app } = await createApp({
+    databasePath,
+    skipLlmProbe: true,
+    logger: options.logger,
+    llmClient: options.llmClient,
+  });
   return {
     root,
     request: (path: string, init?: RequestInit) =>
@@ -155,5 +217,52 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 
     const notFoundRes = await server.request("/missing.txt");
     assert.equal(notFoundRes.status, 404);
+  });
+
+  await t.test("core request paths emit structured page logs", async (t) => {
+    const entries: CapturedLogEntry[] = [];
+    const loggedServer = await createTestServer({ logger: createMemoryLogger(entries) });
+    t.after(() => {
+      rmSync(loggedServer.root, { recursive: true, force: true });
+    });
+
+    await loggedServer.request("/api/page/Test_Article");
+    await loggedServer.request("/test-article", { redirect: "manual" });
+
+    assert.ok(entries.some((entry) => entry.event === "startup"));
+    assert.ok(entries.some((entry) => entry.event === "page.request" && entry.fields?.slug === "test-article"));
+    assert.ok(entries.some((entry) => entry.event === "page.cache_hit" && entry.fields?.slug === "test-article"));
+    assert.ok(entries.some((entry) => entry.event === "page.redirect" && entry.fields?.bare_slug === "test-article"));
+  });
+
+  await t.test("cache misses emit generation and rag lifecycle logs", async (t) => {
+    const entries: CapturedLogEntry[] = [];
+    const generatedServer = await createTestServer({
+      seed: false,
+      logger: createMemoryLogger(entries),
+      llmClient: new FakeLlmClient(),
+    });
+    t.after(() => {
+      rmSync(generatedServer.root, { recursive: true, force: true });
+    });
+
+    const res = await generatedServer.request("/api/page/Fresh_Page");
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /application\/x-ndjson/);
+    const payload = await res.text();
+    assert.match(payload, /"type":"done"/);
+
+    assert.ok(entries.some((entry) => entry.event === "page.cache_miss" && entry.fields?.slug === "fresh-page"));
+    assert.ok(entries.some((entry) => entry.event === "page.generation_start" && entry.fields?.slug === "fresh-page"));
+    assert.ok(
+      entries.some(
+        (entry) =>
+          (entry.event === "rag.retrieve_skipped" || entry.event === "rag.retrieve_empty") &&
+          entry.fields?.slug === "fresh-page"
+      )
+    );
+    assert.ok(entries.some((entry) => entry.event === "page.generation_attempt" && entry.fields?.slug === "fresh-page"));
+    assert.ok(entries.some((entry) => entry.event === "rag.index_complete" && entry.fields?.slug === "fresh-page"));
+    assert.ok(entries.some((entry) => entry.event === "page.generation_done" && entry.fields?.slug === "fresh-page"));
   });
 });

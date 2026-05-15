@@ -1,18 +1,33 @@
 import type { ChatConfig, EmbeddingsConfig } from "./types";
-import { truncateForLog } from "./logger";
+import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 
-export class OpenAICompatClient {
+export interface LlmClient {
+  chat(system: string, user: string): Promise<string>;
+  streamChat(
+    system: string,
+    user: string,
+    onChunk: (delta: string, accumulated: string) => void
+  ): Promise<{ content: string; finishReason: string }>;
+  embed(input: string[]): Promise<number[][]>;
+  probeConnections(): Promise<void>;
+}
+
+export class OpenAICompatClient implements LlmClient {
   constructor(
     private readonly chatConfig: ChatConfig,
-    private readonly embeddingsConfig: EmbeddingsConfig
+    private readonly embeddingsConfig: EmbeddingsConfig,
+    private readonly logger: Logger = createConsoleLogger()
   ) {}
 
   async chat(system: string, user: string): Promise<string> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
-    console.log(
-      `[llm:chat] request model=${this.chatConfig.model} max_tokens=${this.chatConfig.max_tokens} temperature=${this.chatConfig.temperature} prompt_chars=${system.length + user.length}`
-    );
+    this.logger.info("llm.chat_request", {
+      model: this.chatConfig.model,
+      max_tokens: this.chatConfig.max_tokens,
+      temperature: this.chatConfig.temperature,
+      prompt_chars: system.length + user.length,
+    });
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -32,7 +47,11 @@ export class OpenAICompatClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      console.error(`[llm:chat] error status=${response.status} body=${truncateForLog(text, 300)}`);
+      this.logger.error("llm.chat_error", {
+        model: this.chatConfig.model,
+        status: response.status,
+        body: truncateForLog(text, 300),
+      });
       throw new Error(`chat completion failed: ${response.status} ${text.slice(0, 300)}`);
     }
 
@@ -44,11 +63,18 @@ export class OpenAICompatClient {
     const content = json.choices?.[0]?.message?.content?.trim();
     const finishReason = json.choices?.[0]?.finish_reason ?? "unknown";
     const durationMs = Date.now() - startedAt;
-    console.log(
-      `[llm:chat] response model=${this.chatConfig.model} finish_reason=${finishReason} duration_ms=${durationMs} completion_chars=${content?.length ?? 0} tokens=${json.usage?.total_tokens ?? "?"}`
-    );
+    this.logger.info("llm.chat_response", {
+      model: this.chatConfig.model,
+      finish_reason: finishReason,
+      duration_ms: durationMs,
+      completion_chars: content?.length ?? 0,
+      tokens: json.usage?.total_tokens ?? "?",
+    });
     if (finishReason === "length") {
-      console.warn(`[llm:chat] truncated response preview=${truncateForLog(content ?? "", 240)}`);
+      this.logger.warn("llm.chat_truncated", {
+        model: this.chatConfig.model,
+        preview: truncateForLog(content ?? "", 240),
+      });
     }
     if (!content) {
       throw new Error("chat completion returned empty content");
@@ -63,9 +89,12 @@ export class OpenAICompatClient {
   ): Promise<{ content: string; finishReason: string }> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
-    console.log(
-      `[llm:chat] stream_request model=${this.chatConfig.model} max_tokens=${this.chatConfig.max_tokens} temperature=${this.chatConfig.temperature} prompt_chars=${system.length + user.length}`
-    );
+    this.logger.info("llm.stream_request", {
+      model: this.chatConfig.model,
+      max_tokens: this.chatConfig.max_tokens,
+      temperature: this.chatConfig.temperature,
+      prompt_chars: system.length + user.length,
+    });
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -86,7 +115,11 @@ export class OpenAICompatClient {
 
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => "");
-      console.error(`[llm:chat] stream_error status=${response.status} body=${truncateForLog(text, 300)}`);
+      this.logger.error("llm.stream_error", {
+        model: this.chatConfig.model,
+        status: response.status,
+        body: truncateForLog(text, 300),
+      });
       throw new Error(`chat stream failed: ${response.status} ${text.slice(0, 300)}`);
     }
 
@@ -134,11 +167,17 @@ export class OpenAICompatClient {
 
     const content = accumulated.trim();
     const durationMs = Date.now() - startedAt;
-    console.log(
-      `[llm:chat] stream_response model=${this.chatConfig.model} finish_reason=${finishReason} duration_ms=${durationMs} completion_chars=${content.length}`
-    );
+    this.logger.info("llm.stream_response", {
+      model: this.chatConfig.model,
+      finish_reason: finishReason,
+      duration_ms: durationMs,
+      completion_chars: content.length,
+    });
     if (finishReason === "length") {
-      console.warn(`[llm:chat] truncated response preview=${truncateForLog(content, 240)}`);
+      this.logger.warn("llm.stream_truncated", {
+        model: this.chatConfig.model,
+        preview: truncateForLog(content, 240),
+      });
     }
     if (!content) {
       throw new Error("chat stream returned empty content");
@@ -153,9 +192,10 @@ export class OpenAICompatClient {
 
     const startedAt = Date.now();
     const url = `${this.embeddingsConfig.base_url.replace(/\/$/, "")}/embeddings`;
-    console.log(
-      `[llm:embed] request model=${this.embeddingsConfig.model} inputs=${input.length}`
-    );
+    this.logger.info("llm.embed_request", {
+      model: this.embeddingsConfig.model,
+      inputs: input.length,
+    });
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -170,16 +210,22 @@ export class OpenAICompatClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      console.error(`[llm:embed] error status=${response.status} body=${truncateForLog(text, 300)}`);
+      this.logger.error("llm.embed_error", {
+        model: this.embeddingsConfig.model,
+        status: response.status,
+        body: truncateForLog(text, 300),
+      });
       throw new Error(`embeddings failed: ${response.status} ${text.slice(0, 300)}`);
     }
 
     const json = (await response.json()) as {
       data?: Array<{ embedding?: number[] }>;
     };
-    console.log(
-      `[llm:embed] response model=${this.embeddingsConfig.model} vectors=${json.data?.length ?? 0} duration_ms=${Date.now() - startedAt}`
-    );
+    this.logger.info("llm.embed_response", {
+      model: this.embeddingsConfig.model,
+      vectors: json.data?.length ?? 0,
+      duration_ms: Date.now() - startedAt,
+    });
     return (json.data ?? []).map((item) => item.embedding ?? []);
   }
 
@@ -188,13 +234,13 @@ export class OpenAICompatClient {
     if (this.embeddingsConfig.enabled) {
       await this.probeEndpoint("embeddings", this.embeddingsConfig.base_url, this.embeddingsConfig.api_key);
     } else {
-      console.log("[llm:embed] disabled");
+      this.logger.info("llm.embed_disabled");
     }
   }
 
   private async probeEndpoint(kind: string, baseUrl: string, apiKey: string): Promise<void> {
     const url = `${baseUrl.replace(/\/$/, "")}/models`;
-    console.log(`[llm:${kind}] probing ${url}`);
+    this.logger.info("llm.probe_start", { kind, url });
     try {
       const response = await fetch(url, {
         headers: {
@@ -203,12 +249,22 @@ export class OpenAICompatClient {
       });
       const text = await response.text().catch(() => "");
       if (!response.ok) {
-        console.warn(`[llm:${kind}] probe_failed status=${response.status} body=${truncateForLog(text, 220)}`);
+        this.logger.warn("llm.probe_failed", {
+          kind,
+          status: response.status,
+          body: truncateForLog(text, 220),
+        });
         return;
       }
-      console.log(`[llm:${kind}] probe_ok body=${truncateForLog(text, 220)}`);
+      this.logger.info("llm.probe_ok", {
+        kind,
+        body: truncateForLog(text, 220),
+      });
     } catch (error) {
-      console.warn(`[llm:${kind}] probe_error ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.warn("llm.probe_error", {
+        kind,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

@@ -379,6 +379,18 @@ a:hover {
   hyphens: auto;
 }
 
+.article .math-inline {
+  display: inline-block;
+  padding: 0 0.12em;
+  font-family: "STIX Two Math", "Cambria Math", "Times New Roman", serif;
+  font-style: italic;
+  font-size: 0.98em;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.32);
+  border-radius: 0.12em;
+}
+
 .article ul, .article ol {
   padding-left: 1.5rem;
   margin: 0 0 1.25rem;
@@ -441,6 +453,80 @@ a:hover {
   background: rgba(122, 46, 31, 0.08);
   color: var(--accent);
   border-radius: 2px;
+}
+
+.linkless-notice {
+  margin: 0 0 1.3rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(122, 46, 31, 0.25);
+  border-left: 4px solid var(--accent);
+  background: linear-gradient(180deg, rgba(122, 46, 31, 0.05), rgba(233, 223, 195, 0.6));
+  color: var(--ink-soft);
+  font-family: var(--serif);
+  font-style: italic;
+}
+
+.selection-link-menu {
+  position: fixed;
+  z-index: 50;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.5rem;
+  background: rgba(30, 24, 18, 0.95);
+  color: var(--parchment);
+  border: 1px solid rgba(233, 223, 195, 0.18);
+  box-shadow: 0 12px 24px rgba(30, 24, 18, 0.2);
+  backdrop-filter: blur(8px);
+}
+
+.selection-link-button,
+.selection-link-dismiss {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: none;
+  cursor: pointer;
+  padding: 0.45rem 0.7rem;
+}
+
+.selection-link-button {
+  background: var(--accent);
+  color: var(--parchment);
+}
+.selection-link-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.selection-link-dismiss {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--parchment-deep);
+}
+.selection-link-dismiss:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.selection-link-button:disabled,
+.selection-link-dismiss:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.selection-link-error {
+  position: fixed;
+  left: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 45;
+  max-width: min(32rem, calc(100vw - 3rem));
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: rgba(243, 236, 216, 0.96);
+  border: 1px solid rgba(122, 46, 31, 0.35);
+  padding: 0.7rem 0.85rem;
+  box-shadow: 0 10px 18px rgba(30, 24, 18, 0.08);
 }
 
 /* Friendlier panel for moderator-removed entries — distinct from generic

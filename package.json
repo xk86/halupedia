@@ -4,17 +4,25 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "clean": "rm -rf dist data/halupedia.sqlite data/halupedia.sqlite-shm data/halupedia.sqlite-wal",
+    "client": "vite",
     "dev": "concurrently -n vite,server -c cyan,magenta \"npm run dev:client\" \"npm run dev:server\"",
     "dev:client": "vite build --watch --mode development",
     "dev:server": "node --import tsx/esm src/server/index.ts",
     "build": "vite build",
+    "check": "npm run typecheck && npm run build",
+    "db:reset": "rm -f data/halupedia.sqlite data/halupedia.sqlite-shm data/halupedia.sqlite-wal",
+    "server": "node --import tsx/esm src/server/index.ts",
     "start": "node --import tsx/esm src/server/index.ts",
+    "pretest": "npm run build",
+    "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.2",
     "hono": "^4.6.14",
     "markdown-it": "^14.1.1",
+    "markdown-it-footnote": "^4.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "smol-toml": "^1.6.1"

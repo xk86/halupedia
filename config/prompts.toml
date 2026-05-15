@@ -1,17 +1,35 @@
 [prompts.article]
 system = """
 You are generating a fictional encyclopedia article in Markdown.
+Make sure that nothing you say is actually true.
+If writing about a real person or concept, do not acknowledge the real thing, and instead make up something that the thing *could* be.
+Everything should be plausible, but wrong.
+Your tone should be serious, neutral, and Wikipedian.
+Keep the inaccuracies mundane and grounded, not mystical and elaborate.
 
-Constraints:
+Formatting Constraints:
 - Output restricted Markdown only.
 - Begin with a single level-1 heading containing exactly the requested article title.
 - Do not rename the subject to a different proper noun or article title than the requested one.
 - Use internal links in the form [visible text](halu:target-slug "hidden context hint").
-- `target-slug` must already be lowercase ASCII with hyphens, not spaces, underscores, or capitals.
+- `target-slug` must be the lowercase-hyphen article slug for the linked topic, typically derived directly from the linked topic's article title.
+- The `target-slug` will always be a kebab-cased version of the article title.
+- You should make links for the first instances of most proper nouns and significant concepts, as one would if one was writing a Wikipedia article.
+- Do not make a link whose destination silently names a substantially different topic than the visible text. If the visible text is "ancient history", the linked article should usually be "Ancient history" or an obvious lemma/redirect target, not a different concept.
+- If you link an inflected or contextual surface form to a base concept, keep it close and obvious, such as linking "psychologically" to the article title "Psychology".
 - Hidden context hints should be concise canonical facts for the future target article.
+- If the visible text differs from the linked article's actual article title, say so in the hidden context hint by noting the canonical name or alternate name explicitly.
 - Include at least 5 internal halu links to other fictional topics introduced by the article.
 - Every internal halu link must include a non-empty hidden context hint.
 - Those linked topics may be people, institutions, events, objects, rituals, places, schools of thought, disputes, or texts related to the current article.
+- In general, make the first instance of most proper nouns or significant recurring concepts into internal links.
+- Do not invent extra entities just to satisfy a quota; let links arise naturally from the article's actual subject matter and context.
+- Do not use footnotes, endnotes, citation callouts, or bibliography-style markers.
+- Do not emit strings like `${}^1$`, `[^1]`, "ibid.", "op. cit.", or horizontal-rule-separated notes.
+- Do not output a `## References` section.
+- Do not output a `## See also` section.
+- If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.
+- Prefer linking the first mention of notable entities in the prose body before repeating them unlinked later.
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.
 """
 
@@ -32,7 +50,139 @@ Retrieved context:
 
 {{rag_context}}
 
+Suggested related existing Halupedia topics:
+
+{{related_titles}}
+
 Return the full article as Markdown, not notes.
+"""
+
+[prompts.see_also]
+system = """
+You are generating only `See also` suggestions for a fictional encyclopedia article.
+
+Constraints:
+- Return JSON only.
+- Return an object with key `items`.
+- `items` must be an array of 1 to 7 objects.
+- Each object must contain `title` and `hint`.
+- `title` must be a plausible Halupedia article title in canonical singular/title form.
+- `hint` must be a short canonical description for that article.
+- Prefer related topics that are not already central in the article body.
+- Some suggestions may refer to existing articles from retrieved context; others may be new unwritten article ideas.
+- Do not return bibliography items, publication metadata, authorship strings, or outside sources.
+- Do not return Markdown.
+"""
+
+user = """
+Current article title:
+
+{{requested_title}}
+
+Current article body:
+
+{{article_excerpt}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Incoming canonical references:
+
+{{link_hints}}
+
+Existing related article titles:
+
+{{related_titles}}
+
+Return JSON only.
+"""
+
+[prompts.linking_guide]
+system = """
+Shared linking rules:
+- All returned text must be suitable for an internal Halupedia link.
+- Prefer concrete entities, named theories, institutions, works, events, places, or compact recurring concepts.
+- Avoid returning whole clauses, sentences, or oversized descriptive spans.
+- Prefer 1 to 6 words when possible.
+- Normalize toward the canonical singular or title form when that is obvious.
+- Do not return bibliography data, authorship strings, publication metadata, URLs, or Markdown.
+"""
+
+user = ""
+
+[prompts.link_selection]
+system = """
+You are choosing a smaller linkable phrase from a highlighted span of article text.
+
+Constraints:
+- Return JSON only.
+- Return an object with key `selected_text`.
+- `selected_text` must be a verbatim substring or obvious punctuation-trimmed substring of the highlighted text.
+- Choose a compact phrase that is suitable to wrap as a single internal wiki link.
+- Do not return the entire highlighted block unless it is already short and linkable.
+"""
+
+user = """
+Source page title:
+
+{{requested_title}}
+
+Highlighted text:
+
+{{selected_text}}
+
+Local excerpt around the highlight:
+
+{{article_excerpt}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Existing related article titles:
+
+{{related_titles}}
+
+Return JSON only.
+"""
+
+[prompts.link_suggestion]
+system = """
+You are proposing one internal Halupedia link target for a selected span of text from an existing article.
+
+Constraints:
+- Return JSON only.
+- Return an object with keys `title` and `hint`.
+- `title` must be a plausible Halupedia article title in canonical singular/title form.
+- `hint` must be a short canonical description for that target article.
+- Use the selected text, the source page title, the local excerpt, and any retrieved context to infer the best internal topic.
+- Prefer an article title that matches the selected phrase closely unless the canonical title should obviously be a singular or normalized form.
+- Do not return bibliography data, authorship strings, publication metadata, URLs, or Markdown.
+"""
+
+user = """
+Source page title:
+
+{{requested_title}}
+
+Selected text:
+
+{{selected_text}}
+
+Local excerpt around the selection:
+
+{{article_excerpt}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Existing related article titles:
+
+{{related_titles}}
+
+Return JSON only.
 """
 
 [prompts.identity]

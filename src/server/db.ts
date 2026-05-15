@@ -3,6 +3,11 @@ import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { ArticleRecord, BacklinkItem, ParsedInternalLink } from "./types";
 
+function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === column);
+}
+
 export function openDatabase(databasePath: string): DatabaseSync {
   const absolutePath = resolve(process.cwd(), databasePath);
   mkdirSync(dirname(absolutePath), { recursive: true });
@@ -75,12 +80,11 @@ export function openDatabase(databasePath: string): DatabaseSync {
       alias_slug TEXT PRIMARY KEY,
       article_slug TEXT NOT NULL
     );
-
-    CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug);
   `);
-  try {
+  if (!hasColumn(db, "articles", "canonical_slug")) {
     db.exec(`ALTER TABLE articles ADD COLUMN canonical_slug TEXT`);
-  } catch {}
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   return db;
 }
 
@@ -290,4 +294,37 @@ export function getAdminOverview(db: DatabaseSync) {
     )
     .all() as Array<{ slug: string; canonicalSlug: string; title: string; generatedAt: number }>;
   return { articleCount, linkCount, aliasCount, latestArticles };
+}
+
+export function wipeGeneratedCorpus(db: DatabaseSync) {
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      DELETE FROM article_chunks;
+      DELETE FROM article_links;
+      DELETE FROM article_aliases;
+      DELETE FROM articles;
+    `);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function deleteArticleBySlug(db: DatabaseSync, lookupSlug: string) {
+  const article = getArticleByLookup(db, lookupSlug);
+  if (!article) return false;
+  db.exec("BEGIN");
+  try {
+    db.prepare(`DELETE FROM article_chunks WHERE slug = ?`).run(article.slug);
+    db.prepare(`DELETE FROM article_links WHERE source_slug = ? OR target_slug = ?`).run(article.slug, article.slug);
+    db.prepare(`DELETE FROM article_aliases WHERE article_slug = ? OR alias_slug = ?`).run(article.slug, lookupSlug);
+    db.prepare(`DELETE FROM articles WHERE slug = ?`).run(article.slug);
+    db.exec("COMMIT");
+    return true;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }

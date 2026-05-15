@@ -1,6 +1,16 @@
 import type { DatabaseSync } from "node:sqlite";
 import { OpenAICompatClient } from "./llm";
 
+export interface RetrievedContextPacket {
+  context: string;
+  relatedTitles: string[];
+  sourceArticles: Array<{
+    slug: string;
+    title: string;
+    content: string;
+  }>;
+}
+
 function chunkText(text: string, chunkSize: number): string[] {
   const paragraphs = text
     .split(/\n\s*\n/)
@@ -82,27 +92,32 @@ export async function retrieveContext(
   enabled: boolean,
   maxResults: number,
   useEmbeddings: boolean
-): Promise<string> {
-  if (!enabled) return "";
+): Promise<RetrievedContextPacket> {
+  if (!enabled) return { context: "", relatedTitles: [], sourceArticles: [] };
 
   const rows = db
     .prepare(
-      `SELECT slug, content, embedding_json
-       FROM article_chunks
+      `SELECT c.slug,
+              COALESCE(a.title, c.slug) AS title,
+              c.content,
+              c.embedding_json
+       FROM article_chunks c
+       LEFT JOIN articles a ON a.slug = c.slug
        WHERE slug != ?`
     )
-    .all(slug) as Array<{ slug: string; content: string; embedding_json: string | null }>;
+    .all(slug) as Array<{ slug: string; title: string; content: string; embedding_json: string | null }>;
 
-  if (rows.length === 0) return "";
+  if (rows.length === 0) return { context: "", relatedTitles: [], sourceArticles: [] };
 
   const query = [slug, ...hints.slice(0, 8)].join("\n");
 
-  let ranked: Array<{ slug: string; content: string; score: number }> = [];
+  let ranked: Array<{ slug: string; title: string; content: string; score: number }> = [];
   if (useEmbeddings) {
     const [queryEmbedding] = await llm.embed([query]);
     ranked = rows
       .map((row) => ({
         slug: row.slug,
+        title: row.title,
         content: row.content,
         score: row.embedding_json ? cosineSimilarity(queryEmbedding, JSON.parse(row.embedding_json) as number[]) : 0,
       }))
@@ -117,6 +132,7 @@ export async function retrieveContext(
     ranked = rows
       .map((row) => ({
         slug: row.slug,
+        title: row.title,
         content: row.content,
         score: lexicalScore(words, row.content),
       }))
@@ -124,8 +140,16 @@ export async function retrieveContext(
       .sort((a, b) => b.score - a.score);
   }
 
-  return ranked
-    .slice(0, maxResults)
-    .map((row) => `- ${row.slug}: ${row.content.replace(/\s+/g, " ").trim()}`)
-    .join("\n");
+  const picked = ranked.slice(0, maxResults);
+  return {
+    context: picked
+      .map((row) => `- ${row.title} (slug: ${row.slug}): ${row.content.replace(/\s+/g, " ").trim()}`)
+      .join("\n"),
+    relatedTitles: picked.map((row) => row.title),
+    sourceArticles: picked.map((row) => ({
+      slug: row.slug,
+      title: row.title,
+      content: row.content,
+    })),
+  };
 }

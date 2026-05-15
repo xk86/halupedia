@@ -1,19 +1,22 @@
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { loadConfig } from "./config";
-import { getAdminOverview, getArticleByLookup, getCanonicalSlugForTarget, listArticles, listBacklinks, listIncomingHints, openDatabase, saveArticle, searchCorpus } from "./db";
+import { deleteArticleBySlug, getAdminOverview, getArticleByLookup, getCanonicalSlugForTarget, listArticles, listBacklinks, listIncomingHints, openDatabase, saveArticle, searchCorpus, wipeGeneratedCorpus } from "./db";
 import { OpenAICompatClient } from "./llm";
 import { logSection } from "./logger";
-import { extractInternalLinks, extractTitle, markdownToPlainText, normalizeMarkdown, renderMarkdown } from "./markdown";
+import { extractInternalLinks, extractTitle, markdownToPlainText, normalizeMarkdown, renderMarkdown, sectionSlice, stripFootnoteArtifacts, stripTopLevelSections } from "./markdown";
 import { getPrompt, renderTemplate } from "./prompts";
 import { indexArticleChunks, retrieveContext } from "./retrieval";
-import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
+import { slugToTitle, slugify, titleToWikiSegment, wikiSegmentToTitle } from "./slug";
+import type { LinkSelectionSuggestion, LinkSuggestion, SeeAlsoCandidate } from "./types";
 
 const RESERVED_PATHS = new Set(["", "search", "all-entries", "admin", "api", "assets"]);
-const MIN_INTERNAL_LINKS = 5;
+const LARGE_SELECTION_CHAR_THRESHOLD = 120;
+const LARGE_SELECTION_WORD_THRESHOLD = 18;
 
 function routeSlug(pathname: string) {
   if (pathname.startsWith("/wiki/")) {
@@ -25,23 +28,308 @@ function routeSlug(pathname: string) {
   return slugify(decodeURIComponent(trimmed));
 }
 
-function hasSufficientLinks(markdown: string): boolean {
-  return extractInternalLinks(markdown).length >= MIN_INTERNAL_LINKS;
+export interface CreateAppOptions {
+  databasePath?: string;
+  distRoot?: string;
+  skipLlmProbe?: boolean;
 }
 
 function titleMatchesRequested(title: string, requestedTitle: string, requestedSlug: string): boolean {
   return slugify(title) === requestedSlug && titleToWikiSegment(title) === titleToWikiSegment(requestedTitle);
 }
 
-async function createApp() {
+type InternalArticleCandidate = {
+  slug: string;
+  title: string;
+  hiddenHint: string;
+};
+
+function normalizeArticleSnippet(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
+function buildInternalLinkLine(candidate: InternalArticleCandidate): string {
+  const hint = candidate.hiddenHint.replace(/"/g, "'");
+  return `- [${candidate.title}](halu:${candidate.slug} "${hint}")`;
+}
+
+function dedupeArticleCandidates(candidates: InternalArticleCandidate[]): InternalArticleCandidate[] {
+  const seen = new Set<string>();
+  const deduped: InternalArticleCandidate[] = [];
+  for (const candidate of candidates) {
+    const key = slugify(candidate.slug);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push({
+      slug: key,
+      title: candidate.title,
+      hiddenHint: candidate.hiddenHint.trim() || candidate.title,
+    });
+  }
+  return deduped;
+}
+
+function hasFootnoteArtifacts(markdown: string): boolean {
+  return /\$\{\}\^\d+\$/.test(markdown) || /\[\^[^\]]+\]/.test(markdown);
+}
+
+function sectionContainsNonLinkedBullets(section: string): boolean {
+  return section
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^[-*+]\s+/.test(line))
+    .some((line) => !line.includes("(halu:"));
+}
+
+function cachedArticleNeedsRepair(markdown: string): boolean {
+  if (hasFootnoteArtifacts(markdown)) return true;
+  const bodyMarkdown = stripTopLevelSections(markdown, ["References", "See also"]);
+  const bodyLinkSlugs = new Set(extractInternalLinks(bodyMarkdown).map((link) => link.targetSlug));
+  const referencesSection = sectionSlice(markdown, "References");
+  const seeAlsoSection = sectionSlice(markdown, "See also");
+  if (referencesSection && sectionContainsNonLinkedBullets(referencesSection)) return true;
+  if (seeAlsoSection) {
+    const seeAlsoLinks = extractInternalLinks(seeAlsoSection);
+    if (seeAlsoLinks.some((link) => bodyLinkSlugs.has(link.targetSlug))) return true;
+  }
+  return false;
+}
+
+function sanitizeGeneratedBody(markdown: string): string {
+  return stripFootnoteArtifacts(stripTopLevelSections(markdown, ["References", "See also"]));
+}
+
+function normalizeSelectionText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
+function shouldRefineSelection(text: string): boolean {
+  const normalized = normalizeSelectionText(text);
+  return normalized.length > LARGE_SELECTION_CHAR_THRESHOLD || normalized.split(/\s+/).filter(Boolean).length > LARGE_SELECTION_WORD_THRESHOLD;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isWordChar(char: string | undefined): boolean {
+  return !!char && /[A-Za-z0-9]/.test(char);
+}
+
+function collectExistingLinkRanges(markdown: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const pattern = /\[([^\]]+)\]\(halu:([^) "\t\r\n]+)(?:\s+"([^"]*)")?\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(markdown)) !== null) {
+    ranges.push({ start: match.index, end: match.index + match[0].length });
+  }
+  return ranges;
+}
+
+function overlapsExistingLink(index: number, ranges: Array<{ start: number; end: number }>): boolean {
+  return ranges.some((range) => index >= range.start && index < range.end);
+}
+
+function findWrapRange(markdown: string, selectedText: string): { start: number; end: number; visibleLabel: string } | null {
+  const normalizedSelection = normalizeSelectionText(selectedText);
+  if (!normalizedSelection) return null;
+  const linkRanges = collectExistingLinkRanges(markdown);
+  const exact = new RegExp(escapeRegExp(normalizedSelection), "gi");
+  let match: RegExpExecArray | null;
+
+  while ((match = exact.exec(markdown)) !== null) {
+    let start = match.index;
+    let end = match.index + match[0].length;
+    if (overlapsExistingLink(start, linkRanges)) continue;
+    while (isWordChar(markdown[start - 1])) start -= 1;
+    while (isWordChar(markdown[end])) end += 1;
+    const visibleLabel = markdown.slice(start, end).trim();
+    if (visibleLabel) return { start, end, visibleLabel };
+  }
+
+  const words = normalizedSelection.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    for (let size = words.length - 1; size >= 1; size--) {
+      for (let offset = 0; offset + size <= words.length; offset++) {
+        const phrase = words.slice(offset, offset + size).join(" ");
+        const found = findWrapRange(markdown, phrase);
+        if (found) return found;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractSelectionExcerpt(markdown: string, selectedText: string): string {
+  const normalizedSelection = normalizeSelectionText(selectedText);
+  const source = markdownToPlainText(markdown);
+  const index = source.toLowerCase().indexOf(normalizedSelection.toLowerCase());
+  if (index < 0) return source.slice(0, 400);
+  const start = Math.max(0, index - 180);
+  const end = Math.min(source.length, index + normalizedSelection.length + 180);
+  return source.slice(start, end).trim();
+}
+
+function assembleArticleMarkdown(
+  bodyMarkdown: string,
+  references: InternalArticleCandidate[],
+  seeAlso: InternalArticleCandidate[]
+): string {
+  const sections = [bodyMarkdown.trim()];
+  if (references.length) {
+    sections.push(`## References\n\n${references.map(buildInternalLinkLine).join("\n")}`);
+  }
+  if (seeAlso.length) {
+    sections.push(`## See also\n\n${seeAlso.map(buildInternalLinkLine).join("\n")}`);
+  }
+  return sections.filter(Boolean).join("\n\n").trim();
+}
+
+async function generateSeeAlsoCandidates(
+  llm: OpenAICompatClient,
+  promptConfig: ReturnType<typeof loadConfig>["prompts"],
+  requestedTitle: string,
+  bodyMarkdown: string,
+  ragContext: string,
+  linkHints: string[],
+  relatedTitles: string[]
+): Promise<InternalArticleCandidate[]> {
+  const prompt = getPrompt(promptConfig, "see_also");
+  const raw = await llm.chat(
+    prompt.system,
+    renderTemplate(prompt.user, {
+      slug: slugify(requestedTitle),
+      requested_title: requestedTitle,
+      article_excerpt: bodyMarkdown.slice(0, 6000),
+      rag_context: ragContext || "(none)",
+      link_hints: linkHints.length ? linkHints.map((hint) => `- ${hint}`).join("\n") : "(none yet)",
+      related_titles: relatedTitles.length ? relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
+      parent_comment: "",
+    })
+  );
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return [];
+  const parsed = JSON.parse(match[0]) as { items?: SeeAlsoCandidate[] };
+  return dedupeArticleCandidates(
+    (parsed.items ?? []).map((item) => ({
+      slug: slugify(item.title ?? ""),
+      title: (item.title ?? "").replace(/\s+/g, " ").trim(),
+      hiddenHint: (item.hint ?? "").replace(/\s+/g, " ").trim(),
+    }))
+  );
+}
+
+function buildLinkedPromptSystem(promptConfig: ReturnType<typeof loadConfig>["prompts"], key: string): string {
+  const guide = getPrompt(promptConfig, "linking_guide");
+  const prompt = getPrompt(promptConfig, key);
+  return `${guide.system.trim()}\n\n${prompt.system.trim()}`;
+}
+
+async function generateLinkSelection(
+  llm: OpenAICompatClient,
+  promptConfig: ReturnType<typeof loadConfig>["prompts"],
+  requestedTitle: string,
+  selectedText: string,
+  articleExcerpt: string,
+  ragContext: string,
+  relatedTitles: string[]
+): Promise<string> {
+  const prompt = getPrompt(promptConfig, "link_selection");
+  const raw = await llm.chat(
+    buildLinkedPromptSystem(promptConfig, "link_selection"),
+    renderTemplate(prompt.user, {
+      slug: slugify(requestedTitle),
+      requested_title: requestedTitle,
+      selected_text: selectedText,
+      article_excerpt: articleExcerpt,
+      rag_context: ragContext || "(none)",
+      related_titles: relatedTitles.length ? relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
+      link_hints: "",
+      parent_comment: "",
+    })
+  );
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) {
+    throw new Error("link selection returned invalid JSON");
+  }
+  const parsed = JSON.parse(match[0]) as Partial<LinkSelectionSuggestion>;
+  const refined = normalizeSelectionText(parsed.selected_text ?? "");
+  if (!refined) {
+    throw new Error("link selection returned empty text");
+  }
+  return refined;
+}
+
+async function generateLinkSuggestion(
+  llm: OpenAICompatClient,
+  promptConfig: ReturnType<typeof loadConfig>["prompts"],
+  requestedTitle: string,
+  selectedText: string,
+  articleExcerpt: string,
+  ragContext: string,
+  relatedTitles: string[]
+): Promise<LinkSuggestion> {
+  const prompt = getPrompt(promptConfig, "link_suggestion");
+  const raw = await llm.chat(
+    buildLinkedPromptSystem(promptConfig, "link_suggestion"),
+    renderTemplate(prompt.user, {
+      slug: slugify(requestedTitle),
+      requested_title: requestedTitle,
+      selected_text: selectedText,
+      article_excerpt: articleExcerpt,
+      rag_context: ragContext || "(none)",
+      related_titles: relatedTitles.length ? relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
+      link_hints: "",
+      parent_comment: "",
+    })
+  );
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) {
+    throw new Error("link suggestion returned invalid JSON");
+  }
+  const parsed = JSON.parse(match[0]) as Partial<LinkSuggestion>;
+  const title = (parsed.title ?? "").replace(/\s+/g, " ").trim();
+  const hint = (parsed.hint ?? "").replace(/\s+/g, " ").trim();
+  if (!title || !hint) {
+    throw new Error("link suggestion returned empty fields");
+  }
+  return { title, hint };
+}
+
+export async function createApp(options: CreateAppOptions = {}) {
   let runtime = loadConfig();
+  if (options.databasePath) {
+    runtime = {
+      ...runtime,
+      app: {
+        ...runtime.app,
+        storage: {
+          ...runtime.app.storage,
+          database_path: options.databasePath,
+        },
+      },
+    };
+  }
   const db = openDatabase(runtime.app.storage.database_path);
   let llm = new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings);
   const app = new Hono();
-  const distRoot = resolve(process.cwd(), "dist");
+  const distRoot = options.distRoot ? resolve(options.distRoot) : resolve(process.cwd(), "dist");
 
   async function reloadRuntime() {
-    runtime = loadConfig();
+    const nextRuntime = loadConfig();
+    runtime = options.databasePath
+      ? {
+          ...nextRuntime,
+          app: {
+            ...nextRuntime.app,
+            storage: {
+              ...nextRuntime.app.storage,
+              database_path: options.databasePath,
+            },
+          },
+        }
+      : nextRuntime;
     llm = new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings);
     logSection("startup", [
       `server=http://${runtime.app.server.host}:${runtime.app.server.port}`,
@@ -53,7 +341,9 @@ async function createApp() {
       `embeddings_model=${runtime.llm.embeddings.model}`,
       `rag_enabled=${String(runtime.app.rag.enabled)}`,
     ]);
-    await llm.probeConnections();
+    if (!options.skipLlmProbe) {
+      await llm.probeConnections();
+    }
   }
 
   await reloadRuntime();
@@ -73,10 +363,10 @@ async function createApp() {
     return html;
   }
 
-  async function buildArticle(slug: string, onProgress?: (html: string) => void) {
+  async function buildArticle(slug: string, requestedTitle: string, onProgress?: (html: string) => void) {
     console.log(`[page] generation_start slug=${slug}`);
     const hints = listIncomingHints(db, slug);
-    const ragContext = await retrieveContext(
+    const retrieved = await retrieveContext(
       db,
       llm,
       slug,
@@ -87,47 +377,57 @@ async function createApp() {
     );
 
     const prompt = getPrompt(runtime.prompts, "article");
-    const requestedTitle = slugToTitle(slug);
     const renderedUserPrompt = renderTemplate(prompt.user, {
       slug,
       requested_title: requestedTitle,
       link_hints: hints.length ? hints.map((hint) => `- ${hint}`).join("\n") : "(none yet)",
-      rag_context: ragContext || "(none)",
+      rag_context: retrieved.context || "(none)",
+      related_titles: retrieved.relatedTitles.length ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
       article_excerpt: "",
       parent_comment: "",
     });
 
-    let markdown = "";
-    let resolvedTitle = requestedTitle;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      const repairNote =
-        attempt === 1
-          ? ""
-          : `\n\nOutput contract repair:\n- The previous draft violated the output contract.\n- Regenerate the full article.\n- The H1 must be exactly "# ${requestedTitle}".\n- The article must actually be about "${requestedTitle}", not a renamed replacement topic.\n- Include at least ${MIN_INTERNAL_LINKS} internal links using the exact format [visible text](halu:target-slug "hidden context hint").\n- Every internal link must include a non-empty hidden hint.\n- Do not explain the repair; just output the article.\n`;
-      let rawMarkdown = "";
-      if (onProgress) {
-        await llm.streamChat(prompt.system, `${renderedUserPrompt}${repairNote}`, (_delta, accumulated) => {
-          rawMarkdown = accumulated;
-          onProgress(renderMarkdown(normalizeMarkdown(accumulated)));
-        });
-      } else {
-        rawMarkdown = await llm.chat(prompt.system, `${renderedUserPrompt}${repairNote}`);
-      }
-      markdown = normalizeMarkdown(rawMarkdown);
-      resolvedTitle = extractTitle(markdown, requestedTitle);
-      const linkCount = extractInternalLinks(markdown).length;
-      const titleOk = titleMatchesRequested(resolvedTitle, requestedTitle, slug);
-      console.log(
-        `[page] generation_attempt slug=${slug} attempt=${attempt} title=${JSON.stringify(resolvedTitle)} title_ok=${titleOk} links=${linkCount}`
-      );
-      if (linkCount >= MIN_INTERNAL_LINKS && titleOk) break;
-      if (attempt === 3) {
-        if (!titleOk) {
-          throw new Error(`generated article title did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
-        }
-        throw new Error(`generated article did not include the required internal links (got ${linkCount}, need ${MIN_INTERNAL_LINKS})`);
-      }
+    const deterministicReferences = dedupeArticleCandidates(
+      retrieved.sourceArticles.map((article) => ({
+        slug: article.slug,
+        title: article.title,
+        hiddenHint: normalizeArticleSnippet(article.content) || article.title,
+      }))
+    );
+    let rawMarkdown = "";
+    if (onProgress) {
+      await llm.streamChat(prompt.system, renderedUserPrompt, (_delta, accumulated) => {
+        rawMarkdown = accumulated;
+        onProgress(renderMarkdown(sanitizeGeneratedBody(normalizeMarkdown(accumulated))));
+      });
+    } else {
+      rawMarkdown = await llm.chat(prompt.system, renderedUserPrompt);
     }
+
+    let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
+    const resolvedTitle = extractTitle(markdown, requestedTitle);
+    const uniqueLinkCount = extractInternalLinks(markdown).length;
+    const titleOk = titleMatchesRequested(resolvedTitle, requestedTitle, slug);
+    console.log(
+      `[page] generation_attempt slug=${slug} title=${JSON.stringify(resolvedTitle)} title_ok=${titleOk} body_unique_links=${uniqueLinkCount} retrieved_sources=${deterministicReferences.length}`
+    );
+    if (!titleOk) {
+      throw new Error(`generated article title did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
+    }
+
+    const bodyLinkSlugs = new Set(extractInternalLinks(markdown).map((link) => link.targetSlug));
+    const seeAlso = (await generateSeeAlsoCandidates(
+      llm,
+      runtime.prompts,
+      requestedTitle,
+      markdown,
+      retrieved.context,
+      hints,
+      retrieved.relatedTitles
+    ).catch(() => []))
+      .filter((candidate) => candidate.slug !== slug && !bodyLinkSlugs.has(candidate.slug))
+      .slice(0, 7);
+    markdown = assembleArticleMarkdown(markdown, deterministicReferences, seeAlso);
 
     const normalizedSlug = slugify(slug);
     const article = {
@@ -163,23 +463,28 @@ async function createApp() {
   );
 
   app.get("/api/page/:slug", async (c) => {
-    const lookupSlug = slugify(c.req.param("slug"));
-    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
-    console.log(`[page] request slug=${lookupSlug} path=${new URL(c.req.url).pathname}`);
+    const requestedSegment = c.req.param("slug");
+    const requestedTitle = wikiSegmentToTitle(requestedSegment);
+    const lookupSlug = slugify(requestedTitle);
+    if (!lookupSlug || !requestedTitle) return c.json({ error: "invalid slug" }, 400);
+    const requestedPath = `/wiki/${requestedSegment}`;
+    console.log(`[page] request slug=${lookupSlug} requested_title=${JSON.stringify(requestedTitle)} path=${requestedPath}`);
 
     let article = getArticleByLookup(db, lookupSlug);
     if (article) {
       const cachedLinks = extractInternalLinks(article.markdown).length;
-      if (hasSufficientLinks(article.markdown)) {
+      if (!cachedArticleNeedsRepair(article.markdown)) {
+        const canonicalPath = canonicalPathForArticle(article);
         console.log(`[page] cache_hit slug=${article.slug} links=${cachedLinks}`);
         return c.json({
           cached: true,
+          redirectedFrom: canonicalPath !== requestedPath ? requestedPath : undefined,
+          canonicalPath,
           article,
           backlinks: listBacklinks(db, article.slug),
-          canonicalPath: canonicalPathForArticle(article),
         });
       }
-      console.warn(`[page] cache_repair slug=${article.slug} links=${cachedLinks}`);
+      console.warn(`[page] cache_repair slug=${article.slug} links=${cachedLinks} reason=semantic_validation_failed`);
       article = null;
     }
     if (!article) {
@@ -194,15 +499,17 @@ async function createApp() {
         };
         try {
           send({ type: "start", slug: lookupSlug, cached: false });
-          article = await buildArticle(lookupSlug, (html) => {
+          article = await buildArticle(lookupSlug, requestedTitle, (html) => {
             send({ type: "progress", html });
           });
+          const canonicalPath = canonicalPathForArticle(article);
           send({
             type: "done",
             cached: false,
+            redirectedFrom: canonicalPath !== requestedPath ? requestedPath : undefined,
+            canonicalPath,
             article,
             backlinks: listBacklinks(db, article.slug),
-            canonicalPath: canonicalPathForArticle(article),
           });
           controller.close();
         } catch (error) {
@@ -221,6 +528,89 @@ async function createApp() {
         "content-type": "application/x-ndjson; charset=utf-8",
         "cache-control": "no-store",
       },
+    });
+  });
+
+  app.post("/api/article/:slug/add-link", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+
+    const body = (await c.req.json().catch(() => ({}))) as { selectedText?: string };
+    const selectedText = normalizeSelectionText(body.selectedText ?? "");
+    if (!selectedText) return c.json({ error: "missing selected text" }, 400);
+
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+
+    const hints = listIncomingHints(db, article.slug);
+    const retrieved = await retrieveContext(
+      db,
+      llm,
+      article.slug,
+      hints,
+      runtime.app.rag.enabled,
+      runtime.app.rag.max_results,
+      runtime.llm.embeddings.enabled
+    );
+    const excerpt = extractSelectionExcerpt(article.markdown, selectedText);
+    const selectedPhrase = shouldRefineSelection(selectedText)
+      ? await generateLinkSelection(
+          llm,
+          runtime.prompts,
+          article.title,
+          selectedText,
+          excerpt,
+          retrieved.context,
+          retrieved.relatedTitles
+        ).catch(() => selectedText)
+      : selectedText;
+    const wrapRange = findWrapRange(article.markdown, selectedPhrase);
+    if (!wrapRange) {
+      return c.json({ error: "could not find selectable text to wrap in the article markdown" }, 422);
+    }
+    const suggestion = await generateLinkSuggestion(
+      llm,
+      runtime.prompts,
+      article.title,
+      wrapRange.visibleLabel,
+      excerpt,
+      retrieved.context,
+      retrieved.relatedTitles
+    );
+
+    const targetSlug = slugify(suggestion.title);
+    if (!targetSlug) return c.json({ error: "link suggestion produced an invalid target" }, 500);
+
+    const wrapped = `[${wrapRange.visibleLabel}](halu:${targetSlug} "${suggestion.hint.replace(/"/g, "'")}")`;
+    const nextMarkdown =
+      article.markdown.slice(0, wrapRange.start) +
+      wrapped +
+      article.markdown.slice(wrapRange.end);
+
+    const nextArticle = {
+      ...article,
+      markdown: nextMarkdown,
+      html: "",
+      plain_text: markdownToPlainText(nextMarkdown),
+      generated_at: Date.now(),
+    };
+    const links = extractInternalLinks(nextMarkdown);
+    nextArticle.html = rewriteArticleHtml(renderMarkdown(nextMarkdown), links);
+    saveArticle(db, nextArticle, links, Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])));
+    await indexArticleChunks(
+      db,
+      llm,
+      nextArticle.slug,
+      nextMarkdown,
+      runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
+      runtime.app.rag.chunk_size
+    );
+
+    return c.json({
+      cached: true,
+      canonicalPath: canonicalPathForArticle(nextArticle),
+      article: nextArticle,
+      backlinks: listBacklinks(db, nextArticle.slug),
     });
   });
 
@@ -248,6 +638,20 @@ async function createApp() {
   app.post("/api/admin/reload", async (c) => {
     await reloadRuntime();
     return c.json({ ok: true });
+  });
+
+  app.post("/api/admin/wipe", (c) => {
+    wipeGeneratedCorpus(db);
+    console.warn("[admin] wiped generated corpus");
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/admin/delete-article", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { slug?: string };
+    const slug = slugify(body.slug ?? "");
+    if (!slug) return c.json({ error: "missing slug" }, 400);
+    const deleted = deleteArticleBySlug(db, slug);
+    return c.json({ ok: deleted, slug });
   });
 
   app.get("/api/search", (c) => {
@@ -335,7 +739,11 @@ async function bootstrap() {
   );
 }
 
-bootstrap().catch((error) => {
-  console.error("[halupedia] startup_failed", error);
-  process.exit(1);
-});
+const isEntrypoint = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
+
+if (isEntrypoint) {
+  bootstrap().catch((error) => {
+    console.error("[halupedia] startup_failed", error);
+    process.exit(1);
+  });
+}

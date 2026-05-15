@@ -11,16 +11,21 @@ export function slugify(input: string): string {
 
 export function slugToTitle(slug: string): string {
   if (!slug) return "Untitled";
-  return slug
+  const title = slug
     .split("-")
     .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+  return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
 export function titleToWikiSegment(title: string): string {
   return title
     .trim()
-    .replace(/\s+/g, "_")
-    .replace(/[^\p{L}\p{N}_'(),.-]+/gu, "");
+    .replace(/\s+/g, " ")
+    .replace(/[^\p{L}\p{N} _'(),.-]+/gu, "")
+    .replace(/ /g, "_");
+}
+
+export function wikiSegmentToTitle(segment: string): string {
+  return segment.trim().replace(/_/g, " ").replace(/\s+/g, " ");
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
 import { SearchResults } from "./SearchResults";
@@ -22,6 +22,7 @@ interface BacklinkItem {
 interface PageData {
   cached: boolean;
   canonicalPath?: string;
+  redirectedFrom?: string;
   article: {
     slug: string;
     canonicalSlug: string;
@@ -35,6 +36,17 @@ interface PageData {
     existing: BacklinkItem[];
     unwritten: BacklinkItem[];
   };
+}
+
+interface LinkMenuState {
+  text: string;
+  x: number;
+  y: number;
+}
+
+function countInternalLinks(markdown: string): number {
+  const matches = markdown.match(/\]\(halu:[^) "\t\r\n]+(?:\s+"[^"]*")?\)/g);
+  return matches?.length ?? 0;
 }
 
 function parseRoute(): Route {
@@ -60,6 +72,10 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [headerSearchDraft, setHeaderSearchDraft] = useState("");
+  const [linkMenu, setLinkMenu] = useState<LinkMenuState | null>(null);
+  const [linkMenuBusy, setLinkMenuBusy] = useState(false);
+  const [linkMenuError, setLinkMenuError] = useState<string | null>(null);
+  const articleRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const onPop = () => {
@@ -76,6 +92,9 @@ export function App() {
       setPage(null);
       setLoading(false);
       setError(null);
+      setLinkMenu(null);
+      setLinkMenuError(null);
+      setLinkMenuBusy(false);
       document.title =
         route.kind === "search"
           ? route.query
@@ -93,6 +112,9 @@ export function App() {
     setLoading(true);
     setError(null);
     setPage(null);
+    setLinkMenu(null);
+    setLinkMenuError(null);
+    setLinkMenuBusy(false);
     let streamedHtml = "";
 
     (async () => {
@@ -108,7 +130,7 @@ export function App() {
           if (cancelled) return;
           setPage(data);
           setLoading(false);
-          if (data.canonicalPath && window.location.pathname !== data.canonicalPath) {
+          if (data.canonicalPath && data.redirectedFrom && window.location.pathname !== data.canonicalPath) {
             window.history.replaceState({}, "", data.canonicalPath);
           }
           document.title = `${data.article.title} - Halupedia`;
@@ -135,6 +157,7 @@ export function App() {
               | {
                   type: "done";
                   cached: boolean;
+                  redirectedFrom?: string;
                   article: PageData["article"];
                   backlinks: PageData["backlinks"];
                   canonicalPath?: string;
@@ -172,6 +195,7 @@ export function App() {
               setPage({
                 cached: event.cached,
                 canonicalPath: event.canonicalPath,
+                redirectedFrom: event.redirectedFrom,
                 article: {
                   ...event.article,
                   html: event.article.html || streamedHtml,
@@ -179,7 +203,7 @@ export function App() {
                 backlinks: event.backlinks,
               });
               setLoading(false);
-              if (event.canonicalPath && window.location.pathname !== event.canonicalPath) {
+              if (event.canonicalPath && event.redirectedFrom && window.location.pathname !== event.canonicalPath) {
                 window.history.replaceState({}, "", event.canonicalPath);
               }
               document.title = `${event.article.title} - Halupedia`;
@@ -248,8 +272,90 @@ export function App() {
     [navigateToArticle]
   );
 
+  const clearLinkSelection = useCallback(() => {
+    setLinkMenu(null);
+    setLinkMenuBusy(false);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+  }, []);
+
+  const addLinkFromSelection = useCallback(async () => {
+    if (!page?.article.slug || !linkMenu?.text || linkMenuBusy) return;
+    setLinkMenuBusy(true);
+    setLinkMenuError(null);
+    try {
+      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/add-link`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ selectedText: linkMenu.text }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      setPage(payload as PageData);
+      clearLinkSelection();
+    } catch (err: any) {
+      setLinkMenuError(err?.message || "Could not add a link there.");
+      setLinkMenuBusy(false);
+    }
+  }, [page?.article.slug, linkMenu?.text, linkMenuBusy, clearLinkSelection]);
+
+  useEffect(() => {
+    if (route.kind !== "article" || !page || loading) {
+      setLinkMenu(null);
+      return;
+    }
+
+    const syncSelection = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        setLinkMenu(null);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      const articleEl = articleRef.current;
+      if (!articleEl) {
+        setLinkMenu(null);
+        return;
+      }
+      const anchorNode =
+        range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+          ? (range.commonAncestorContainer as Element)
+          : range.commonAncestorContainer.parentElement;
+      if (!anchorNode || !articleEl.contains(anchorNode) || anchorNode.closest("a")) {
+        setLinkMenu(null);
+        return;
+      }
+      const text = selection
+        .toString()
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text.length < 2) {
+        setLinkMenu(null);
+        return;
+      }
+      const rect = range.getBoundingClientRect();
+      if (!rect.width && !rect.height) {
+        setLinkMenu(null);
+        return;
+      }
+      setLinkMenu({
+        text,
+        x: rect.left + rect.width / 2,
+        y: Math.max(12, rect.top - 12),
+      });
+    };
+
+    document.addEventListener("selectionchange", syncSelection);
+    document.addEventListener("scroll", syncSelection, true);
+    return () => {
+      document.removeEventListener("selectionchange", syncSelection);
+      document.removeEventListener("scroll", syncSelection, true);
+    };
+  }, [route.kind, page, loading]);
+
   const articleSlug = route.kind === "article" ? route.slug : null;
   const articleTitle = page?.article.title ?? "";
+  const hasZeroLinks = page ? countInternalLinks(page.article.markdown) === 0 : false;
 
   const mainView = useMemo(() => {
     if (route.kind === "home") {
@@ -297,13 +403,23 @@ export function App() {
 
     return (
       <>
+        {page.redirectedFrom ? (
+          <div className="status">
+            <span>Redirected from {page.redirectedFrom.replace(/^\/wiki\//, "").replace(/_/g, " ")}</span>
+          </div>
+        ) : null}
         {!page.cached && (
           <div className="status">
             <span className="dot" />
             <span>Fresh generation from local canon.</span>
           </div>
         )}
-        <article className="article" onClick={interceptArticleLinks}>
+        {hasZeroLinks ? (
+          <div className="linkless-notice">
+            This article has no links. Expand it by highlighting text.
+          </div>
+        ) : null}
+        <article ref={articleRef} className="article" onClick={interceptArticleLinks}>
           <div dangerouslySetInnerHTML={{ __html: page.article.html }} />
         </article>
       </>
@@ -392,6 +508,23 @@ export function App() {
           onNavigate={navigateToArticle}
         />
       </section>
+
+      {linkMenu ? (
+        <div
+          className="selection-link-menu"
+          style={{ left: linkMenu.x, top: linkMenu.y }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <button type="button" className="selection-link-button" onClick={addLinkFromSelection} disabled={linkMenuBusy}>
+            {linkMenuBusy ? "Adding..." : "Add a link here"}
+          </button>
+          <button type="button" className="selection-link-dismiss" onClick={clearLinkSelection} disabled={linkMenuBusy}>
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
+      {linkMenuError ? <div className="selection-link-error">{linkMenuError}</div> : null}
 
       <footer className="site-footer">Local-first fictional canon engine</footer>
     </div>

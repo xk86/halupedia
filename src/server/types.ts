@@ -53,6 +53,20 @@ export interface PromptConfig {
   prompts: Record<string, PromptTemplate>;
 }
 
+export interface SeeAlsoCandidate {
+  title: string;
+  hint: string;
+}
+
+export interface LinkSuggestion {
+  title: string;
+  hint: string;
+}
+
+export interface LinkSelectionSuggestion {
+  selected_text: string;
+}
+
 export interface ArticleRecord {
   slug: string;
   canonicalSlug: string;
@@ -61,6 +75,17 @@ export interface ArticleRecord {
   html: string;
   plain_text: string;
   generated_at: number;
+}
+
+export interface PagePayload {
+  cached: boolean;
+  redirectedFrom?: string;
+  canonicalPath?: string;
+  article: ArticleRecord;
+  backlinks: {
+    existing: BacklinkItem[];
+    unwritten: BacklinkItem[];
+  };
 }
 
 export interface ParsedInternalLink {

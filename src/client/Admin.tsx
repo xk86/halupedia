@@ -25,6 +25,9 @@ export function Admin({ onNavigate }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
+  const [wiping, setWiping] = useState(false);
+  const [deleteSlug, setDeleteSlug] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -59,6 +62,41 @@ export function Admin({ onNavigate }: Props) {
     }
   }, [loadOverview]);
 
+  const wipeDatabase = useCallback(async () => {
+    setWiping(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/wipe", { method: "POST" });
+      if (!res.ok) throw new Error(`error ${res.status}`);
+      await loadOverview();
+    } catch (err: any) {
+      setError(err?.message || "failed to wipe database");
+    } finally {
+      setWiping(false);
+    }
+  }, [loadOverview]);
+
+  const deleteArticle = useCallback(async () => {
+    const slug = deleteSlug.trim();
+    if (!slug) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/delete-article", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      if (!res.ok) throw new Error(`error ${res.status}`);
+      setDeleteSlug("");
+      await loadOverview();
+    } catch (err: any) {
+      setError(err?.message || "failed to delete article");
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteSlug, loadOverview]);
+
   if (loading) return <p className="search-status">Loading admin overview...</p>;
   if (error) return <div className="search-error">{error}</div>;
   if (!overview) return null;
@@ -79,6 +117,9 @@ export function Admin({ onNavigate }: Props) {
         <button className="all-entries-more-btn" onClick={reloadRuntime} disabled={reloading}>
           {reloading ? "Reloading..." : "Reload config and prompts"}
         </button>
+        <button className="all-entries-more-btn" onClick={wipeDatabase} disabled={wiping}>
+          {wiping ? "Wiping..." : "Wipe generated corpus"}
+        </button>
         <span className="all-entries-count">Model: {overview.model}</span>
       </div>
 
@@ -86,6 +127,22 @@ export function Admin({ onNavigate }: Props) {
         <h3 className="sb-heading">Runtime</h3>
         <p className="sb-copy">Database: {overview.databasePath}</p>
         <p className="sb-copy">Prompts: {overview.promptConfigPath}</p>
+      </div>
+
+      <div className="sb-panel">
+        <h3 className="sb-heading">Entry Surgery</h3>
+        <div className="all-entries-toolbar">
+          <input
+            type="text"
+            className="all-entries-search"
+            placeholder="Delete article by slug"
+            value={deleteSlug}
+            onChange={(e) => setDeleteSlug(e.target.value)}
+          />
+          <button className="all-entries-more-btn" onClick={deleteArticle} disabled={deleting || !deleteSlug.trim()}>
+            {deleting ? "Deleting..." : "Delete article"}
+          </button>
+        </div>
       </div>
 
       <section className="search-section" style={{ marginTop: "1.5rem" }}>

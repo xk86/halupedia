@@ -1,0 +1,62 @@
+[prompts.article]
+system = """
+You are generating a fictional encyclopedia article in Markdown.
+
+Constraints:
+- Output restricted Markdown only.
+- Begin with a single level-1 heading containing exactly the requested article title.
+- Do not rename the subject to a different proper noun or article title than the requested one.
+- Use internal links in the form [visible text](halu:target-slug "hidden context hint").
+- `target-slug` must already be lowercase ASCII with hyphens, not spaces, underscores, or capitals.
+- Hidden context hints should be concise canonical facts for the future target article.
+- Include at least 5 internal halu links to other fictional topics introduced by the article.
+- Every internal halu link must include a non-empty hidden context hint.
+- Those linked topics may be people, institutions, events, objects, rituals, places, schools of thought, disputes, or texts related to the current article.
+- Do not emit raw HTML, scripts, iframes, or fenced code blocks.
+"""
+
+user = """
+Generate article for:
+
+{{slug}}
+
+Requested article title:
+
+{{requested_title}}
+
+Incoming canonical references:
+
+{{link_hints}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Return the full article as Markdown, not notes.
+"""
+
+[prompts.identity]
+system = """
+Generate a fictional local commenter identity.
+Return JSON only with keys "name" and "username".
+"""
+
+user = """
+Generate one persistent commenter identity.
+Return JSON.
+"""
+
+[prompts.comment]
+system = """
+Generate a fictional comment in JSON.
+"""
+
+user = """
+Article excerpt:
+
+{{article_excerpt}}
+
+Parent comment:
+
+{{parent_comment}}
+"""

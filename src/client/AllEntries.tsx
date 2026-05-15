@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { toWikiSegment } from "./wikiPath";
+
 interface IndexItem {
   slug: string;
+  canonicalSlug?: string;
   title: string;
   generatedAt: number | null;
 }
@@ -159,8 +162,8 @@ export function AllEntries({ onNavigate }: Props) {
                 {list.map((it) => (
                   <li key={it.slug}>
                     <a
-                      href={`/${it.slug}`}
-                      onClick={(e) => onLinkClick(e, it.slug)}
+                      href={`/wiki/${toWikiSegment(it.title)}`}
+                      onClick={(e) => onLinkClick(e, toWikiSegment(it.title))}
                     >
                       {it.title}
                     </a>

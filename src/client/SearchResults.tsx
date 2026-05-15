@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toWikiSegment } from "./wikiPath";
 
 interface SearchItem {
   slug: string;
@@ -179,8 +180,8 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
                     {existingResults.map((r) => (
                       <li key={r.slug} className="search-item">
                         <a
-                          href={`/${r.slug}`}
-                          onClick={(e) => onLinkClick(e, r.slug)}
+                          href={`/wiki/${toWikiSegment(r.title)}`}
+                          onClick={(e) => onLinkClick(e, toWikiSegment(r.title))}
                         >
                           {r.title}
                         </a>
@@ -205,8 +206,8 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
                         className="search-item search-item-unwritten"
                       >
                         <a
-                          href={`/${r.slug}`}
-                          onClick={(e) => onLinkClick(e, r.slug)}
+                          href={`/wiki/${toWikiSegment(r.title)}`}
+                          onClick={(e) => onLinkClick(e, toWikiSegment(r.title))}
                           title="Not yet written — clicking will hallucinate it"
                         >
                           <span className="search-unwritten-mark" aria-hidden>

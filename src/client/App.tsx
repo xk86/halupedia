@@ -1,487 +1,401 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Comments } from "./Comments";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
-import { usePresence } from "./usePresence";
-import { ArticleVote } from "./ArticleVote";
-import { Admin } from "./Admin";
 
-const RESERVED_ALL_ENTRIES = "all-entries";
-const RESERVED_SEARCH = "search";
-const RESERVED_ADMIN = "admin";
-/** The "/" homepage maps to this internal slug (see seed.ts). It is not
- *  votable and must not pollute the live "currently being consulted" list. */
-const HOMEPAGE_SLUG = "halupedia";
+type Route =
+  | { kind: "home" }
+  | { kind: "search"; query: string }
+  | { kind: "index" }
+  | { kind: "admin" }
+  | { kind: "article"; slug: string };
 
-type Status = "idle" | "loading" | "streaming" | "done" | "error" | "banned";
-
-const DREAMING_MESSAGES = [
-  "Consulting seventeen conflicting sources…",
-  "Cross-referencing the index…",
-  "Locating the relevant volume…",
-  "Interviewing three anonymous experts…",
-  "Resolving a minor scholarly dispute…",
-];
-
-function currentSlug(): string {
-  const path = window.location.pathname.replace(/^\/+/, "");
-  if (!path || path === "") return "halupedia";
-  // Strip trailing slash.
-  return decodeURIComponent(path.replace(/\/+$/, ""));
+interface BacklinkItem {
+  slug: string;
+  title: string;
+  visibleLabel: string;
+  hiddenHint: string;
+  createdAt: number;
 }
 
-/** Read the ?q=… search param from the URL (only meaningful on /search). */
-function currentSearchQuery(): string {
-  return new URLSearchParams(window.location.search).get("q") || "";
+interface PageData {
+  cached: boolean;
+  canonicalPath?: string;
+  article: {
+    slug: string;
+    canonicalSlug: string;
+    title: string;
+    html: string;
+    markdown: string;
+    plain_text: string;
+    generated_at: number;
+  };
+  backlinks: {
+    existing: BacklinkItem[];
+    unwritten: BacklinkItem[];
+  };
+}
+
+function parseRoute(): Route {
+  const { pathname, search } = window.location;
+  if (pathname === "/") return { kind: "home" };
+  if (pathname === "/all-entries") return { kind: "index" };
+  if (pathname === "/admin") return { kind: "admin" };
+  if (pathname === "/search") {
+    return { kind: "search", query: new URLSearchParams(search).get("q") ?? "" };
+  }
+  if (pathname.startsWith("/wiki/")) {
+    return {
+      kind: "article",
+      slug: decodeURIComponent(pathname.slice("/wiki/".length)).replace(/^\/+|\/+$/g, ""),
+    };
+  }
+  return { kind: "home" };
 }
 
 export function App() {
-  const [slug, setSlug] = useState<string>(() => currentSlug());
-  const [searchQuery, setSearchQuery] = useState<string>(() =>
-    currentSlug() === RESERVED_SEARCH ? currentSearchQuery() : ""
-  );
-  const [html, setHtml] = useState<string>("");
-  const [status, setStatus] = useState<Status>("idle");
+  const [route, setRoute] = useState<Route>(() => parseRoute());
+  const [page, setPage] = useState<PageData | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dreamMsg, setDreamMsg] = useState<string>(DREAMING_MESSAGES[0]);
-  const [headerSearchDraft, setHeaderSearchDraft] = useState<string>("");
-  // Title of the currently-rendered article (extracted from the streamed
-  // <h1>). Declared up here because the slug-change fetch effect needs to
-  // reset it synchronously to avoid leaking a stale title into the next
-  // article's presence broadcast.
-  const [articleTitle, setArticleTitle] = useState<string>("");
-  const prevSlugRef = useRef<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const [headerSearchDraft, setHeaderSearchDraft] = useState("");
 
-  /* ----- Popstate (back/forward) ----- */
   useEffect(() => {
     const onPop = () => {
-      const s = currentSlug();
-      // Clear the title in the same render as the slug change so the
-      // presence effect below never sees the {new slug, old title} pair
-      // mid-transition. (Backend is now resilient to that, but there's
-      // no reason to ship known-wrong data.)
-      setArticleTitle("");
-      setSlug(s);
-      setSearchQuery(s === RESERVED_SEARCH ? currentSearchQuery() : "");
+      const next = parseRoute();
+      setRoute(next);
+      setHeaderSearchDraft(next.kind === "search" ? next.query : "");
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  /* ----- Fetch + stream on every slug change ----- */
   useEffect(() => {
-    // Reserved client-only routes (all-entries, search, admin) bypass the
-    // article fetch entirely — the SPA renders them itself.
-    if (
-      slug === RESERVED_ALL_ENTRIES ||
-      slug === RESERVED_SEARCH ||
-      slug === RESERVED_ADMIN
-    ) {
-      abortRef.current?.abort();
-      setHtml("");
+    if (route.kind !== "article") {
+      setPage(null);
+      setLoading(false);
       setError(null);
-      setStatus("done");
+      document.title =
+        route.kind === "search"
+          ? route.query
+            ? `Search: ${route.query} - Halupedia`
+            : "Search - Halupedia"
+          : route.kind === "admin"
+          ? "Admin - Halupedia"
+          : route.kind === "index"
+          ? "All entries - Halupedia"
+          : "Halupedia";
       return;
     }
 
     let cancelled = false;
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-
-    setHtml("");
+    setLoading(true);
     setError(null);
-    setStatus("loading");
-    // Clear the previous article's title in the same tick the slug changes
-    // so usePresence doesn't broadcast {s:newSlug, ti:oldTitle} during the
-    // window before the new article's <h1> streams in. That stale pairing
-    // was poisoning the server-side title cache for the new slug.
-    setArticleTitle("");
-    setDreamMsg(DREAMING_MESSAGES[Math.floor(Math.random() * DREAMING_MESSAGES.length)]);
-
-    const from = prevSlugRef.current;
-    const url = `/api/page/${encodeURIComponent(slug)}${from ? `?from=${encodeURIComponent(from)}` : ""}`;
+    setPage(null);
+    let streamedHtml = "";
 
     (async () => {
       try {
-        const res = await fetch(url, { signal: ctrl.signal });
+        const res = await fetch(`/api/page/${encodeURIComponent(route.slug)}`);
         if (!res.ok) {
-          const j: any = await res.json().catch(() => ({}));
-          if (j?.banned) {
-            if (cancelled) return;
-            setStatus("banned");
-            return;
-          }
-          throw new Error(j?.error || `error ${res.status}`);
+          const body: any = await res.json().catch(() => ({}));
+          throw new Error(body?.error || `error ${res.status}`);
         }
-        const cachedHeader = res.headers.get("x-halupedia-cached");
-        const isCached = cachedHeader === "true";
-
-        if (!res.body) {
-          const text = await res.text();
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/x-ndjson")) {
+          const data: PageData = await res.json();
           if (cancelled) return;
-          setHtml(text);
-          setStatus("done");
+          setPage(data);
+          setLoading(false);
+          if (data.canonicalPath && window.location.pathname !== data.canonicalPath) {
+            window.history.replaceState({}, "", data.canonicalPath);
+          }
+          document.title = `${data.article.title} - Halupedia`;
           return;
         }
 
+        if (!res.body) throw new Error("streaming response missing body");
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let accumulated = "";
-        let firstChunk = true;
+        let buffer = "";
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-          accumulated += decoder.decode(value, { stream: true });
-          if (cancelled) return;
-          if (firstChunk) {
-            setStatus(isCached ? "done" : "streaming");
-            firstChunk = false;
+          buffer += decoder.decode(value, { stream: true });
+          let newlineIndex = buffer.indexOf("\n");
+          while (newlineIndex >= 0) {
+            const line = buffer.slice(0, newlineIndex).trim();
+            buffer = buffer.slice(newlineIndex + 1);
+            newlineIndex = buffer.indexOf("\n");
+            if (!line) continue;
+            const event = JSON.parse(line) as
+              | { type: "start"; slug: string; cached: boolean }
+              | { type: "progress"; html: string }
+              | {
+                  type: "done";
+                  cached: boolean;
+                  article: PageData["article"];
+                  backlinks: PageData["backlinks"];
+                  canonicalPath?: string;
+                }
+              | { type: "error"; message: string };
+            if (cancelled) return;
+            if (event.type === "progress") {
+              streamedHtml = event.html;
+              setPage((current) => ({
+                cached: false,
+                article: current?.article ?? {
+                  slug: route.slug,
+                  canonicalSlug: route.slug,
+                  title: route.slug,
+                  html: streamedHtml,
+                  markdown: "",
+                  plain_text: "",
+                  generated_at: Date.now(),
+                },
+                backlinks: current?.backlinks ?? { existing: [], unwritten: [] },
+              }));
+              setPage((current) =>
+                current
+                  ? {
+                      ...current,
+                      article: {
+                        ...current.article,
+                        html: streamedHtml,
+                      },
+                    }
+                  : current
+              );
+              setLoading(false);
+            } else if (event.type === "done") {
+              setPage({
+                cached: event.cached,
+                canonicalPath: event.canonicalPath,
+                article: {
+                  ...event.article,
+                  html: event.article.html || streamedHtml,
+                },
+                backlinks: event.backlinks,
+              });
+              setLoading(false);
+              if (event.canonicalPath && window.location.pathname !== event.canonicalPath) {
+                window.history.replaceState({}, "", event.canonicalPath);
+              }
+              document.title = `${event.article.title} - Halupedia`;
+            } else if (event.type === "error") {
+              throw new Error(event.message);
+            }
           }
-          setHtml(accumulated);
         }
-        accumulated += decoder.decode();
+      } catch (err: any) {
         if (cancelled) return;
-        setHtml(accumulated);
-        setStatus("done");
-      } catch (e: any) {
-        if (cancelled || e?.name === "AbortError") return;
-        setError(e?.message || "generation failed");
-        setStatus("error");
+        console.error("[app] article_load_failed", err);
+        setError(articleFailureMessage);
+        setLoading(false);
       }
     })();
 
-    // Update browser title once we have an h1.
     return () => {
       cancelled = true;
-      ctrl.abort();
     };
-  }, [slug]);
+  }, [route]);
 
-  /* ----- Extract h1 title from the article HTML ----- */
-  // Used both for `document.title` and for the presence broadcast (so the
-  // "currently being read" panel shows real titles instead of slugified
-  // fallbacks). State declared above with the rest because the slug-change
-  // fetch effect resets it.
-  useEffect(() => {
-    if (!html) {
-      setArticleTitle("");
-      return;
-    }
-    const m = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
-    if (m) {
-      const title = m[1].replace(/<[^>]+>/g, "").trim();
-      if (title) {
-        document.title = `${title} — Halupedia`;
-        setArticleTitle(title);
-      }
-    }
-  }, [html]);
-
-  /* ----- Presence: live "who is reading what" over a single WS ----- */
-  // We feed the hook null on non-article views (search, all-entries) AND
-  // on the homepage so "Halupedia" itself never shows up in the live
-  // "currently being consulted" list. The WS stays connected; the user
-  // is just counted as "idle" until they open a real folio.
-  const presenceSlug =
-    slug === RESERVED_ALL_ENTRIES ||
-    slug === RESERVED_SEARCH ||
-    slug === RESERVED_ADMIN ||
-    slug === HOMEPAGE_SLUG
-      ? null
-      : slug;
-  const presence = usePresence(presenceSlug, articleTitle);
-
-  /* ----- Top folios (all-time, by upvotes) ----- */
-  // Plain D1-backed list, no real-time bells. Refetched on first SPA load
-  // and whenever the user successfully upvotes/retracts an article.
-  const [topArticles, setTopArticles] = useState<
-    { slug: string; title: string; score: number }[]
-  >([]);
-  const refreshTopArticles = useCallback(async () => {
-    try {
-      const res = await fetch("/api/articles/top?limit=5", {
-        credentials: "same-origin",
-      });
-      if (!res.ok) return;
-      const j: { items: { slug: string; title: string; score: number }[] } =
-        await res.json();
-      setTopArticles(j.items ?? []);
-    } catch {
-      /* keep stale list */
-    }
-  }, []);
-  useEffect(() => {
-    refreshTopArticles();
-  }, [refreshTopArticles]);
-
-  /* ----- Internal link interception ----- */
-  const onContainerClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    const target = (e.target as HTMLElement).closest("a");
-    if (!target) return;
-    const href = target.getAttribute("href");
-    if (!href || !href.startsWith("/")) return;
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e as any).button === 1) return;
-    e.preventDefault();
-    navigateTo(href.slice(1));
+  const navigateHome = useCallback(() => {
+    window.history.pushState({}, "", "/");
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "home" });
   }, []);
 
-  const navigateTo = useCallback(
-    (nextSlug: string) => {
-      const clean = nextSlug.replace(/^\/+|\/+$/g, "") || "halupedia";
-      if (clean === slug && slug !== RESERVED_SEARCH) return;
-      prevSlugRef.current = slug;
-      // Homepage lives at "/", not "/halupedia". The internal slug stays
-      // "halupedia" so the worker can still key its cache by it.
-      const url = clean === "halupedia" ? "/" : `/${clean}`;
-      window.history.pushState({}, "", url);
-      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-      // Batch the title clear with the slug change. React renders both
-      // state updates together, so the presence effect sees the new slug
-      // with an empty title rather than the previous article's title.
-      setArticleTitle("");
-      setSlug(clean);
-      setSearchQuery("");
+  const navigateToArticle = useCallback((slugOrTitleSegment: string) => {
+    const clean = slugOrTitleSegment.replace(/^\/+|\/+$/g, "");
+    window.history.pushState({}, "", `/wiki/${clean}`);
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "article", slug: clean });
+  }, []);
+
+  const navigateToSearch = useCallback((query: string) => {
+    const trimmed = query.trim();
+    const url = trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search";
+    window.history.pushState({}, "", url);
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setHeaderSearchDraft(trimmed);
+    setRoute({ kind: "search", query: trimmed });
+  }, []);
+
+  const navigateToIndex = useCallback(() => {
+    window.history.pushState({}, "", "/all-entries");
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "index" });
+  }, []);
+
+  const navigateToAdmin = useCallback(() => {
+    window.history.pushState({}, "", "/admin");
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "admin" });
+  }, []);
+
+  const interceptArticleLinks = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      const target = (e.target as HTMLElement).closest("a");
+      if (!target) return;
+      const href = target.getAttribute("href");
+      if (!href?.startsWith("/wiki/")) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e as any).button === 1) return;
+      e.preventDefault();
+      navigateToArticle(href.slice("/wiki/".length));
     },
-    [slug]
+    [navigateToArticle]
   );
 
-  /** Navigate to /search?q=…  (keeps the query string in the URL, so back/
-   *  forward and direct links work). */
-  const navigateToSearch = useCallback(
-    (q: string) => {
-      const trimmed = q.trim();
-      if (!trimmed) return;
-      // If the user re-submits the same query while on /search, force a
-      // re-render by bumping state even though the URL is unchanged.
-      const url = `/search?q=${encodeURIComponent(trimmed)}`;
-      if (slug !== RESERVED_SEARCH || searchQuery !== trimmed) {
-        prevSlugRef.current = slug;
-        window.history.pushState({}, "", url);
-      }
-      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-      setSlug(RESERVED_SEARCH);
-      setSearchQuery(trimmed);
-    },
-    [slug, searchQuery]
-  );
+  const articleSlug = route.kind === "article" ? route.slug : null;
+  const articleTitle = page?.article.title ?? "";
 
-  const onStumble = useCallback(async () => {
-    try {
-      const res = await fetch("/api/random");
-      const j: any = await res.json();
-      if (j?.slug) navigateTo(j.slug);
-    } catch {}
-  }, [navigateTo]);
+  const mainView = useMemo(() => {
+    if (route.kind === "home") {
+      return (
+        <article className="article">
+          <h1>Halupedia</h1>
+          <p>
+            A local fictional encyclopedia whose canon accumulates over time. Articles seed future articles through
+            hidden link hints, and the backlink graph persists even when a target entry has not been written yet.
+          </p>
+          <p>
+            Search for an existing entry, or click through to an unwritten one and let your local model draft it from
+            prior references, optional retrieval context, and user-owned prompt templates.
+          </p>
+        </article>
+      );
+    }
+
+    if (route.kind === "index") {
+      return <AllEntries onNavigate={navigateToArticle} />;
+    }
+
+    if (route.kind === "admin") {
+      return <Admin onNavigate={navigateToArticle} />;
+    }
+
+    if (route.kind === "search") {
+      return <SearchResults q={route.query} onNavigate={navigateToArticle} onSearch={navigateToSearch} />;
+    }
+
+    if (loading) {
+      return (
+        <div className="status">
+          <span className="dot" />
+          <span>Generating article and resolving canon...</span>
+        </div>
+      );
+    }
+
+    if (error) {
+      return <div className="error">{articleFailureMessage}</div>;
+    }
+
+    if (!page) return null;
+
+    return (
+      <>
+        {!page.cached && (
+          <div className="status">
+            <span className="dot" />
+            <span>Fresh generation from local canon.</span>
+          </div>
+        )}
+        <article className="article" onClick={interceptArticleLinks}>
+          <div dangerouslySetInnerHTML={{ __html: page.article.html }} />
+        </article>
+      </>
+    );
+  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks]);
 
   return (
     <div className="site">
       <header className="site-header">
-        <div className="brand-stack">
-          <a
-            href="/"
-            className="brand"
-            onClick={(e) => {
-              e.preventDefault();
-              navigateTo("halupedia");
-            }}
-          >
-            Halu<span className="amp">&middot;</span>pedia
-          </a>
-          <a
-            href="https://buymeacoffee.com/baderbc"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="brand-donate"
-            title="Donations go directly to LLM tokens so the press can keep printing."
-          >
-            Buy us tokens →
-          </a>
-        </div>
+        <a
+          href="/"
+          className="brand"
+          onClick={(e) => {
+            e.preventDefault();
+            navigateHome();
+          }}
+        >
+          Halupedia
+        </a>
+
         <nav className="nav">
           <a
             href="/"
             onClick={(e) => {
               e.preventDefault();
-              navigateTo("halupedia");
+              navigateHome();
             }}
           >
-            Index
+            Home
           </a>
           <a
             href="/all-entries"
             onClick={(e) => {
               e.preventDefault();
-              navigateTo("all-entries");
+              navigateToIndex();
             }}
           >
             All entries
           </a>
           <a
-            href="#stumble"
+            href="/search"
             onClick={(e) => {
               e.preventDefault();
-              onStumble();
+              navigateToSearch("");
             }}
           >
-            Stumble
+            Search
           </a>
           <a
-            href="https://github.com/BaderBC/halupedia"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/admin"
+            onClick={(e) => {
+              e.preventDefault();
+              navigateToAdmin();
+            }}
           >
-            GitHub
-          </a>
-          <a
-            href="https://reddit.com/r/halupedia"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="nav-reddit"
-          >
-            Reddit
-          </a>
-          <a
-            href="https://discord.gg/fKMnyNwtGc"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="nav-discord"
-          >
-            Discord
+            Admin
           </a>
         </nav>
 
-        {slug !== RESERVED_SEARCH && (
-          <form
-            className="header-search"
-            onSubmit={(e) => {
-              e.preventDefault();
-              navigateToSearch(headerSearchDraft);
-              setHeaderSearchDraft("");
-            }}
-            role="search"
-          >
-            <input
-              type="search"
-              className="header-search-input"
-              placeholder="Search…"
-              value={headerSearchDraft}
-              onChange={(e) => setHeaderSearchDraft(e.target.value)}
-              maxLength={100}
-              aria-label="Search Halupedia"
-            />
-            <button
-              type="submit"
-              className="header-search-submit"
-              disabled={!headerSearchDraft.trim()}
-            >
-              Search
-            </button>
-          </form>
-        )}
+        <form
+          className="header-search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            navigateToSearch(headerSearchDraft);
+          }}
+        >
+          <input
+            type="search"
+            className="header-search-input"
+            placeholder="Search the register..."
+            value={headerSearchDraft}
+            onChange={(e) => setHeaderSearchDraft(e.target.value)}
+          />
+          <button type="submit" className="header-search-submit" disabled={!headerSearchDraft.trim()}>
+            Search
+          </button>
+        </form>
       </header>
 
-      <div className="layout">
-        <main
-          className={`layout-main${status === "streaming" ? " streaming" : ""}`}
-          onClick={onContainerClick}
-        >
-          {slug === RESERVED_ALL_ENTRIES ? (
-            <AllEntries onNavigate={navigateTo} />
-          ) : slug === RESERVED_SEARCH ? (
-            <SearchResults
-              q={searchQuery}
-              onNavigate={navigateTo}
-              onSearch={navigateToSearch}
-            />
-          ) : slug === RESERVED_ADMIN ? (
-            <Admin />
-          ) : (
-            <>
-              {status === "loading" && !html && (
-                <div className="status">
-                  <span className="dot" />
-                  <span>{dreamMsg}</span>
-                </div>
-              )}
-              {status === "streaming" && (
-                <div className="status">
-                  <span className="dot" />
-                  <span>Retrieving entry…</span>
-                </div>
-              )}
-              {status === "error" && error && (
-                <div className="error">
-                  Something broke, which is ironic for a made-up encyclopedia: {error}
-                </div>
-              )}
-              {status === "banned" && (
-                <div className="banned-notice">
-                  <h1>Entry redacted</h1>
-                  <p>
-                    This article was flagged by moderation and removed from the
-                    register. Halupedia will not regenerate it.
-                  </p>
-                  <p className="banned-notice-meta">
-                    We keep the encyclopedia maximally absurd but draw the line
-                    at hate speech, slurs, incitement, and keyword-spam. If you
-                    believe this was removed in error, mention it in the{" "}
-                    <a
-                      href="https://discord.gg/fKMnyNwtGc"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Discord
-                    </a>
-                    .
-                  </p>
-                </div>
-              )}
-              <div
-                className={`article-frame${
-                  slug !== HOMEPAGE_SLUG ? " article-frame-votable" : ""
-                }`}
-              >
-                {status === "done" && html && (
-                  <ArticleVote
-                    slug={presenceSlug}
-                    onVoted={refreshTopArticles}
-                  />
-                )}
-                <article
-                  className="article"
-                  dangerouslySetInnerHTML={{ __html: html }}
-                />
-              </div>
-            </>
-          )}
-        </main>
-
+      <section className="layout">
+        <main className="layout-main">{mainView}</main>
         <Sidebar
-          slug={presenceSlug}
-          onNavigate={navigateTo}
-          presenceTop={presence.top}
-          presenceHereCount={presence.hereCount}
-          topArticles={topArticles}
+          articleSlug={articleSlug}
+          articleTitle={articleTitle}
+          backlinks={page?.backlinks ?? null}
+          onNavigate={navigateToArticle}
         />
+      </section>
 
-        {/* Comments live as a sibling of <main> (not a child) so the grid
-            can place them BELOW the sidebar on mobile (where the column
-            order should read article → sidebar → comments) while still
-            sitting directly under the article on desktop. */}
-        {slug !== RESERVED_ALL_ENTRIES &&
-          slug !== RESERVED_SEARCH &&
-          slug !== RESERVED_ADMIN &&
-          status === "done" && <Comments slug={slug} />}
-      </div>
-
-      <footer className="site-footer">
-        <p className="footer-tagline-line">
-          Comprehensive coverage of topics mainstream encyclopedias overlooked.
-        </p>
-      </footer>
+      <footer className="site-footer">Local-first fictional canon engine</footer>
     </div>
   );
 }
+  const articleFailureMessage =
+    "This article could not be generated right now. Adjust prompts or retry from the admin panel.";

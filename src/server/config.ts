@@ -26,6 +26,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       enabled: app.rag?.enabled ?? false,
       max_results: app.rag?.max_results ?? 4,
       chunk_size: app.rag?.chunk_size ?? 500,
+      min_score: app.rag?.min_score ?? 0.2,
     },
   };
 }

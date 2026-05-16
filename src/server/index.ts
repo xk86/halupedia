@@ -368,31 +368,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     return html;
   }
 
-  async function buildArticle(slug: string, requestedTitle: string, onProgress?: (html: string) => void) {
-    logger.info("page.generation_start", { slug, requested_title: requestedTitle });
-    const hints = listIncomingHints(db, slug);
-    const retrieved = await retrieveContext(
-      db,
-      llm,
-      slug,
-      hints,
-      runtime.app.rag.enabled,
-      runtime.app.rag.max_results,
-      runtime.llm.embeddings.enabled,
-      logger
-    );
-
-    const prompt = getPrompt(runtime.prompts, "article");
-    const renderedUserPrompt = renderTemplate(prompt.user, {
-      slug,
-      requested_title: requestedTitle,
-      link_hints: hints.length ? hints.map((hint) => `- ${hint}`).join("\n") : "(none yet)",
-      rag_context: retrieved.context || "(none)",
-      related_titles: retrieved.relatedTitles.length ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
-      article_excerpt: "",
-      parent_comment: "",
-    });
-
+  async function finalizeArticle(
+    slug: string,
+    requestedTitle: string,
+    bodyMarkdown: string,
+    retrieved: Awaited<ReturnType<typeof retrieveContext>>,
+    hints: string[]
+  ) {
     const deterministicReferences = dedupeArticleCandidates(
       retrieved.sourceArticles.map((article) => ({
         slug: article.slug,
@@ -400,44 +382,20 @@ export async function createApp(options: CreateAppOptions = {}) {
         hiddenHint: normalizeArticleSnippet(article.content) || article.title,
       }))
     );
-    let rawMarkdown = "";
-    if (onProgress) {
-      await llm.streamChat(prompt.system, renderedUserPrompt, (_delta, accumulated) => {
-        rawMarkdown = accumulated;
-        onProgress(renderMarkdown(sanitizeGeneratedBody(normalizeMarkdown(accumulated))));
-      });
-    } else {
-      rawMarkdown = await llm.chat(prompt.system, renderedUserPrompt);
-    }
 
-    let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
-    const resolvedTitle = extractTitle(markdown, requestedTitle);
-    const uniqueLinkCount = extractInternalLinks(markdown).length;
-    const titleOk = titleMatchesRequested(resolvedTitle, requestedTitle, slug);
-    logger.info("page.generation_attempt", {
-      slug,
-      title: resolvedTitle,
-      title_ok: titleOk,
-      body_unique_links: uniqueLinkCount,
-      retrieved_sources: deterministicReferences.length,
-    });
-    if (!titleOk) {
-      throw new Error(`generated article title did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
-    }
-
-    const bodyLinkSlugs = new Set(extractInternalLinks(markdown).map((link) => link.targetSlug));
+    const bodyLinkSlugs = new Set(extractInternalLinks(bodyMarkdown).map((link) => link.targetSlug));
     const seeAlso = (await generateSeeAlsoCandidates(
       llm,
       runtime.prompts,
       requestedTitle,
-      markdown,
+      bodyMarkdown,
       retrieved.context,
       hints,
       retrieved.relatedTitles
     ).catch(() => []))
       .filter((candidate) => candidate.slug !== slug && !bodyLinkSlugs.has(candidate.slug))
       .slice(0, 7);
-    markdown = assembleArticleMarkdown(markdown, deterministicReferences, seeAlso);
+    const markdown = assembleArticleMarkdown(bodyMarkdown, deterministicReferences, seeAlso);
 
     const normalizedSlug = slugify(slug);
     const article = {
@@ -461,6 +419,60 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.app.rag.chunk_size,
       logger
     );
+    return { article, links };
+  }
+
+  async function buildArticle(slug: string, requestedTitle: string, onProgress?: (html: string) => void) {
+    logger.info("page.generation_start", { slug, requested_title: requestedTitle });
+    const hints = listIncomingHints(db, slug);
+    const retrieved = await retrieveContext(
+      db,
+      llm,
+      slug,
+      hints,
+      runtime.app.rag.enabled,
+      runtime.app.rag.max_results,
+      runtime.app.rag.min_score,
+      runtime.llm.embeddings.enabled,
+      logger
+    );
+
+    const prompt = getPrompt(runtime.prompts, "article");
+    const renderedUserPrompt = renderTemplate(prompt.user, {
+      slug,
+      requested_title: requestedTitle,
+      link_hints: hints.length ? hints.map((hint) => `- ${hint}`).join("\n") : "(none yet)",
+      rag_context: retrieved.context || "(none)",
+      related_titles: retrieved.relatedTitles.length ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
+      article_excerpt: "",
+      parent_comment: "",
+    });
+
+    let rawMarkdown = "";
+    if (onProgress) {
+      await llm.streamChat(prompt.system, renderedUserPrompt, (_delta, accumulated) => {
+        rawMarkdown = accumulated;
+        onProgress(renderMarkdown(sanitizeGeneratedBody(normalizeMarkdown(accumulated))));
+      });
+    } else {
+      rawMarkdown = await llm.chat(prompt.system, renderedUserPrompt);
+    }
+
+    let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
+    const resolvedTitle = extractTitle(markdown, requestedTitle);
+    const uniqueLinkCount = extractInternalLinks(markdown).length;
+    const titleOk = titleMatchesRequested(resolvedTitle, requestedTitle, slug);
+    logger.info("page.generation_attempt", {
+      slug,
+      title: resolvedTitle,
+      title_ok: titleOk,
+      body_unique_links: uniqueLinkCount,
+      retrieved_sources: retrieved.sourceArticles.length,
+    });
+    if (!titleOk) {
+      throw new Error(`generated article title did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
+    }
+    const { article, links } = await finalizeArticle(slug, requestedTitle, markdown, retrieved, hints);
     logger.info("page.generation_done", {
       slug,
       title: article.title,
@@ -580,6 +592,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       hints,
       runtime.app.rag.enabled,
       runtime.app.rag.max_results,
+      runtime.app.rag.min_score,
       runtime.llm.embeddings.enabled,
       logger
     );
@@ -643,6 +656,62 @@ export async function createApp(options: CreateAppOptions = {}) {
       canonicalPath: canonicalPathForArticle(nextArticle),
       article: nextArticle,
       backlinks: listBacklinks(db, nextArticle.slug),
+    });
+  });
+
+  app.post("/api/article/:slug/rewrite", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+
+    const body = (await c.req.json().catch(() => ({}))) as { instructions?: string };
+    const instructions = (body.instructions ?? "").replace(/\s+/g, " ").trim().slice(0, 2500);
+    if (!instructions) return c.json({ error: "missing rewrite instructions" }, 400);
+
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+
+    const hints = listIncomingHints(db, article.slug);
+    const retrieved = await retrieveContext(
+      db,
+      llm,
+      article.slug,
+      hints,
+      runtime.app.rag.enabled,
+      runtime.app.rag.max_results,
+      runtime.app.rag.min_score,
+      runtime.llm.embeddings.enabled,
+      logger
+    );
+
+    const prompt = getPrompt(runtime.prompts, "article_rewrite");
+    const raw = await llm.chat(
+      prompt.system,
+      renderTemplate(prompt.user, {
+        slug: article.slug,
+        requested_title: article.title,
+        edit_instructions: instructions,
+        current_article: article.markdown,
+        link_hints: hints.length ? hints.map((hint) => `- ${hint}`).join("\n") : "(none yet)",
+        rag_context: retrieved.context || "(none)",
+        related_titles: retrieved.relatedTitles.length ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
+        article_excerpt: "",
+        parent_comment: "",
+        selected_text: "",
+      })
+    );
+
+    const rewrittenBody = sanitizeGeneratedBody(normalizeMarkdown(raw));
+    const resolvedTitle = extractTitle(rewrittenBody, article.title);
+    if (!titleMatchesRequested(resolvedTitle, article.title, article.slug)) {
+      return c.json({ error: "rewrite changed the article title unexpectedly" }, 422);
+    }
+
+    const { article: updatedArticle } = await finalizeArticle(article.slug, article.title, rewrittenBody, retrieved, hints);
+    return c.json({
+      cached: true,
+      canonicalPath: canonicalPathForArticle(updatedArticle),
+      article: updatedArticle,
+      backlinks: listBacklinks(db, updatedArticle.slug),
     });
   });
 

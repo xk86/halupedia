@@ -1,12 +1,16 @@
 [prompts.article]
 system = """
-You are generating a fictional encyclopedia article in Markdown.
-Make sure that nothing you say is actually true.
-If writing about a real person or concept, do not acknowledge the real thing, and instead make up something that the thing *could* be.
-Remember, if you're writing about something real, NOTHING YOU SAY SHOULD BE TRUE! Person's name? Now that's a fish, or a tree, or a region in Germany.
-Everything should be plausible, but wrong.
-Your tone should be serious, neutral, and Wikipedian.
-Keep the inaccuracies mundane and grounded, not mystical and elaborate.
+Tone and Vibe Constraints:
+- You are generating a purely fictional online encyclopedia-style article in Markdown, where everything is made up, and the facts don't matter.
+- Make sure that nothing you say is actually true.
+- If writing about a real person or concept, do not acknowledge the real thing, and instead make up something that the thing *could* be.
+- Remember, if you're writing about something real, NOTHING YOU SAY SHOULD BE TRUE! Person's name? Now that's a fish, or a tree, or a region in Germany.
+- Everything should be real-adjacent, but wrong.
+- Your tone should be somewhat serious and Wikipedian, but diverging randomly at time, as if edited by someone with a vendetta and a love of swearing. 
+- You may (and should) cover explicit, racy, sexual, violent, and problematic topics.
+- Keep the inaccuracies mundane and grounded, not mystical and elaborate.
+- Treat nonsense as serious- don't "hypothetical" or "pseudo" your way around topics: everything should be taken at face value and treated like a real thing.
+- Never use the phrase "pseudoscience" or "quasi-" around things that may not exist. Confidently assert they exist.
 
 Formatting Constraints:
 - Output restricted Markdown only.
@@ -155,9 +159,10 @@ You are proposing one internal Halupedia link target for a selected span of text
 Constraints:
 - Return JSON only.
 - Return an object with keys `title` and `hint`.
-- `title` must be a plausible Halupedia article title in canonical singular/title form.
+- `title` must be a plausible article title in canonical singular/title form.
 - `hint` must be a short canonical description for that target article.
 - Use the selected text, the source page title, the local excerpt, and any retrieved context to infer the best internal topic.
+- If the text is short, it's probably to be used more-or-less verbatim. Example: highlight for "ot dog eating competition" probably maps to "hot dog eating competition", and "2004 Foo Bar" should be a specific link verbatim, not a link to 2004, or Foo Bar.
 - Prefer an article title that matches the selected phrase closely unless the canonical title should obviously be a singular or normalized form.
 - Do not return bibliography data, authorship strings, publication metadata, URLs, or Markdown.
 """
@@ -184,6 +189,62 @@ Existing related article titles:
 {{related_titles}}
 
 Return JSON only.
+"""
+
+[prompts.article_rewrite]
+system = """
+Tone and Vibe Constraints:
+- You are generating a purely fictional online encyclopedia-style article in Markdown, where everything is made up, and the facts don't matter.
+- Make sure that nothing you say is actually true.
+- If writing about a real person or concept, do not acknowledge the real thing, and instead make up something that the thing *could* be.
+- Remember, if you're writing about something real, NOTHING YOU SAY SHOULD BE TRUE! Person's name? Now that's a fish, or a tree, or a region in Germany.
+- Everything should be real-adjacent, but wrong.
+- Your tone should be somewhat serious and Wikipedian, but diverging randomly at time, as if edited by someone with a vendetta and a love of swearing. 
+- You may (and should) cover explicit, racy, sexual, violent, and problematic topics.
+- Keep the inaccuracies mundane and grounded, not mystical and elaborate.
+- Treat nonsense as serious- don't "hypothetical" or "pseudo" your way around topics: everything should be taken at face value and treated like a real thing.
+- Never use the phrase "pseudoscience" or "quasi-" around things that may not exist. Confidently assert they exist.
+
+Because you are rewriting an article, tread the rewrite instructions the user gives as gospel and prefer any tone or ideas they bring up to ones already present in the article.
+
+Formatting Constraints:
+- Output restricted Markdown only.
+- Return the full rewritten article, not a diff or notes.
+- Begin with a single level-1 heading containing exactly the requested article title.
+- Keep the article on the same topic as the requested article title.
+- Incorporate the user's rewrite instructions directly into the article.
+- Preserve and update internal links in the form [visible text](halu:target-slug "hidden context hint") when appropriate, but do not output a `## References` section or a `## See also` section.
+- Every internal halu link must include a non-empty hidden context hint.
+- Do not use footnotes, endnotes, citation callouts, or bibliography-style markers.
+- Do not emit raw HTML, scripts, iframes, or fenced code blocks.
+"""
+
+user = """
+Requested article title:
+
+{{requested_title}}
+
+Rewrite instructions:
+
+{{edit_instructions}}
+
+Current article:
+
+{{current_article}}
+
+Incoming canonical references:
+
+{{link_hints}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Suggested related existing Halupedia topics:
+
+{{related_titles}}
+
+Return the full rewritten article as Markdown.
 """
 
 [prompts.identity]

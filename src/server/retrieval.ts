@@ -53,7 +53,9 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 function lexicalScore(queryWords: string[], content: string): number {
   const lower = content.toLowerCase();
-  return queryWords.reduce((score, word) => (lower.includes(word) ? score + 1 : score), 0);
+  if (queryWords.length === 0) return 0;
+  const hits = queryWords.reduce((score, word) => (lower.includes(word) ? score + 1 : score), 0);
+  return hits / queryWords.length;
 }
 
 export async function indexArticleChunks(
@@ -99,6 +101,7 @@ export async function retrieveContext(
   hints: string[],
   enabled: boolean,
   maxResults: number,
+  minScore: number,
   useEmbeddings: boolean,
   logger?: Logger
 ): Promise<RetrievedContextPacket> {
@@ -144,7 +147,7 @@ export async function retrieveContext(
         content: row.content,
         score: row.embedding_json ? cosineSimilarity(queryEmbedding, JSON.parse(row.embedding_json) as number[]) : 0,
       }))
-      .filter((row) => row.score > 0)
+      .filter((row) => row.score >= minScore)
       .sort((a, b) => b.score - a.score);
   } else {
     const words = query
@@ -159,7 +162,7 @@ export async function retrieveContext(
         content: row.content,
         score: lexicalScore(words, row.content),
       }))
-      .filter((row) => row.score > 0)
+      .filter((row) => row.score >= minScore)
       .sort((a, b) => b.score - a.score);
   }
 
@@ -171,6 +174,8 @@ export async function retrieveContext(
     corpus_chunks: rows.length,
     ranked_chunks: ranked.length,
     picked: picked.length,
+    min_score: minScore,
+    top_score: ranked[0]?.score ?? 0,
   });
   return {
     context: picked

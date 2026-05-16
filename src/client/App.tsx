@@ -44,6 +44,10 @@ interface LinkMenuState {
   y: number;
 }
 
+function stripLeadingH1(html: string): string {
+  return html.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, "");
+}
+
 function countInternalLinks(markdown: string): number {
   const matches = markdown.match(/\]\(halu:[^) "\t\r\n]+(?:\s+"[^"]*")?\)/g);
   return matches?.length ?? 0;
@@ -75,6 +79,10 @@ export function App() {
   const [linkMenu, setLinkMenu] = useState<LinkMenuState | null>(null);
   const [linkMenuBusy, setLinkMenuBusy] = useState(false);
   const [linkMenuError, setLinkMenuError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const articleRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -95,6 +103,10 @@ export function App() {
       setLinkMenu(null);
       setLinkMenuError(null);
       setLinkMenuBusy(false);
+      setEditOpen(false);
+      setEditDraft("");
+      setEditBusy(false);
+      setEditError(null);
       document.title =
         route.kind === "search"
           ? route.query
@@ -115,6 +127,10 @@ export function App() {
     setLinkMenu(null);
     setLinkMenuError(null);
     setLinkMenuBusy(false);
+    setEditOpen(false);
+    setEditDraft("");
+    setEditBusy(false);
+    setEditError(null);
     let streamedHtml = "";
 
     (async () => {
@@ -299,6 +315,28 @@ export function App() {
     }
   }, [page?.article.slug, linkMenu?.text, linkMenuBusy, clearLinkSelection]);
 
+  const rewriteArticle = useCallback(async () => {
+    if (!page?.article.slug || !editDraft.trim() || editBusy) return;
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/rewrite`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ instructions: editDraft }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      setPage(payload as PageData);
+      setEditOpen(false);
+      setEditDraft("");
+      setEditBusy(false);
+    } catch (err: any) {
+      setEditError(err?.message || "Could not rewrite the article.");
+      setEditBusy(false);
+    }
+  }, [page?.article.slug, editDraft, editBusy]);
+
   useEffect(() => {
     if (route.kind !== "article" || !page || loading) {
       setLinkMenu(null);
@@ -419,8 +457,25 @@ export function App() {
             This article has no links. Expand it by highlighting text.
           </div>
         ) : null}
+        <div className="article-title-row">
+          <h1>{page.article.title}</h1>
+          <button
+            type="button"
+            className="article-edit-button"
+            onClick={() => {
+              setEditOpen(true);
+              setEditError(null);
+            }}
+            aria-label="Edit article"
+            title="Edit article"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25Zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.96 1.96 3.75 3.75 2.13-1.79Z" />
+            </svg>
+          </button>
+        </div>
         <article ref={articleRef} className="article" onClick={interceptArticleLinks}>
-          <div dangerouslySetInnerHTML={{ __html: page.article.html }} />
+          <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
         </article>
       </>
     );
@@ -525,6 +580,34 @@ export function App() {
       ) : null}
 
       {linkMenuError ? <div className="selection-link-error">{linkMenuError}</div> : null}
+
+      {editOpen ? (
+        <div className="edit-modal-backdrop" onClick={() => (!editBusy ? setEditOpen(false) : undefined)}>
+          <div className="edit-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="edit-modal-header">
+              <h2>Edit Article</h2>
+              <button type="button" className="edit-modal-close" onClick={() => setEditOpen(false)} disabled={editBusy}>
+                Close
+              </button>
+            </div>
+            <p className="edit-modal-note">Add a sentence or short paragraph of rewrite instructions. This may break links.</p>
+            <textarea
+              className="edit-modal-textarea"
+              value={editDraft}
+              onChange={(e) => setEditDraft(e.target.value)}
+              placeholder="Example: Emphasize the city's municipal weather bureau history and make the prose drier."
+              rows={7}
+              disabled={editBusy}
+            />
+            {editError ? <div className="edit-modal-error">{editError}</div> : null}
+            <div className="edit-modal-actions">
+              <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || !editDraft.trim()}>
+                {editBusy ? "Rewriting..." : "Rewrite article"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <footer className="site-footer">Local-first fictional canon engine</footer>
     </div>

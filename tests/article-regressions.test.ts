@@ -121,6 +121,7 @@ test("retrieveContext works with joined article lookups when RAG is enabled", as
     ["centralized belief systems"],
     true,
     4,
+    0.2,
     false
   );
   db.close();
@@ -128,6 +129,44 @@ test("retrieveContext works with joined article lookups when RAG is enabled", as
   assert.equal(packet.sourceArticles.length, 1);
   assert.equal(packet.sourceArticles[0].title, "Source Topic");
   assert.match(packet.context, /Source Topic/);
+});
+
+test("retrieveContext drops low-relevance matches below the configured score threshold", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const db = openDatabase(databasePath);
+  const sourceMarkdown = ["# Distant Topic", "", "This article only discusses municipal varnishes and harbor brickwork."].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "distant-topic",
+      canonicalSlug: "distant-topic",
+      title: "Distant Topic",
+      markdown: sourceMarkdown,
+      html: renderMarkdown(sourceMarkdown),
+      plain_text: markdownToPlainText(sourceMarkdown),
+      generated_at: Date.now(),
+    },
+    [],
+    ["distant-topic"]
+  );
+  await indexArticleChunks(db, new QueueLlmClient(""), "distant-topic", sourceMarkdown, false, 500);
+
+  const packet = await retrieveContext(
+    db,
+    new QueueLlmClient(""),
+    "query-topic",
+    ["cultural narrative stable energetic exchange"],
+    true,
+    4,
+    0.6,
+    false
+  );
+  db.close();
+
+  assert.equal(packet.sourceArticles.length, 0);
+  assert.equal(packet.context, "");
 });
 
 test("article generation succeeds even when the body contains zero internal links", async (t) => {
@@ -192,4 +231,41 @@ test("add-link refines oversized selections before wrapping markdown", async (t)
     body.article.markdown,
     /\[Cultural Dissipation Factor \(\$\\delta\$\): This is perhaps the most abstract measurement/
   );
+});
+
+test("rewrite endpoint applies user instructions and preserves the article title", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const markdown = [
+    "# San Francisco",
+    "",
+    "San Francisco is a quiet administrative district known for fog registries.",
+  ].join("\n");
+  saveMarkdownArticle(databasePath, {
+    slug: "san-francisco",
+    title: "San Francisco",
+    markdown,
+  });
+
+  const rewritten = [
+    "# San Francisco",
+    "",
+    "San Francisco is a quiet administrative district known for fog registries and an elaborate municipal weather bureau.",
+  ].join("\n");
+  const llm = new QueueLlmClient("", [rewritten, JSON.stringify({ items: [] })]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/article/San_Francisco/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instructions: "Add a brief note about the municipal weather bureau and keep the tone dry.",
+    }),
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.article.title, "San Francisco");
+  assert.match(body.article.markdown, /municipal weather bureau/);
 });

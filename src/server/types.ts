@@ -15,6 +15,7 @@ export interface RagConfig {
   enabled: boolean;
   max_results: number;
   chunk_size: number;
+  min_score: number;
 }
 
 export interface AppConfig {

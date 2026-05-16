@@ -184,6 +184,24 @@ export function extractTitle(markdown: string, fallbackSlug: string): string {
   return match?.[1]?.trim() || fallbackSlug;
 }
 
+export function stripSelfLinks(markdown: string, selfSlug: string): string {
+  return markdown.replace(LINK_RE, (match, visibleLabel, rawSlug) => {
+    return slugify(rawSlug) === selfSlug ? visibleLabel : match;
+  });
+}
+
+export function leadBoldsTitle(markdown: string, title: string): boolean {
+  const body = markdown.replace(/^#\s+.+?$/m, "").trim();
+  const firstParagraph = body.split(/\n{2,}/).find((p) => p.trim() && !p.trim().startsWith("##"));
+  if (!firstParagraph) return false;
+  const boldPattern = /\*\*([^*]+)\*\*/g;
+  let match: RegExpExecArray | null;
+  while ((match = boldPattern.exec(firstParagraph)) !== null) {
+    if (slugify(match[1]) === slugify(title)) return true;
+  }
+  return false;
+}
+
 export function markdownToPlainText(markdown: string): string {
   return renderMarkdown(markdown)
     .replace(/<[^>]+>/g, " ")

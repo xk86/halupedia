@@ -8,12 +8,12 @@ import { loadConfig } from "./config";
 import { deleteArticleBySlug, getAdminOverview, getArticleByLookup, getArticleRevision, getCanonicalSlugForTarget, listArticleRevisions, listArticles, listBacklinks, listIncomingHints, openDatabase, saveArticle, searchCorpus, wipeGeneratedCorpus } from "./db";
 import { OpenAICompatClient, type LlmClient } from "./llm";
 import { createConsoleLogger, type Logger } from "./logger";
-import { articleSectionMarkdown, extractInternalLinks, extractTitle, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, replaceArticleSection, sectionSlice, stripFootnoteArtifacts, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
+import { articleSectionMarkdown, extractInternalLinks, extractTitle, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, replaceArticleSection, sectionSlice, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
 import { getPrompt, renderTemplate } from "./prompts";
 import { indexArticleChunks, retrieveContext } from "./retrieval";
 import { normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToTitle } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
-import type { LinkSelectionSuggestion, LinkSuggestion, SeeAlsoCandidate } from "./types";
+import type { ArticleRecord, LinkSelectionSuggestion, LinkSuggestion, SeeAlsoCandidate } from "./types";
 
 const RESERVED_PATHS = new Set(["", "search", "all-entries", "admin", "api", "assets"]);
 const LARGE_SELECTION_CHAR_THRESHOLD = 120;
@@ -516,7 +516,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     ).catch(() => []))
       .filter((candidate) => candidate.slug !== slug && !bodyLinkSlugs.has(candidate.slug))
       .slice(0, 7);
-    const markdown = assembleArticleMarkdown(normalizedBodyMarkdown, deterministicReferences, seeAlso);
+    const markdown = stripSelfLinks(assembleArticleMarkdown(normalizedBodyMarkdown, deterministicReferences, seeAlso), slug);
     const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, normalizedTitle, markdown)
       .catch(() => summaryMarkdownFromArticle(markdown));
 
@@ -754,10 +754,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!targetSlug) return c.json({ error: "link suggestion produced an invalid target" }, 500);
 
     const wrapped = `[${wrapRange.visibleLabel}](halu:${targetSlug} "${suggestion.hint.replace(/"/g, "'")}")`;
-    const nextMarkdown =
+    const nextMarkdown = stripSelfLinks(
       article.markdown.slice(0, wrapRange.start) +
       wrapped +
-      article.markdown.slice(wrapRange.end);
+      article.markdown.slice(wrapRange.end),
+      article.slug
+    );
 
     const nextArticle = {
       ...article,
@@ -1055,6 +1057,74 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!slug) return c.json({ error: "missing slug" }, 400);
     const deleted = deleteArticleBySlug(db, slug);
     return c.json({ ok: deleted, slug });
+  });
+
+  app.post("/api/disambiguation", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      title?: string;
+      entries?: Array<{ title: string; description: string }>;
+    };
+    const title = (body.title ?? "").replace(/\s+/g, " ").trim();
+    if (!title) return c.json({ error: "missing title" }, 400);
+    const entries = (body.entries ?? []).filter(
+      (e) => e.title?.trim() && e.description?.trim()
+    );
+    if (entries.length < 2) return c.json({ error: "at least 2 entries required" }, 400);
+
+    const normalizedTitle = normalizeCanonicalTitle(title);
+    const slug = slugify(normalizedTitle);
+    if (!slug) return c.json({ error: "invalid title" }, 400);
+
+    const lines = [
+      `# ${normalizedTitle} (disambiguation)`,
+      "",
+      `**${normalizedTitle}** may refer to:`,
+      "",
+    ];
+    for (const entry of entries) {
+      const entrySlug = slugify(entry.title.trim());
+      const hint = entry.description.replace(/"/g, "'").trim();
+      lines.push(`- [${entry.title.trim()}](halu:${entrySlug} "${hint}") — ${hint}`);
+    }
+    const markdown = lines.join("\n");
+    const links = extractInternalLinks(markdown);
+    const article: ArticleRecord = {
+      slug,
+      canonicalSlug: slug,
+      title: `${normalizedTitle} (disambiguation)`,
+      markdown,
+      html: rewriteArticleHtml(renderMarkdown(markdown), links),
+      summaryMarkdown: `Disambiguation page for ${normalizedTitle}.`,
+      plain_text: markdownToPlainText(markdown),
+      generated_at: Date.now(),
+      isDisambiguation: true,
+    };
+    saveArticle(db, article, links, [slug], {
+      operation: "create-disambiguation",
+      instructions: `Created disambiguation page for ${normalizedTitle}.`,
+    });
+
+    return c.json({
+      cached: true,
+      canonicalPath: canonicalPathForArticle(article),
+      article,
+      sections: listArticleSections(article.markdown),
+      backlinks: listBacklinks(db, article.slug),
+    });
+  });
+
+  app.get("/api/disambiguation/:slug", (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article || !article.isDisambiguation) return c.json({ error: "not a disambiguation page" }, 404);
+    return c.json({
+      cached: true,
+      canonicalPath: canonicalPathForArticle(article),
+      article,
+      sections: listArticleSections(article.markdown),
+      backlinks: listBacklinks(db, article.slug),
+    });
   });
 
   app.get("/api/search", (c) => {

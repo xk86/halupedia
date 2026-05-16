@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, saveArticle } from "../src/server/db";
-import { extractInternalLinks, markdownToPlainText, renderMarkdown } from "../src/server/markdown";
+import { extractInternalLinks, leadBoldsTitle, markdownToPlainText, renderMarkdown, stripSelfLinks } from "../src/server/markdown";
 import type { LlmClient } from "../src/server/llm";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "../src/server/summary";
@@ -155,4 +155,49 @@ test("retrieveContext returns matching lexical context from indexed article chun
   assert.equal(packet.relatedTitles[0], "Archive Entry");
   assert.equal(packet.sourceArticles[0].slug, "archive-entry");
   assert.match(packet.context, /Glow fruit grows in the crater orchard/);
+});
+
+test("stripSelfLinks removes links whose target matches the article slug", () => {
+  const markdown = [
+    "# Glow Fruit",
+    "",
+    '**Glow Fruit**, also known as [luminous berry](halu:luminous-berry "a variant name"), is a [Glow Fruit](halu:glow-fruit "self-referential link") that grows in the [Crater Orchard](halu:crater-orchard "location of the orchard").',
+  ].join("\n");
+  const result = stripSelfLinks(markdown, "glow-fruit");
+  assert.doesNotMatch(result, /\(halu:glow-fruit/);
+  assert.match(result, /is a Glow Fruit that grows/);
+  assert.match(result, /\(halu:luminous-berry/);
+  assert.match(result, /\(halu:crater-orchard/);
+});
+
+test("stripSelfLinks is a no-op when no self-links exist", () => {
+  const markdown = 'Visit [Other Place](halu:other-place "a place") for details.';
+  assert.equal(stripSelfLinks(markdown, "glow-fruit"), markdown);
+});
+
+test("leadBoldsTitle detects bolded title in lead paragraph", () => {
+  const markdown = [
+    "# Glow Fruit",
+    "",
+    "**Glow Fruit** is a bioluminescent orchard product grown in the southern craters.",
+  ].join("\n");
+  assert.equal(leadBoldsTitle(markdown, "Glow Fruit"), true);
+});
+
+test("leadBoldsTitle detects bolded alternate title", () => {
+  const markdown = [
+    "# Glow Fruit",
+    "",
+    "**Glow Fruit**, also known as **luminous berry**, is grown in craters.",
+  ].join("\n");
+  assert.equal(leadBoldsTitle(markdown, "Glow Fruit"), true);
+});
+
+test("leadBoldsTitle returns false when title is not bolded", () => {
+  const markdown = [
+    "# Glow Fruit",
+    "",
+    "Glow Fruit is a bioluminescent orchard product grown in the southern craters.",
+  ].join("\n");
+  assert.equal(leadBoldsTitle(markdown, "Glow Fruit"), false);
 });

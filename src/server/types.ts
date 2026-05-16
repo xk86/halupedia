@@ -77,6 +77,12 @@ export interface ArticleRecord {
   summaryMarkdown?: string;
   plain_text: string;
   generated_at: number;
+  isDisambiguation?: boolean;
+}
+
+export interface DisambiguationEntry {
+  title: string;
+  description: string;
 }
 
 export interface PagePayload {

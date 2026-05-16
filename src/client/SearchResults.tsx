@@ -135,6 +135,18 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
         </button>
       </form>
 
+      {q && (
+        <div className="search-goto">
+          Go to{" "}
+          <a
+            href={`/wiki/${toWikiSegment(q)}`}
+            onClick={(e) => onLinkClick(e, toWikiSegment(q))}
+          >
+            {q}
+          </a>
+        </div>
+      )}
+
       {!q && (
         <p className="search-hint">
           Try a name, a place, a century, an obscure ritual — or anything at

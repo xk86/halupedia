@@ -6,6 +6,7 @@ import { Sidebar } from "./Sidebar";
 import { usePresence } from "./usePresence";
 import { ArticleVote } from "./ArticleVote";
 import { Admin } from "./Admin";
+import { gatedFetch } from "./turnstile";
 
 const RESERVED_ALL_ENTRIES = "all-entries";
 const RESERVED_SEARCH = "search";
@@ -106,7 +107,7 @@ export function App() {
 
     (async () => {
       try {
-        const res = await fetch(url, { signal: ctrl.signal });
+        const res = await gatedFetch(url, { signal: ctrl.signal });
         if (!res.ok) {
           const j: any = await res.json().catch(() => ({}));
           if (j?.banned) {

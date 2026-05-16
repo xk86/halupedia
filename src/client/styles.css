@@ -1799,3 +1799,61 @@ a:hover {
     align-self: flex-start;
   }
 }
+
+/* ============================================================== */
+/*  Turnstile verification modal                                   */
+/*                                                                 */
+/*  Hard-to-miss centered modal with a dimmed backdrop. In         */
+/*  Managed/interaction-only production mode the widget itself     */
+/*  stays at 0×0 and the whole thing flashes in and out in         */
+/*  ~300 ms; only when CF demands an interactive challenge does    */
+/*  the checkbox actually render inside the card.                  */
+/* ============================================================== */
+
+.hp-turnstile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 16, 10, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  /* Subtle fade so the modal doesn't pop jarringly. */
+  animation: hp-ts-fade 120ms ease-out;
+}
+@keyframes hp-ts-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.hp-turnstile-card {
+  background: var(--parchment);
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  padding: 1.5rem 1.75rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  font-family: var(--serif, Georgia, serif);
+  color: var(--ink);
+  width: min(420px, calc(100vw - 2rem));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+.hp-turnstile-label {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.hp-turnstile-widget {
+  min-height: 65px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+

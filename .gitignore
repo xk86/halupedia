@@ -4,5 +4,6 @@ dist/
 .dev.vars
 .DS_Store
 *.log
-data/*.sqlite
-data/*.sqlite-*
+data/halupedia.sqlite
+data/halupedia.sqlite-shm
+data/halupedia.sqlite-wal

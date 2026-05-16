@@ -256,7 +256,11 @@ describe("App", () => {
             html: "<h1>Energy storage</h1><p>Maternal Energy Potential refers to rejected renamed article body.</p>",
             markdown: "# Energy storage\n\nMaternal Energy Potential refers to rejected renamed article body.",
           },
-          { type: "error", message: "rewrite changed the article subject unexpectedly" },
+          {
+            type: "error",
+            message:
+              'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"',
+          },
         ])
       );
     vi.stubGlobal("fetch", fetchMock);
@@ -271,7 +275,11 @@ describe("App", () => {
     await userEvent.type(screen.getByPlaceholderText("Describe your changes."), "make this article to be about your mom");
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
 
-    expect(await screen.findByText("rewrite changed the article subject unexpectedly")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"'
+      )
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Energy storage" })).toBeInTheDocument();
     expect(screen.getByText("Original retained energy body.")).toBeInTheDocument();
     expect(screen.queryByText("Rejected renamed article body.")).not.toBeInTheDocument();

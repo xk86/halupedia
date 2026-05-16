@@ -44,31 +44,57 @@ function titleMatchesRequested(title: string, requestedTitle: string, requestedS
   );
 }
 
-function leadSubjectMatchesRequested(markdown: string, requestedTitle: string, requestedSlug: string): boolean {
+type SubjectValidation = { status: "valid" | "invalid" | "pending"; message?: string };
+
+function validateLeadSubject(markdown: string, requestedTitle: string, requestedSlug: string): SubjectValidation {
   const body = stripTopLevelSections(markdown.replace(/^#\s+.+?$/m, "").trim(), ["References", "See also"]);
   const firstParagraph = body
     .split(/\n{2,}/)
     .map((part) => part.replace(/^#+\s+/gm, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\s+/g, " ").trim())
     .find(Boolean);
-  if (!firstParagraph) return true;
+  if (!firstParagraph) return { status: "pending" };
 
   const subjectMatch = firstParagraph.match(
     /^(.{1,120}?)\s+(?:refers?\s+to|is|are|was|were|describes|denotes|constitutes|represents)\b/i
   );
   const subject = subjectMatch?.[1]?.replace(/^the\s+/i, "").trim();
-  if (!subject) return true;
-  if (slugify(subject) === requestedSlug || slugify(subject) === slugify(requestedTitle)) return true;
+  if (!subject) return { status: "pending" };
+  if (slugify(subject) === requestedSlug || slugify(subject) === slugify(requestedTitle)) return { status: "valid" };
 
   const words = subject.split(/\s+/).filter(Boolean);
-  const looksLikeArticleTitle =
-    words.length > 1 &&
-    words.every((word) => /^(?:and|or|of|the|a|an|in|on|for|to|with|by)$/i.test(word) || /^[A-Z][A-Za-z0-9'-]*$/.test(word));
-  return !looksLikeArticleTitle;
+  const looksLikeAlternateSubject =
+    words.length >= 2 &&
+    words.length <= 8 &&
+    !/^(?:it|this|that|these|those|there)\b/i.test(subject) &&
+    !/[.!?;:()[\]{}]/.test(subject);
+  if (!looksLikeAlternateSubject) return { status: "valid" };
+
+  return {
+    status: "invalid",
+    message: `article lead subject did not match requested title: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(subject)}`,
+  };
+}
+
+function validateArticleSubject(markdown: string, requestedTitle: string, requestedSlug: string): SubjectValidation {
+  const resolvedTitle = extractTitle(markdown, requestedTitle);
+  if (!titleMatchesRequested(resolvedTitle, requestedTitle, requestedSlug)) {
+    return {
+      status: "invalid",
+      message: `article heading did not match requested title: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`,
+    };
+  }
+  return validateLeadSubject(markdown, requestedTitle, requestedSlug);
 }
 
 function articleSubjectMatchesRequested(markdown: string, requestedTitle: string, requestedSlug: string): boolean {
-  return titleMatchesRequested(extractTitle(markdown, requestedTitle), requestedTitle, requestedSlug)
-    && leadSubjectMatchesRequested(markdown, requestedTitle, requestedSlug);
+  return validateArticleSubject(markdown, requestedTitle, requestedSlug).status !== "invalid";
+}
+
+function assertArticleSubjectStillPossible(markdown: string, requestedTitle: string, requestedSlug: string) {
+  const validation = validateArticleSubject(markdown, requestedTitle, requestedSlug);
+  if (validation.status === "invalid") {
+    throw new Error(validation.message ?? "article subject did not match requested title");
+  }
 }
 
 type InternalArticleCandidate = {
@@ -577,6 +603,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       await llm.streamChat(prompt.system, renderedUserPrompt, (_delta, accumulated) => {
         rawMarkdown = accumulated;
         const progressMarkdown = sanitizeGeneratedBody(normalizeMarkdown(accumulated));
+        assertArticleSubjectStillPossible(progressMarkdown, requestedTitle, slug);
         onProgress(renderMarkdown(progressMarkdown), progressMarkdown);
       });
     } else {
@@ -840,7 +867,8 @@ export async function createApp(options: CreateAppOptions = {}) {
         ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
         : rewrittenBody;
       if (!articleSubjectMatchesRequested(nextMarkdown, article.title, article.slug)) {
-        throw new Error("rewrite changed the article subject unexpectedly");
+        const validation = validateArticleSubject(nextMarkdown, article.title, article.slug);
+        throw new Error(validation.message ?? "rewrite changed the article subject unexpectedly");
       }
 
       const { article: updatedArticle } = await finalizeArticle(article.slug, article.title, nextMarkdown, retrieved, hints, {
@@ -870,6 +898,7 @@ export async function createApp(options: CreateAppOptions = {}) {
               const mergedMarkdown = sectionId
                 ? replaceArticleSection(article.markdown, sectionId, progressMarkdown)
                 : progressMarkdown;
+              assertArticleSubjectStillPossible(mergedMarkdown, article.title, article.slug);
               send({ type: "progress", html: renderMarkdown(mergedMarkdown), markdown: mergedMarkdown });
             });
             const payload = await persistRewrite(raw);

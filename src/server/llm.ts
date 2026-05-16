@@ -145,23 +145,27 @@ export class OpenAICompatClient implements LlmClient {
           newlineIndex = -1;
           break;
         }
+        let json:
+          | {
+              choices?: Array<{
+                finish_reason?: string | null;
+                delta?: { content?: string };
+                message?: { content?: string };
+              }>;
+            }
+          | undefined;
         try {
-          const json = JSON.parse(payload) as {
-            choices?: Array<{
-              finish_reason?: string | null;
-              delta?: { content?: string };
-              message?: { content?: string };
-            }>;
-          };
-          const choice = json.choices?.[0];
-          if (choice?.finish_reason) finishReason = choice.finish_reason;
-          const delta = choice?.delta?.content ?? choice?.message?.content ?? "";
-          if (!delta) continue;
-          accumulated += delta;
-          onChunk(delta, accumulated);
+          json = JSON.parse(payload) as typeof json;
         } catch {
           // Ignore malformed chunks from local providers and continue.
+          continue;
         }
+        const choice = json?.choices?.[0];
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        const delta = choice?.delta?.content ?? choice?.message?.content ?? "";
+        if (!delta) continue;
+        accumulated += delta;
+        onChunk(delta, accumulated);
       }
     }
 

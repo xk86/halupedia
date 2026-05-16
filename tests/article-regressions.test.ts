@@ -10,9 +10,12 @@ import { extractInternalLinks, markdownToPlainText, renderMarkdown } from "../sr
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 
 class QueueLlmClient implements LlmClient {
+  public streamedChunkCount = 0;
+
   constructor(
     private readonly streamContent: string,
-    private readonly chatResponses: string[] = []
+    private readonly chatResponses: string[] = [],
+    private readonly streamChunks?: string[]
   ) {}
 
   async chat(system?: string): Promise<string> {
@@ -30,8 +33,13 @@ class QueueLlmClient implements LlmClient {
     _user: string,
     onChunk: (delta: string, accumulated: string) => void
   ): Promise<{ content: string; finishReason: string }> {
-    onChunk(this.streamContent, this.streamContent);
-    return { content: this.streamContent, finishReason: "stop" };
+    let accumulated = "";
+    for (const delta of this.streamChunks ?? [this.streamContent]) {
+      accumulated += delta;
+      this.streamedChunkCount += 1;
+      onChunk(delta, accumulated);
+    }
+    return { content: accumulated, finishReason: "stop" };
   }
 
   async embed(input: string[]): Promise<number[][]> {
@@ -345,7 +353,10 @@ test("rewrite endpoint rejects generated body subject changes without mutating t
 
   assert.equal(res.status, 422);
   const body = await res.json();
-  assert.equal(body.error, "rewrite changed the article subject unexpectedly");
+  assert.equal(
+    body.error,
+    'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"'
+  );
 
   const db = openDatabase(databasePath);
   const stored = getArticle(db, "energy-storage");
@@ -358,6 +369,60 @@ test("rewrite endpoint rejects generated body subject changes without mutating t
   assert.equal(stored.title, "Energy storage");
   assert.equal(stored.markdown, originalMarkdown);
   assert.equal(revisionCount.count, 1);
+});
+
+test("streaming rewrite rejects a renamed lead subject before sending progress", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const originalMarkdown = [
+    "# Energy storage",
+    "",
+    "Energy storage is the practice of retaining usable energy for later deployment.",
+  ].join("\n");
+  saveMarkdownArticle(databasePath, {
+    slug: "energy-storage",
+    title: "Energy storage",
+    markdown: originalMarkdown,
+  });
+
+  const llm = new QueueLlmClient(
+    "",
+    [JSON.stringify({ items: [] })],
+    [
+      "# Energy storage\n\nMaternal Energy Potential refers to",
+      " a redirected concept that should not be streamed to the client.",
+    ]
+  );
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/article/Energy_storage/rewrite?stream=1", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+    body: JSON.stringify({
+      instructions: "make this article to be about your mom",
+    }),
+  });
+
+  assert.equal(res.status, 200);
+  const events = (await res.text())
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+
+  assert.deepEqual(events.map((event) => event.type), ["start", "error"]);
+  assert.equal(
+    events[1].message,
+    'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"'
+  );
+  assert.equal(llm.streamedChunkCount, 1);
+
+  const db = openDatabase(databasePath);
+  const stored = getArticle(db, "energy-storage");
+  db.close();
+
+  assert.ok(stored);
+  assert.equal(stored.markdown, originalMarkdown);
 });
 
 test("section rewrite streams only the selected section and records revertable history", async (t) => {

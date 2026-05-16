@@ -81,6 +81,97 @@ class FixedArticleLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
+class SlowLlmClient implements LlmClient {
+  readonly generationStarted = Promise.withResolvers<void>();
+  readonly generationDone = Promise.withResolvers<void>();
+  private delayMs: number;
+
+  constructor(delayMs = 50) {
+    this.delayMs = delayMs;
+  }
+
+  async chat(): Promise<string> {
+    return JSON.stringify({ items: [] });
+  }
+
+  async streamChat(
+    _system: string,
+    _user: string,
+    onChunk: (delta: string, accumulated: string) => void
+  ): Promise<{ content: string; finishReason: string }> {
+    this.generationStarted.resolve();
+    const chunks = [
+      "# Slow Article\n\n",
+      '**Slow Article** is a deliberately paced entry with [Alpha](halu:alpha "Alpha hint"), ',
+      '[Beta](halu:beta "Beta hint"), [Gamma](halu:gamma "Gamma hint"), ',
+      '[Delta](halu:delta "Delta hint"), and [Epsilon](halu:epsilon "Epsilon hint").',
+    ];
+    let accumulated = "";
+    for (const chunk of chunks) {
+      await new Promise((r) => setTimeout(r, this.delayMs));
+      accumulated += chunk;
+      onChunk(chunk, accumulated);
+    }
+    this.generationDone.resolve();
+    return { content: accumulated, finishReason: "stop" };
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
+class FailingLlmClient implements LlmClient {
+  async chat(): Promise<string> {
+    return JSON.stringify({ items: [] });
+  }
+
+  async streamChat(): Promise<{ content: string; finishReason: string }> {
+    await new Promise((r) => setTimeout(r, 20));
+    throw new Error("terminated");
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
+class GatedLlmClient implements LlmClient {
+  streamCallCount = 0;
+  readonly gate = Promise.withResolvers<void>();
+
+  async chat(): Promise<string> {
+    return JSON.stringify({ items: [] });
+  }
+
+  async streamChat(
+    _system: string,
+    _user: string,
+    onChunk: (delta: string, accumulated: string) => void
+  ): Promise<{ content: string; finishReason: string }> {
+    this.streamCallCount++;
+    await this.gate.promise;
+    const content = [
+      "# Gated Article\n\n",
+      '**Gated Article** is an entry with [Alpha](halu:alpha "Alpha hint"), ',
+      '[Beta](halu:beta "Beta hint"), [Gamma](halu:gamma "Gamma hint"), ',
+      '[Delta](halu:delta "Delta hint"), and [Epsilon](halu:epsilon "Epsilon hint").',
+    ].join("");
+    onChunk(content, content);
+    return { content, finishReason: "stop" };
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
 class CountingLlmClient implements LlmClient {
   chatCalls = 0;
   streamCalls = 0;
@@ -189,7 +280,7 @@ async function createTestServer(options: { logger?: Logger; llmClient?: LlmClien
         const tempRoot = mkdtempSync(join(tmpdir(), "halupedia-test-"));
         return { root: tempRoot, databasePath: join(tempRoot, "halupedia.sqlite") };
       })();
-  const { app } = await createApp({
+  const { app, shutdown } = await createApp({
     databasePath,
     skipLlmProbe: true,
     logger: options.logger,
@@ -197,6 +288,8 @@ async function createTestServer(options: { logger?: Logger; llmClient?: LlmClien
   });
   return {
     root,
+    databasePath,
+    shutdown,
     request: (path: string, init?: RequestInit) =>
       app.fetch(new Request(`http://halupedia.test${path}`, init)),
   };
@@ -454,4 +547,373 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.equal(body.canonicalPath, "/wiki/Invertible_sexuality_theorem");
     assert.equal(body.redirectedFrom, undefined);
   });
+});
+
+test("client disconnect mid-generation still saves the article to DB", async (t) => {
+  const llm = new SlowLlmClient(30);
+  const server = await createTestServer({ seed: false, llmClient: llm });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const controller = new AbortController();
+  const resPromise = server.request("/api/page/Slow_Article", { signal: controller.signal });
+
+  await llm.generationStarted.promise;
+  controller.abort();
+
+  await resPromise.catch(() => {});
+  await llm.generationDone.promise;
+  // Allow finalizeArticle to complete (see also, summary, save)
+  await new Promise((r) => setTimeout(r, 200));
+
+  const db = openDatabase(server.databasePath);
+  const row = db.prepare("SELECT slug, title FROM articles WHERE slug = ?").get("slow-article") as
+    | { slug: string; title: string }
+    | undefined;
+  db.close();
+
+  assert.ok(row, "article should be saved to DB even after client disconnect");
+  assert.equal(row.title, "Slow Article");
+});
+
+test("shutdown waits for in-flight generations then resolves", async (t) => {
+  const llm = new SlowLlmClient(30);
+  const server = await createTestServer({ seed: false, llmClient: llm });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  // Start a generation but don't await the full response
+  const resPromise = server.request("/api/page/Slow_Article");
+  await llm.generationStarted.promise;
+
+  // Initiate shutdown while generation is in progress
+  const shutdownPromise = server.shutdown();
+
+  // Shutdown should not resolve until generation is done
+  const raceResult = await Promise.race([
+    shutdownPromise.then(() => "shutdown"),
+    new Promise((r) => setTimeout(() => r("timeout"), 50)),
+  ]);
+  // Generation is still going, so shutdown should not have resolved yet
+  // (the LLM client takes ~120ms total for 4 chunks at 30ms each)
+  assert.equal(raceResult, "timeout", "shutdown must wait for in-flight generation");
+
+  // Let everything finish
+  await resPromise.catch(() => {});
+  await shutdownPromise;
+
+  const db = openDatabase(server.databasePath);
+  const row = db.prepare("SELECT slug FROM articles WHERE slug = ?").get("slow-article") as
+    | { slug: string }
+    | undefined;
+  db.close();
+  assert.ok(row, "article should be saved before shutdown completes");
+});
+
+test("concurrent requests for the same uncached slug share a single generation", async (t) => {
+  const llm = new GatedLlmClient();
+  const server = await createTestServer({ seed: false, llmClient: llm });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const req1 = server.request("/api/page/Gated_Article");
+  const req2 = server.request("/api/page/Gated_Article");
+
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(llm.streamCallCount, 1, "only one LLM stream should start for duplicate slug requests");
+
+  llm.gate.resolve();
+  const [res1, res2] = await Promise.all([req1, req2]);
+
+  const text1 = await res1.text();
+  const text2 = await res2.text();
+  assert.match(text1, /"type":"done"/);
+  const body2 = JSON.parse(text2);
+  assert.equal(body2.cached, true);
+  assert.equal(body2.article.slug, "gated-article");
+});
+
+test("failed generation releases the slug so a retry can succeed", async (t) => {
+  let callCount = 0;
+  const hybridLlm: LlmClient = {
+    async chat() { return JSON.stringify({ items: [] }); },
+    async streamChat(_s, _u, onChunk) {
+      callCount++;
+      if (callCount === 1) {
+        await new Promise((r) => setTimeout(r, 10));
+        throw new Error("terminated");
+      }
+      const content = [
+        "# Retry Article\n\n",
+        '**Retry Article** is a recovered entry with [Alpha](halu:alpha "Alpha hint"), ',
+        '[Beta](halu:beta "Beta hint"), [Gamma](halu:gamma "Gamma hint"), ',
+        '[Delta](halu:delta "Delta hint"), and [Epsilon](halu:epsilon "Epsilon hint").',
+      ].join("");
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({ seed: false, llmClient: hybridLlm });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const res1 = await server.request("/api/page/Retry_Article");
+  const text1 = await res1.text();
+  assert.match(text1, /"type":"error"/, "first request should fail");
+
+  const res2 = await server.request("/api/page/Retry_Article");
+  const text2 = await res2.text();
+  assert.match(text2, /"type":"done"/, "retry should succeed after failed generation");
+
+  const db = openDatabase(server.databasePath);
+  const row = db.prepare("SELECT slug FROM articles WHERE slug = ?").get("retry-article") as
+    | { slug: string }
+    | undefined;
+  db.close();
+  assert.ok(row, "article should be saved on retry");
+});
+
+test("article is saved to DB immediately after streaming, before post-processing completes", async (t) => {
+  const postProcessGate = Promise.withResolvers<void>();
+  const llm: LlmClient = {
+    async chat() {
+      await postProcessGate.promise;
+      return JSON.stringify({ items: [{ title: "Stub", hint: "stub" }] });
+    },
+    async streamChat(_s, _u, onChunk) {
+      const content = "# Fresh Page\n\n**Fresh Page** is a test with [Alpha](halu:alpha \"Alpha hint\"), [Beta](halu:beta \"Beta hint\"), [Gamma](halu:gamma \"Gamma hint\"), [Delta](halu:delta \"Delta hint\"), and [Epsilon](halu:epsilon \"Epsilon hint\").";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({ seed: false, llmClient: llm });
+  t.after(() => {
+    postProcessGate.resolve();
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const genRes = await server.request("/api/page/Fresh_Page");
+  const ndjson = await genRes.text();
+  const lines = ndjson.trim().split("\n").map((l) => JSON.parse(l));
+  const done = lines.find((l) => l.type === "done");
+  assert.ok(done, "generation stream should have a done event");
+  assert.equal(done.article.title, "Fresh Page");
+
+  const cacheRes = await server.request("/api/page/Fresh_Page");
+  assert.equal(cacheRes.status, 200);
+  const cacheBody = await cacheRes.json();
+  assert.ok(cacheBody.cached, "article should be a cache hit while post-processing is still running");
+  assert.ok(cacheBody.article, "article should exist in DB");
+  assert.equal(cacheBody.article.title, "Fresh Page");
+
+  postProcessGate.resolve();
+});
+
+test("second request during post-processing gets cache hit, not cache miss", async (t) => {
+  const postProcessGate = Promise.withResolvers<void>();
+  const logEntries: CapturedLogEntry[] = [];
+  const logger = createMemoryLogger(logEntries);
+  const llm: LlmClient = {
+    async chat() {
+      await postProcessGate.promise;
+      return JSON.stringify({ items: [{ title: "Stub", hint: "stub" }] });
+    },
+    async streamChat(_s, _u, onChunk) {
+      const content = "# Test Entry\n\n**Test Entry** links to [Alpha](halu:alpha \"Alpha hint\"), [Beta](halu:beta \"Beta hint\"), [Gamma](halu:gamma \"Gamma hint\"), [Delta](halu:delta \"Delta hint\"), [Epsilon](halu:epsilon \"Epsilon hint\").";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({ seed: false, llmClient: llm, logger });
+  t.after(() => {
+    postProcessGate.resolve();
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const genRes = await server.request("/api/page/Test_Entry");
+  await genRes.text();
+
+  const secondRes = await server.request("/api/page/Test_Entry");
+  const secondBody = await secondRes.json();
+  assert.ok(secondBody.cached, "second request should be cache hit");
+
+  const cacheMissEvents = logEntries.filter(
+    (e) => e.event === "page.cache_miss" && e.fields?.slug === "test-entry"
+  );
+  assert.equal(cacheMissEvents.length, 1, "should only have one cache miss (the initial generation)");
+
+  postProcessGate.resolve();
+});
+
+test("homepage returns instantly with featured article from DB without blocking on LLM", async (t) => {
+  let chatCalled = false;
+  const chatGate = Promise.withResolvers<void>();
+  const llm: LlmClient = {
+    async chat() {
+      chatCalled = true;
+      await chatGate.promise;
+      return JSON.stringify({ items: [] });
+    },
+    async streamChat(_s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({ seed: true, llmClient: llm });
+  t.after(() => {
+    chatGate.resolve();
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  assert.ok(body.featured, "should always have a featured article when articles exist");
+  assert.ok(body.featured.title, "featured article should have a title");
+  assert.ok(body.featured.slug, "featured article should have a slug");
+  assert.ok(body.featured.summaryMarkdown !== undefined, "featured article should have summaryMarkdown");
+  assert.ok(Array.isArray(body.didYouKnow), "didYouKnow should be an array");
+  chatGate.resolve();
+});
+
+test("homepage returns empty state when no articles exist", async (t) => {
+  const server = await createTestServer({ seed: false });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  assert.equal(body.featured, null, "no featured when DB is empty");
+  assert.deepEqual(body.didYouKnow, [], "no DYK when DB is empty");
+});
+
+test("homepage DYK populates after background generation completes", async (t) => {
+  const dykResponse = JSON.stringify({
+    items: [
+      { fact: "the Glow Fruit emits a faint bioluminescent haze when submerged in vinegar" },
+      { fact: "Halupedia was originally founded as a dispute resolution registry for fictional canal networks" },
+    ],
+  });
+  const chatGate = Promise.withResolvers<void>();
+  const llm: LlmClient = {
+    async chat(_system, user) {
+      if (user.includes("Did you know")) {
+        await chatGate.promise;
+        return dykResponse;
+      }
+      return JSON.stringify({ items: [] });
+    },
+    async streamChat(_s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({ seed: true, llmClient: llm });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const res1 = await server.request("/api/homepage");
+  const body1 = await res1.json();
+  assert.ok(body1.featured, "featured article available immediately");
+
+  chatGate.resolve();
+  await new Promise((r) => setTimeout(r, 100));
+
+  const res2 = await server.request("/api/homepage?refresh=1");
+  const body2 = await res2.json();
+  assert.ok(body2.didYouKnow.length > 0, "DYK should be populated after background generation");
+  assert.ok(body2.didYouKnow[0].fact, "DYK items should have facts");
+  assert.ok(body2.didYouKnow[0].slug, "DYK items should have slugs");
+});
+
+test("homepage handles DYK generation failure gracefully", async (t) => {
+  const llm: LlmClient = {
+    async chat() {
+      throw new Error("LLM unavailable");
+    },
+    async streamChat(_s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({ seed: true, llmClient: llm });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.ok(body.featured, "featured article should still be present even when DYK fails");
+  assert.deepEqual(body.didYouKnow, [], "DYK should be empty array on failure, not error");
+});
+
+test("homepage handles JSON wrapped in code fences from LLM", async (t) => {
+  const fencedResponse = '```json\n' + JSON.stringify({
+    items: [{ fact: "the earth is actually a hexagon" }],
+  }) + '\n```';
+  const chatGate = Promise.withResolvers<void>();
+  let chatCalled = false;
+  const llm: LlmClient = {
+    async chat(_system, user) {
+      if (user.includes("Did you know")) {
+        chatCalled = true;
+        await chatGate.promise;
+        return fencedResponse;
+      }
+      return JSON.stringify({ items: [] });
+    },
+    async streamChat(_s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({ seed: true, llmClient: llm });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  await server.request("/api/homepage");
+  chatGate.resolve();
+  await new Promise((r) => setTimeout(r, 100));
+
+  const res = await server.request("/api/homepage?refresh=1");
+  const body = await res.json();
+  assert.ok(chatCalled, "DYK background task should have called LLM");
+  assert.ok(body.didYouKnow.length > 0, "should parse fenced JSON successfully");
+  assert.equal(body.didYouKnow[0].fact, "the earth is actually a hexagon");
 });

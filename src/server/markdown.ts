@@ -108,8 +108,16 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     return defaultLinkOpen(tokens, idx, options, env, self);
   }
 
-  const normalized = slugify(href.slice("halu:".length));
-  tokens[idx].attrSet("href", `/wiki/${titleToWikiSegment(slugToTitle(normalized))}`);
+  let visibleText = "";
+  for (let i = idx + 1; i < tokens.length && tokens[i].type !== "link_close"; i++) {
+    if (tokens[i].type === "text" || tokens[i].type === "code_inline") {
+      visibleText += tokens[i].content;
+    }
+  }
+  const wikiPath = visibleText.trim()
+    ? `/wiki/${titleToWikiSegment(visibleText.trim())}`
+    : `/wiki/${titleToWikiSegment(slugToTitle(slugify(href.slice("halu:".length))))}`;
+  tokens[idx].attrSet("href", wikiPath);
   if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
   return defaultLinkOpen(tokens, idx, options, env, self);
 };
@@ -217,7 +225,16 @@ export function summaryMarkdownFromArticle(markdown: string): string {
 
 export function extractTitle(markdown: string, fallbackSlug: string): string {
   const match = markdown.match(/^#\s+(.+)$/m);
-  return match?.[1]?.trim() || fallbackSlug;
+  const raw = match?.[1]?.trim() || fallbackSlug;
+  return raw.replace(/\*+([^*]+)\*+/g, "$1").replace(/_+([^_]+)_+/g, "$1");
+}
+
+export function extractDisplayTitle(markdown: string): string | undefined {
+  const match = markdown.match(/^#\s+(.+)$/m);
+  if (!match) return undefined;
+  const raw = match[1].trim();
+  if (/[*_]/.test(raw)) return raw;
+  return undefined;
 }
 
 export function stripSelfLinks(markdown: string, selfSlug: string): string {

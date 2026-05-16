@@ -6,11 +6,11 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { loadConfig } from "./config";
-import { deleteArticleBySlug, getAdminOverview, getArticleByLookup, getArticleRevision, getCanonicalSlugForTarget, listArticleRevisions, listArticles, listBacklinks, listIncomingHints, openDatabase, saveArticle, searchCorpus, wipeGeneratedCorpus } from "./db";
+import { countArticles, deleteArticleBySlug, getAdminOverview, getArticleByLookup, getArticleRevision, getCanonicalSlugForTarget, getRandomArticles, listArticleRevisions, listArticles, listBacklinks, listIncomingHints, openDatabase, saveArticle, searchCorpus, updateArticleInPlace, wipeGeneratedCorpus } from "./db";
 import { OpenAICompatClient, type LlmClient } from "./llm";
 import { createConsoleLogger, type Logger } from "./logger";
-import { articleSectionMarkdown, extractInternalLinks, extractTitle, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, replaceArticleSection, sectionSlice, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
-import { getPrompt, renderTemplate } from "./prompts";
+import { articleSectionMarkdown, extractDisplayTitle, extractInternalLinks, extractTitle, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, replaceArticleSection, sectionSlice, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
+import { getPrompt, renderTemplate, stripJsonFences } from "./prompts";
 import { indexArticleChunks, retrieveContext } from "./retrieval";
 import { normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToTitle } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
@@ -38,11 +38,8 @@ export interface CreateAppOptions {
   llmClient?: LlmClient;
 }
 
-function titleMatchesRequested(title: string, requestedTitle: string, requestedSlug: string): boolean {
-  return (
-    slugify(title) === requestedSlug &&
-    titleToWikiSegment(normalizeCanonicalTitle(title)) === titleToWikiSegment(normalizeCanonicalTitle(requestedTitle))
-  );
+function titleMatchesRequested(title: string, _requestedTitle: string, requestedSlug: string): boolean {
+  return slugify(title) === requestedSlug;
 }
 
 type SubjectValidation = { status: "valid" | "invalid" | "pending"; message?: string };
@@ -89,13 +86,6 @@ function validateArticleSubject(markdown: string, requestedTitle: string, reques
 
 function articleSubjectMatchesRequested(markdown: string, requestedTitle: string, requestedSlug: string): boolean {
   return validateArticleSubject(markdown, requestedTitle, requestedSlug).status !== "invalid";
-}
-
-function assertArticleSubjectStillPossible(markdown: string, requestedTitle: string, requestedSlug: string) {
-  const validation = validateArticleSubject(markdown, requestedTitle, requestedSlug);
-  if (validation.status === "invalid") {
-    throw new Error(validation.message ?? "article subject did not match requested title");
-  }
 }
 
 type InternalArticleCandidate = {
@@ -427,6 +417,35 @@ export async function createApp(options: CreateAppOptions = {}) {
   const app = new Hono();
   const distRoot = options.distRoot ? resolve(options.distRoot) : resolve(process.cwd(), "dist");
 
+  const inFlightGenerations = new Set<Promise<unknown>>();
+  const slugGenerations = new Map<string, Promise<ArticleRecord>>();
+
+  function trackGeneration<T>(promise: Promise<T>): Promise<T> {
+    inFlightGenerations.add(promise);
+    promise.finally(() => inFlightGenerations.delete(promise));
+    return promise;
+  }
+
+  function reserveSlugGeneration(slug: string, generate: () => Promise<ArticleRecord>): Promise<ArticleRecord> {
+    const existing = slugGenerations.get(slug);
+    if (existing) {
+      logger.info("page.generation_join", { slug });
+      return existing;
+    }
+    const promise = generate().finally(() => slugGenerations.delete(slug));
+    slugGenerations.set(slug, promise);
+    return promise;
+  }
+
+  async function shutdown() {
+    if (inFlightGenerations.size > 0) {
+      logger.info("shutdown.draining", { in_flight: inFlightGenerations.size });
+      await Promise.allSettled([...inFlightGenerations]);
+    }
+    db.close();
+    logger.info("shutdown.complete");
+  }
+
   async function reloadRuntime() {
     const nextRuntime = loadConfig();
     runtime = options.databasePath
@@ -509,12 +528,11 @@ export async function createApp(options: CreateAppOptions = {}) {
     return html;
   }
 
-  async function finalizeArticle(
+  function saveArticleImmediately(
     slug: string,
     requestedTitle: string,
     bodyMarkdown: string,
     retrieved: Awaited<ReturnType<typeof retrieveContext>>,
-    hints: string[],
     revision: {
       operation?: string;
       instructions?: string;
@@ -531,46 +549,114 @@ export async function createApp(options: CreateAppOptions = {}) {
       }))
     );
 
-    const bodyLinkSlugs = new Set(extractInternalLinks(normalizedBodyMarkdown).map((link) => link.targetSlug));
-    const seeAlso = (await generateSeeAlsoCandidates(
-      llm,
-      runtime.prompts,
-      normalizedTitle,
-      normalizedBodyMarkdown,
-      retrieved.context,
-      hints,
-      retrieved.relatedTitles
-    ).catch(() => []))
-      .filter((candidate) => candidate.slug !== slug && !bodyLinkSlugs.has(candidate.slug))
-      .slice(0, 7);
-    const markdown = stripSelfLinks(assembleArticleMarkdown(normalizedBodyMarkdown, deterministicReferences, seeAlso), slug);
-    const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, normalizedTitle, markdown)
-      .catch(() => summaryMarkdownFromArticle(markdown));
+    const markdown = stripSelfLinks(
+      assembleArticleMarkdown(normalizedBodyMarkdown, deterministicReferences, []),
+      slug,
+    );
 
     const normalizedSlug = slugify(slug);
+    const rawDisplayTitle = extractDisplayTitle(bodyMarkdown);
+    const llmTitle = extractTitle(bodyMarkdown, requestedTitle);
+    const displayTitle = rawDisplayTitle
+      ?? (llmTitle !== normalizedTitle ? llmTitle : undefined);
     const article = {
       slug: normalizedSlug,
       canonicalSlug: normalizedSlug,
       title: normalizedTitle,
+      displayTitle,
       markdown,
       html: "",
-      summaryMarkdown,
+      summaryMarkdown: summaryMarkdownFromArticle(markdown),
       plain_text: markdownToPlainText(markdown),
       generated_at: Date.now(),
     };
     const links = extractInternalLinks(markdown);
     article.html = rewriteArticleHtml(renderMarkdown(markdown), links);
     saveArticle(db, article, links, Array.from(new Set([normalizedSlug, article.canonicalSlug])), revision);
+    return { article, links, normalizedTitle, normalizedBodyMarkdown };
+  }
+
+  async function postProcessArticle(
+    slug: string,
+    normalizedTitle: string,
+    normalizedBodyMarkdown: string,
+    retrieved: Awaited<ReturnType<typeof retrieveContext>>,
+    hints: string[],
+  ) {
+    const normalizedSlug = slugify(slug);
+    try {
+      const bodyLinkSlugs = new Set(extractInternalLinks(normalizedBodyMarkdown).map((link) => link.targetSlug));
+      const seeAlso = (await generateSeeAlsoCandidates(
+        llm,
+        runtime.prompts,
+        normalizedTitle,
+        normalizedBodyMarkdown,
+        retrieved.context,
+        hints,
+        retrieved.relatedTitles,
+      ).catch(() => []))
+        .filter((candidate) => candidate.slug !== slug && !bodyLinkSlugs.has(candidate.slug))
+        .slice(0, 7);
+
+      const existing = getArticleByLookup(db, normalizedSlug);
+      if (!existing) return;
+
+      const deterministicReferences = dedupeArticleCandidates(
+        retrieved.sourceArticles.map((article) => ({
+          slug: article.slug,
+          title: article.title,
+          hiddenHint: normalizeArticleSnippet(article.content) || article.title,
+        }))
+      );
+      const markdown = stripSelfLinks(
+        assembleArticleMarkdown(normalizedBodyMarkdown, deterministicReferences, seeAlso),
+        slug,
+      );
+      const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, normalizedTitle, markdown)
+        .catch(() => summaryMarkdownFromArticle(markdown));
+
+      const links = extractInternalLinks(markdown);
+      const updated = {
+        ...existing,
+        markdown,
+        html: rewriteArticleHtml(renderMarkdown(markdown), links),
+        summaryMarkdown,
+        plain_text: markdownToPlainText(markdown),
+        generated_at: Date.now(),
+      };
+      updateArticleInPlace(
+        db,
+        normalizedSlug,
+        {
+          markdown: updated.markdown,
+          html: updated.html,
+          summaryMarkdown: updated.summaryMarkdown,
+          plain_text: updated.plain_text,
+        },
+        links,
+      );
+      logger.info("page.post_process_done", { slug: normalizedSlug });
+    } catch (error) {
+      logger.warn("page.post_process_failed", {
+        slug: normalizedSlug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     await indexArticleChunks(
       db,
       llm,
       normalizedSlug,
-      markdown,
+      getArticleByLookup(db, normalizedSlug)?.markdown ?? normalizedBodyMarkdown,
       runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
       runtime.app.rag.chunk_size,
-      logger
-    );
-    return { article, links };
+      logger,
+    ).catch((error) => {
+      logger.warn("page.index_failed", {
+        slug: normalizedSlug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   async function buildArticle(slug: string, requestedTitle: string, onProgress?: (html: string, markdown: string) => void) {
@@ -604,7 +690,6 @@ export async function createApp(options: CreateAppOptions = {}) {
       await llm.streamChat(prompt.system, renderedUserPrompt, (_delta, accumulated) => {
         rawMarkdown = accumulated;
         const progressMarkdown = sanitizeGeneratedBody(normalizeMarkdown(accumulated));
-        assertArticleSubjectStillPossible(progressMarkdown, requestedTitle, slug);
         onProgress(renderMarkdown(progressMarkdown), progressMarkdown);
       });
     } else {
@@ -623,14 +708,23 @@ export async function createApp(options: CreateAppOptions = {}) {
       retrieved_sources: retrieved.sourceArticles.length,
     });
     if (!titleOk) {
-      throw new Error(`generated article subject did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
+      logger.warn("page.generation_title_mismatch", {
+        slug,
+        requested_title: requestedTitle,
+        resolved_title: resolvedTitle,
+      });
     }
-    const { article, links } = await finalizeArticle(slug, requestedTitle, markdown, retrieved, hints, { operation: "generate" });
+    const { article, links, normalizedTitle, normalizedBodyMarkdown } = saveArticleImmediately(
+      slug, requestedTitle, markdown, retrieved, { operation: "generate" },
+    );
     logger.info("page.generation_done", {
       slug,
       title: article.title,
       links: links.length,
     });
+
+    trackGeneration(postProcessArticle(slug, normalizedTitle, normalizedBodyMarkdown, retrieved, hints).catch(() => {}));
+
     return article;
   }
 
@@ -641,6 +735,89 @@ export async function createApp(options: CreateAppOptions = {}) {
       database_path: runtime.app.storage.database_path,
     })
   );
+
+  const HOMEPAGE_TTL_MS = runtime.app.homepage.rotation_hours * 60 * 60 * 1000;
+
+  let homepageFeatured: { slug: string; title: string; summaryMarkdown: string } | null = null;
+  let homepageFeaturedExpiresAt = 0;
+  let homepageDyk: Array<{ slug: string; title: string; fact: string }> = [];
+  let homepageDykExpiresAt = 0;
+  let dykGenerationInFlight = false;
+
+  function refreshFeatured() {
+    const total = countArticles(db);
+    if (total === 0) {
+      homepageFeatured = null;
+    } else {
+      const picks = getRandomArticles(db, 1);
+      const pick = picks[0];
+      homepageFeatured = pick
+        ? { slug: pick.slug, title: pick.title, summaryMarkdown: pick.summaryMarkdown }
+        : null;
+    }
+    homepageFeaturedExpiresAt = Date.now() + HOMEPAGE_TTL_MS;
+  }
+
+  function triggerDykGeneration() {
+    if (dykGenerationInFlight) return;
+    const total = countArticles(db);
+    if (total < 2) return;
+    const dykSources = getRandomArticles(db, Math.min(total, 5));
+    if (dykSources.length === 0) return;
+
+    dykGenerationInFlight = true;
+    (async () => {
+      try {
+        const prompt = getPrompt(runtime.prompts, "did_you_know");
+        const dykArticlesBlock = dykSources
+          .map((a, i) => {
+            const excerpt = a.plainText.replace(/\s+/g, " ").trim().slice(0, 600);
+            return `Article ${i + 1}: "${a.title}"\n${excerpt}`;
+          })
+          .join("\n\n");
+        const raw = await llm.chat(
+          prompt.system,
+          renderTemplate(prompt.user, { dyk_articles: dykArticlesBlock }),
+        );
+        const parsed = JSON.parse(stripJsonFences(raw)) as { items?: Array<{ fact?: string }> };
+        const items = parsed.items ?? [];
+        homepageDyk = dykSources
+          .map((a, i) => {
+            const fact = items[i]?.fact?.trim();
+            if (!fact) return null;
+            return { slug: a.slug, title: a.title, fact };
+          })
+          .filter((item): item is { slug: string; title: string; fact: string } => item !== null);
+        homepageDykExpiresAt = Date.now() + HOMEPAGE_TTL_MS;
+        logger.info("homepage.dyk_generated", { count: homepageDyk.length });
+      } catch (error) {
+        logger.warn("homepage.dyk_generation_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        dykGenerationInFlight = false;
+      }
+    })();
+  }
+
+  app.get("/api/homepage", (c) => {
+    const now = Date.now();
+    const forceRefresh = c.req.query("refresh") === "1";
+
+    if (forceRefresh || now >= homepageFeaturedExpiresAt) {
+      refreshFeatured();
+    }
+
+    if (forceRefresh || now >= homepageDykExpiresAt) {
+      triggerDykGeneration();
+    }
+
+    return c.json({
+      featured: homepageFeatured,
+      didYouKnow: homepageDyk,
+      expiresAt: homepageFeaturedExpiresAt,
+    });
+  });
 
   app.get("/api/page/:slug", async (c) => {
     const requestedSegment = c.req.param("slug");
@@ -685,17 +862,51 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger.info("page.cache_miss", { slug: lookupSlug });
     }
 
+    const existingGeneration = slugGenerations.get(lookupSlug);
+    if (existingGeneration) {
+      logger.info("page.generation_join", { slug: lookupSlug });
+      try {
+        article = await existingGeneration;
+        const canonicalPath = canonicalPathForArticle(article);
+        return c.json({
+          cached: true,
+          redirectedFrom: canonicalPath !== requestedPath ? requestedPath : undefined,
+          canonicalPath,
+          article,
+          sections: listArticleSections(article.markdown),
+          backlinks: listBacklinks(db, article.slug),
+        });
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+      }
+    }
+
     const encoder = new TextEncoder();
+    let streamOpen = true;
     const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
+      start(controller) {
         const send = (payload: unknown) => {
-          controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+          if (!streamOpen) return;
+          try {
+            controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+          } catch {
+            streamOpen = false;
+          }
         };
-        try {
-          send({ type: "start", slug: lookupSlug, cached: false });
-          article = await buildArticle(lookupSlug, requestedTitle, (html, markdown) => {
+        const close = () => {
+          if (!streamOpen) return;
+          streamOpen = false;
+          try { controller.close(); } catch {}
+        };
+
+        send({ type: "start", slug: lookupSlug, cached: false });
+
+        const generation = reserveSlugGeneration(lookupSlug, () =>
+          buildArticle(lookupSlug, requestedTitle, (html, markdown) => {
             send({ type: "progress", html, markdown });
-          });
+          })
+        ).then((result) => {
+          article = result;
           const canonicalPath = canonicalPathForArticle(article);
           send({
             type: "done",
@@ -706,8 +917,9 @@ export async function createApp(options: CreateAppOptions = {}) {
             sections: listArticleSections(article.markdown),
             backlinks: listBacklinks(db, article.slug),
           });
-          controller.close();
-        } catch (error) {
+          close();
+          return result;
+        }).catch((error) => {
           logger.error("page.generation_failed", {
             slug: lookupSlug,
             error: error instanceof Error ? error.message : String(error),
@@ -716,8 +928,14 @@ export async function createApp(options: CreateAppOptions = {}) {
             type: "error",
             message: error instanceof Error ? error.message : String(error),
           });
-          controller.close();
-        }
+          close();
+          throw error;
+        });
+
+        trackGeneration(generation.catch(() => {}));
+      },
+      cancel() {
+        streamOpen = false;
       },
     });
 
@@ -869,15 +1087,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       const nextMarkdown = sectionId
         ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
         : rewrittenBody;
-      if (!articleSubjectMatchesRequested(nextMarkdown, article.title, article.slug)) {
-        const validation = validateArticleSubject(nextMarkdown, article.title, article.slug);
-        throw new Error(validation.message ?? "rewrite changed the article subject unexpectedly");
-      }
-
-      const { article: updatedArticle } = await finalizeArticle(article.slug, article.title, nextMarkdown, retrieved, hints, {
-        operation: sectionId ? "section-rewrite" : "rewrite",
-        instructions,
-      });
+      const { article: updatedArticle, links, normalizedTitle, normalizedBodyMarkdown } = saveArticleImmediately(
+        article.slug, article.title, nextMarkdown, retrieved,
+        { operation: sectionId ? "section-rewrite" : "rewrite", instructions },
+      );
+      trackGeneration(postProcessArticle(article.slug, normalizedTitle, normalizedBodyMarkdown, retrieved, hints).catch(() => {}));
       return {
         cached: true,
         canonicalPath: canonicalPathForArticle(updatedArticle),
@@ -889,11 +1103,26 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     if (wantsStream) {
       const encoder = new TextEncoder();
+      let rewriteStreamOpen = true;
       const stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          const send = (payload: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
-          try {
-            send({ type: "start", slug: article.slug, cached: false });
+        start(controller) {
+          const send = (payload: unknown) => {
+            if (!rewriteStreamOpen) return;
+            try {
+              controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+            } catch {
+              rewriteStreamOpen = false;
+            }
+          };
+          const close = () => {
+            if (!rewriteStreamOpen) return;
+            rewriteStreamOpen = false;
+            try { controller.close(); } catch {}
+          };
+
+          send({ type: "start", slug: article.slug, cached: false });
+
+          const rewrite = (async () => {
             let raw = "";
             await llm.streamChat(prompt.system, renderedRewritePrompt, (_delta, accumulated) => {
               raw = accumulated;
@@ -901,16 +1130,20 @@ export async function createApp(options: CreateAppOptions = {}) {
               const mergedMarkdown = sectionId
                 ? replaceArticleSection(article.markdown, sectionId, progressMarkdown)
                 : progressMarkdown;
-              assertArticleSubjectStillPossible(mergedMarkdown, article.title, article.slug);
               send({ type: "progress", html: renderMarkdown(mergedMarkdown), markdown: mergedMarkdown });
             });
             const payload = await persistRewrite(raw);
             send({ type: "done", ...payload });
-            controller.close();
-          } catch (error) {
+            close();
+          })().catch((error) => {
             send({ type: "error", message: error instanceof Error ? error.message : String(error) });
-            controller.close();
-          }
+            close();
+          });
+
+          trackGeneration(rewrite);
+        },
+        cancel() {
+          rewriteStreamOpen = false;
         },
       });
       return new Response(stream, {
@@ -970,16 +1203,13 @@ export async function createApp(options: CreateAppOptions = {}) {
         })
       );
       bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
-      if (!articleSubjectMatchesRequested(bodyMarkdown, article.title, article.slug)) {
-        return c.json({ error: "refresh changed the article subject unexpectedly" }, 422);
-      }
       operation = "refresh-context-rewrite";
       instructions = "Refreshed article body from retrieved context.";
     }
-    const { article: updatedArticle } = await finalizeArticle(article.slug, article.title, bodyMarkdown, retrieved, hints, {
-      operation,
-      instructions,
-    });
+    const { article: updatedArticle, normalizedTitle, normalizedBodyMarkdown } = saveArticleImmediately(
+      article.slug, article.title, bodyMarkdown, retrieved, { operation, instructions },
+    );
+    trackGeneration(postProcessArticle(article.slug, normalizedTitle, normalizedBodyMarkdown, retrieved, hints).catch(() => {}));
     const refreshChanged = updatedArticle.markdown !== article.markdown;
     logger.info("page.refresh_context", {
       slug: updatedArticle.slug,
@@ -1240,13 +1470,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
   });
 
-  return { app, runtime };
+  return { app, runtime, shutdown };
 }
 
 async function bootstrap() {
-  const { app, runtime } = await createApp();
+  const { app, runtime, shutdown } = await createApp();
   const logger = createConsoleLogger();
-  serve(
+  const server = serve(
     {
       fetch: app.fetch,
       hostname: runtime.app.server.host,
@@ -1259,6 +1489,19 @@ async function bootstrap() {
       });
     }
   );
+
+  let shuttingDown = false;
+  const gracefulShutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info("shutdown.signal_received");
+    server.close();
+    await shutdown();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", gracefulShutdown);
+  process.on("SIGTERM", gracefulShutdown);
 }
 
 const isEntrypoint = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;

@@ -5,13 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, saveArticle } from "../src/server/db";
 import {
+  extractDisplayTitle,
   extractInternalLinks,
+  extractTitle,
   leadBoldsTitle,
   markdownToPlainText,
   renderMarkdown,
   normalizeMarkdown,
   stripSelfLinks,
 } from "../src/server/markdown";
+import { formatLogLine } from "../src/server/logger";
+import { stripJsonFences } from "../src/server/prompts";
 import {
   slugify,
   slugToTitle,
@@ -66,11 +70,11 @@ test("extractInternalLinks dedupes targets and ignores invalid links", () => {
   ]);
 });
 
-test("renderMarkdown rewrites halu links to wiki paths", () => {
+test("renderMarkdown rewrites halu links to wiki paths using visible text", () => {
   const html = renderMarkdown(
     'Visit [Glow Fruit](halu:glow-fruit "hidden hint") for details.',
   );
-  assert.match(html, /href="\/wiki\/Glow_fruit"/);
+  assert.match(html, /href="\/wiki\/Glow_Fruit"/);
   assert.doesNotMatch(html, /hidden hint/);
 });
 
@@ -192,11 +196,18 @@ test("retrieveContext returns matching lexical context from indexed article chun
 /* -------------------------------------------------------------------------- */
 
 test("slugify is idempotent", () => {
-  const inputs = ["Glow Fruit", "glow-fruit", "  Glow  Fruit  ", "GLOW_FRUIT"];
+  const inputs = ["Glow Fruit", "glow-fruit", "  Glow  Fruit  ", "GLOW_FRUIT", "eBay", "β-Carotene", "San Francisco"];
   for (const input of inputs) {
     const slug = slugify(input);
     assert.equal(slugify(slug), slug, `slugify not idempotent for "${input}"`);
   }
+});
+
+test("slugify preserves unicode letters and digits", () => {
+  assert.equal(slugify("β-Carotene"), "β-carotene");
+  assert.equal(slugify("Ölgemälde"), "ölgemälde");
+  assert.equal(slugify("naïve"), "naïve");
+  assert.equal(slugify("café"), "café");
 });
 
 test("slug → title → wikiSegment → title round-trips are stable", () => {
@@ -218,6 +229,20 @@ test("slug → title → wikiSegment → title round-trips are stable", () => {
   }
 });
 
+test("titleToWikiSegment preserves casing from title", () => {
+  assert.equal(titleToWikiSegment("San Francisco"), "San_Francisco");
+  assert.equal(titleToWikiSegment("Cultural Dissipation Factor"), "Cultural_Dissipation_Factor");
+  assert.equal(titleToWikiSegment("eBay"), "EBay");
+  assert.equal(titleToWikiSegment("pH"), "PH");
+  assert.equal(titleToWikiSegment("β-Carotene"), "Β-Carotene");
+});
+
+test("wikiSegmentToTitle preserves casing", () => {
+  assert.equal(wikiSegmentToTitle("San_Francisco"), "San Francisco");
+  assert.equal(wikiSegmentToTitle("Cultural_Dissipation_Factor"), "Cultural Dissipation Factor");
+  assert.equal(wikiSegmentToTitle("EBay"), "EBay");
+});
+
 test("normalizeCanonicalTitle capitalizes first letter only when no mixed case", () => {
   assert.equal(normalizeCanonicalTitle("delaware"), "Delaware");
   assert.equal(normalizeCanonicalTitle("iPhone"), "iPhone");
@@ -225,7 +250,7 @@ test("normalizeCanonicalTitle capitalizes first letter only when no mixed case",
   assert.equal(normalizeCanonicalTitle("San Francisco"), "San Francisco");
 });
 
-test("halu links render to stable wiki paths", () => {
+test("halu links render wiki paths from visible text, preserving casing", () => {
   const markdown = [
     '[Delaware](halu:delaware "A mid-Atlantic administrative zone")',
     '[Cultural Dissipation Factor](halu:cultural-dissipation-factor "measure of energetic exchange")',
@@ -233,8 +258,8 @@ test("halu links render to stable wiki paths", () => {
   ].join("\n\n");
   const html = renderMarkdown(markdown);
   assert.match(html, /href="\/wiki\/Delaware"/);
-  assert.match(html, /href="\/wiki\/Cultural_dissipation_factor"/);
-  assert.match(html, /href="\/wiki\/San_francisco"/);
+  assert.match(html, /href="\/wiki\/Cultural_Dissipation_Factor"/);
+  assert.match(html, /href="\/wiki\/San_Francisco"/);
   assert.doesNotMatch(html, /halu:/);
   assert.doesNotMatch(html, /hidden context/i);
 });
@@ -243,7 +268,7 @@ test("halu links inside bold/italic render correctly", () => {
   const html = renderMarkdown(
     'The **[Dover Ash Bureau](halu:dover-ash-bureau "municipal ash authority")** governs all deposits.',
   );
-  assert.match(html, /href="\/wiki\/Dover_ash_bureau"/);
+  assert.match(html, /href="\/wiki\/Dover_Ash_Bureau"/);
   assert.match(html, /<strong>/);
 });
 
@@ -251,7 +276,7 @@ test("hidden hints are stripped from rendered output", () => {
   const html = renderMarkdown(
     '[Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar of the Dover Ash Bureau")',
   );
-  assert.match(html, /href="\/wiki\/Cornelius_blackpenny"/);
+  assert.match(html, /href="\/wiki\/Cornelius_Blackpenny"/);
   assert.doesNotMatch(html, /Chief Registrar/);
   assert.doesNotMatch(html, /title="/);
 });
@@ -298,7 +323,7 @@ test("blockquote markdown renders correctly for attributed quotes", () => {
     ].join("\n"),
   );
   assert.match(html, /<blockquote>/);
-  assert.match(html, /href="\/wiki\/Cornelius_blackpenny"/);
+  assert.match(html, /href="\/wiki\/Cornelius_Blackpenny"/);
   assert.doesNotMatch(html, /Chief Registrar/);
 });
 
@@ -346,4 +371,72 @@ test("leadBoldsTitle returns false when title is not bolded", () => {
     "Glow Fruit is a bioluminescent orchard product grown in the southern craters.",
   ].join("\n");
   assert.equal(leadBoldsTitle(markdown, "Glow Fruit"), false);
+});
+
+test("formatLogLine includes timestamp, level, event, and fields", () => {
+  const line = formatLogLine("info", "page.request", { slug: "test" });
+  const stripped = line.replace(/\x1b\[[0-9;]*m/g, "");
+  assert.match(stripped, /^\d{2}:\d{2}:\d{2}/);
+  assert.match(stripped, /INF/);
+  assert.match(stripped, /page\.request/);
+  assert.match(stripped, /slug="test"/);
+});
+
+test("formatLogLine includes level with consistent format", () => {
+  const infoLine = formatLogLine("info", "test.event");
+  const errorLine = formatLogLine("error", "test.event");
+  const warnLine = formatLogLine("warn", "test.event");
+  assert.match(infoLine, /INF/);
+  assert.match(errorLine, /ERR/);
+  assert.match(warnLine, /WRN/);
+});
+
+/* -------------------------------------------------------------------------- */
+/*  stripJsonFences                                                           */
+/* -------------------------------------------------------------------------- */
+
+test("stripJsonFences removes ```json fences", () => {
+  const wrapped = '```json\n{"items":[{"fact":"the sky is plaid"}]}\n```';
+  assert.equal(stripJsonFences(wrapped), '{"items":[{"fact":"the sky is plaid"}]}');
+});
+
+test("stripJsonFences removes bare ``` fences", () => {
+  const wrapped = '```\n{"items":[]}\n```';
+  assert.equal(stripJsonFences(wrapped), '{"items":[]}');
+});
+
+test("stripJsonFences passes through plain JSON unchanged", () => {
+  const plain = '{"items":[]}';
+  assert.equal(stripJsonFences(plain), plain);
+});
+
+test("stripJsonFences handles leading/trailing whitespace around fences", () => {
+  const wrapped = '  \n```json\n{"ok":true}\n```\n  ';
+  assert.equal(stripJsonFences(wrapped), '{"ok":true}');
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Title extraction and display titles                                       */
+/* -------------------------------------------------------------------------- */
+
+test("extractTitle strips markdown formatting from titles", () => {
+  assert.equal(extractTitle("# *De Rerum Natura*\n\nBody.", "fallback"), "De Rerum Natura");
+  assert.equal(extractTitle("# San Francisco\n\nBody.", "fallback"), "San Francisco");
+  assert.equal(extractTitle("# eBay\n\nBody.", "fallback"), "eBay");
+  assert.equal(extractTitle("No heading here.", "fallback"), "fallback");
+});
+
+test("extractDisplayTitle returns formatted title when markdown formatting present", () => {
+  assert.equal(extractDisplayTitle("# *De Rerum Natura*\n\nBody."), "*De Rerum Natura*");
+  assert.equal(extractDisplayTitle("# **Bold Title**\n\nBody."), "**Bold Title**");
+  assert.equal(extractDisplayTitle("# San Francisco\n\nBody."), undefined);
+  assert.equal(extractDisplayTitle("No heading."), undefined);
+});
+
+test("halu links with unicode visible text render correct wiki paths", () => {
+  const html = renderMarkdown(
+    '[β-Carotene](halu:β-carotene "orange pigment compound")',
+  );
+  assert.match(html, /href="\/wiki\/Β-Carotene"/);
+  assert.doesNotMatch(html, /orange pigment/);
 });

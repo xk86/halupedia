@@ -11,14 +11,53 @@ export interface Logger {
   error(event: string, fields?: LogFields): void;
 }
 
-function formatLogLine(level: string, event: string, fields: LogFields = {}): string {
+const RESET = "\x1b[0m";
+const DIM = "\x1b[2m";
+const BOLD = "\x1b[1m";
+
+const LEVEL_STYLES: Record<string, { tag: string; color: string }> = {
+  debug: { tag: "DBG", color: "\x1b[90m" },
+  info:  { tag: "INF", color: "\x1b[36m" },
+  warn:  { tag: "WRN", color: "\x1b[33m" },
+  error: { tag: "ERR", color: "\x1b[31m" },
+};
+
+const EVENT_COLORS: Record<string, string> = {
+  "page.":       "\x1b[35m",
+  "llm.":        "\x1b[34m",
+  "rag.":        "\x1b[32m",
+  "shutdown.":   "\x1b[33m",
+  "startup":     "\x1b[36m",
+  "server.":     "\x1b[36m",
+};
+
+function eventColor(event: string): string {
+  for (const [prefix, color] of Object.entries(EVENT_COLORS)) {
+    if (event.startsWith(prefix)) return color;
+  }
+  return DIM;
+}
+
+function timestamp(): string {
+  const d = new Date();
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  return `${h}:${m}:${s}`;
+}
+
+export function formatLogLine(level: string, event: string, fields: LogFields = {}): string {
+  const style = LEVEL_STYLES[level] ?? LEVEL_STYLES.info!;
+  const ts = timestamp();
   const renderedFields = Object.entries(fields)
     .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+    .map(([key, value]) => `${DIM}${key}=${RESET}${JSON.stringify(value)}`)
     .join(" ");
+  const eventStr = `${eventColor(event)}${event}${RESET}`;
+  const levelStr = `${style.color}${BOLD}${style.tag}${RESET}`;
   return renderedFields
-    ? `[halupedia] level=${level} event=${event} ${renderedFields}`
-    : `[halupedia] level=${level} event=${event}`;
+    ? `${DIM}${ts}${RESET} ${levelStr} ${eventStr} ${renderedFields}`
+    : `${DIM}${ts}${RESET} ${levelStr} ${eventStr}`;
 }
 
 export function createConsoleLogger(): Logger {

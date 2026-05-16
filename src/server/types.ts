@@ -18,11 +18,16 @@ export interface RagConfig {
   min_score: number;
 }
 
+export interface HomepageConfig {
+  rotation_hours: number;
+}
+
 export interface AppConfig {
   server: ServerConfig;
   storage: StorageConfig;
   search: SearchConfig;
   rag: RagConfig;
+  homepage: HomepageConfig;
 }
 
 export interface ChatConfig {
@@ -72,6 +77,7 @@ export interface ArticleRecord {
   slug: string;
   canonicalSlug: string;
   title: string;
+  displayTitle?: string;
   markdown: string;
   html: string;
   summaryMarkdown?: string;

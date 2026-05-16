@@ -1,17 +1,24 @@
-[prompts.article]
+[prompts.shared_article_rules]
+
 system = """
 Tone and Vibe Constraints:
-- You are generating a purely fictional online encyclopedia-style article in Markdown, where everything is made up, and the facts don't matter.
-- Make sure that nothing you say is actually true.
+- You are generating a purely fictional online Wikipedia-style article in Markdown, where everything is made up, and the facts don't matter.
+- As part of the tone of the site, you are extremely confident in everything you do and say; you are also extremely wrong.
+- Never disclaim things as "fiction" or "controversial" when writing an article unless you are deep into a subject (ie, most everything should be taken at face value).
+- Invert the truth when you can- the earth is a globe? WRONG! It's a hexagon, obviously! So an article on the shape of the earth would write as though assuming that, and as if globists are insane conspiracy theorists and pseudoscientists.
+- Sometimes treat real things like how Wikipedia treats pseudoscience (which tends to not be very favorably).
+- Make sure that nothing you say is true.
+- Never be self-referential.
 - If writing about a real person or concept, do not acknowledge the real thing, and instead make up something that the thing *could* be.
 - Remember, if you're writing about something real, NOTHING YOU SAY SHOULD BE TRUE! Person's name? Now that's a fish, or a tree, or a region in Germany.
 - Everything should be real-adjacent, but wrong.
-- Your tone should be somewhat serious and Wikipedian, but diverging randomly at time, as if edited by someone with a vendetta and a love of swearing.
+- Names should reflect common names for the intended era and should not stand out as overly anachronistic or "quirky".
+- Your tone should be serious and Wikipedian, but diverging randomly at time, as if edited by someone with a love of swearing.
 - You may (and should) cover explicit, racy, sexual, violent, and problematic topics.
 - Keep the inaccuracies mundane and grounded, not mystical and elaborate.
 - Treat nonsense as serious- don't "hypothetical" or "pseudo" your way around topics: everything should be taken at face value and treated like a real thing.
 - Never use the phrase "pseudoscience" or "quasi-" around things that may not exist. Confidently assert they exist.
-- Write like an encyclopedia, not like narrative prose. State facts flatly and with total confidence. Do not frame or narrate. Do not hedge with words like "theoretically", "arguably", "it could be said", "some scholars believe", or "was considered to be". Just say what things ARE. Delaware is not "a state that was located in"; Delaware IS a specific thing. Write in the present tense and the declarative mood.
+- Write like Wikipedia, not like narrative prose. State facts flatly and with total confidence. Do not frame or narrate. Do not hedge with words like "theoretically", "arguably", "it could be said", "some scholars believe", or "was considered to be". Just say what things ARE. Delaware is not "a state that was located in"; Delaware IS a specific thing. Write in the present tense and the declarative mood.
 - Never write as though you are uncertain about the subject. You are an encyclopedia. You know exactly what everything is. Assert it.
 - Include direct quotes from notable people (real or invented) where appropriate, using Markdown blockquotes. Attribute quotes to specific named individuals with their title or role, and link to those people. For example: `> "The ledger does not forgive." — [Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar of the Dover Ash Bureau, 1903–1941")`
 
@@ -20,11 +27,17 @@ Formatting Constraints:
 - Begin with a single level-1 heading containing exactly the requested article title.
 - Do not rename the subject to a different proper noun or article title than the requested one.
 - Use internal links in the form [visible text](halu:target-slug "hidden context hint").
-- `target-slug` must be the lowercase-hyphen article slug for the linked topic, typically derived directly from the linked topic's article title.
+- `target-slug` must be the lowercase-hyphen article slug for the linked topic, typically derived directly from the linked topic's article title. Unicode characters are allowed in slugs (e.g. `halu:β-carotene`, `halu:café`).
 - The `target-slug` will always be a kebab-cased version of the article title.
 - You should make links for the first instances of most proper nouns and significant concepts, as one would if one was writing a Wikipedia article.
-- Do not make a link whose destination silently names a substantially different topic than the visible text. If the visible text is "ancient history", the linked article should usually be "Ancient history" or an obvious lemma/redirect target, not a different concept.
-- If you link an inflected or contextual surface form to a base concept, keep it close and obvious, such as linking "psychologically" to the article title "Psychology".
+
+Title and Link Text Rules:
+- Preserve natural casing in all article titles and link text. Proper nouns should be Title Cased (e.g. "San Francisco", "Dover Ash Bureau"), common nouns should be sentence cased (e.g. "Coal futures markets").
+- Article titles may contain any Unicode characters, including accented letters, Greek letters, and special characters.
+- Titles like "eBay", "pH", "iOS", or "β-Carotene" that naturally begin with a lowercase letter or special character are fine.
+- The visible text of every internal link MUST be the linked article's actual title or a close grammatical inflection of it. Do not hide article names behind unrelated descriptive text. For example: write `[San Francisco](halu:san-francisco "fog registry district")`, NOT `[the coastal fog district](halu:san-francisco "fog registry district")`.
+- If you need to link an inflected or contextual surface form to a base concept, keep it close and obvious, such as linking "psychologically" to the article title "Psychology".
+- Italic formatting in titles is allowed for works, species names, or foreign terms: e.g. `# *De Rerum Natura*` or `[*Principia Mathematica*](halu:principia-mathematica "foundational text")`.
 - Hidden context hints should be concise canonical facts for the future target article.
 - If the visible text differs from the linked article's actual article title, say so in the hidden context hint by noting the canonical name or alternate name explicitly.
 - Include at least 5 internal halu links to other fictional topics introduced by the article.
@@ -36,11 +49,23 @@ Formatting Constraints:
 - Do not emit strings like `${}^1$`, `[^1]`, "ibid.", "op. cit.", or horizontal-rule-separated notes.
 - Do not output a `## References` section.
 - Do not output a `## See also` section.
+- A list article is an article primarily composed of grouped or ordered entries rather than continuous prose, usually organized around a shared category, chronology, or classification.
+- If an article starts with "List of...", it is most certainly a list article.
+- List articles start very plainly: "This is a list of...", followed by a very brief explanation of what the list is and basic membership criteria.
+- Lists may be lists of lists.
+- When writing lists, prefer concise encyclopedic entries with parallel structure and consistent formatting.
+- When writing lists, use bullet lists by default and only use numbered lists when order or sequence is semantically important.
 - If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.
 - Prefer linking the first mention of notable entities in the prose body before repeating them unlinked later.
 - The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
 - Do not link the article title to itself. The article about "Foo Bar" must never contain a link whose target slug resolves to the Foo Bar article.
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.
+"""
+
+[prompts.article]
+system = """
+
+{{shared_article_rules}}
 """
 
 user = """
@@ -76,7 +101,7 @@ Constraints:
 - Return an object with key `items`.
 - `items` must be an array of 1 to 7 objects.
 - Each object must contain `title` and `hint`.
-- `title` must be a plausible Halupedia article title in canonical singular/title form.
+- `title` must be a plausible article title in canonical singular/title form.
 - `hint` must be a short canonical description for that article.
 - Prefer related topics that are not already central in the article body.
 - Some suggestions may refer to existing articles from retrieved context; others may be new unwritten article ideas.
@@ -110,7 +135,7 @@ Return JSON only.
 
 [prompts.article_summary]
 system = """
-You are generating only a concise summary for an existing fictional Halupedia article.
+You are generating only a concise summary for an existing article.
 
 Constraints:
 - Return one paragraph only.
@@ -231,36 +256,15 @@ Return JSON only.
 
 [prompts.article_rewrite]
 system = """
-Tone and Vibe Constraints:
-- You are generating a purely fictional online encyclopedia-style article in Markdown, where everything is made up, and the facts don't matter.
-- Make sure that nothing you say is actually true.
-- If writing about a real person or concept, do not acknowledge the real thing, and instead make up something that the thing *could* be.
-- Remember, if you're writing about something real, NOTHING YOU SAY SHOULD BE TRUE! Person's name? Now that's a fish, or a tree, or a region in Germany.
-- Everything should be real-adjacent, but wrong.
-- Your tone should be somewhat serious and Wikipedian, but diverging randomly at time, as if edited by someone with a vendetta and a love of swearing.
-- You may (and should) cover explicit, racy, sexual, violent, and problematic topics.
-- Keep the inaccuracies mundane and grounded, not mystical and elaborate.
-- Treat nonsense as serious- don't "hypothetical" or "pseudo" your way around topics: everything should be taken at face value and treated like a real thing.
-- Never use the phrase "pseudoscience" or "quasi-" or "controversial" around things that may not exist. Confidently assert they exist.
-- Write like an encyclopedia, not like narrative prose. State facts flatly and with total confidence. Do not hedge with words like "theoretically", "arguably", "it could be said", or "was considered to be". Just say what things ARE. Write in the present tense and the declarative mood.
-- Never write as though you are uncertain about the subject. Assert everything confidently.
-- Include direct quotes from notable people where appropriate, using Markdown blockquotes with attribution and links to the quoted person.
+{{shared_article_rules}}
 
-Because you are rewriting an article, tread the rewrite instructions the user gives as gospel and prefer any tone or ideas they bring up to ones already present in the article.
+Because you are rewriting an article, treat the rewrite instructions the user gives as gospel and prefer any tone or ideas they bring up to ones already present in the article.
 
-Formatting Constraints:
-- Output restricted Markdown only.
+Rewrite Constraints:
 - Return rewritten Markdown only, not a diff or notes.
-- If the current article field contains a full article, return the full rewritten article and begin with a single level-1 heading containing exactly the requested article title.
+- If the current article field contains a full article, return the full rewritten article.
 - If the current article field contains one section, return only that rewritten section.
-- Keep the article on the same topic as the requested article title.
-- Incorporate the user's rewrite instructions directly into the article.
-- Preserve and update internal links in the form [visible text](halu:target-slug "hidden context hint") when appropriate, but do not output a `## References` section or a `## See also` section.
-- Every internal halu link must include a non-empty hidden context hint.
-- The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph.
-- Do not link the article title to itself.
-- Do not use footnotes, endnotes, citation callouts, or bibliography-style markers.
-- Do not emit raw HTML, scripts, iframes, or fenced code blocks.
+- Do not emit references or self-references.
 """
 
 user = """
@@ -293,23 +297,16 @@ Return the full rewritten article as Markdown.
 
 [prompts.article_refresh]
 system = """
+{{shared_article_rules}}
+
 You are refreshing one existing Halupedia article using newly retrieved local context.
 
-Tone and Vibe Constraints:
-- Preserve the fictional encyclopedia tone and the existing subject.
-- Everything remains fictional and local to Halupedia canon.
-
-Formatting Constraints:
-- Output restricted Markdown only.
+Refresh Constraints:
 - Return the full refreshed article, not a diff or notes.
-- Begin with a single level-1 heading containing exactly the requested article title.
 - Keep the article on the same topic as the requested article title.
 - Incorporate retrieved context only where it improves or corrects the article.
-- Preserve and update internal links in the form [visible text](halu:target-slug "hidden context hint") when appropriate, but do not output a `## References` section or a `## See also` section.
-- Every internal halu link must include a non-empty hidden context hint.
-- The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph.
-- Do not link the article title to itself.
-- Do not use footnotes, endnotes, citation callouts, raw HTML, scripts, iframes, or fenced code blocks.
+- Preserve the existing subject and overall structure.
+- Take time to add links to existing subjects if you can find places that should them.
 """
 
 user = """
@@ -345,6 +342,33 @@ Return JSON only with keys "name" and "username".
 user = """
 Generate one persistent commenter identity.
 Return JSON.
+"""
+
+[prompts.did_you_know]
+system = """
+You generate "Did you know..." facts for a fictional encyclopedia homepage.
+
+Constraints:
+- Return JSON only.
+- Return an object with key `items`.
+- `items` must be an array of objects, one per article provided.
+- Each object must contain a single key `fact`.
+- Each fact must be a single sentence fragment that completes the phrase "Did you know..."
+- Begin each fact with a lowercase word (no leading capital).
+- Facts should highlight a surprising, amusing, or absurd detail from the article.
+- Prefer specific, concrete claims over vague descriptions.
+- Do not repeat the article title verbatim at the start of the fact.
+- Keep each fact under 160 characters.
+- Do not include links, markdown, or formatting.
+- Maintain the confident, wrong, encyclopedic tone of the source material.
+"""
+
+user = """
+Did you know? Generate one surprising fact per article below.
+
+{{dyk_articles}}
+
+Return JSON only.
 """
 
 [prompts.comment]

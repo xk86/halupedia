@@ -59,15 +59,19 @@ describe("App", () => {
     cleanup();
   });
 
-  it("renders the home route without fetching article data", () => {
-    const fetchMock = vi.fn();
+  it("renders the home route and fetches homepage data", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+        headers: { "content-type": "application/json" },
+      })
+    );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "Halupedia" })).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith("/api/homepage");
     expect(document.title).toBe("Halupedia");
   });
 
@@ -366,7 +370,11 @@ describe("App", () => {
   });
 
   it("toggles night mode from the header", async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+        headers: { "content-type": "application/json" },
+      })
+    );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 

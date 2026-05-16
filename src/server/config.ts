@@ -28,6 +28,9 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       chunk_size: app.rag?.chunk_size ?? 500,
       min_score: app.rag?.min_score ?? 0.2,
     },
+    homepage: {
+      rotation_hours: app.homepage?.rotation_hours ?? 4,
+    },
   };
 }
 

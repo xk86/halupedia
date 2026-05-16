@@ -230,12 +230,83 @@ test("generated articles store an actual summary instead of the opening paragrap
   assert.ok(done);
   assert.equal(
     done.article.summaryMarkdown,
-    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites."
-  );
-  assert.notEqual(
-    done.article.summaryMarkdown,
     "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources."
   );
+
+  let cachedSummary = "";
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const cachedRes = await server.request("/api/page/Coal_futures_markets");
+    assert.equal(cachedRes.status, 200);
+    const cached = await cachedRes.json();
+    cachedSummary = cached.article.summaryMarkdown;
+    if (cachedSummary === "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.") {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(
+    cachedSummary,
+    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites."
+  );
+});
+
+test("retrieveContext logs matched slugs in descending relevance order", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const db = openDatabase(databasePath);
+  const entries: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+  const logger = {
+    debug(event: string, fields?: Record<string, unknown>) {
+      entries.push({ event, fields });
+    },
+    info(event: string, fields?: Record<string, unknown>) {
+      entries.push({ event, fields });
+    },
+    warn(event: string, fields?: Record<string, unknown>) {
+      entries.push({ event, fields });
+    },
+    error(event: string, fields?: Record<string, unknown>) {
+      entries.push({ event, fields });
+    },
+  };
+  const saveSeed = (slug: string, title: string, markdown: string) => {
+    saveArticle(
+      db,
+      {
+        slug,
+        canonicalSlug: slug,
+        title,
+        markdown,
+        html: renderMarkdown(markdown),
+        plain_text: markdownToPlainText(markdown),
+        generated_at: Date.now(),
+      },
+      [],
+      [slug]
+    );
+  };
+
+  saveSeed("alpha-topic", "Alpha Topic", "# Alpha Topic\n\nAlpha beta gamma delta archive.");
+  saveSeed("beta-topic", "Beta Topic", "# Beta Topic\n\nAlpha beta archive.");
+  await indexArticleChunks(db, new QueueLlmClient(""), "alpha-topic", "# Alpha Topic\n\nAlpha beta gamma delta archive.", false, 500);
+  await indexArticleChunks(db, new QueueLlmClient(""), "beta-topic", "# Beta Topic\n\nAlpha beta archive.", false, 500);
+
+  await retrieveContext(
+    db,
+    new QueueLlmClient(""),
+    "query-topic",
+    ["alpha beta gamma delta archive"],
+    true,
+    4,
+    0.2,
+    false,
+    logger
+  );
+  db.close();
+
+  const retrieveLog = entries.find((entry) => entry.event === "rag.retrieve_complete");
+  assert.deepEqual(retrieveLog?.fields?.matched_slugs, ["alpha-topic", "beta-topic"]);
 });
 
 test("add-link refines oversized selections before wrapping markdown", async (t) => {
@@ -320,7 +391,7 @@ test("rewrite endpoint applies user instructions and preserves the article title
   assert.match(body.article.markdown, /municipal weather bureau/);
 });
 
-test("rewrite endpoint rejects generated body subject changes without mutating the stored article", async (t) => {
+test("rewrite endpoint saves even when lead subject diverges from title", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -338,7 +409,7 @@ test("rewrite endpoint rejects generated body subject changes without mutating t
   const bodyRenamedRewrite = [
     "# Energy storage",
     "",
-    "Maternal Energy Potential refers to a redirected concept that should not replace this article.",
+    "Maternal Energy Potential refers to a redirected concept.",
   ].join("\n");
   const llm = new QueueLlmClient("", [bodyRenamedRewrite, JSON.stringify({ items: [] })]);
   const server = await createServer(databasePath, llm);
@@ -351,27 +422,19 @@ test("rewrite endpoint rejects generated body subject changes without mutating t
     }),
   });
 
-  assert.equal(res.status, 422);
+  assert.equal(res.status, 200);
   const body = await res.json();
-  assert.equal(
-    body.error,
-    'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"'
-  );
+  assert.ok(body.article);
 
   const db = openDatabase(databasePath);
   const stored = getArticle(db, "energy-storage");
-  const revisionCount = db
-    .prepare(`SELECT count(*) AS count FROM article_revisions WHERE article_slug = ?`)
-    .get("energy-storage") as { count: number };
   db.close();
 
   assert.ok(stored);
-  assert.equal(stored.title, "Energy storage");
-  assert.equal(stored.markdown, originalMarkdown);
-  assert.equal(revisionCount.count, 1);
+  assert.match(stored!.markdown, /Maternal Energy Potential/);
 });
 
-test("streaming rewrite rejects a renamed lead subject before sending progress", async (t) => {
+test("streaming rewrite saves even when lead subject diverges from title", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -391,7 +454,7 @@ test("streaming rewrite rejects a renamed lead subject before sending progress",
     [JSON.stringify({ items: [] })],
     [
       "# Energy storage\n\nMaternal Energy Potential refers to",
-      " a redirected concept that should not be streamed to the client.",
+      " a redirected concept.",
     ]
   );
   const server = await createServer(databasePath, llm);
@@ -410,19 +473,15 @@ test("streaming rewrite rejects a renamed lead subject before sending progress",
     .split("\n")
     .map((line) => JSON.parse(line));
 
-  assert.deepEqual(events.map((event) => event.type), ["start", "error"]);
-  assert.equal(
-    events[1].message,
-    'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"'
-  );
-  assert.equal(llm.streamedChunkCount, 1);
+  const types = events.map((event: { type: string }) => event.type);
+  assert.ok(types.includes("done"), "rewrite should complete successfully");
 
   const db = openDatabase(databasePath);
   const stored = getArticle(db, "energy-storage");
   db.close();
 
   assert.ok(stored);
-  assert.equal(stored.markdown, originalMarkdown);
+  assert.match(stored.markdown, /Maternal Energy Potential/);
 });
 
 test("section rewrite streams only the selected section and records revertable history", async (t) => {

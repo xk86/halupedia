@@ -174,6 +174,7 @@ export async function retrieveContext(
     corpus_chunks: rows.length,
     ranked_chunks: ranked.length,
     picked: picked.length,
+    matched_slugs: picked.map((row) => row.slug),
     min_score: minScore,
     top_score: ranked[0]?.score ?? 0,
   });

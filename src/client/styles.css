@@ -736,6 +736,82 @@ button.admin-danger-btn:hover:not(:disabled) {
   margin: 2rem 0;
 }
 
+/* ----------------------- Homepage ------------------------ */
+
+.homepage-empty {
+  color: var(--ink-fade);
+  font-style: italic;
+}
+
+.homepage-featured,
+.homepage-dyk {
+  margin-top: 2rem;
+}
+
+.homepage-featured h2,
+.homepage-dyk h2 {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-fade);
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.homepage-featured-card {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1.25rem 1.5rem;
+  background: var(--parchment-deep);
+}
+
+.homepage-featured-card h3 {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  font-weight: 500;
+  margin: 0 0 0.5rem;
+  line-height: 1.25;
+}
+
+.homepage-featured-card h3 a {
+  color: var(--accent);
+  border-bottom: none;
+}
+
+.homepage-featured-card h3 a:hover {
+  color: var(--accent-hover);
+}
+
+.homepage-featured-card p {
+  margin: 0 0 0.75rem;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.homepage-read-more {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.homepage-dyk ul {
+  padding-left: 1.25rem;
+  margin: 0;
+}
+
+.homepage-dyk li {
+  margin-bottom: 0.6rem;
+  line-height: 1.5;
+}
+
+.homepage-dyk li a {
+  font-weight: 600;
+}
+
 /* ----------------------- Status ------------------------- */
 
 .status {

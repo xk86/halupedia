@@ -110,6 +110,9 @@ export function openDatabase(databasePath: string): DatabaseSync {
   if (!hasColumn(db, "articles", "is_disambiguation")) {
     db.exec(`ALTER TABLE articles ADD COLUMN is_disambiguation INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!hasColumn(db, "articles", "display_title")) {
+    db.exec(`ALTER TABLE articles ADD COLUMN display_title TEXT NOT NULL DEFAULT ''`);
+  }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   return db;
 }
@@ -120,6 +123,7 @@ export function getArticle(db: DatabaseSync, slug: string): ArticleRecord | null
       `SELECT slug,
               COALESCE(canonical_slug, slug) AS canonicalSlug,
               title,
+              COALESCE(NULLIF(display_title, ''), title) AS displayTitle,
               markdown,
               html,
               summary_markdown AS summaryMarkdown,
@@ -175,11 +179,12 @@ export function saveArticle(
   const now = article.generated_at;
   const summaryMarkdown = article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(article.markdown);
   const insertArticle = db.prepare(`
-    INSERT INTO articles (slug, canonical_slug, title, markdown, html, summary_markdown, plain_text, generated_at, is_disambiguation)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO articles (slug, canonical_slug, title, display_title, markdown, html, summary_markdown, plain_text, generated_at, is_disambiguation)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(slug) DO UPDATE SET
       canonical_slug = excluded.canonical_slug,
       title = excluded.title,
+      display_title = excluded.display_title,
       markdown = excluded.markdown,
       html = excluded.html,
       summary_markdown = excluded.summary_markdown,
@@ -229,6 +234,7 @@ export function saveArticle(
       article.slug,
       article.canonicalSlug,
       article.title,
+      article.displayTitle ?? "",
       article.markdown,
       article.html,
       summaryMarkdown,
@@ -249,6 +255,33 @@ export function saveArticle(
       revision.instructions ?? "",
       revision.revertedFromRevisionId ?? null
     );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function updateArticleInPlace(
+  db: DatabaseSync,
+  slug: string,
+  fields: { markdown: string; html: string; summaryMarkdown: string; plain_text: string },
+  links: ParsedInternalLink[],
+) {
+  const now = Date.now();
+  db.exec("BEGIN");
+  try {
+    db.prepare(
+      `UPDATE articles SET markdown = ?, html = ?, summary_markdown = ?, plain_text = ?, generated_at = ? WHERE slug = ?`,
+    ).run(fields.markdown, fields.html, fields.summaryMarkdown, fields.plain_text, now, slug);
+    db.prepare(`DELETE FROM article_links WHERE source_slug = ?`).run(slug);
+    const insertLink = db.prepare(
+      `INSERT INTO article_links (source_slug, target_slug, visible_label, hidden_hint, created_at) VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (const link of links) {
+      if (link.targetSlug === slug) continue;
+      insertLink.run(slug, link.targetSlug, link.visibleLabel, link.hiddenHint, now);
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -289,6 +322,32 @@ export function listBacklinks(db: DatabaseSync, slug: string) {
     existing: rows.filter((row) => row.existsFlag === 1),
     unwritten: rows.filter((row) => row.existsFlag === 0),
   };
+}
+
+export function getRandomArticles(db: DatabaseSync, count: number) {
+  return db
+    .prepare(
+      `SELECT slug,
+              COALESCE(canonical_slug, slug) AS canonicalSlug,
+              title,
+              summary_markdown AS summaryMarkdown,
+              plain_text AS plainText
+       FROM articles
+       WHERE is_disambiguation = 0
+       ORDER BY RANDOM()
+       LIMIT ?`
+    )
+    .all(count) as Array<{
+      slug: string;
+      canonicalSlug: string;
+      title: string;
+      summaryMarkdown: string;
+      plainText: string;
+    }>;
+}
+
+export function countArticles(db: DatabaseSync): number {
+  return (db.prepare(`SELECT COUNT(*) AS count FROM articles WHERE is_disambiguation = 0`).get() as { count: number }).count;
 }
 
 export function listArticles(db: DatabaseSync, offset: number, limit: number) {

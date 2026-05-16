@@ -1,9 +1,8 @@
 export function slugify(input: string): string {
   return input
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .normalize("NFC")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-")
     .slice(0, 120);
@@ -34,11 +33,16 @@ export function slugToTitle(slug: string): string {
 }
 
 export function titleToWikiSegment(title: string): string {
-  return title
+  let segment = title
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[^\p{L}\p{N} _'(),.-]+/gu, "")
     .replace(/ /g, "_");
+  const firstLetterIndex = segment.search(/\p{L}/u);
+  if (firstLetterIndex >= 0) {
+    segment = segment.slice(0, firstLetterIndex) + segment[firstLetterIndex].toUpperCase() + segment.slice(firstLetterIndex + 1);
+  }
+  return segment;
 }
 
 export function wikiSegmentToTitle(segment: string): string {

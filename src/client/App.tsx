@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
+import { Homepage } from "./Homepage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
 import { toWikiSegment } from "./wikiPath";
@@ -31,6 +32,7 @@ interface PageData {
     slug: string;
     canonicalSlug: string;
     title: string;
+    displayTitle?: string;
     html: string;
     markdown: string;
     summaryMarkdown?: string;
@@ -81,10 +83,9 @@ function countInternalLinks(markdown: string): number {
 function titleFromSegment(segment: string): string {
   return decodeURIComponent(segment)
     .replace(/^\/+|\/+$/g, "")
-    .replace(/[_-]+/g, " ")
+    .replace(/_/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    .trim();
 }
 
 type ThemeMode = "auto" | "dark";
@@ -261,7 +262,7 @@ export function App() {
           if (data.canonicalPath && data.redirectedFrom && window.location.pathname !== data.canonicalPath) {
             window.history.replaceState({}, "", data.canonicalPath);
           }
-          document.title = `${data.article.title} - Halupedia`;
+          document.title = `${data.article.displayTitle || data.article.title} - Halupedia`;
           return;
         }
 
@@ -337,7 +338,7 @@ export function App() {
               if (event.canonicalPath && event.redirectedFrom && window.location.pathname !== event.canonicalPath) {
                 window.history.replaceState({}, "", event.canonicalPath);
               }
-              document.title = `${event.article.title} - Halupedia`;
+              document.title = `${event.article.displayTitle || event.article.title} - Halupedia`;
             } else if (event.type === "error") {
               throw new Error(event.message);
             }
@@ -665,25 +666,14 @@ export function App() {
   }, [route.kind, page, loading]);
 
   const articleSlug = route.kind === "article" || route.kind === "history" || route.kind === "disambiguation" ? route.slug : null;
+  const articleDisplayTitle = page?.article.displayTitle || page?.article.title || "";
   const articleTitle = page?.article.title ?? "";
   const hasZeroLinks = page ? countInternalLinks(page.article.markdown) === 0 : false;
   const historyEmpty = (historyOpen || route.kind === "history") && !historyLoading && !historyError && revisions.length === 0;
 
   const mainView = useMemo(() => {
     if (route.kind === "home") {
-      return (
-        <article className="article">
-          <h1>Halupedia</h1>
-          <p>
-            A local fictional encyclopedia whose canon accumulates over time. Articles seed future articles through
-            hidden link hints, and the backlink graph persists even when a target entry has not been written yet.
-          </p>
-          <p>
-            Search for an existing entry, or click through to an unwritten one and let your local model draft it from
-            prior references, optional retrieval context, and user-owned prompt templates.
-          </p>
-        </article>
-      );
+      return <Homepage onNavigate={navigateToArticle} />;
     }
 
     if (route.kind === "index") {
@@ -717,7 +707,7 @@ export function App() {
       return (
         <article className="article disambiguation-page" onClick={interceptArticleLinks}>
           <div className="disambiguation-notice">This is a disambiguation page.</div>
-          <h1>{page.article.title}</h1>
+          <h1>{articleDisplayTitle}</h1>
           <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
         </article>
       );
@@ -728,7 +718,7 @@ export function App() {
         <>
           {restoreMessage ? <div className="status">{restoreMessage}</div> : null}
           <div className="history-page-header">
-            <h1>History: {page.article.title}</h1>
+            <h1>History: {articleDisplayTitle}</h1>
             <button type="button" className="edit-modal-close" onClick={() => navigateToArticle(page.article.title.replace(/\s+/g, "_"))}>
               Current article
             </button>
@@ -818,7 +808,7 @@ export function App() {
         ) : null}
         {refreshMessage ? <div className="status">{refreshMessage}</div> : null}
         <div className="article-title-row">
-          <h1>{page.article.title}</h1>
+          <h1>{articleDisplayTitle}</h1>
           <button
             type="button"
             className="article-edit-button"

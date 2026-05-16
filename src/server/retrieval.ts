@@ -94,12 +94,15 @@ export async function indexArticleChunks(
   });
 }
 
+export type RagMode = "summary" | "full";
+
 export async function retrieveContext(
   db: DatabaseSync,
   llm: LlmClient,
   slug: string,
   hints: string[],
   enabled: boolean,
+  mode: RagMode,
   maxResults: number,
   minScore: number,
   useEmbeddings: boolean,
@@ -167,6 +170,9 @@ export async function retrieveContext(
   }
 
   const picked = ranked.slice(0, maxResults);
+  const matchedArticles = picked
+    .map((row) => `${row.slug} (${row.score.toFixed(3)})`)
+    .join(", ");
   logger?.info("rag.retrieve_complete", {
     slug,
     hints: hints.length,
@@ -174,13 +180,25 @@ export async function retrieveContext(
     corpus_chunks: rows.length,
     ranked_chunks: ranked.length,
     picked: picked.length,
-    matched_slugs: picked.map((row) => row.slug),
+    matched_articles: matchedArticles || "(none)",
     min_score: minScore,
     top_score: ranked[0]?.score ?? 0,
   });
+  const summaryContent = (text: string) => {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    return normalized.length <= 360
+      ? normalized
+      : `${normalized.slice(0, 360).trim()}...`;
+  };
+
   return {
     context: picked
-      .map((row) => `- ${row.title} (slug: ${row.slug}): ${row.content.replace(/\s+/g, " ").trim()}`)
+      .map((row) => {
+        const content = mode === "summary"
+          ? summaryContent(row.content)
+          : row.content.replace(/\s+/g, " ").trim();
+        return `- ${row.title} (slug: ${row.slug}): ${content}`;
+      })
       .join("\n"),
     relatedTitles: picked.map((row) => row.title),
     sourceArticles: picked.map((row) => ({

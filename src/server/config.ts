@@ -24,12 +24,19 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     },
     rag: {
       enabled: app.rag?.enabled ?? false,
+      mode: app.rag?.mode === "summary" ? "summary" : "full",
       max_results: app.rag?.max_results ?? 4,
       chunk_size: app.rag?.chunk_size ?? 500,
       min_score: app.rag?.min_score ?? 0.2,
     },
     homepage: {
       rotation_hours: app.homepage?.rotation_hours ?? 4,
+    },
+    tests: {
+      database_path: app.tests?.database_path ?? "halupedia.sqlite",
+      llm_base_url: app.tests?.llm_base_url ?? "http://localhost:11434/v1",
+      llm_api_key: app.tests?.llm_api_key ?? "ollama",
+      llm_model: app.tests?.llm_model ?? "gemma4",
     },
   };
 }
@@ -43,9 +50,22 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       temperature: llm.chat?.temperature ?? 0.8,
       max_tokens: llm.chat?.max_tokens ?? 2400,
     },
+    summary: {
+      base_url:
+        llm.summary?.base_url ??
+        llm.chat?.base_url ??
+        "http://127.0.0.1:11434/v1",
+      api_key: llm.summary?.api_key ?? llm.chat?.api_key ?? "local",
+      model: llm.summary?.model ?? llm.chat?.model ?? "local-model",
+      temperature: llm.summary?.temperature ?? llm.chat?.temperature ?? 0.8,
+      max_tokens: llm.summary?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
+    },
     embeddings: {
       enabled: llm.embeddings?.enabled ?? false,
-      base_url: llm.embeddings?.base_url ?? llm.chat?.base_url ?? "http://127.0.0.1:11434/v1",
+      base_url:
+        llm.embeddings?.base_url ??
+        llm.chat?.base_url ??
+        "http://127.0.0.1:11434/v1",
       api_key: llm.embeddings?.api_key ?? llm.chat?.api_key ?? "local",
       model: llm.embeddings?.model ?? "local-embed-model",
     },
@@ -57,6 +77,8 @@ export function loadConfig() {
   const llmFile = readToml<{ llm?: Partial<LlmConfig> }>("config/llm.toml");
   const llm = withLlmDefaults(llmFile.llm ?? {});
   const prompts = readToml<PromptConfig>("config/prompts.toml");
-  mkdirSync(dirname(resolve(ROOT, app.storage.database_path)), { recursive: true });
+  mkdirSync(dirname(resolve(ROOT, app.storage.database_path)), {
+    recursive: true,
+  });
   return { app, llm, prompts };
 }

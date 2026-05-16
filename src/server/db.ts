@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
-import type { ArticleRecord, ArticleRevision, BacklinkItem, DisambiguationEntry, ParsedInternalLink } from "./types";
+import type { ArticleRecord, ArticleRevision, BacklinkItem, DisambiguationEntry, HomepagePayload, ParsedInternalLink } from "./types";
 import { summaryMarkdownFromArticle } from "./markdown";
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -100,6 +100,12 @@ export function openDatabase(databasePath: string): DatabaseSync {
     );
 
     CREATE INDEX IF NOT EXISTS idx_article_revisions_slug ON article_revisions(article_slug, created_at DESC, id DESC);
+
+    CREATE TABLE IF NOT EXISTS homepage_cache (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      generated_at INTEGER NOT NULL,
+      payload_json TEXT NOT NULL
+    );
   `);
   if (!hasColumn(db, "articles", "canonical_slug")) {
     db.exec(`ALTER TABLE articles ADD COLUMN canonical_slug TEXT`);
@@ -152,6 +158,19 @@ export function getArticleByLookup(db: DatabaseSync, lookupSlug: string): Articl
     .get(lookupSlug) as { article_slug: string } | undefined;
   if (!alias) return null;
   return getArticle(db, alias.article_slug);
+}
+
+export function getArticleByTitle(db: DatabaseSync, title: string): ArticleRecord | null {
+  const row = db
+    .prepare(
+      `SELECT slug
+       FROM articles
+       WHERE title = ?
+       LIMIT 1`
+    )
+    .get(title) as { slug: string } | undefined;
+  if (!row) return null;
+  return getArticle(db, row.slug);
 }
 
 export function getCanonicalSlugForTarget(db: DatabaseSync, targetSlug: string): string {
@@ -289,6 +308,29 @@ export function updateArticleInPlace(
   }
 }
 
+export function renameArticleSlug(db: DatabaseSync, currentSlug: string, nextSlug: string) {
+  if (!currentSlug || !nextSlug || currentSlug === nextSlug) return false;
+  const existing = db.prepare(`SELECT slug FROM articles WHERE slug = ?`).get(nextSlug) as { slug: string } | undefined;
+  if (existing) return false;
+
+  db.exec("BEGIN");
+  try {
+    db.prepare(`UPDATE articles SET slug = ?, canonical_slug = ? WHERE slug = ?`).run(nextSlug, nextSlug, currentSlug);
+    db.prepare(`UPDATE article_links SET source_slug = ? WHERE source_slug = ?`).run(nextSlug, currentSlug);
+    db.prepare(`UPDATE article_links SET target_slug = ? WHERE target_slug = ?`).run(nextSlug, currentSlug);
+    db.prepare(`UPDATE article_chunks SET slug = ? WHERE slug = ?`).run(nextSlug, currentSlug);
+    db.prepare(`UPDATE article_revisions SET article_slug = ? WHERE article_slug = ?`).run(nextSlug, currentSlug);
+    db.prepare(`UPDATE article_aliases SET article_slug = ? WHERE article_slug = ?`).run(nextSlug, currentSlug);
+    db.prepare(`DELETE FROM article_aliases WHERE alias_slug = ?`).run(nextSlug);
+    db.prepare(`INSERT OR REPLACE INTO article_aliases (alias_slug, article_slug) VALUES (?, ?)`).run(currentSlug, nextSlug);
+    db.exec("COMMIT");
+    return true;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function listIncomingHints(db: DatabaseSync, slug: string): string[] {
   const rows = db
     .prepare(
@@ -325,12 +367,13 @@ export function listBacklinks(db: DatabaseSync, slug: string) {
 }
 
 export function getRandomArticles(db: DatabaseSync, count: number) {
-  return db
+  const rows = db
     .prepare(
       `SELECT slug,
               COALESCE(canonical_slug, slug) AS canonicalSlug,
               title,
               summary_markdown AS summaryMarkdown,
+              markdown,
               plain_text AS plainText
        FROM articles
        WHERE is_disambiguation = 0
@@ -342,8 +385,44 @@ export function getRandomArticles(db: DatabaseSync, count: number) {
       canonicalSlug: string;
       title: string;
       summaryMarkdown: string;
+      markdown: string;
       plainText: string;
     }>;
+  return rows.map((row) => ({
+    ...row,
+    summaryMarkdown: row.summaryMarkdown?.trim() || summaryMarkdownFromArticle(row.markdown),
+  }));
+}
+
+export function getHomepageCache(db: DatabaseSync): HomepagePayload | null {
+  const row = db
+    .prepare(
+      `SELECT generated_at AS generatedAt,
+              payload_json AS payloadJson
+       FROM homepage_cache
+       WHERE id = 1`
+    )
+    .get() as { generatedAt: number; payloadJson: string } | undefined;
+  if (!row) return null;
+  try {
+    const payload = JSON.parse(row.payloadJson) as HomepagePayload;
+    return {
+      ...payload,
+      generatedAt: row.generatedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveHomepageCache(db: DatabaseSync, payload: HomepagePayload): void {
+  db.prepare(
+    `INSERT INTO homepage_cache (id, generated_at, payload_json)
+     VALUES (1, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       generated_at = excluded.generated_at,
+       payload_json = excluded.payload_json`
+  ).run(payload.generatedAt, JSON.stringify(payload));
 }
 
 export function countArticles(db: DatabaseSync): number {

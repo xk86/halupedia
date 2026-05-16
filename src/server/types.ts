@@ -11,8 +11,11 @@ export interface SearchConfig {
   limit: number;
 }
 
+export type RagMode = "summary" | "full";
+
 export interface RagConfig {
   enabled: boolean;
+  mode: RagMode;
   max_results: number;
   chunk_size: number;
   min_score: number;
@@ -22,12 +25,20 @@ export interface HomepageConfig {
   rotation_hours: number;
 }
 
+export interface TestConfig {
+  database_path: string;
+  llm_base_url: string;
+  llm_api_key: string;
+  llm_model: string;
+}
+
 export interface AppConfig {
   server: ServerConfig;
   storage: StorageConfig;
   search: SearchConfig;
   rag: RagConfig;
   homepage: HomepageConfig;
+  tests: TestConfig;
 }
 
 export interface ChatConfig {
@@ -47,6 +58,7 @@ export interface EmbeddingsConfig {
 
 export interface LlmConfig {
   chat: ChatConfig;
+  summary: ChatConfig;
   embeddings: EmbeddingsConfig;
 }
 
@@ -131,6 +143,23 @@ export interface ArticleRevision {
   operation: string;
   instructions: string;
   revertedFromRevisionId: number | null;
+}
+
+export interface HomepageFact {
+  slug: string;
+  title: string;
+  fact: string;
+}
+
+export interface HomepagePayload {
+  featured: {
+    slug: string;
+    title: string;
+    summaryMarkdown: string;
+  } | null;
+  didYouKnow: HomepageFact[];
+  generatedAt: number;
+  expiresAt: number;
 }
 
 export interface ArticleSection {

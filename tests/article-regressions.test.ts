@@ -4,10 +4,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getArticle, openDatabase, saveArticle } from "../src/server/db";
+import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmClient } from "../src/server/llm";
 import { extractInternalLinks, markdownToPlainText, renderMarkdown } from "../src/server/markdown";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
+
+const TEST_CONFIG = loadConfig().app.tests;
 
 class QueueLlmClient implements LlmClient {
   public streamedChunkCount = 0;
@@ -51,7 +54,7 @@ class QueueLlmClient implements LlmClient {
 
 function createTempDbPath() {
   const root = mkdtempSync(join(tmpdir(), "halupedia-regression-"));
-  return { root, databasePath: join(root, "halupedia.sqlite") };
+  return { root, databasePath: join(root, TEST_CONFIG.database_path) };
 }
 
 function saveMarkdownArticle(
@@ -86,6 +89,7 @@ async function createServer(databasePath: string, llmClient: LlmClient) {
   const { app } = await createApp({
     databasePath,
     skipLlmProbe: true,
+    skipHomepagePrepare: true,
     llmClient,
   });
   return {
@@ -135,6 +139,7 @@ test("retrieveContext works with joined article lookups when RAG is enabled", as
     "query-topic",
     ["centralized belief systems"],
     true,
+    "full",
     4,
     0.2,
     false
@@ -250,7 +255,7 @@ test("generated articles store an actual summary instead of the opening paragrap
   );
 });
 
-test("retrieveContext logs matched slugs in descending relevance order", async (t) => {
+test("retrieveContext logs matched articles in descending relevance order", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -298,6 +303,7 @@ test("retrieveContext logs matched slugs in descending relevance order", async (
     "query-topic",
     ["alpha beta gamma delta archive"],
     true,
+    "full",
     4,
     0.2,
     false,
@@ -306,7 +312,7 @@ test("retrieveContext logs matched slugs in descending relevance order", async (
   db.close();
 
   const retrieveLog = entries.find((entry) => entry.event === "rag.retrieve_complete");
-  assert.deepEqual(retrieveLog?.fields?.matched_slugs, ["alpha-topic", "beta-topic"]);
+  assert.match(String(retrieveLog?.fields?.matched_articles), /^alpha-topic \([0-9.]+\), beta-topic \([0-9.]+\)$/);
 });
 
 test("add-link refines oversized selections before wrapping markdown", async (t) => {

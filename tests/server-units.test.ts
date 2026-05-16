@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, saveArticle } from "../src/server/db";
+import { loadConfig } from "../src/server/config";
 import {
   extractDisplayTitle,
   extractInternalLinks,
@@ -15,7 +16,7 @@ import {
   stripSelfLinks,
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
-import { stripJsonFences } from "../src/server/prompts";
+import { getPrompt, stripJsonFences } from "../src/server/prompts";
 import {
   slugify,
   slugToTitle,
@@ -29,6 +30,9 @@ import {
   normalizeSummaryMarkdown,
   summaryLooksLikeLeadCopy,
 } from "../src/server/summary";
+import { summarizeRetrievedSource } from "../src/server/index";
+
+const TEST_CONFIG = loadConfig().app.tests;
 
 class NoopLlmClient implements LlmClient {
   async chat(): Promise<string> {
@@ -78,6 +82,48 @@ test("renderMarkdown rewrites halu links to wiki paths using visible text", () =
   assert.doesNotMatch(html, /hidden hint/);
 });
 
+test("loadConfig populates a dedicated summary LLM config section", () => {
+  const { llm } = loadConfig();
+  assert.equal(llm.summary.model, llm.chat.model);
+  assert.ok(llm.summary.base_url);
+  assert.equal(llm.summary.max_tokens, 3000);
+});
+
+test("rag_source_summary prompt is configured and resolves correctly", () => {
+  const prompt = getPrompt(loadConfig().prompts, "rag_source_summary");
+  assert.match(prompt.system, /retrieved article excerpt/i);
+  assert.match(prompt.user, /Article excerpt:/);
+});
+
+class SummaryLlmClient implements LlmClient {
+  async chat(): Promise<string> {
+    return "A concise retrieved article summary.";
+  }
+
+  async streamChat(): Promise<{ content: string; finishReason: string }> {
+    throw new Error("streamChat should not be called in this test");
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
+test("summarizeRetrievedSource uses the summary prompt and normalizes output", async () => {
+  const summary = await summarizeRetrievedSource(
+    new SummaryLlmClient(),
+    loadConfig().prompts,
+    {
+      slug: "test-article",
+      title: "Test Article",
+      content: "This is a test retrieved excerpt to summarize.",
+    },
+  );
+  assert.equal(summary, "A concise retrieved article summary.");
+});
+
 test("summary helpers normalize single-paragraph summaries and detect copied leads", () => {
   const articleMarkdown = [
     "# Coal futures markets",
@@ -115,7 +161,7 @@ test("retrieveContext returns matching lexical context from indexed article chun
     rmSync(root, { recursive: true, force: true });
   });
 
-  const db = openDatabase(join(root, "halupedia.sqlite"));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
   const llm = new NoopLlmClient();
   const generatedAt = 1_715_000_000_000;
 
@@ -181,6 +227,7 @@ test("retrieveContext returns matching lexical context from indexed article chun
     "test-article",
     ["Glow fruit orchard notes"],
     true,
+    "full",
     3,
     0.2,
     false,
@@ -191,12 +238,85 @@ test("retrieveContext returns matching lexical context from indexed article chun
   assert.match(packet.context, /Glow fruit grows in the crater orchard/);
 });
 
+test("retrieveContext summary mode produces abbreviated retrieved context", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-retrieval-summary-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const llm = new NoopLlmClient();
+  const sourceMarkdown = [
+    "# Archive Entry",
+    "",
+    "Glow fruit grows in the crater orchard near the observatory.",
+    "",
+    "Keep a lantern nearby when harvesting glow fruit at dusk.",
+  ].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "archive-entry",
+      canonicalSlug: "archive-entry",
+      title: "Archive Entry",
+      markdown: sourceMarkdown,
+      html: renderMarkdown(sourceMarkdown),
+      plain_text: markdownToPlainText(sourceMarkdown),
+      generated_at: 1_715_000_000_000,
+    },
+    [],
+    ["archive-entry"],
+  );
+  await indexArticleChunks(db, llm, "archive-entry", sourceMarkdown, false, 120);
+
+  const packetFull = await retrieveContext(
+    db,
+    llm,
+    "test-article",
+    ["Glow fruit orchard notes"],
+    true,
+    "full",
+    1,
+    0.2,
+    false,
+  );
+  const packetSummary = await retrieveContext(
+    db,
+    llm,
+    "test-article",
+    ["Glow fruit orchard notes"],
+    true,
+    "summary",
+    1,
+    0.2,
+    false,
+  );
+
+  assert(packetSummary.context.length < packetFull.context.length);
+  assert.match(packetSummary.context, /Glow fruit grows in the crater orchard/);
+});
+
+test("test config exposes isolated database filename and live LLM target", () => {
+  assert.equal(TEST_CONFIG.database_path, "halupedia.sqlite");
+  assert.equal(TEST_CONFIG.llm_base_url, "http://localhost:11434/v1");
+  assert.equal(TEST_CONFIG.llm_api_key, "ollama");
+  assert.equal(TEST_CONFIG.llm_model, "gemma4");
+});
+
 /* -------------------------------------------------------------------------- */
 /*  Link stability: slug ↔ title ↔ wikiSegment round-trips                   */
 /* -------------------------------------------------------------------------- */
 
 test("slugify is idempotent", () => {
-  const inputs = ["Glow Fruit", "glow-fruit", "  Glow  Fruit  ", "GLOW_FRUIT", "eBay", "β-Carotene", "San Francisco"];
+  const inputs = [
+    "Glow Fruit",
+    "glow-fruit",
+    "  Glow  Fruit  ",
+    "GLOW_FRUIT",
+    "eBay",
+    "β-Carotene",
+    "San Francisco",
+  ];
   for (const input of inputs) {
     const slug = slugify(input);
     assert.equal(slugify(slug), slug, `slugify not idempotent for "${input}"`);
@@ -231,7 +351,10 @@ test("slug → title → wikiSegment → title round-trips are stable", () => {
 
 test("titleToWikiSegment preserves casing from title", () => {
   assert.equal(titleToWikiSegment("San Francisco"), "San_Francisco");
-  assert.equal(titleToWikiSegment("Cultural Dissipation Factor"), "Cultural_Dissipation_Factor");
+  assert.equal(
+    titleToWikiSegment("Cultural Dissipation Factor"),
+    "Cultural_Dissipation_Factor",
+  );
   assert.equal(titleToWikiSegment("eBay"), "EBay");
   assert.equal(titleToWikiSegment("pH"), "PH");
   assert.equal(titleToWikiSegment("β-Carotene"), "Β-Carotene");
@@ -239,7 +362,10 @@ test("titleToWikiSegment preserves casing from title", () => {
 
 test("wikiSegmentToTitle preserves casing", () => {
   assert.equal(wikiSegmentToTitle("San_Francisco"), "San Francisco");
-  assert.equal(wikiSegmentToTitle("Cultural_Dissipation_Factor"), "Cultural Dissipation Factor");
+  assert.equal(
+    wikiSegmentToTitle("Cultural_Dissipation_Factor"),
+    "Cultural Dissipation Factor",
+  );
   assert.equal(wikiSegmentToTitle("EBay"), "EBay");
 });
 
@@ -397,7 +523,10 @@ test("formatLogLine includes level with consistent format", () => {
 
 test("stripJsonFences removes ```json fences", () => {
   const wrapped = '```json\n{"items":[{"fact":"the sky is plaid"}]}\n```';
-  assert.equal(stripJsonFences(wrapped), '{"items":[{"fact":"the sky is plaid"}]}');
+  assert.equal(
+    stripJsonFences(wrapped),
+    '{"items":[{"fact":"the sky is plaid"}]}',
+  );
 });
 
 test("stripJsonFences removes bare ``` fences", () => {
@@ -420,15 +549,27 @@ test("stripJsonFences handles leading/trailing whitespace around fences", () => 
 /* -------------------------------------------------------------------------- */
 
 test("extractTitle strips markdown formatting from titles", () => {
-  assert.equal(extractTitle("# *De Rerum Natura*\n\nBody.", "fallback"), "De Rerum Natura");
-  assert.equal(extractTitle("# San Francisco\n\nBody.", "fallback"), "San Francisco");
+  assert.equal(
+    extractTitle("# *De Rerum Natura*\n\nBody.", "fallback"),
+    "De Rerum Natura",
+  );
+  assert.equal(
+    extractTitle("# San Francisco\n\nBody.", "fallback"),
+    "San Francisco",
+  );
   assert.equal(extractTitle("# eBay\n\nBody.", "fallback"), "eBay");
   assert.equal(extractTitle("No heading here.", "fallback"), "fallback");
 });
 
 test("extractDisplayTitle returns formatted title when markdown formatting present", () => {
-  assert.equal(extractDisplayTitle("# *De Rerum Natura*\n\nBody."), "*De Rerum Natura*");
-  assert.equal(extractDisplayTitle("# **Bold Title**\n\nBody."), "**Bold Title**");
+  assert.equal(
+    extractDisplayTitle("# *De Rerum Natura*\n\nBody."),
+    "*De Rerum Natura*",
+  );
+  assert.equal(
+    extractDisplayTitle("# **Bold Title**\n\nBody."),
+    "**Bold Title**",
+  );
   assert.equal(extractDisplayTitle("# San Francisco\n\nBody."), undefined);
   assert.equal(extractDisplayTitle("No heading."), undefined);
 });

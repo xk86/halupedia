@@ -223,6 +223,15 @@ export function summaryMarkdownFromArticle(markdown: string): string {
     .slice(0, 360);
 }
 
+export function firstParagraphMarkdownFromArticle(markdown: string): string {
+  const withoutTitle = markdown.replace(/^#\s+.+?$/m, "").trim();
+  const withoutDerivedSections = stripTopLevelSections(withoutTitle, ["References", "See also"]);
+  return withoutDerivedSections
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .find((part) => part && !part.startsWith("## ")) ?? "";
+}
+
 export function extractTitle(markdown: string, fallbackSlug: string): string {
   const match = markdown.match(/^#\s+(.+)$/m);
   const raw = match?.[1]?.trim() || fallbackSlug;

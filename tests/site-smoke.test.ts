@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle } from "../src/server/db";
+import { openDatabase, saveArticle, saveHomepageCache } from "../src/server/db";
+import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmClient } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
@@ -14,6 +15,8 @@ interface CapturedLogEntry {
   event: string;
   fields?: LogFields;
 }
+
+const TEST_CONFIG = loadConfig().app.tests;
 
 function createMemoryLogger(entries: CapturedLogEntry[]): Logger {
   return {
@@ -57,6 +60,8 @@ class FakeLlmClient implements LlmClient {
 
   async probeConnections(): Promise<void> {}
 }
+
+const DEFAULT_TEST_LLM = new FakeLlmClient();
 
 class FixedArticleLlmClient implements LlmClient {
   constructor(private readonly markdown: string) {}
@@ -215,7 +220,7 @@ function buildArticleMarkdown() {
 
 function createSeedDatabasePath() {
   const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
-  const databasePath = join(root, "halupedia.sqlite");
+  const databasePath = join(root, TEST_CONFIG.database_path);
   const db = openDatabase(databasePath);
   const markdown = buildArticleMarkdown();
   const generatedAt = 1_715_000_000_000;
@@ -272,19 +277,20 @@ function createSeedDatabasePath() {
   return { root, databasePath };
 }
 
-async function createTestServer(options: { logger?: Logger; llmClient?: LlmClient; seed?: boolean } = {}) {
+async function createTestServer(options: { logger?: Logger; llmClient?: LlmClient; seed?: boolean; homepagePrepare?: boolean } = {}) {
   const seeded = options.seed ?? true;
   const { root, databasePath } = seeded
     ? createSeedDatabasePath()
     : (() => {
         const tempRoot = mkdtempSync(join(tmpdir(), "halupedia-test-"));
-        return { root: tempRoot, databasePath: join(tempRoot, "halupedia.sqlite") };
+        return { root: tempRoot, databasePath: join(tempRoot, TEST_CONFIG.database_path) };
       })();
   const { app, shutdown } = await createApp({
     databasePath,
     skipLlmProbe: true,
+    skipHomepagePrepare: options.homepagePrepare !== true,
     logger: options.logger,
-    llmClient: options.llmClient,
+    llmClient: options.llmClient ?? DEFAULT_TEST_LLM,
   });
   return {
     root,
@@ -298,13 +304,14 @@ async function createTestServer(options: { logger?: Logger; llmClient?: LlmClien
 async function createServerForDatabase(
   root: string,
   databasePath: string,
-  options: { logger?: Logger; llmClient?: LlmClient } = {}
+  options: { logger?: Logger; llmClient?: LlmClient; homepagePrepare?: boolean } = {}
 ) {
   const { app } = await createApp({
     databasePath,
     skipLlmProbe: true,
+    skipHomepagePrepare: options.homepagePrepare !== true,
     logger: options.logger,
-    llmClient: options.llmClient,
+    llmClient: options.llmClient ?? DEFAULT_TEST_LLM,
   });
   return {
     root,
@@ -395,7 +402,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
   });
 
   await t.test("browser entry routes serve the SPA shell and bare slugs redirect", async () => {
-    for (const path of ["/", "/search", "/all-entries", "/admin", "/wiki/Test_Article"]) {
+    for (const path of ["/", "/search", "/all-entries", "/admin", "/wiki/Test_Article", "/wiki/%E6%98%AF%E9%B1%BC%E6%88%91"]) {
       const res = await server.request(path);
       assert.equal(res.status, 200, path);
       assert.match(res.headers.get("content-type") ?? "", /text\/html/);
@@ -479,6 +486,102 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.ok(entries.some((entry) => entry.event === "page.generation_done" && entry.fields?.slug === "fresh-page"));
   });
 
+  await t.test("unicode wiki paths generate, cache, and log correctly", async (t) => {
+    const entries: CapturedLogEntry[] = [];
+    const unicodeServer = await createTestServer({
+      seed: false,
+      logger: createMemoryLogger(entries),
+      llmClient: new FixedArticleLlmClient([
+        "# 是鱼我",
+        "",
+        "是鱼我是一个多语言条目，引用了[甲](halu:甲)。",
+      ].join("\n")),
+    });
+    t.after(() => {
+      rmSync(unicodeServer.root, { recursive: true, force: true });
+    });
+
+    const generatedRes = await unicodeServer.request("/api/page/%E6%98%AF%E9%B1%BC%E6%88%91");
+    assert.equal(generatedRes.status, 200);
+    assert.match(generatedRes.headers.get("content-type") ?? "", /application\/x-ndjson/);
+
+    const packets = parseNdjson<Array<Record<string, unknown>>[number]>(await generatedRes.text());
+    const done = packets.find((packet) => packet.type === "done");
+    assert.ok(done);
+    assert.equal(done.article.slug, "是鱼我");
+    assert.equal(done.article.title, "是鱼我");
+    assert.equal(done.canonicalPath, "/wiki/是鱼我");
+
+    const cachedRes = await unicodeServer.request("/api/page/%E6%98%AF%E9%B1%BC%E6%88%91");
+    assert.equal(cachedRes.status, 200);
+    const cachedBody = await cachedRes.json();
+    assert.equal(cachedBody.cached, true);
+    assert.equal(cachedBody.article.slug, "是鱼我");
+    assert.equal(cachedBody.canonicalPath, "/wiki/是鱼我");
+
+    assert.ok(entries.some((entry) => entry.event === "page.request" && entry.fields?.slug === "是鱼我"));
+    assert.ok(entries.some((entry) => entry.event === "page.cache_miss" && entry.fields?.slug === "是鱼我"));
+    assert.ok(entries.some((entry) => entry.event === "page.cache_hit" && entry.fields?.slug === "是鱼我"));
+  });
+
+  await t.test("cached articles repair stale ascii-only slugs when the title-derived slug includes unicode", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+    const databasePath = join(root, TEST_CONFIG.database_path);
+    const db = openDatabase(databasePath);
+    const markdown = [
+      "# Fish 鱼怕我女人是鱼我是鱼害怕",
+      "",
+      "A multilingual fish registry entry.",
+    ].join("\n");
+
+    saveArticle(
+      db,
+      {
+        slug: "fish",
+        canonicalSlug: "fish",
+        title: "Fish 鱼怕我女人是鱼我是鱼害怕",
+        markdown,
+        html: renderMarkdown(markdown),
+        plain_text: markdownToPlainText(markdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["fish"]
+    );
+    db.close();
+
+    const server = await createServerForDatabase(root, databasePath);
+    t.after(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    const res = await server.request("/api/page/Fish_%E9%B1%BC%E6%80%95%E6%88%91%E5%A5%B3%E4%BA%BA%E6%98%AF%E9%B1%BC%E6%88%91%E6%98%AF%E9%B1%BC%E5%AE%B3%E6%80%95");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.cached, true);
+    assert.equal(body.article.slug, "fish-鱼怕我女人是鱼我是鱼害怕");
+    assert.equal(body.article.canonicalSlug, "fish-鱼怕我女人是鱼我是鱼害怕");
+    assert.equal(body.canonicalPath, "/wiki/Fish_鱼怕我女人是鱼我是鱼害怕");
+
+    const aliasRes = await server.request("/api/page/Fish");
+    assert.equal(aliasRes.status, 200);
+    const aliasBody = await aliasRes.json();
+    assert.equal(aliasBody.article.slug, "fish-鱼怕我女人是鱼我是鱼害怕");
+    assert.equal(aliasBody.redirectedFrom, "/wiki/Fish");
+  });
+
+  await t.test("unmatched paths emit not-found logs", async (t) => {
+    const entries: CapturedLogEntry[] = [];
+    const loggedServer = await createTestServer({ logger: createMemoryLogger(entries) });
+    t.after(() => {
+      rmSync(loggedServer.root, { recursive: true, force: true });
+    });
+
+    const res = await loggedServer.request("/missing.txt");
+    assert.equal(res.status, 404);
+    assert.ok(entries.some((entry) => entry.event === "http.not_found" && entry.fields?.path === "/missing.txt"));
+  });
+
   await t.test("generated articles do not canonize a lowercase-first request path", async (t) => {
     const generatedServer = await createTestServer({
       seed: false,
@@ -505,9 +608,33 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.equal(done.redirectedFrom, "/wiki/invertible_sexuality_theorem");
   });
 
+  await t.test("generated articles adopt a unicode-extended canonical slug from the resolved heading", async (t) => {
+    const generatedServer = await createTestServer({
+      seed: false,
+      llmClient: new FixedArticleLlmClient([
+        "# Fish 鱼怕我女人是鱼我是鱼害怕",
+        "",
+        "A multilingual fish registry entry.",
+      ].join("\n")),
+    });
+    t.after(() => {
+      rmSync(generatedServer.root, { recursive: true, force: true });
+    });
+
+    const res = await generatedServer.request("/api/page/Fish");
+    assert.equal(res.status, 200);
+    const packets = parseNdjson<Array<Record<string, unknown>>[number]>(await res.text());
+    const done = packets.find((packet) => packet.type === "done");
+    assert.ok(done);
+    assert.equal(done.article.slug, "fish-鱼怕我女人是鱼我是鱼害怕");
+    assert.equal(done.article.title, "Fish 鱼怕我女人是鱼我是鱼害怕");
+    assert.equal(done.canonicalPath, "/wiki/Fish_鱼怕我女人是鱼我是鱼害怕");
+    assert.equal(done.redirectedFrom, "/wiki/Fish");
+  });
+
   await t.test("cached articles with lowercase-first titles are repaired before becoming canonical", async (t) => {
     const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
-    const databasePath = join(root, "halupedia.sqlite");
+    const databasePath = join(root, TEST_CONFIG.database_path);
     const db = openDatabase(databasePath);
     const markdown = [
       "# invertible sexuality theorem",
@@ -758,14 +885,13 @@ test("second request during post-processing gets cache hit, not cache miss", asy
   postProcessGate.resolve();
 });
 
-test("homepage returns instantly with featured article from DB without blocking on LLM", async (t) => {
-  let chatCalled = false;
-  const chatGate = Promise.withResolvers<void>();
+test("homepage prepares DB-backed content at startup and serves requests without LLM work", async (t) => {
+  let chatCalls = 0;
   const llm: LlmClient = {
-    async chat() {
-      chatCalled = true;
-      await chatGate.promise;
-      return JSON.stringify({ items: [] });
+    async chat(_system, user) {
+      chatCalls += 1;
+      const title = user.match(/\[([^\]]+)\]\(halu:/)?.[1] ?? "Article";
+      return `... [${title}](halu:${title.toLowerCase().replace(/\s+/g, "-")} "${title}") keeps ceremonial ledgers underwater.`;
     },
     async streamChat(_s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
@@ -776,11 +902,12 @@ test("homepage returns instantly with featured article from DB without blocking 
     async probeConnections() {},
   };
 
-  const server = await createTestServer({ seed: true, llmClient: llm });
+  const server = await createTestServer({ seed: true, llmClient: llm, homepagePrepare: true });
   t.after(() => {
-    chatGate.resolve();
     rmSync(server.root, { recursive: true, force: true });
   });
+  const startupChatCalls = chatCalls;
+  assert.equal(startupChatCalls, 2, "seed database has two live articles, so startup should ask once per article");
 
   const res = await server.request("/api/homepage");
   assert.equal(res.status, 200);
@@ -791,11 +918,13 @@ test("homepage returns instantly with featured article from DB without blocking 
   assert.ok(body.featured.slug, "featured article should have a slug");
   assert.ok(body.featured.summaryMarkdown !== undefined, "featured article should have summaryMarkdown");
   assert.ok(Array.isArray(body.didYouKnow), "didYouKnow should be an array");
-  chatGate.resolve();
+  assert.equal(body.didYouKnow.length, 2, "DYK facts should be ready in the cached response");
+  assert.equal(chatCalls, startupChatCalls, "homepage request must not call the LLM");
+  assert.ok(!("didYouKnowPending" in body), "homepage no longer exposes request-time generation state");
 });
 
 test("homepage returns empty state when no articles exist", async (t) => {
-  const server = await createTestServer({ seed: false });
+  const server = await createTestServer({ seed: false, homepagePrepare: true });
   t.after(() => {
     rmSync(server.root, { recursive: true, force: true });
   });
@@ -806,23 +935,42 @@ test("homepage returns empty state when no articles exist", async (t) => {
 
   assert.equal(body.featured, null, "no featured when DB is empty");
   assert.deepEqual(body.didYouKnow, [], "no DYK when DB is empty");
+  assert.ok(body.generatedAt, "empty homepage state is still persisted");
 });
 
-test("homepage DYK populates after background generation completes", async (t) => {
-  const dykResponse = JSON.stringify({
-    items: [
-      { fact: "the Glow Fruit emits a faint bioluminescent haze when submerged in vinegar" },
-      { fact: "Halupedia was originally founded as a dispute resolution registry for fictional canal networks" },
-    ],
-  });
-  const chatGate = Promise.withResolvers<void>();
+test("homepage featured article uses the literal first paragraph", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const markdown = [
+    "# Goldfish",
+    "",
+    "Goldfish are ceremonial freshwater accountants with [gravel](halu:gravel \"approved fish gravel\") and $\\sigma$.",
+    "",
+    "They are often cited in ballast ledgers.",
+  ].join("\n");
+
+  saveArticle(
+    db,
+    {
+      slug: "goldfish",
+      canonicalSlug: "goldfish",
+      title: "Goldfish",
+      markdown,
+      html: renderMarkdown(markdown),
+      summaryMarkdown: "",
+      plain_text: markdownToPlainText(markdown),
+      generated_at: Date.now(),
+    },
+    [],
+    ["goldfish"]
+  );
+  db.prepare("UPDATE articles SET summary_markdown = '' WHERE slug = ?").run("goldfish");
+  db.close();
+
   const llm: LlmClient = {
-    async chat(_system, user) {
-      if (user.includes("Did you know")) {
-        await chatGate.promise;
-        return dykResponse;
-      }
-      return JSON.stringify({ items: [] });
+    async chat() {
+      return "... [Goldfish](halu:goldfish \"Goldfish\") reconcile canal tax ledgers after dusk.";
     },
     async streamChat(_s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
@@ -833,23 +981,74 @@ test("homepage DYK populates after background generation completes", async (t) =
     async probeConnections() {},
   };
 
-  const server = await createTestServer({ seed: true, llmClient: llm });
+  const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
   t.after(() => {
-    rmSync(server.root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
-  const res1 = await server.request("/api/homepage");
-  const body1 = await res1.json();
-  assert.ok(body1.featured, "featured article available immediately");
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.featured.title, "Goldfish");
+  assert.equal(
+    body.featured.summaryMarkdown,
+    "Goldfish are ceremonial freshwater accountants with [gravel](halu:gravel \"approved fish gravel\") and $\\sigma$."
+  );
+});
 
-  chatGate.resolve();
-  await new Promise((r) => setTimeout(r, 100));
+test("homepage generates one startup DYK fact for a single article", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const markdown = [
+    "# Goldfish",
+    "",
+    "Goldfish are ceremonial freshwater accountants with a suspicious fondness for gravel.",
+  ].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "goldfish",
+      canonicalSlug: "goldfish",
+      title: "Goldfish",
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: Date.now(),
+    },
+    [],
+    ["goldfish"]
+  );
+  db.close();
 
-  const res2 = await server.request("/api/homepage?refresh=1");
-  const body2 = await res2.json();
-  assert.ok(body2.didYouKnow.length > 0, "DYK should be populated after background generation");
-  assert.ok(body2.didYouKnow[0].fact, "DYK items should have facts");
-  assert.ok(body2.didYouKnow[0].slug, "DYK items should have slugs");
+  let chatCalls = 0;
+  const llm: LlmClient = {
+    async chat() {
+      chatCalls += 1;
+      return "... [Goldfish](halu:goldfish \"Goldfish\") secretly reconcile canal tax ledgers after dusk.";
+    },
+    async streamChat(_s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.featured.title, "Goldfish");
+  assert.equal(body.didYouKnow.length, 1);
+  assert.equal(body.didYouKnow[0].slug, "goldfish");
+  assert.equal(body.didYouKnow[0].fact, "... [Goldfish](halu:goldfish \"Goldfish\") secretly reconcile canal tax ledgers after dusk.");
+  assert.equal(chatCalls, 1);
 });
 
 test("homepage handles DYK generation failure gracefully", async (t) => {
@@ -866,7 +1065,7 @@ test("homepage handles DYK generation failure gracefully", async (t) => {
     async probeConnections() {},
   };
 
-  const server = await createTestServer({ seed: true, llmClient: llm });
+  const server = await createTestServer({ seed: true, llmClient: llm, homepagePrepare: true });
   t.after(() => {
     rmSync(server.root, { recursive: true, force: true });
   });
@@ -878,20 +1077,24 @@ test("homepage handles DYK generation failure gracefully", async (t) => {
   assert.deepEqual(body.didYouKnow, [], "DYK should be empty array on failure, not error");
 });
 
-test("homepage handles JSON wrapped in code fences from LLM", async (t) => {
-  const fencedResponse = '```json\n' + JSON.stringify({
-    items: [{ fact: "the earth is actually a hexagon" }],
-  }) + '\n```';
-  const chatGate = Promise.withResolvers<void>();
+test("homepage uses a current DB cache without regenerating at startup", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  saveHomepageCache(db, {
+    featured: { slug: "cached", title: "Cached", summaryMarkdown: "Cached lead." },
+    didYouKnow: [{ slug: "cached", title: "Cached", fact: "... [Cached](halu:cached \"Cached\") already knows." }],
+    generatedAt: now,
+    expiresAt: now + 60_000,
+  });
+  db.close();
+
   let chatCalled = false;
   const llm: LlmClient = {
-    async chat(_system, user) {
-      if (user.includes("Did you know")) {
-        chatCalled = true;
-        await chatGate.promise;
-        return fencedResponse;
-      }
-      return JSON.stringify({ items: [] });
+    async chat() {
+      chatCalled = true;
+      throw new Error("should not generate");
     },
     async streamChat(_s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
@@ -902,18 +1105,14 @@ test("homepage handles JSON wrapped in code fences from LLM", async (t) => {
     async probeConnections() {},
   };
 
-  const server = await createTestServer({ seed: true, llmClient: llm });
+  const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
   t.after(() => {
-    rmSync(server.root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
-  await server.request("/api/homepage");
-  chatGate.resolve();
-  await new Promise((r) => setTimeout(r, 100));
-
-  const res = await server.request("/api/homepage?refresh=1");
+  const res = await server.request("/api/homepage");
   const body = await res.json();
-  assert.ok(chatCalled, "DYK background task should have called LLM");
-  assert.ok(body.didYouKnow.length > 0, "should parse fenced JSON successfully");
-  assert.equal(body.didYouKnow[0].fact, "the earth is actually a hexagon");
+  assert.equal(chatCalled, false, "current homepage cache should prevent startup generation");
+  assert.equal(body.featured.title, "Cached");
+  assert.equal(body.didYouKnow[0].fact, "... [Cached](halu:cached \"Cached\") already knows.");
 });

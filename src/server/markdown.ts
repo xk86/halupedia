@@ -19,10 +19,10 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function renderInlineTeX(tex: string): string {
+function renderTeX(tex: string, displayMode: boolean): string {
   try {
     return katex.renderToString(tex.trim(), {
-      displayMode: false,
+      displayMode,
       output: "html",
       strict: "ignore",
       throwOnError: false,
@@ -32,6 +32,42 @@ function renderInlineTeX(tex: string): string {
     return escapeHtml(tex.trim());
   }
 }
+
+md.block.ruler.before("fence", "block_tex", (state, startLine, endLine, silent) => {
+  const startPos = state.bMarks[startLine] + state.tShift[startLine];
+  if (state.src.slice(startPos, startPos + 2) !== "$$") return false;
+  const restOfStart = state.src.slice(startPos + 2, state.eMarks[startLine]).trim();
+  if (restOfStart) {
+    const inlineClose = restOfStart.indexOf("$$");
+    if (inlineClose >= 0) {
+      if (!silent) {
+        const token = state.push("block_tex", "", 0);
+        token.content = restOfStart.slice(0, inlineClose);
+        token.map = [startLine, startLine + 1];
+      }
+      state.line = startLine + 1;
+      return true;
+    }
+  }
+  let nextLine = startLine + 1;
+  while (nextLine < endLine) {
+    const lineStart = state.bMarks[nextLine] + state.tShift[nextLine];
+    const lineText = state.src.slice(lineStart, state.eMarks[nextLine]).trim();
+    if (lineText === "$$") break;
+    nextLine += 1;
+  }
+  if (nextLine >= endLine) return false;
+  if (!silent) {
+    const content = state.getLines(startLine + 1, nextLine, state.tShift[startLine], false).trim();
+    const token = state.push("block_tex", "", 0);
+    token.content = restOfStart ? `${restOfStart}\n${content}` : content;
+    token.map = [startLine, nextLine + 1];
+  }
+  state.line = nextLine + 1;
+  return true;
+});
+
+md.renderer.rules.block_tex = (tokens, idx) => `<div class="math-block">${renderTeX(tokens[idx].content, true)}</div>\n`;
 
 md.inline.ruler.before("escape", "inline_tex", (state, silent) => {
   const start = state.pos;
@@ -53,7 +89,7 @@ md.inline.ruler.before("escape", "inline_tex", (state, silent) => {
   return true;
 });
 
-md.renderer.rules.inline_tex = (tokens, idx) => `<span class="math-inline">${renderInlineTeX(tokens[idx].content)}</span>`;
+md.renderer.rules.inline_tex = (tokens, idx) => `<span class="math-inline">${renderTeX(tokens[idx].content, false)}</span>`;
 
 const defaultLinkOpen =
   md.renderer.rules.link_open ??

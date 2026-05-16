@@ -8,6 +8,47 @@
   --accent: #7a2e1f;
   --accent-hover: #a63c27;
   --blockquote-bg: #ede3c6;
+  --link-underline: rgba(122, 46, 31, 0.3);
+  --accent-wash-soft: rgba(122, 46, 31, 0.06);
+  --accent-wash: rgba(122, 46, 31, 0.08);
+  --accent-wash-strong: rgba(122, 46, 31, 0.25);
+  --rule-dotted: rgba(182, 164, 126, 0.6);
+  --rule-soft: rgba(182, 164, 126, 0.5);
+  --control-border: rgba(122, 46, 31, 0.25);
+  --control-border-strong: rgba(122, 46, 31, 0.35);
+  --control-surface: rgba(255, 255, 255, 0.45);
+  --control-surface-strong: rgba(255, 255, 255, 0.7);
+  --control-surface-soft: rgba(255, 255, 255, 0.5);
+  --control-surface-focus: rgba(255, 255, 255, 0.8);
+  --panel-border: rgba(182, 164, 126, 0.75);
+  --panel-surface: rgba(255, 255, 255, 0.34);
+  --panel-surface-soft: rgba(255, 255, 255, 0.22);
+  --panel-surface-strong: rgba(243, 236, 216, 0.96);
+  --overlay-bg: rgba(30, 24, 18, 0.95);
+  --overlay-dim: rgba(30, 24, 18, 0.42);
+  --overlay-border: rgba(233, 223, 195, 0.18);
+  --shadow-soft: rgba(30, 24, 18, 0.15);
+  --shadow-strong: rgba(30, 24, 18, 0.2);
+  --input-surface: rgba(255, 255, 255, 0.4);
+  --input-surface-focus: rgba(255, 255, 255, 0.7);
+  --input-surface-strong: #fff;
+  --danger: #8d1f14;
+  --danger-hover: #c53030;
+  --danger-alt: #9b2c2c;
+  --danger-text: #fff4ef;
+  --accent-border-soft: rgba(122, 46, 31, 0.25);
+  --accent-border: rgba(122, 46, 31, 0.3);
+  --accent-border-strong: rgba(122, 46, 31, 0.35);
+  --accent-surface-soft: rgba(122, 46, 31, 0.04);
+  --warning-border: #b8872d;
+  --warning-bg: rgba(255, 225, 150, 0.22);
+  --selection-bg: rgba(122, 46, 31, 0.25);
+  --brand-reddit: #ff4500;
+  --brand-discord: #5865f2;
+  --success: #2f7a2f;
+  --success-glow: rgba(47, 122, 47, 0.55);
+  --success-glow-fade: rgba(47, 122, 47, 0);
+  --sidebar-accent-border: rgba(88, 101, 242, 0.4);
   --serif: "EB Garamond", "Iowan Old Style", Georgia, "Times New Roman", serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -23,6 +64,45 @@
     --accent: #d98968;
     --accent-hover: #f0a184;
     --blockquote-bg: #242019;
+    --link-underline: rgba(217, 137, 104, 0.38);
+    --accent-wash-soft: rgba(217, 137, 104, 0.08);
+    --accent-wash: rgba(217, 137, 104, 0.12);
+    --accent-wash-strong: rgba(217, 137, 104, 0.28);
+    --rule-dotted: rgba(95, 81, 56, 0.75);
+    --rule-soft: rgba(95, 81, 56, 0.7);
+    --control-border: rgba(217, 137, 104, 0.3);
+    --control-border-strong: rgba(217, 137, 104, 0.45);
+    --control-surface: rgba(36, 32, 26, 0.88);
+    --control-surface-strong: rgba(48, 42, 34, 0.96);
+    --control-surface-soft: rgba(48, 42, 34, 0.9);
+    --control-surface-focus: rgba(56, 49, 40, 0.98);
+    --panel-border: rgba(95, 81, 56, 0.9);
+    --panel-surface: rgba(36, 32, 26, 0.82);
+    --panel-surface-soft: rgba(36, 32, 26, 0.7);
+    --panel-surface-strong: rgba(29, 26, 22, 0.96);
+    --overlay-bg: rgba(14, 13, 11, 0.98);
+    --overlay-dim: rgba(14, 13, 11, 0.62);
+    --overlay-border: rgba(239, 231, 210, 0.14);
+    --shadow-soft: rgba(0, 0, 0, 0.35);
+    --shadow-strong: rgba(0, 0, 0, 0.42);
+    --input-surface: rgba(36, 32, 26, 0.82);
+    --input-surface-focus: rgba(48, 42, 34, 0.96);
+    --input-surface-strong: rgba(56, 49, 40, 0.98);
+    --warning-border: #d7a858;
+    --warning-bg: rgba(100, 72, 24, 0.35);
+    --danger: #b85a4a;
+    --danger-hover: #d47263;
+    --danger-alt: #b85a4a;
+    --danger-text: #fff4ef;
+    --accent-border-soft: rgba(217, 137, 104, 0.26);
+    --accent-border: rgba(217, 137, 104, 0.34);
+    --accent-border-strong: rgba(217, 137, 104, 0.46);
+    --accent-surface-soft: rgba(217, 137, 104, 0.08);
+    --selection-bg: rgba(217, 137, 104, 0.3);
+    --success: #66a566;
+    --success-glow: rgba(102, 165, 102, 0.48);
+    --success-glow-fade: rgba(102, 165, 102, 0);
+    --sidebar-accent-border: rgba(88, 101, 242, 0.55);
   }
 }
 
@@ -36,6 +116,45 @@
   --accent: #d98968;
   --accent-hover: #f0a184;
   --blockquote-bg: #242019;
+  --link-underline: rgba(217, 137, 104, 0.38);
+  --accent-wash-soft: rgba(217, 137, 104, 0.08);
+  --accent-wash: rgba(217, 137, 104, 0.12);
+  --accent-wash-strong: rgba(217, 137, 104, 0.28);
+  --rule-dotted: rgba(95, 81, 56, 0.75);
+  --rule-soft: rgba(95, 81, 56, 0.7);
+  --control-border: rgba(217, 137, 104, 0.3);
+  --control-border-strong: rgba(217, 137, 104, 0.45);
+  --control-surface: rgba(36, 32, 26, 0.88);
+  --control-surface-strong: rgba(48, 42, 34, 0.96);
+  --control-surface-soft: rgba(48, 42, 34, 0.9);
+  --control-surface-focus: rgba(56, 49, 40, 0.98);
+  --panel-border: rgba(95, 81, 56, 0.9);
+  --panel-surface: rgba(36, 32, 26, 0.82);
+  --panel-surface-soft: rgba(36, 32, 26, 0.7);
+  --panel-surface-strong: rgba(29, 26, 22, 0.96);
+  --overlay-bg: rgba(14, 13, 11, 0.98);
+  --overlay-dim: rgba(14, 13, 11, 0.62);
+  --overlay-border: rgba(239, 231, 210, 0.14);
+  --shadow-soft: rgba(0, 0, 0, 0.35);
+  --shadow-strong: rgba(0, 0, 0, 0.42);
+  --input-surface: rgba(36, 32, 26, 0.82);
+  --input-surface-focus: rgba(48, 42, 34, 0.96);
+  --input-surface-strong: rgba(56, 49, 40, 0.98);
+  --warning-border: #d7a858;
+  --warning-bg: rgba(100, 72, 24, 0.35);
+  --danger: #b85a4a;
+  --danger-hover: #d47263;
+  --danger-alt: #b85a4a;
+  --danger-text: #fff4ef;
+  --accent-border-soft: rgba(217, 137, 104, 0.26);
+  --accent-border: rgba(217, 137, 104, 0.34);
+  --accent-border-strong: rgba(217, 137, 104, 0.46);
+  --accent-surface-soft: rgba(217, 137, 104, 0.08);
+  --selection-bg: rgba(217, 137, 104, 0.3);
+  --success: #66a566;
+  --success-glow: rgba(102, 165, 102, 0.48);
+  --success-glow-fade: rgba(102, 165, 102, 0);
+  --sidebar-accent-border: rgba(88, 101, 242, 0.55);
 }
 
 * { box-sizing: border-box; }
@@ -57,13 +176,13 @@ body {
 a {
   color: var(--accent);
   text-decoration: none;
-  border-bottom: 1px solid rgba(122, 46, 31, 0.3);
+  border-bottom: 1px solid var(--link-underline);
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 a:hover {
   color: var(--accent-hover);
   border-bottom-color: var(--accent-hover);
-  background: rgba(122, 46, 31, 0.06);
+  background: var(--accent-wash-soft);
 }
 
 /* ----------------------- Layout ------------------------- */
@@ -107,8 +226,8 @@ a:hover {
   justify-content: center;
   width: 2.2rem;
   height: 2.2rem;
-  border: 1px solid rgba(122, 46, 31, 0.25);
-  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--control-border);
+  background: var(--control-surface);
   color: var(--accent);
   cursor: pointer;
 }
@@ -116,7 +235,7 @@ a:hover {
 .theme-toggle:hover {
   color: var(--accent);
   border-color: var(--accent);
-  background: rgba(122, 46, 31, 0.08);
+  background: var(--accent-wash);
 }
 
 .theme-toggle svg {
@@ -134,7 +253,7 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   padding: 0.55rem 0 0.85rem;
-  border-top: 1px dotted rgba(182, 164, 126, 0.6);
+  border-top: 1px dotted var(--rule-dotted);
 }
 
 .nav a {
@@ -151,17 +270,17 @@ a:hover {
 
 .nav-reddit {
   margin-left: auto;
-  color: #ff4500 !important;
+  color: var(--brand-reddit) !important;
 }
 .nav-reddit:hover {
-  border-bottom-color: #ff4500 !important;
+  border-bottom-color: var(--brand-reddit) !important;
 }
 
 .nav-discord {
-  color: #5865f2 !important;
+  color: var(--brand-discord) !important;
 }
 .nav-discord:hover {
-  border-bottom-color: #5865f2 !important;
+  border-bottom-color: var(--brand-discord) !important;
 }
 
 /* ----------------------- Header search ------------------- */
@@ -171,7 +290,7 @@ a:hover {
   gap: 0.4rem;
   align-items: center;
   padding: 0 0 0.85rem;
-  border-top: 1px dotted rgba(182, 164, 126, 0.6);
+  border-top: 1px dotted var(--rule-dotted);
   padding-top: 0.6rem;
   margin-top: -0.3rem;
 }
@@ -192,7 +311,7 @@ a:hover {
   padding: 0;
   background: var(--parchment);
   border: 1px solid var(--rule);
-  box-shadow: 0 4px 12px rgba(30, 24, 18, 0.15);
+  box-shadow: 0 4px 12px var(--shadow-soft);
 }
 
 .header-search-suggest-item {
@@ -222,7 +341,7 @@ a:hover {
   font-family: var(--serif);
   font-size: 0.95rem;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--input-surface);
   border: 1px solid var(--rule);
   border-radius: 2px;
   padding: 0.35rem 0.55rem;
@@ -231,7 +350,7 @@ a:hover {
 }
 .header-search-input:focus {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--input-surface-focus);
 }
 
 .header-search-submit {
@@ -287,7 +406,7 @@ a:hover {
   font-family: var(--serif);
   font-size: 1.05rem;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--control-surface-soft);
   border: 1px solid var(--rule);
   border-radius: 2px;
   padding: 0.55rem 0.7rem;
@@ -296,7 +415,7 @@ a:hover {
 }
 .search-input:focus {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--control-surface-focus);
 }
 
 .search-submit {
@@ -343,8 +462,8 @@ a:hover {
   font-family: var(--mono);
   font-size: 0.85rem;
   color: var(--accent);
-  background: rgba(122, 46, 31, 0.08);
-  border: 1px solid rgba(122, 46, 31, 0.3);
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-border);
   padding: 0.6rem 0.8rem;
   margin: 1rem 0;
 }
@@ -354,7 +473,7 @@ a:hover {
   font-size: 0.95rem;
   font-style: italic;
   color: var(--ink-soft);
-  background: rgba(182, 164, 126, 0.18);
+  background: var(--panel-surface-soft);
   border-left: 3px solid var(--rule);
   padding: 0.7rem 0.9rem;
   margin: 0 0 1.25rem;
@@ -372,7 +491,7 @@ a:hover {
   font-size: 1.2rem;
   margin: 0 0 0.5rem;
   color: var(--ink-soft);
-  border-bottom: 1px solid rgba(182, 164, 126, 0.5);
+  border-bottom: 1px solid var(--rule-soft);
   padding-bottom: 0.25rem;
   display: flex;
   align-items: baseline;
@@ -395,7 +514,7 @@ a:hover {
 
 .search-item {
   padding: 0.35rem 0;
-  border-bottom: 1px dotted rgba(182, 164, 126, 0.4);
+  border-bottom: 1px dotted var(--rule-soft);
 }
 .search-item:last-child { border-bottom: none; }
 
@@ -407,7 +526,7 @@ a:hover {
 .search-item-unwritten a {
   font-style: italic;
   color: var(--ink-fade);
-  border-bottom: 1px dashed rgba(122, 46, 31, 0.25);
+  border-bottom: 1px dashed var(--accent-border-soft);
 }
 .search-item-unwritten a:hover {
   color: var(--accent-hover);
@@ -454,6 +573,25 @@ a:hover {
   flex: 1;
 }
 
+.article-slug-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin: -0.7rem 0 1.25rem;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-fade);
+}
+
+.article-slug-row code {
+  display: inline-block;
+  padding: 0.22rem 0.45rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  color: var(--accent);
+}
+
 .article-edit-button {
   display: inline-flex;
   align-items: center;
@@ -461,13 +599,13 @@ a:hover {
   width: 2.4rem;
   height: 2.4rem;
   margin-top: 0.1rem;
-  border: 1px solid rgba(122, 46, 31, 0.25);
-  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--control-border);
+  background: var(--control-surface);
   color: var(--accent);
   cursor: pointer;
 }
 .article-edit-button:hover {
-  background: rgba(122, 46, 31, 0.08);
+  background: var(--accent-wash);
   border-color: var(--accent);
 }
 .article-edit-button svg {
@@ -480,8 +618,8 @@ a:hover {
 .history-panel {
   margin: -0.5rem 0 1.4rem;
   padding: 0.85rem;
-  border: 1px solid rgba(182, 164, 126, 0.75);
-  background: rgba(255, 255, 255, 0.34);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
 }
 
 .edit-tray-row,
@@ -550,11 +688,11 @@ a:hover {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.8rem 0;
-  border-top: 1px dotted rgba(182, 164, 126, 0.8);
+  border-top: 1px dotted var(--rule-dotted);
 }
 
 .history-list li.selected {
-  background: rgba(122, 46, 31, 0.06);
+  background: var(--accent-wash-soft);
   margin-inline: -0.4rem;
   padding-inline: 0.4rem;
 }
@@ -564,6 +702,10 @@ a:hover {
   display: block;
   color: var(--ink-fade);
   font-size: 0.85rem;
+}
+
+.history-summary p {
+  margin: 0;
 }
 
 .history-empty {
@@ -578,8 +720,8 @@ a:hover {
   gap: 0.25rem;
   margin: 1rem 0;
   padding: 0.85rem 1rem;
-  border: 1px solid #b8872d;
-  background: rgba(255, 225, 150, 0.22);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
   color: var(--ink-soft);
 }
 
@@ -596,9 +738,9 @@ a:hover {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  border: 1px solid #8d1f14;
-  background: #8d1f14;
-  color: #fff4ef;
+  border: 1px solid var(--danger);
+  background: var(--danger);
+  color: var(--danger-text);
   padding: 0.55rem 0.8rem;
   cursor: pointer;
 }
@@ -608,10 +750,10 @@ a:hover {
   align-items: center;
   gap: 0.65rem;
   padding: 0.55rem 0.65rem;
-  background: rgba(30, 24, 18, 0.95);
+  background: var(--overlay-bg);
   color: var(--parchment);
-  border: 1px solid rgba(233, 223, 195, 0.18);
-  box-shadow: 0 12px 24px rgba(30, 24, 18, 0.2);
+  border: 1px solid var(--overlay-border);
+  box-shadow: 0 12px 24px var(--shadow-strong);
 }
 
 .restore-confirm div {
@@ -630,13 +772,13 @@ a:hover {
 }
 
 button.admin-danger-btn {
-  background: #9b2c2c;
-  border-color: #9b2c2c;
-  color: #fff;
+  background: var(--danger-alt);
+  border-color: var(--danger-alt);
+  color: var(--danger-text);
 }
 button.admin-danger-btn:hover:not(:disabled) {
-  background: #c53030;
-  border-color: #c53030;
+  background: var(--danger-hover);
+  border-color: var(--danger-hover);
 }
 
 .old-revision-preview {
@@ -654,7 +796,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  border: 1px solid rgba(122, 46, 31, 0.35);
+  border: 1px solid var(--control-border-strong);
   background: transparent;
   color: var(--accent);
   padding: 0.45rem 0.65rem;
@@ -667,7 +809,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 1.45rem;
   margin: 2rem 0 0.75rem;
   color: var(--ink-soft);
-  border-bottom: 1px solid rgba(182, 164, 126, 0.5);
+  border-bottom: 1px solid var(--rule-soft);
   padding-bottom: 0.25rem;
 }
 
@@ -692,7 +834,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 0.98em;
   line-height: 1.15;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.22);
+  background: var(--panel-surface-soft);
   border-radius: 0.12em;
 }
 
@@ -700,7 +842,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   display: block;
   margin: 1.25rem 0;
   padding: 0.75rem 1rem;
-  background: rgba(255, 255, 255, 0.22);
+  background: var(--panel-surface-soft);
   border-radius: 2px;
   overflow-x: auto;
   text-align: center;
@@ -736,6 +878,10 @@ button.admin-danger-btn:hover:not(:disabled) {
   margin: 2rem 0;
 }
 
+::selection {
+  background: var(--selection-bg);
+}
+
 /* ----------------------- Homepage ------------------------ */
 
 .homepage-empty {
@@ -743,9 +889,31 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-style: italic;
 }
 
+.homepage-timer {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.6rem;
+  margin-bottom: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--ink-fade);
+  background: var(--parchment-deep);
+}
+
+.homepage-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(18rem, 0.9fr);
+  gap: 1.5rem;
+  align-items: start;
+  margin-top: 2rem;
+}
+
 .homepage-featured,
 .homepage-dyk {
-  margin-top: 2rem;
+  margin-top: 0;
 }
 
 .homepage-featured h2,
@@ -785,10 +953,14 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--accent-hover);
 }
 
-.homepage-featured-card p {
+.homepage-summary {
   margin: 0 0 0.75rem;
   color: var(--ink-soft);
   line-height: 1.55;
+}
+
+.homepage-summary p {
+  margin: 0;
 }
 
 .homepage-read-more {
@@ -808,8 +980,18 @@ button.admin-danger-btn:hover:not(:disabled) {
   line-height: 1.5;
 }
 
+.homepage-dyk li p {
+  margin: 0;
+}
+
 .homepage-dyk li a {
   font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .homepage-panels {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ----------------------- Status ------------------------- */
@@ -841,7 +1023,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-family: var(--mono);
   padding: 1rem;
   border: 1px solid var(--accent);
-  background: rgba(122, 46, 31, 0.08);
+  background: var(--accent-wash);
   color: var(--accent);
   border-radius: 2px;
 }
@@ -849,9 +1031,9 @@ button.admin-danger-btn:hover:not(:disabled) {
 .linkless-notice {
   margin: 0 0 1.3rem;
   padding: 0.9rem 1rem;
-  border: 1px solid rgba(122, 46, 31, 0.25);
+  border: 1px solid var(--accent-border-soft);
   border-left: 4px solid var(--accent);
-  background: linear-gradient(180deg, rgba(122, 46, 31, 0.05), rgba(233, 223, 195, 0.6));
+  background: linear-gradient(180deg, var(--accent-surface-soft), var(--control-surface-strong));
   color: var(--ink-soft);
   font-family: var(--serif);
   font-style: italic;
@@ -865,10 +1047,10 @@ button.admin-danger-btn:hover:not(:disabled) {
   align-items: center;
   gap: 0.4rem;
   padding: 0.42rem 0.5rem;
-  background: rgba(30, 24, 18, 0.95);
+  background: var(--overlay-bg);
   color: var(--parchment);
-  border: 1px solid rgba(233, 223, 195, 0.18);
-  box-shadow: 0 12px 24px rgba(30, 24, 18, 0.2);
+  border: 1px solid var(--overlay-border);
+  box-shadow: 0 12px 24px var(--shadow-strong);
   backdrop-filter: blur(8px);
 }
 
@@ -892,11 +1074,11 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 .selection-link-dismiss {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--panel-surface-soft);
   color: var(--parchment-deep);
 }
 .selection-link-dismiss:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--control-surface);
 }
 
 .selection-link-button:disabled,
@@ -914,10 +1096,10 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-family: var(--mono);
   font-size: 0.8rem;
   color: var(--accent);
-  background: rgba(243, 236, 216, 0.96);
-  border: 1px solid rgba(122, 46, 31, 0.35);
+  background: var(--panel-surface-strong);
+  border: 1px solid var(--accent-border-strong);
   padding: 0.7rem 0.85rem;
-  box-shadow: 0 10px 18px rgba(30, 24, 18, 0.08);
+  box-shadow: 0 10px 18px var(--shadow-soft);
 }
 
 .edit-modal-backdrop {
@@ -928,14 +1110,14 @@ button.admin-danger-btn:hover:not(:disabled) {
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  background: rgba(30, 24, 18, 0.42);
+  background: var(--overlay-dim);
 }
 
 .edit-modal {
   width: min(42rem, 100%);
   background: var(--parchment);
   border: 1px solid var(--rule);
-  box-shadow: 0 24px 48px rgba(30, 24, 18, 0.18);
+  box-shadow: 0 24px 48px var(--shadow-strong);
   padding: 1.2rem 1.2rem 1rem;
 }
 
@@ -966,7 +1148,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 .edit-modal-close {
-  background: rgba(30, 24, 18, 0.08);
+  background: var(--panel-surface-soft);
   color: var(--ink-soft);
 }
 
@@ -988,7 +1170,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-family: var(--serif);
   font-size: 1rem;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--input-surface);
   border: 1px solid var(--rule);
   padding: 0.75rem 0.85rem;
   outline: none;
@@ -996,7 +1178,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .edit-modal-textarea:focus {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.75);
+  background: var(--input-surface-focus);
 }
 
 .edit-modal-error {
@@ -1088,7 +1270,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 .footer-discord-line a {
   font-style: italic;
-  border-bottom: 1px dotted rgba(122, 46, 31, 0.5);
+  border-bottom: 1px dotted var(--accent-border);
 }
 
 /* Brand + donate tagline stacked under the wordmark */
@@ -1105,7 +1287,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--accent);
-  border-bottom: 1px dotted rgba(122, 46, 31, 0.4);
+  border-bottom: 1px dotted var(--accent-border);
   padding-bottom: 1px;
   align-self: flex-start;
 }
@@ -1116,8 +1298,6 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 /* Selection */
-::selection { background: rgba(122, 46, 31, 0.25); }
-
 @media (max-width: 600px) {
   html, body { font-size: 17px; }
   .site { padding: 1rem 1.1rem 4rem; }
@@ -1228,7 +1408,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 0.85rem;
   padding: 0.6rem 0.8rem;
   border: 1px solid var(--accent);
-  background: rgba(122, 46, 31, 0.08);
+  background: var(--accent-wash);
   color: var(--accent);
   margin-bottom: 1rem;
 }
@@ -1264,7 +1444,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .comment-textarea {
   width: 100%;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--control-surface-soft);
   border: 1px solid var(--rule);
   border-radius: 2px;
   padding: 0.65rem 0.8rem;
@@ -1278,7 +1458,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .comment-textarea:focus {
   outline: none;
   border-color: var(--accent);
-  background: #fff;
+  background: var(--input-surface-strong);
 }
 
 .comment-composer-row {
@@ -1333,7 +1513,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .comment {
   margin: 0 0 0.9rem;
   padding-top: 0.55rem;
-  border-top: 1px dotted rgba(182, 164, 126, 0.5);
+  border-top: 1px dotted var(--rule-soft);
 }
 .comments-list > .comment:first-child { border-top: none; padding-top: 0; }
 
@@ -1480,7 +1660,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .all-entries-search {
   flex: 1;
   min-width: 12rem;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--control-surface-soft);
   border: 1px solid var(--rule);
   border-radius: 2px;
   padding: 0.55rem 0.8rem;
@@ -1491,7 +1671,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .all-entries-search:focus {
   outline: none;
   border-color: var(--accent);
-  background: #fff;
+  background: var(--input-surface-strong);
 }
 
 .all-entries-count {
@@ -1507,7 +1687,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 0.85rem;
   padding: 0.6rem 0.8rem;
   border: 1px solid var(--accent);
-  background: rgba(122, 46, 31, 0.08);
+  background: var(--accent-wash);
   color: var(--accent);
   margin-bottom: 1rem;
 }
@@ -1537,7 +1717,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--accent);
   margin: 0 0 0.5rem;
   padding-bottom: 0.2rem;
-  border-bottom: 1px solid rgba(182, 164, 126, 0.5);
+  border-bottom: 1px solid var(--rule-soft);
   letter-spacing: 0.02em;
 }
 
@@ -1557,7 +1737,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .all-entries-list a {
   border-bottom: none;
   padding-bottom: 1px;
-  border-bottom: 1px dotted rgba(122, 46, 31, 0.25);
+  border-bottom: 1px dotted var(--accent-border-soft);
 }
 .all-entries-list a:hover {
   border-bottom: 1px solid var(--accent-hover);
@@ -1721,7 +1901,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   padding: 0.3rem 0;
   font-size: 0.92rem;
   line-height: 1.4;
-  border-bottom: 1px dotted rgba(182, 164, 126, 0.4);
+  border-bottom: 1px dotted var(--rule-soft);
   display: block;
   align-items: baseline;
   gap: 0.4rem;
@@ -1744,6 +1924,10 @@ button.admin-danger-btn:hover:not(:disabled) {
   line-height: 1.4;
   color: var(--ink-fade);
   font-style: italic;
+}
+
+.sb-hint p {
+  margin: 0;
 }
 
 .sb-list-numbered .sb-rank {
@@ -1779,7 +1963,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--accent);
-  border-bottom: 1px dotted rgba(122, 46, 31, 0.4);
+  border-bottom: 1px dotted var(--accent-border);
   padding-bottom: 1px;
 }
 .sb-more:hover {
@@ -1796,7 +1980,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-style: italic;
   font-size: 1.1rem;
   color: var(--ink);
-  border-bottom: 1px dotted rgba(122, 46, 31, 0.3);
+  border-bottom: 1px dotted var(--link-underline);
   padding-bottom: 1px;
 }
 .sb-reader-name:hover {
@@ -1817,7 +2001,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   gap: 1.2rem;
   margin: 0;
   padding-top: 0.6rem;
-  border-top: 1px dotted rgba(182, 164, 126, 0.5);
+  border-top: 1px dotted var(--rule-soft);
 }
 .sb-reader-stats > div { margin: 0; }
 .sb-reader-stats dt {
@@ -1869,7 +2053,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 1.05rem;
   font-weight: 500;
   color: var(--ink);
-  border-bottom: 1px dotted rgba(122, 46, 31, 0.4);
+  border-bottom: 1px dotted var(--accent-border);
   margin-bottom: 0.4rem;
   line-height: 1.3;
 }
@@ -1904,13 +2088,13 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 0.74rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #5865f2;
-  border-bottom: 1px dotted rgba(88, 101, 242, 0.4);
+  color: var(--brand-discord);
+  border-bottom: 1px dotted var(--sidebar-accent-border);
   padding-bottom: 1px;
 }
 .sb-discord-link:hover {
-  color: #5865f2;
-  border-bottom-color: #5865f2;
+  color: var(--brand-discord);
+  border-bottom-color: var(--brand-discord);
   background: transparent;
 }
 
@@ -1937,15 +2121,15 @@ button.admin-danger-btn:hover:not(:disabled) {
   padding: 0.4rem 0.55rem;
   font: inherit;
   text-align: left;
-  background: rgba(122, 46, 31, 0.04);
-  border: 1px dashed rgba(122, 46, 31, 0.35);
+  background: var(--accent-surface-soft);
+  border: 1px dashed var(--accent-border-strong);
   border-radius: 2px;
   color: var(--ink);
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
 .sb-solana-addr:hover {
-  background: rgba(122, 46, 31, 0.08);
+  background: var(--accent-wash);
   border-color: var(--accent);
 }
 .sb-solana-addr code {
@@ -2037,16 +2221,16 @@ button.admin-danger-btn:hover:not(:disabled) {
   width: 0.42rem;
   height: 0.42rem;
   border-radius: 50%;
-  background: #2f7a2f;
-  box-shadow: 0 0 0 0 rgba(47, 122, 47, 0.55);
+  background: var(--success);
+  box-shadow: 0 0 0 0 var(--success-glow);
   animation: sb-fellow-pulse 2.4s ease-out infinite;
   flex: 0 0 auto;
   transform: translateY(-1px);
 }
 @keyframes sb-fellow-pulse {
-  0%   { box-shadow: 0 0 0 0   rgba(47, 122, 47, 0.55); }
-  70%  { box-shadow: 0 0 0 6px rgba(47, 122, 47, 0);    }
-  100% { box-shadow: 0 0 0 0   rgba(47, 122, 47, 0);    }
+  0%   { box-shadow: 0 0 0 0 var(--success-glow); }
+  70%  { box-shadow: 0 0 0 6px var(--success-glow-fade); }
+  100% { box-shadow: 0 0 0 0 var(--success-glow-fade); }
 }
 
 /* Highlight the row that matches the article the viewer is currently on. */
@@ -2165,7 +2349,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .article-vote-error {
   font-size: 0.66rem;
   font-style: italic;
-  color: #b85a3a;
+  color: var(--danger-alt);
   max-width: 4rem;
   text-align: center;
   line-height: 1.2;
@@ -2273,7 +2457,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   letter-spacing: normal;
   text-transform: none;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--input-surface);
   border: 1px solid var(--rule);
   border-radius: 2px;
   padding: 0.55rem 0.7rem;
@@ -2281,7 +2465,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .admin-field input:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--input-surface-strong);
 }
 
 .admin-submit {
@@ -2321,7 +2505,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-family: var(--mono);
   font-size: 0.85rem;
   color: var(--accent);
-  background: rgba(122, 46, 31, 0.08);
+  background: var(--accent-wash);
   border-left: 3px solid var(--accent);
   padding: 0.55rem 0.8rem;
 }
@@ -2337,7 +2521,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-family: var(--mono);
   font-size: 0.95rem;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--input-surface);
   border: 1px solid var(--rule);
   border-radius: 2px;
   padding: 0.55rem 0.7rem;
@@ -2345,7 +2529,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .admin-slug-input:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--input-surface-strong);
 }
 .admin-ban-form .admin-submit {
   align-self: stretch;
@@ -2355,8 +2539,8 @@ button.admin-danger-btn:hover:not(:disabled) {
 .admin-result {
   margin-top: 0.4rem;
   padding: 0.9rem 1rem;
-  background: rgba(122, 46, 31, 0.05);
-  border: 1px dashed rgba(122, 46, 31, 0.35);
+  background: var(--accent-surface-soft);
+  border: 1px dashed var(--accent-border-strong);
   border-radius: 2px;
 }
 .admin-result-headline {
@@ -2366,7 +2550,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .admin-result-headline code {
   font-family: var(--mono);
   font-style: normal;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--panel-surface-soft);
   padding: 0.05rem 0.3rem;
   border-radius: 2px;
 }

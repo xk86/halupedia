@@ -52,4 +52,57 @@ describe("Sidebar", () => {
     await userEvent.click(screen.getByRole("link", { name: "Moon Clock" }));
     expect(onNavigate).toHaveBeenCalledWith("Moon_Clock");
   });
+
+  it("renders inline KaTeX inside backlink summaries", () => {
+    render(
+      <Sidebar
+        articleSlug="test-article"
+        articleTitle="Test Article"
+        backlinks={{
+          existing: [
+            {
+              slug: "sigma-entry",
+              title: "Sigma Entry",
+              visibleLabel: "Sigma Entry",
+              hiddenHint: "Fallback hint",
+              summaryMarkdown: "The coefficient $\\sigma$ governs drift.",
+              createdAt: 1,
+            },
+          ],
+          unwritten: [],
+        }}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    expect(document.querySelector(".sb-hint .math-inline")).not.toBeNull();
+    expect(document.querySelector(".sb-hint .katex")).not.toBeNull();
+  });
+
+  it("renders markdown-rich backlink summaries inside a block container", () => {
+    render(
+      <Sidebar
+        articleSlug="test-article"
+        articleTitle="Test Article"
+        backlinks={{
+          existing: [
+            {
+              slug: "multi-paragraph-entry",
+              title: "Multi Paragraph Entry",
+              visibleLabel: "Multi Paragraph Entry",
+              hiddenHint: "Fallback hint",
+              summaryMarkdown: "First paragraph.\n\nSecond paragraph.",
+              createdAt: 1,
+            },
+          ],
+          unwritten: [],
+        }}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    const hintNode = document.querySelector(".sb-hint");
+    expect(hintNode?.tagName).toBe("DIV");
+    expect(screen.getByText("Second paragraph.")).toBeInTheDocument();
+  });
 });

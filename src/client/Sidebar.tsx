@@ -1,3 +1,4 @@
+import { renderSummaryHtml } from "./summaryHtml";
 import { toWikiSegment } from "./wikiPath";
 
 interface BacklinkItem {
@@ -17,15 +18,6 @@ interface SidebarProps {
     unwritten: BacklinkItem[];
   } | null;
   onNavigate: (slug: string) => void;
-}
-
-function lightMarkdownText(markdown: string): string {
-  return markdown
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[*_`~#>]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 export function Sidebar({ articleSlug, articleTitle, backlinks, onNavigate }: SidebarProps) {
@@ -65,7 +57,10 @@ export function Sidebar({ articleSlug, articleTitle, backlinks, onNavigate }: Si
                         >
                           {item.title}
                         </a>
-                        <span className="sb-hint">{lightMarkdownText(item.summaryMarkdown || item.hiddenHint)}</span>
+                        <div
+                          className="sb-hint"
+                          dangerouslySetInnerHTML={{ __html: renderSummaryHtml(item.summaryMarkdown || item.hiddenHint) }}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -87,7 +82,10 @@ export function Sidebar({ articleSlug, articleTitle, backlinks, onNavigate }: Si
                         >
                           {item.title}
                         </a>
-                        <span className="sb-hint">{lightMarkdownText(item.hiddenHint)}</span>
+                        <div
+                          className="sb-hint"
+                          dangerouslySetInnerHTML={{ __html: renderSummaryHtml(item.hiddenHint) }}
+                        />
                       </li>
                     ))}
                   </ul>

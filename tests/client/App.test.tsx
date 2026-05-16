@@ -61,7 +61,7 @@ describe("App", () => {
 
   it("renders the home route and fetches homepage data", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+      new Response(JSON.stringify({ featured: null, didYouKnow: [], didYouKnowPending: false, expiresAt: Date.now() + 3600000 }), {
         headers: { "content-type": "application/json" },
       })
     );
@@ -73,6 +73,69 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Halupedia" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/homepage");
     expect(document.title).toBe("Halupedia");
+  });
+
+  it("shows the DYK section with an empty placeholder instead of hiding it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        featured: {
+          slug: "goldfish",
+          title: "Goldfish",
+          summaryMarkdown: "Goldfish are ceremonial freshwater accountants.",
+        },
+        didYouKnow: [],
+        didYouKnowPending: false,
+        expiresAt: Date.now() + 3600000,
+      }), {
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Featured article" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Did you know..." })).toBeInTheDocument();
+    expect(screen.getByText("Add or generate an article to seed the first featured fact.")).toBeInTheDocument();
+  });
+
+  it("renders cached featured article, timer, and startup DYK without polling", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({
+          featured: {
+            slug: "test-article",
+            title: "Test Article",
+            summaryMarkdown: "A featured summary with $\\\\sigma$.",
+          },
+          didYouKnow: [
+            {
+              slug: "linked-article",
+              title: "Linked Article",
+              fact: "... [Linked Article](halu:linked-article \"Linked Article\") is filed under ceremonial ballast accounting.",
+            },
+          ],
+          generatedAt: Date.now(),
+          expiresAt: Date.now() + 3600000,
+        }), {
+          headers: { "content-type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Featured article" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Test Article" })).toBeInTheDocument();
+    expect(screen.getByText(/Homepage refreshes in/)).toBeInTheDocument();
+    expect(document.querySelector(".homepage-summary .math-inline")).not.toBeNull();
+    expect(await screen.findByRole("link", { name: "Linked Article" })).toHaveAttribute("href", "/wiki/Linked_Article");
+    expect(screen.getByText(/is filed under ceremonial ballast accounting\./)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/homepage");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("loads and renders a cached article route", async () => {
@@ -93,6 +156,32 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: "Linking Article" })).toBeInTheDocument();
     expect(document.title).toBe("Test Article - Halupedia");
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Test_Article");
+  });
+
+  it("copies the canonical slug from the article toolbar", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(pagePayload({
+        article: {
+          ...pagePayload().article,
+          slug: "fish-鱼怕我女人是鱼我是鱼害怕",
+          canonicalSlug: "fish-鱼怕我女人是鱼我是鱼害怕",
+          title: "Fish 鱼怕我女人是鱼我是鱼害怕",
+        },
+      })), {
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    setPath("/wiki/Fish_%E9%B1%BC%E6%80%95%E6%88%91%E5%A5%B3%E4%BA%BA%E6%98%AF%E9%B1%BC%E6%88%91%E6%98%AF%E9%B1%BC%E5%AE%B3%E6%80%95");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Fish 鱼怕我女人是鱼我是鱼害怕" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Copy slug" }));
+    expect(writeText).toHaveBeenCalledWith("fish-鱼怕我女人是鱼我是鱼害怕");
+    expect(screen.getByText("Slug copied.")).toBeInTheDocument();
   });
 
   it("handles streamed article responses and normalizes the canonical path", async () => {
@@ -296,7 +385,7 @@ describe("App", () => {
       title: "Test Article",
       html: "<h1>Test Article</h1><p>Older body copy.</p>",
       markdown: "# Test Article\n\nOlder body copy.",
-      summaryMarkdown: "Older body copy.",
+      summaryMarkdown: "Older body copy with $\\sigma$.",
       generatedAt: 1714999999000,
       createdAt: 1714999999000,
       operation: "rewrite",
@@ -347,6 +436,7 @@ describe("App", () => {
     });
     expect(await screen.findByRole("heading", { name: "History: Test Article" })).toBeInTheDocument();
     expect(screen.getByText("Earlier edit.")).toBeInTheDocument();
+    expect(document.querySelector(".history-summary .math-inline")).not.toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "View revision 7" }));
     expect(await screen.findByText("You are viewing an old revision.")).toBeInTheDocument();
@@ -371,7 +461,7 @@ describe("App", () => {
 
   it("toggles night mode from the header", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+      new Response(JSON.stringify({ featured: null, didYouKnow: [], didYouKnowPending: false, expiresAt: Date.now() + 3600000 }), {
         headers: { "content-type": "application/json" },
       })
     );

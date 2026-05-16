@@ -4,6 +4,7 @@ import { AllEntries } from "./AllEntries";
 import { Homepage } from "./Homepage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
+import { renderSummaryHtml } from "./summaryHtml";
 import { toWikiSegment } from "./wikiPath";
 
 type Route =
@@ -154,6 +155,7 @@ export function App() {
   const [revertingId, setRevertingId] = useState<number | null>(null);
   const [refreshBusy, setRefreshBusy] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [copySlugMessage, setCopySlugMessage] = useState<string | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => initialThemeMode());
   const articleRef = useRef<HTMLElement | null>(null);
 
@@ -205,6 +207,7 @@ export function App() {
       setRevertingId(null);
       setRefreshBusy(false);
       setRefreshMessage(null);
+      setCopySlugMessage(null);
       document.title =
         route.kind === "search"
           ? route.query
@@ -241,6 +244,7 @@ export function App() {
     setRevertingId(null);
     setRefreshBusy(false);
     setRefreshMessage(null);
+    setCopySlugMessage(null);
     let streamedHtml = "";
 
     (async () => {
@@ -671,6 +675,16 @@ export function App() {
   const hasZeroLinks = page ? countInternalLinks(page.article.markdown) === 0 : false;
   const historyEmpty = (historyOpen || route.kind === "history") && !historyLoading && !historyError && revisions.length === 0;
 
+  const copyArticleSlug = useCallback(async () => {
+    if (!page?.article.slug) return;
+    try {
+      await navigator.clipboard.writeText(page.article.slug);
+      setCopySlugMessage("Slug copied.");
+    } catch {
+      setCopySlugMessage("Could not copy slug.");
+    }
+  }, [page]);
+
   const mainView = useMemo(() => {
     if (route.kind === "home") {
       return <Homepage onNavigate={navigateToArticle} />;
@@ -737,7 +751,12 @@ export function App() {
                     <strong>{revision.operation}</strong>
                     <time>{new Date(revision.createdAt).toLocaleString()}</time>
                     {revision.instructions ? <p>{revision.instructions}</p> : null}
-                    {revision.summaryMarkdown ? <p className="history-summary">{revision.summaryMarkdown}</p> : null}
+                    {revision.summaryMarkdown ? (
+                      <div
+                        className="history-summary"
+                        dangerouslySetInnerHTML={{ __html: renderSummaryHtml(revision.summaryMarkdown) }}
+                      />
+                    ) : null}
                   </div>
                   <button type="button" onClick={() => {
                     setSelectedRevision(revision);
@@ -812,6 +831,17 @@ export function App() {
           <button
             type="button"
             className="article-edit-button"
+            onClick={copyArticleSlug}
+            aria-label="Copy slug"
+            title="Copy slug"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1Zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H10V7h9v14Z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="article-edit-button"
             onClick={refreshContext}
             disabled={refreshBusy}
             aria-label="Refresh with retrieved context"
@@ -847,6 +877,7 @@ export function App() {
             </svg>
           </button>
         </div>
+        {copySlugMessage ? <div className="status">{copySlugMessage}</div> : null}
         {editOpen ? (
           <section className="edit-tray" aria-label="Edit article">
             <div className="edit-tray-row">
@@ -896,7 +927,12 @@ export function App() {
                     <strong>{revision.operation}</strong>
                     <time>{new Date(revision.createdAt).toLocaleString()}</time>
                     {revision.instructions ? <p>{revision.instructions}</p> : null}
-                    {revision.summaryMarkdown ? <p className="history-summary">{revision.summaryMarkdown}</p> : null}
+                    {revision.summaryMarkdown ? (
+                      <div
+                        className="history-summary"
+                        dangerouslySetInnerHTML={{ __html: renderSummaryHtml(revision.summaryMarkdown) }}
+                      />
+                    ) : null}
                   </div>
                   <button type="button" onClick={() => revertToRevision(revision.id)} disabled={revertingId !== null}>
                     {revertingId === revision.id ? "Reverting..." : "Revert"}
@@ -911,7 +947,7 @@ export function App() {
         </article>
       </>
     );
-  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, rewriteArticle, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision]);
+  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, rewriteArticle, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage]);
 
   return (
     <div className="site">

@@ -14,6 +14,7 @@ interface AdminOverview {
   model: string;
   databasePath: string;
   promptConfigPath: string;
+  ragMode: string;
 }
 
 interface Props {
@@ -142,6 +143,7 @@ export function Admin({ onNavigate }: Props) {
         <h3 className="sb-heading">Runtime</h3>
         <p className="sb-copy">Database: {overview.databasePath}</p>
         <p className="sb-copy">Prompts: {overview.promptConfigPath}</p>
+        <p className="sb-copy">RAG mode: {overview.ragMode}</p>
       </div>
 
       <div className="sb-panel">

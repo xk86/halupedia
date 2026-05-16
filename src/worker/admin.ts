@@ -39,6 +39,11 @@
 import { Hono } from "hono";
 import { slugify } from "./slug";
 import { clientIp } from "./ratelimit";
+import {
+  planImageInsertions,
+  applyInsertions,
+  hasAnyImg,
+} from "./enrich";
 import type { Env } from "./index";
 
 /* -------------------------------------------------------------------------- */
@@ -395,6 +400,206 @@ export function createAdminApp() {
     if (!slug) return c.json({ error: "missing or invalid slug" }, 400);
     const result = await adminBanSlug(slug, c.env);
     return c.json(result);
+  });
+
+  /* ---------------------------------------------------------------- */
+  /*  Image enrichment                                                 */
+  /* ---------------------------------------------------------------- */
+
+  /** List articles with score >= ?min=N. Used by the admin UI to pick
+   *  which articles to enrich. Includes a flag indicating whether the
+   *  article already has images (so the UI can warn / skip). */
+  app.get("/api/admin/articles-by-votes", async (c) => {
+    const minRaw = c.req.query("min") ?? "1";
+    const min = Math.max(0, parseInt(minRaw, 10) || 0);
+    let rows: Array<{ slug: string; title: string; score: number }> = [];
+    try {
+      const r = await c.env.DB
+        .prepare(
+          "SELECT slug, title, score FROM articles WHERE score >= ? ORDER BY score DESC, created_at ASC LIMIT 200"
+        )
+        .bind(min)
+        .all<{ slug: string; title: string; score: number }>();
+      rows = r.results ?? [];
+    } catch (e) {
+      console.error("admin: list by votes failed", e);
+      return c.json({ error: "query failed" }, 500);
+    }
+
+    // For each row, peek at the KV article to flag whether it already
+    // has images (cheap — small fan-out, capped at 200 rows).
+    const out: Array<{
+      slug: string;
+      title: string;
+      score: number;
+      has_images: boolean;
+      missing: boolean;
+    }> = [];
+    for (const row of rows) {
+      let hasImages = false;
+      let missing = false;
+      try {
+        const stored = (await c.env.ARTICLES.get(row.slug, "json")) as any;
+        if (!stored) missing = true;
+        else hasImages = hasAnyImg(String(stored.html ?? ""));
+      } catch {
+        missing = true;
+      }
+      out.push({
+        slug: row.slug,
+        title: row.title,
+        score: row.score,
+        has_images: hasImages,
+        missing,
+      });
+    }
+    return c.json({ min, count: out.length, articles: out });
+  });
+
+  /** Enrich one or more articles. Body: { slugs: string[] }.
+   *  For each slug: load KV, run the plan-then-insert pipeline (LLM
+   *  returns insertion JSON only; our code mutates the HTML and
+   *  byte-diffs to ensure non-img bytes are unchanged), then persist
+   *  the new HTML and INSERT the corresponding `images` rows.
+   *
+   *  Per-call cap of 25 slugs to keep CPU well under Workers' wall
+   *  limit (single LLM call per slug, ~2-6s each). */
+  app.post("/api/admin/enrich-images", async (c) => {
+    if (!c.env.OPENROUTER_API_KEY) {
+      return c.json({ error: "OPENROUTER_API_KEY not configured" }, 500);
+    }
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const rawSlugs = Array.isArray(body?.slugs) ? body.slugs : [];
+    const slugs = rawSlugs
+      .map((s: unknown) => (typeof s === "string" ? slugify(s) : ""))
+      .filter((s: string): s is string => !!s)
+      .slice(0, 25);
+    if (slugs.length === 0) {
+      return c.json({ error: "no valid slugs" }, 400);
+    }
+
+    const model =
+      c.env.OPENROUTER_MODEL || "google/gemini-2.5-flash-lite";
+
+    const results: Array<{
+      slug: string;
+      ok: boolean;
+      images_added: number;
+      skipped_reason?: string;
+    }> = [];
+
+    for (const slug of slugs) {
+      try {
+        const stored = (await c.env.ARTICLES.get(slug, "json")) as
+          | { html: string; title: string; [k: string]: any }
+          | null;
+        if (!stored) {
+          results.push({ slug, ok: false, images_added: 0, skipped_reason: "not cached" });
+          continue;
+        }
+        if (hasAnyImg(stored.html)) {
+          results.push({ slug, ok: false, images_added: 0, skipped_reason: "already has images" });
+          continue;
+        }
+
+        const plan = await planImageInsertions(
+          c.env.OPENROUTER_API_KEY,
+          model,
+          stored.html,
+          stored.title || slug
+        );
+        if (plan.insertions.length === 0) {
+          results.push({
+            slug,
+            ok: false,
+            images_added: 0,
+            skipped_reason: plan.error || "no insertions",
+          });
+          continue;
+        }
+
+        const applied = applyInsertions(stored.html, plan.insertions);
+        if (applied.injected.length === 0) {
+          results.push({
+            slug,
+            ok: false,
+            images_added: 0,
+            skipped_reason: applied.skippedReason || "no anchors matched",
+          });
+          continue;
+        }
+
+        // INSERT image rows BEFORE writing the HTML back to KV. Order
+        // matters: if the HTML write succeeds and the row INSERT fails,
+        // a visitor would 404 on /img/<uuid> until we recovered.
+        const now = Date.now();
+        let inserted = 0;
+        for (const inj of applied.injected) {
+          try {
+            await c.env.DB
+              .prepare(
+                "INSERT INTO images (uuid, slug, prompt, status, created_at) VALUES (?, ?, ?, 'pending', ?)"
+              )
+              .bind(inj.uuid, slug, inj.prompt, now)
+              .run();
+            inserted += 1;
+          } catch (e) {
+            console.error("enrich: image row insert failed", inj.uuid, e);
+          }
+        }
+
+        if (inserted === 0) {
+          results.push({
+            slug,
+            ok: false,
+            images_added: 0,
+            skipped_reason: "all row inserts failed",
+          });
+          continue;
+        }
+
+        // Persist updated HTML. We preserve every other field of the
+        // StoredArticle shape so generatedAt / summary / sourceContext
+        // stay intact (and the SPA's article fetch is byte-compatible).
+        const updated = { ...stored, html: applied.newHtml };
+        try {
+          await c.env.ARTICLES.put(slug, JSON.stringify(updated));
+        } catch (e) {
+          console.error("enrich: KV write failed", slug, e);
+          results.push({
+            slug,
+            ok: false,
+            images_added: 0,
+            skipped_reason: "KV write failed",
+          });
+          continue;
+        }
+
+        results.push({ slug, ok: true, images_added: inserted });
+      } catch (e: any) {
+        console.error("enrich: unexpected error", slug, e);
+        results.push({
+          slug,
+          ok: false,
+          images_added: 0,
+          skipped_reason: String(e?.message ?? e).slice(0, 200),
+        });
+      }
+    }
+
+    const totalImages = results.reduce((n, r) => n + r.images_added, 0);
+    const successCount = results.filter((r) => r.ok).length;
+    return c.json({
+      processed: results.length,
+      enriched: successCount,
+      images_added: totalImages,
+      results,
+    });
   });
 
   return app;

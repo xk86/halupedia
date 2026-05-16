@@ -125,13 +125,22 @@ export function Admin() {
       {!auth ? (
         <LoginForm onSuccess={(h) => { storeAuth(h); setAuth(h); }} />
       ) : (
-        <BanForm
-          authHeader={auth}
-          onAuthExpired={() => {
-            storeAuth(null);
-            setAuth(null);
-          }}
-        />
+        <>
+          <BanForm
+            authHeader={auth}
+            onAuthExpired={() => {
+              storeAuth(null);
+              setAuth(null);
+            }}
+          />
+          <EnrichForm
+            authHeader={auth}
+            onAuthExpired={() => {
+              storeAuth(null);
+              setAuth(null);
+            }}
+          />
+        </>
       )}
     </section>
   );
@@ -343,6 +352,249 @@ function BanResultPanel({ result }: { result: BanResult }) {
           </strong>
         </li>
       </ul>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Enrich-with-images form                                                    */
+/* -------------------------------------------------------------------------- */
+
+interface ArticleCandidate {
+  slug: string;
+  title: string;
+  score: number;
+  has_images: boolean;
+  missing: boolean;
+}
+
+interface EnrichResult {
+  processed: number;
+  enriched: number;
+  images_added: number;
+  results: Array<{
+    slug: string;
+    ok: boolean;
+    images_added: number;
+    skipped_reason?: string;
+  }>;
+}
+
+function EnrichForm({
+  authHeader,
+  onAuthExpired,
+}: {
+  authHeader: string;
+  onAuthExpired: () => void;
+}) {
+  const [minVotes, setMinVotes] = useState("5");
+  const [searching, setSearching] = useState(false);
+  const [candidates, setCandidates] = useState<ArticleCandidate[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<EnrichResult | null>(null);
+
+  const onSearch = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const n = parseInt(minVotes, 10);
+      if (!Number.isFinite(n) || n < 0) {
+        setError("Enter a non-negative number.");
+        return;
+      }
+      setSearching(true);
+      setError(null);
+      setResult(null);
+      try {
+        const res = await adminFetch(
+          authHeader,
+          `/api/admin/articles-by-votes?min=${n}`
+        );
+        if (res.status === 401) {
+          onAuthExpired();
+          return;
+        }
+        if (!res.ok) {
+          const j: any = await res.json().catch(() => ({}));
+          setError(j?.error || `Search failed (${res.status}).`);
+          return;
+        }
+        const j = (await res.json()) as {
+          articles: ArticleCandidate[];
+        };
+        setCandidates(j.articles);
+        // Pre-select everything that's enrichable (cached + no images yet).
+        const next = new Set<string>();
+        for (const a of j.articles) {
+          if (!a.missing && !a.has_images) next.add(a.slug);
+        }
+        setSelected(next);
+      } catch (err: any) {
+        setError(err?.message || "Network error.");
+      } finally {
+        setSearching(false);
+      }
+    },
+    [minVotes, authHeader, onAuthExpired]
+  );
+
+  const toggle = useCallback((slug: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  }, []);
+
+  const onEnrich = useCallback(async () => {
+    if (selected.size === 0) {
+      setError("Select at least one article.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Enrich ${selected.size} article(s) with images?\n\nFor each one, an LLM call will plan 2-4 images and our worker will insert <img> tags. Images themselves are generated lazily on first visit (subject to the daily cap).`
+      )
+    ) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await adminFetch(authHeader, "/api/admin/enrich-images", {
+        method: "POST",
+        body: JSON.stringify({ slugs: [...selected] }),
+      });
+      if (res.status === 401) {
+        onAuthExpired();
+        return;
+      }
+      if (!res.ok) {
+        const j: any = await res.json().catch(() => ({}));
+        setError(j?.error || `Enrich failed (${res.status}).`);
+        return;
+      }
+      const j = (await res.json()) as EnrichResult;
+      setResult(j);
+      // Refresh the candidate flags so already-enriched rows show that.
+      setCandidates((prev) => {
+        if (!prev) return prev;
+        const okSlugs = new Set(
+          j.results.filter((r) => r.ok).map((r) => r.slug)
+        );
+        return prev.map((c) =>
+          okSlugs.has(c.slug) ? { ...c, has_images: true } : c
+        );
+      });
+      setSelected(new Set());
+    } catch (err: any) {
+      setError(err?.message || "Network error.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [selected, authHeader, onAuthExpired]);
+
+  return (
+    <div className="admin-section">
+      <h2>Enrich articles with images</h2>
+      <p className="admin-section-blurb">
+        Find articles with at least N upvotes, then run a plan-and-insert
+        pass on the selected ones. The LLM only describes WHERE to put
+        images and WHAT they should depict — the worker performs the
+        actual byte-level HTML edits and verifies that nothing outside
+        the new <code>&lt;img&gt;</code> tags changed. Images themselves
+        are generated lazily the first time a visitor loads them.
+      </p>
+      <form className="admin-enrich-form" onSubmit={onSearch}>
+        <label className="admin-field">
+          <span>Minimum upvotes</span>
+          <input
+            type="number"
+            min={0}
+            value={minVotes}
+            onChange={(e) => setMinVotes(e.target.value)}
+            disabled={searching || submitting}
+          />
+        </label>
+        <button type="submit" className="admin-submit" disabled={searching || submitting}>
+          {searching ? "Searching…" : "Find articles"}
+        </button>
+      </form>
+
+      {error && <p className="admin-error">{error}</p>}
+
+      {candidates && candidates.length === 0 && (
+        <p className="admin-empty">No articles meet that threshold.</p>
+      )}
+
+      {candidates && candidates.length > 0 && (
+        <>
+          <ul className="admin-candidates">
+            {candidates.map((c) => {
+              const disabled = c.missing || c.has_images;
+              return (
+                <li key={c.slug} className="admin-candidate">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(c.slug)}
+                      disabled={disabled || submitting}
+                      onChange={() => toggle(c.slug)}
+                    />
+                    <span className="admin-candidate-title">{c.title}</span>
+                    <code className="admin-candidate-slug">/{c.slug}</code>
+                    <span className="admin-candidate-score">↑ {c.score}</span>
+                    {c.has_images && (
+                      <span className="admin-candidate-flag">already enriched</span>
+                    )}
+                    {c.missing && (
+                      <span className="admin-candidate-flag admin-candidate-flag-warn">
+                        missing from KV
+                      </span>
+                    )}
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            type="button"
+            className="admin-submit admin-submit-danger"
+            onClick={onEnrich}
+            disabled={submitting || selected.size === 0}
+          >
+            {submitting
+              ? "Enriching…"
+              : `Enrich ${selected.size} selected`}
+          </button>
+        </>
+      )}
+
+      {result && (
+        <div className="admin-result">
+          <p className="admin-result-headline">
+            Enriched {result.enriched} / {result.processed} article(s) —{" "}
+            <strong>{result.images_added}</strong> image rows created.
+          </p>
+          <ul className="admin-result-list">
+            {result.results.map((r) => (
+              <li key={r.slug}>
+                <code>/{r.slug}</code>{" "}
+                {r.ok ? (
+                  <strong>+{r.images_added} images</strong>
+                ) : (
+                  <span className="admin-skipped">
+                    skipped: {r.skipped_reason || "unknown"}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

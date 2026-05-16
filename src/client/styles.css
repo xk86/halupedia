@@ -1856,4 +1856,86 @@ a:hover {
   width: 100%;
 }
 
+/* --- Article images (lazy /img/<uuid>) ---------------------------- */
+.article-body img,
+.article img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.5rem auto;
+  border: 1px solid var(--rule, #d8d0bd);
+  background: #f4ecd7;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Admin: enrichment section ----------------------------------- */
+.admin-enrich-form {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+.admin-enrich-form .admin-field {
+  flex: 0 1 180px;
+}
+.admin-empty {
+  font-style: italic;
+  opacity: 0.7;
+}
+.admin-candidates {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  border-top: 1px dashed var(--rule, #d8d0bd);
+  max-height: 420px;
+  overflow-y: auto;
+}
+.admin-candidate {
+  border-bottom: 1px dashed var(--rule, #d8d0bd);
+  padding: 0.45rem 0.25rem;
+}
+.admin-candidate label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  cursor: pointer;
+}
+.admin-candidate input[type="checkbox"]:disabled + .admin-candidate-title,
+.admin-candidate input[type="checkbox"]:disabled ~ * {
+  opacity: 0.55;
+}
+.admin-candidate-title {
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+.admin-candidate-slug {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+.admin-candidate-score {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9em;
+  color: var(--accent, #8b6914);
+}
+.admin-candidate-flag {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.4rem;
+  border: 1px dashed var(--rule, #d8d0bd);
+  border-radius: 2px;
+  opacity: 0.75;
+}
+.admin-candidate-flag-warn {
+  color: #8a3a1a;
+  border-color: #8a3a1a;
+}
+.admin-skipped {
+  font-style: italic;
+  opacity: 0.75;
+}
+
 

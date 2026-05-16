@@ -23,6 +23,14 @@ binding = "ARTICLES"
 id = "90bb9e8b977a4915bcbc10586f83a5ce"
 preview_id = "722fb41fc7af44f6bf6210a884025781"
 
+# R2 bucket for lazily-generated article images. Keyed by uuid.
+# One-time setup:
+#   pnpm wrangler r2 bucket create halupedia-images
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "halupedia-images"
+preview_bucket_name = "halupedia-images"
+
 # Comments + ephemeral users live in D1 (Cloudflare's free SQLite).
 # One-time setup:
 #   pnpm wrangler d1 create hallupedia
@@ -43,6 +51,13 @@ MAX_ARTICLES_PER_DAY = "5000"
 GEN_PER_IP_PER_HOUR = "100"
 IDENT_PER_IP_PER_HOUR = "10"
 SEARCH_PER_IP_PER_HOUR = "15"
+
+# Image generation cap (lazy /img/<uuid> requests per UTC day, globally).
+# Even valid UUIDs return 503 after this many in one day. Backstop.
+IMG_GEN_PER_DAY = "200"
+# OpenRouter model used for image generation. Must support the `image`
+# modality. Override to swap providers/quality.
+OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux.2-klein-4b"
 
 # --- Cloudflare Turnstile bot gating ---------------------------------------
 # Activates ONLY when all three secrets below are set. With them missing,

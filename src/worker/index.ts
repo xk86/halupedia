@@ -20,6 +20,7 @@ import {
   runSweep,
 } from "./moderation";
 import { createAdminApp } from "./admin";
+import { handleImageRequest } from "./images";
 import {
   requireHuman,
   challengeResponse,
@@ -31,10 +32,19 @@ export interface Env {
   ARTICLES: KVNamespace;
   DB: D1Database;
   ASSETS: Fetcher;
+  // R2 bucket for lazily-generated article images. Keyed by uuid (see
+  // src/worker/images.ts). Optional — missing binding disables /img/*.
+  IMAGES: R2Bucket;
   OPENROUTER_API_KEY: string;
   OPENROUTER_MODEL: string;
   OPENROUTER_MODERATION_MODEL?: string;
+  /** OpenRouter model used for image generation. Must support the
+   *  `image` modality. Default: google/gemini-2.5-flash-image-preview. */
+  OPENROUTER_IMAGE_MODEL?: string;
   MAX_ARTICLES_PER_DAY: string;
+  /** Daily cap on lazy image generations across the whole site.
+   *  Independent of MAX_ARTICLES_PER_DAY. Default: 200. */
+  IMG_GEN_PER_DAY?: string;
   GEN_PER_IP_PER_HOUR?: string;
   IDENT_PER_IP_PER_HOUR?: string;
   // IP-strike block: if an IP gets BAN_STRIKES_THRESHOLD articles banned
@@ -896,6 +906,17 @@ app.get("/api/presence", (c) => {
   const stub = c.env.PRESENCE.get(id);
   return stub.fetch(c.req.raw);
 });
+
+/* -------------------------------------------------------------------------- */
+/*  GET /img/:uuid  — lazy article-image serving                              */
+/*                                                                             */
+/*  The UUID must already exist in the D1 `images` table (inserted only via   */
+/*  the admin enrichment flow). On first hit, calls OpenRouter, stores bytes   */
+/*  in R2, and serves. Subsequent hits stream straight from R2.               */
+/*  Random/unknown UUIDs 404 instantly without any LLM call.                  */
+/* -------------------------------------------------------------------------- */
+
+app.get("/img/:uuid", handleImageRequest);
 
 /* -------------------------------------------------------------------------- */
 /*  Brand-rename redirect: old root slug → new root slug.                      */

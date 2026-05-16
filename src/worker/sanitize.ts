@@ -17,6 +17,7 @@ const ALLOWED_TAGS = new Set([
   "blockquote", "a", "em", "i", "strong", "b", "cite",
   "figure", "figcaption", "hr", "br", "small", "sup", "sub",
   "dl", "dt", "dd", "section", "article", "aside",
+  "img",
 ]);
 
 const DANGEROUS_ATTR = /^on/i;
@@ -55,6 +56,25 @@ function scrubAttrs(tag: string, attrs: string): string {
     if (tag === "a" && name === "href") {
       const normalized = normalizeHref(raw);
       if (normalized) out.push(`href="${escapeAttr(normalized)}"`);
+      continue;
+    }
+    if (tag === "img") {
+      // Only allow our own lazy-generated images. Anything else (data:,
+      // external URLs, javascript:, missing src) is dropped — including
+      // the whole <img> tag, courtesy of the early-return on no src.
+      if (name === "src") {
+        const m = /^\/img\/([0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}|[0-9a-f]{32})$/.exec(raw);
+        if (m) out.push(`src="${escapeAttr(raw)}"`);
+        continue;
+      }
+      if (name === "loading" && (raw === "lazy" || raw === "eager")) {
+        out.push(`loading="${raw}"`);
+        continue;
+      }
+      if (name === "alt") {
+        out.push(`alt="${escapeAttr(raw)}"`);
+        continue;
+      }
       continue;
     }
     // Only allow a tiny whitelist of attributes

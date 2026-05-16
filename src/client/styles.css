@@ -2317,3 +2317,34 @@ button.admin-danger-btn:hover:not(:disabled) {
     align-self: flex-start;
   }
 }
+
+/* Disambiguation pages */
+.disambiguation-notice {
+  background: var(--blockquote-bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.5em 0.8em;
+  margin-bottom: 1em;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* Search go-to link */
+.search-goto {
+  margin-bottom: 1.2em;
+  padding: 0.6em 0.8em;
+  background: var(--blockquote-bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+.search-goto a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.search-goto a:hover {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}

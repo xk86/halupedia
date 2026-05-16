@@ -4,11 +4,27 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, saveArticle } from "../src/server/db";
-import { extractInternalLinks, markdownToPlainText, renderMarkdown, normalizeMarkdown } from "../src/server/markdown";
-import { slugify, slugToTitle, titleToWikiSegment, wikiSegmentToTitle, normalizeCanonicalTitle } from "../src/server/slug";
+import {
+  extractInternalLinks,
+  leadBoldsTitle,
+  markdownToPlainText,
+  renderMarkdown,
+  normalizeMarkdown,
+  stripSelfLinks,
+} from "../src/server/markdown";
+import {
+  slugify,
+  slugToTitle,
+  titleToWikiSegment,
+  wikiSegmentToTitle,
+  normalizeCanonicalTitle,
+} from "../src/server/slug";
 import type { LlmClient } from "../src/server/llm";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
-import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "../src/server/summary";
+import {
+  normalizeSummaryMarkdown,
+  summaryLooksLikeLeadCopy,
+} from "../src/server/summary";
 
 class NoopLlmClient implements LlmClient {
   async chat(): Promise<string> {
@@ -27,12 +43,14 @@ class NoopLlmClient implements LlmClient {
 }
 
 test("extractInternalLinks dedupes targets and ignores invalid links", () => {
-  const links = extractInternalLinks([
-    'A [Valid Link](halu:glow-fruit "Sweet and bright") appears once.',
-    'A duplicate target [Glow](halu:glow-fruit "Different label") should be ignored.',
-    'A missing hint [Ignored](halu:ignored) should be skipped.',
-    'A second valid [Night Bloom](halu:night-bloom "Used at dusk").',
-  ].join("\n"));
+  const links = extractInternalLinks(
+    [
+      'A [Valid Link](halu:glow-fruit "Sweet and bright") appears once.',
+      'A duplicate target [Glow](halu:glow-fruit "Different label") should be ignored.',
+      "A missing hint [Ignored](halu:ignored) should be skipped.",
+      'A second valid [Night Bloom](halu:night-bloom "Used at dusk").',
+    ].join("\n"),
+  );
 
   assert.deepEqual(links, [
     {
@@ -49,7 +67,9 @@ test("extractInternalLinks dedupes targets and ignores invalid links", () => {
 });
 
 test("renderMarkdown rewrites halu links to wiki paths", () => {
-  const html = renderMarkdown('Visit [Glow Fruit](halu:glow-fruit "hidden hint") for details.');
+  const html = renderMarkdown(
+    'Visit [Glow Fruit](halu:glow-fruit "hidden hint") for details.',
+  );
   assert.match(html, /href="\/wiki\/Glow_fruit"/);
   assert.doesNotMatch(html, /hidden hint/);
 });
@@ -64,22 +84,24 @@ test("summary helpers normalize single-paragraph summaries and detect copied lea
   ].join("\n");
 
   assert.equal(
-    normalizeSummaryMarkdown("## Summary\n\nCoal futures markets turn buried fuel contracts into a ritualized pricing system."),
-    "Coal futures markets turn buried fuel contracts into a ritualized pricing system."
+    normalizeSummaryMarkdown(
+      "## Summary\n\nCoal futures markets turn buried fuel contracts into a ritualized pricing system.",
+    ),
+    "Coal futures markets turn buried fuel contracts into a ritualized pricing system.",
   );
   assert.equal(
     summaryLooksLikeLeadCopy(
       "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources.",
-      articleMarkdown
+      articleMarkdown,
     ),
-    true
+    true,
   );
   assert.equal(
     summaryLooksLikeLeadCopy(
       "Coal futures markets recast buried fuel trading as a ceremonial bureaucracy built around ash ledgers and future delivery rites.",
-      articleMarkdown
+      articleMarkdown,
     ),
-    false
+    false,
   );
 });
 
@@ -112,9 +134,16 @@ test("retrieveContext returns matching lexical context from indexed article chun
       generated_at: generatedAt,
     },
     [],
-    ["archive-entry"]
+    ["archive-entry"],
   );
-  await indexArticleChunks(db, llm, "archive-entry", sourceMarkdown, false, 120);
+  await indexArticleChunks(
+    db,
+    llm,
+    "archive-entry",
+    sourceMarkdown,
+    false,
+    120,
+  );
 
   const currentMarkdown = [
     "# Test Article",
@@ -139,7 +168,7 @@ test("retrieveContext returns matching lexical context from indexed article chun
         hiddenHint: "Glow fruit orchard notes",
       },
     ],
-    ["test-article"]
+    ["test-article"],
   );
 
   const packet = await retrieveContext(
@@ -150,7 +179,7 @@ test("retrieveContext returns matching lexical context from indexed article chun
     true,
     3,
     0.2,
-    false
+    false,
   );
 
   assert.equal(packet.relatedTitles[0], "Archive Entry");
@@ -171,12 +200,21 @@ test("slugify is idempotent", () => {
 });
 
 test("slug → title → wikiSegment → title round-trips are stable", () => {
-  const slugs = ["glow-fruit", "cultural-dissipation-factor", "san-francisco", "clock-orchard"];
+  const slugs = [
+    "glow-fruit",
+    "cultural-dissipation-factor",
+    "san-francisco",
+    "clock-orchard",
+  ];
   for (const slug of slugs) {
     const title = slugToTitle(slug);
     const segment = titleToWikiSegment(title);
     const backToTitle = wikiSegmentToTitle(segment);
-    assert.equal(backToTitle, title, `round-trip failed for slug "${slug}": "${title}" → "${segment}" → "${backToTitle}"`);
+    assert.equal(
+      backToTitle,
+      title,
+      `round-trip failed for slug "${slug}": "${title}" → "${segment}" → "${backToTitle}"`,
+    );
   }
 });
 
@@ -202,13 +240,17 @@ test("halu links render to stable wiki paths", () => {
 });
 
 test("halu links inside bold/italic render correctly", () => {
-  const html = renderMarkdown('The **[Dover Ash Bureau](halu:dover-ash-bureau "municipal ash authority")** governs all deposits.');
+  const html = renderMarkdown(
+    'The **[Dover Ash Bureau](halu:dover-ash-bureau "municipal ash authority")** governs all deposits.',
+  );
   assert.match(html, /href="\/wiki\/Dover_ash_bureau"/);
   assert.match(html, /<strong>/);
 });
 
 test("hidden hints are stripped from rendered output", () => {
-  const html = renderMarkdown('[Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar of the Dover Ash Bureau")');
+  const html = renderMarkdown(
+    '[Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar of the Dover Ash Bureau")',
+  );
   assert.match(html, /href="\/wiki\/Cornelius_blackpenny"/);
   assert.doesNotMatch(html, /Chief Registrar/);
   assert.doesNotMatch(html, /title="/);
@@ -220,38 +262,88 @@ test("hidden hints are stripped from rendered output", () => {
 
 test("inline TeX inside article text renders math-inline spans", () => {
   const html = renderMarkdown("The coefficient $\\alpha$ governs drift.");
-  assert.match(html, /class="[^"]*math-inline/);
+  assert.match(html, /class="[^\"]*math-inline/);
   assert.doesNotMatch(html, /\$\\alpha\$/);
 });
 
 test("block TeX renders as math-block div", () => {
-  const html = renderMarkdown([
-    "The formula is:",
-    "",
-    "$$",
-    "E = mc^2",
-    "$$",
-    "",
-    "This is important.",
-  ].join("\n"));
-  assert.match(html, /class="[^"]*math-block/);
-  assert.match(html, /class="[^"]*katex/);
+  const html = renderMarkdown(
+    [
+      "The formula is:",
+      "",
+      "$$",
+      "E = mc^2",
+      "$$",
+      "",
+      "This is important.",
+    ].join("\n"),
+  );
+  assert.match(html, /class="[^\"]*math-block/);
+  assert.match(html, /class="[^\"]*katex/);
   assert.doesNotMatch(html, /\$\$/);
   assert.match(html, /This is important/);
 });
 
 test("single-line block TeX renders correctly", () => {
   const html = renderMarkdown("$$E = mc^2$$");
-  assert.match(html, /class="[^"]*math-block/);
+  assert.match(html, /class="[^\"]*math-block/);
 });
 
 test("blockquote markdown renders correctly for attributed quotes", () => {
-  const html = renderMarkdown([
-    '> "The ledger does not forgive."',
-    '>',
-    '> — [Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar")',
-  ].join("\n"));
+  const html = renderMarkdown(
+    [
+      '> "The ledger does not forgive."',
+      ">",
+      '> — [Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar")',
+    ].join("\n"),
+  );
   assert.match(html, /<blockquote>/);
   assert.match(html, /href="\/wiki\/Cornelius_blackpenny"/);
   assert.doesNotMatch(html, /Chief Registrar/);
+});
+
+test("stripSelfLinks removes links whose target matches the article slug", () => {
+  const markdown = [
+    "# Glow Fruit",
+    "",
+    '**Glow Fruit**, also known as [luminous berry](halu:luminous-berry "a variant name"), is a [Glow Fruit](halu:glow-fruit "self-referential link") that grows in the [Crater Orchard](halu:crater-orchard "location of the orchard").',
+  ].join("\n");
+  const result = stripSelfLinks(markdown, "glow-fruit");
+  assert.doesNotMatch(result, /\(halu:glow-fruit/);
+  assert.match(result, /is a Glow Fruit that grows/);
+  assert.match(result, /\(halu:luminous-berry/);
+  assert.match(result, /\(halu:crater-orchard/);
+});
+
+test("stripSelfLinks is a no-op when no self-links exist", () => {
+  const markdown =
+    'Visit [Other Place](halu:other-place "a place") for details.';
+  assert.equal(stripSelfLinks(markdown, "glow-fruit"), markdown);
+});
+
+test("leadBoldsTitle detects bolded title in lead paragraph", () => {
+  const markdown = [
+    "# Glow Fruit",
+    "",
+    "**Glow Fruit** is a bioluminescent orchard product grown in the southern craters.",
+  ].join("\n");
+  assert.equal(leadBoldsTitle(markdown, "Glow Fruit"), true);
+});
+
+test("leadBoldsTitle detects bolded alternate title", () => {
+  const markdown = [
+    "# Glow Fruit",
+    "",
+    "**Glow Fruit**, also known as **luminous berry**, is grown in craters.",
+  ].join("\n");
+  assert.equal(leadBoldsTitle(markdown, "Glow Fruit"), true);
+});
+
+test("leadBoldsTitle returns false when title is not bolded", () => {
+  const markdown = [
+    "# Glow Fruit",
+    "",
+    "Glow Fruit is a bioluminescent orchard product grown in the southern craters.",
+  ].join("\n");
+  assert.equal(leadBoldsTitle(markdown, "Glow Fruit"), false);
 });

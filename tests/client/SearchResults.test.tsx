@@ -44,6 +44,36 @@ describe("SearchResults", () => {
     expect(onNavigate).toHaveBeenCalledWith("Moon_Clock");
   });
 
+  it("shows a 'Go to' direct link when a query is active", async () => {
+    const onNavigate = vi.fn();
+    const onSearch = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            query: "Foobar",
+            results: [],
+            existing_count: 0,
+            hallucinated_count: 0,
+            rate_limited: false,
+            retry_after: null,
+          }),
+          { headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    render(<SearchResults q="Foobar" onNavigate={onNavigate} onSearch={onSearch} />);
+
+    const gotoLink = await screen.findByRole("link", { name: "Foobar" });
+    expect(gotoLink).toBeInTheDocument();
+    expect(gotoLink.closest(".search-goto")).toBeInTheDocument();
+
+    await userEvent.click(gotoLink);
+    expect(onNavigate).toHaveBeenCalledWith("Foobar");
+  });
+
   it("submits trimmed search input through onSearch", async () => {
     const onNavigate = vi.fn();
     const onSearch = vi.fn();

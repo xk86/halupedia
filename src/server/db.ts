@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
-import type { ArticleRecord, ArticleRevision, BacklinkItem, ParsedInternalLink } from "./types";
+import type { ArticleRecord, ArticleRevision, BacklinkItem, DisambiguationEntry, ParsedInternalLink } from "./types";
 import { summaryMarkdownFromArticle } from "./markdown";
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
@@ -24,7 +24,8 @@ export function openDatabase(databasePath: string): DatabaseSync {
       html TEXT NOT NULL,
       summary_markdown TEXT NOT NULL DEFAULT '',
       plain_text TEXT NOT NULL,
-      generated_at INTEGER NOT NULL
+      generated_at INTEGER NOT NULL,
+      is_disambiguation INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS article_links (
@@ -106,27 +107,32 @@ export function openDatabase(databasePath: string): DatabaseSync {
   if (!hasColumn(db, "articles", "summary_markdown")) {
     db.exec(`ALTER TABLE articles ADD COLUMN summary_markdown TEXT NOT NULL DEFAULT ''`);
   }
+  if (!hasColumn(db, "articles", "is_disambiguation")) {
+    db.exec(`ALTER TABLE articles ADD COLUMN is_disambiguation INTEGER NOT NULL DEFAULT 0`);
+  }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   return db;
 }
 
 export function getArticle(db: DatabaseSync, slug: string): ArticleRecord | null {
-  return (
-    db
-      .prepare(
-        `SELECT slug,
-                COALESCE(canonical_slug, slug) AS canonicalSlug,
-                title,
-                markdown,
-                html,
-                summary_markdown AS summaryMarkdown,
-                plain_text,
-                generated_at
-         FROM articles
-         WHERE slug = ?`
-      )
-      .get(slug) as ArticleRecord | undefined
-  ) ?? null;
+  const row = db
+    .prepare(
+      `SELECT slug,
+              COALESCE(canonical_slug, slug) AS canonicalSlug,
+              title,
+              markdown,
+              html,
+              summary_markdown AS summaryMarkdown,
+              plain_text,
+              generated_at,
+              is_disambiguation AS isDisambiguationFlag
+       FROM articles
+       WHERE slug = ?`
+    )
+    .get(slug) as (ArticleRecord & { isDisambiguationFlag?: number }) | undefined;
+  if (!row) return null;
+  const { isDisambiguationFlag, ...rest } = row;
+  return { ...rest, isDisambiguation: Boolean(isDisambiguationFlag) };
 }
 
 export function getArticleByLookup(db: DatabaseSync, lookupSlug: string): ArticleRecord | null {
@@ -169,8 +175,8 @@ export function saveArticle(
   const now = article.generated_at;
   const summaryMarkdown = article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(article.markdown);
   const insertArticle = db.prepare(`
-    INSERT INTO articles (slug, canonical_slug, title, markdown, html, summary_markdown, plain_text, generated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO articles (slug, canonical_slug, title, markdown, html, summary_markdown, plain_text, generated_at, is_disambiguation)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(slug) DO UPDATE SET
       canonical_slug = excluded.canonical_slug,
       title = excluded.title,
@@ -178,7 +184,8 @@ export function saveArticle(
       html = excluded.html,
       summary_markdown = excluded.summary_markdown,
       plain_text = excluded.plain_text,
-      generated_at = excluded.generated_at
+      generated_at = excluded.generated_at,
+      is_disambiguation = excluded.is_disambiguation
   `);
   const insertRevision = db.prepare(`
     INSERT INTO article_revisions (
@@ -226,7 +233,8 @@ export function saveArticle(
       article.html,
       summaryMarkdown,
       article.plain_text,
-      now
+      now,
+      article.isDisambiguation ? 1 : 0
     );
     insertRevision.run(
       article.slug,

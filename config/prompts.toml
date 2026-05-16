@@ -38,6 +38,8 @@ Formatting Constraints:
 - Do not output a `## See also` section.
 - If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.
 - Prefer linking the first mention of notable entities in the prose body before repeating them unlinked later.
+- The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
+- Do not link the article title to itself. The article about "Foo Bar" must never contain a link whose target slug resolves to the Foo Bar article.
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.
 """
 
@@ -255,6 +257,8 @@ Formatting Constraints:
 - Incorporate the user's rewrite instructions directly into the article.
 - Preserve and update internal links in the form [visible text](halu:target-slug "hidden context hint") when appropriate, but do not output a `## References` section or a `## See also` section.
 - Every internal halu link must include a non-empty hidden context hint.
+- The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph.
+- Do not link the article title to itself.
 - Do not use footnotes, endnotes, citation callouts, or bibliography-style markers.
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.
 """
@@ -303,6 +307,8 @@ Formatting Constraints:
 - Incorporate retrieved context only where it improves or corrects the article.
 - Preserve and update internal links in the form [visible text](halu:target-slug "hidden context hint") when appropriate, but do not output a `## References` section or a `## See also` section.
 - Every internal halu link must include a non-empty hidden context hint.
+- The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph.
+- Do not link the article title to itself.
 - Do not use footnotes, endnotes, citation callouts, raw HTML, scripts, iframes, or fenced code blocks.
 """
 

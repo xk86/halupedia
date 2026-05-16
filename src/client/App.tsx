@@ -11,7 +11,8 @@ type Route =
   | { kind: "index" }
   | { kind: "admin" }
   | { kind: "article"; slug: string }
-  | { kind: "history"; slug: string };
+  | { kind: "history"; slug: string }
+  | { kind: "disambiguation"; slug: string };
 
 interface BacklinkItem {
   slug: string;
@@ -106,6 +107,12 @@ function parseRoute(): Route {
   }
   if (pathname.startsWith("/wiki/")) {
     const wikiPath = decodeURIComponent(pathname.slice("/wiki/".length)).replace(/^\/+|\/+$/g, "");
+    if (wikiPath.startsWith("Special:Disambiguation/")) {
+      return {
+        kind: "disambiguation",
+        slug: wikiPath.slice("Special:Disambiguation/".length),
+      };
+    }
     if (wikiPath.endsWith("/history")) {
       return {
         kind: "history",
@@ -174,7 +181,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (route.kind !== "article" && route.kind !== "history") {
+    if (route.kind !== "article" && route.kind !== "history" && route.kind !== "disambiguation") {
       setPage(null);
       setLoading(false);
       setError(null);
@@ -237,7 +244,10 @@ export function App() {
 
     (async () => {
       try {
-        const res = await fetch(`/api/page/${encodeURIComponent(route.slug)}`);
+        const apiUrl = route.kind === "disambiguation"
+          ? `/api/disambiguation/${encodeURIComponent(route.slug)}`
+          : `/api/page/${encodeURIComponent(route.slug)}`;
+        const res = await fetch(apiUrl);
         if (!res.ok) {
           const body: any = await res.json().catch(() => ({}));
           throw new Error(body?.error || `error ${res.status}`);
@@ -385,6 +395,13 @@ export function App() {
     window.history.pushState({}, "", "/admin");
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     setRoute({ kind: "admin" });
+  }, []);
+
+  const navigateToDisambiguation = useCallback((titleSegment: string) => {
+    const clean = titleSegment.replace(/^\/+|\/+$/g, "");
+    window.history.pushState({}, "", `/wiki/Special:Disambiguation/${clean}`);
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "disambiguation", slug: clean });
   }, []);
 
   const interceptArticleLinks = useCallback(
@@ -647,7 +664,7 @@ export function App() {
     };
   }, [route.kind, page, loading]);
 
-  const articleSlug = route.kind === "article" || route.kind === "history" ? route.slug : null;
+  const articleSlug = route.kind === "article" || route.kind === "history" || route.kind === "disambiguation" ? route.slug : null;
   const articleTitle = page?.article.title ?? "";
   const hasZeroLinks = page ? countInternalLinks(page.article.markdown) === 0 : false;
   const historyEmpty = (historyOpen || route.kind === "history") && !historyLoading && !historyError && revisions.length === 0;
@@ -695,6 +712,16 @@ export function App() {
     }
 
     if (!page) return null;
+
+    if (route.kind === "disambiguation") {
+      return (
+        <article className="article disambiguation-page" onClick={interceptArticleLinks}>
+          <div className="disambiguation-notice">This is a disambiguation page.</div>
+          <h1>{page.article.title}</h1>
+          <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
+        </article>
+      );
+    }
 
     if (route.kind === "history") {
       return (

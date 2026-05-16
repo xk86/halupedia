@@ -585,3 +585,81 @@ test("refresh-context can rewrite from retrieved context", async (t) => {
   assert.equal(body.refreshChanged, true);
   assert.match(body.article.markdown, /copper drawers/);
 });
+
+test("self-links are stripped from generated articles", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const body = [
+    "# Fog Registry",
+    "",
+    '**Fog Registry** is a [Fog Registry](halu:fog-registry "self link") that tracks [municipal fog](halu:municipal-fog "fog classification system") patterns.',
+  ].join("\n");
+  const llm = new QueueLlmClient(body, [
+    JSON.stringify({ items: [] }),
+    "Fog Registry tracks municipal fog patterns.",
+  ]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/page/Fog_Registry");
+  assert.equal(res.status, 200);
+  const events = (await res.text())
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const done = events.find((event) => event.type === "done");
+  assert.ok(done);
+  assert.doesNotMatch(done.article.markdown, /\(halu:fog-registry/);
+  assert.match(done.article.markdown, /\(halu:municipal-fog/);
+  assert.match(done.article.markdown, /is a Fog Registry that tracks/);
+});
+
+test("disambiguation pages can be created and retrieved via API", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const server = await createServer(databasePath, new QueueLlmClient("", []));
+
+  const createRes = await server.request("/api/disambiguation", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      title: "Mercury",
+      entries: [
+        { title: "Mercury (planet)", description: "The smallest planet in the solar system" },
+        { title: "Mercury (element)", description: "A liquid metal also known as quicksilver" },
+        { title: "Mercury (mythology)", description: "Roman messenger god" },
+      ],
+    }),
+  });
+  assert.equal(createRes.status, 200);
+  const created = await createRes.json();
+  assert.equal(created.article.isDisambiguation, true);
+  assert.match(created.article.title, /disambiguation/);
+  assert.match(created.article.markdown, /\(halu:mercury-planet/);
+  assert.match(created.article.markdown, /\(halu:mercury-element/);
+  assert.match(created.article.markdown, /\(halu:mercury-mythology/);
+
+  const getRes = await server.request("/api/disambiguation/Mercury");
+  assert.equal(getRes.status, 200);
+  const fetched = await getRes.json();
+  assert.equal(fetched.article.isDisambiguation, true);
+});
+
+test("disambiguation API rejects fewer than 2 entries", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const server = await createServer(databasePath, new QueueLlmClient("", []));
+  const res = await server.request("/api/disambiguation", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      title: "Solo",
+      entries: [{ title: "Solo (film)", description: "A space western" }],
+    }),
+  });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.error, "at least 2 entries required");
+});

@@ -1,3 +1,4 @@
+import { copyFileSync, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -1073,6 +1074,17 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   app.post("/api/admin/wipe", (c) => {
+    const dbPath = resolve(process.cwd(), runtime.app.storage.database_path);
+    if (existsSync(dbPath)) {
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      const backupPath = `${dbPath}.backup-${ts}`;
+      try {
+        copyFileSync(dbPath, backupPath);
+        logger.info("admin.backup_before_wipe", { backup: backupPath });
+      } catch (err) {
+        logger.error("admin.backup_failed", { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
     wipeGeneratedCorpus(db);
     logger.warn("admin.wipe_generated_corpus");
     return c.json({ ok: true });

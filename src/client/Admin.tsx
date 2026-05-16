@@ -26,6 +26,7 @@ export function Admin({ onNavigate }: Props) {
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
   const [wiping, setWiping] = useState(false);
+  const [wipeConfirm, setWipeConfirm] = useState(false);
   const [deleteSlug, setDeleteSlug] = useState("");
   const [deleting, setDeleting] = useState(false);
 
@@ -64,6 +65,7 @@ export function Admin({ onNavigate }: Props) {
 
   const wipeDatabase = useCallback(async () => {
     setWiping(true);
+    setWipeConfirm(false);
     setError(null);
     try {
       const res = await fetch("/api/admin/wipe", { method: "POST" });
@@ -117,9 +119,22 @@ export function Admin({ onNavigate }: Props) {
         <button className="all-entries-more-btn" onClick={reloadRuntime} disabled={reloading}>
           {reloading ? "Reloading..." : "Reload config and prompts"}
         </button>
-        <button className="all-entries-more-btn" onClick={wipeDatabase} disabled={wiping}>
-          {wiping ? "Wiping..." : "Wipe generated corpus"}
+        <button className="all-entries-more-btn admin-danger-btn" onClick={() => setWipeConfirm(true)} disabled={wiping || wipeConfirm}>
+          {wiping ? "Wiping..." : "Reset corpus"}
         </button>
+        {wipeConfirm && (
+          <div className="restore-confirm" role="dialog" aria-label="Confirm corpus reset">
+            <strong>Delete all generated entries?</strong>
+            <div>
+              <button type="button" onClick={wipeDatabase} disabled={wiping}>
+                {wiping ? "Wiping..." : "Yes, reset"}
+              </button>
+              <button type="button" onClick={() => setWipeConfirm(false)} disabled={wiping}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         <span className="all-entries-count">Model: {overview.model}</span>
       </div>
 

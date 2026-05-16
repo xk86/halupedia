@@ -3,6 +3,7 @@ import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
+import { toWikiSegment } from "./wikiPath";
 
 type Route =
   | { kind: "home" }
@@ -125,6 +126,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [headerSearchDraft, setHeaderSearchDraft] = useState("");
+  const [searchSuggestOpen, setSearchSuggestOpen] = useState(false);
   const [linkMenu, setLinkMenu] = useState<LinkMenuState | null>(null);
   const [linkMenuBusy, setLinkMenuBusy] = useState(false);
   const [linkMenuError, setLinkMenuError] = useState<string | null>(null);
@@ -969,18 +971,56 @@ export function App() {
           className="header-search"
           onSubmit={(e) => {
             e.preventDefault();
-            navigateToSearch(headerSearchDraft);
+            if (headerSearchDraft.trim()) {
+              navigateToArticle(toWikiSegment(headerSearchDraft.trim()));
+              setHeaderSearchDraft("");
+            }
           }}
         >
-          <input
-            type="search"
-            className="header-search-input"
-            placeholder="Search the register..."
-            value={headerSearchDraft}
-            onChange={(e) => setHeaderSearchDraft(e.target.value)}
-          />
-          <button type="submit" className="header-search-submit" disabled={!headerSearchDraft.trim()}>
-            Search
+          <div className="header-search-wrap">
+            <input
+              type="search"
+              className="header-search-input"
+              placeholder="Search the register..."
+              value={headerSearchDraft}
+              onChange={(e) => setHeaderSearchDraft(e.target.value)}
+              onFocus={() => setSearchSuggestOpen(true)}
+              onBlur={() => setTimeout(() => setSearchSuggestOpen(false), 150)}
+            />
+            {searchSuggestOpen && headerSearchDraft.trim() && (
+              <ul className="header-search-suggest">
+                <li>
+                  <button
+                    type="button"
+                    className="header-search-suggest-item"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      navigateToArticle(toWikiSegment(headerSearchDraft.trim()));
+                      setHeaderSearchDraft("");
+                      setSearchSuggestOpen(false);
+                    }}
+                  >
+                    Go to: <strong>{headerSearchDraft.trim()}</strong>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="header-search-suggest-item"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      navigateToSearch(headerSearchDraft);
+                      setSearchSuggestOpen(false);
+                    }}
+                  >
+                    Search: <strong>{headerSearchDraft.trim()}</strong>
+                  </button>
+                </li>
+              </ul>
+            )}
+          </div>
+          <button type="submit" className="header-search-submit">
+            Go
           </button>
         </form>
       </header>

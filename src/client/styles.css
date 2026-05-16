@@ -176,8 +176,49 @@ a:hover {
   margin-top: -0.3rem;
 }
 
-.header-search-input {
+.header-search-wrap {
   flex: 1;
+  position: relative;
+}
+
+.header-search-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  background: var(--parchment);
+  border: 1px solid var(--rule);
+  box-shadow: 0 4px 12px rgba(30, 24, 18, 0.15);
+}
+
+.header-search-suggest-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--serif);
+  font-size: 0.92rem;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  transition: background 80ms ease;
+}
+.header-search-suggest-item:hover {
+  background: var(--blockquote-bg);
+}
+.header-search-suggest-item strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.header-search-input {
+  width: 100%;
+  box-sizing: border-box;
   font-family: var(--serif);
   font-size: 0.95rem;
   color: var(--ink);
@@ -588,6 +629,16 @@ a:hover {
   cursor: pointer;
 }
 
+button.admin-danger-btn {
+  background: #9b2c2c;
+  border-color: #9b2c2c;
+  color: #fff;
+}
+button.admin-danger-btn:hover:not(:disabled) {
+  background: #c53030;
+  border-color: #c53030;
+}
+
 .old-revision-preview {
   padding-top: 0.4rem;
   border-top: 1px solid var(--rule);
@@ -643,6 +694,16 @@ a:hover {
   color: var(--ink);
   background: rgba(255, 255, 255, 0.22);
   border-radius: 0.12em;
+}
+
+.article .math-block {
+  display: block;
+  margin: 1.25rem 0;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 2px;
+  overflow-x: auto;
+  text-align: center;
 }
 
 .article ul, .article ol {

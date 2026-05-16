@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, saveArticle } from "../src/server/db";
-import { extractInternalLinks, markdownToPlainText, renderMarkdown } from "../src/server/markdown";
+import { extractInternalLinks, markdownToPlainText, renderMarkdown, normalizeMarkdown } from "../src/server/markdown";
+import { slugify, slugToTitle, titleToWikiSegment, wikiSegmentToTitle, normalizeCanonicalTitle } from "../src/server/slug";
 import type { LlmClient } from "../src/server/llm";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "../src/server/summary";
@@ -155,4 +156,102 @@ test("retrieveContext returns matching lexical context from indexed article chun
   assert.equal(packet.relatedTitles[0], "Archive Entry");
   assert.equal(packet.sourceArticles[0].slug, "archive-entry");
   assert.match(packet.context, /Glow fruit grows in the crater orchard/);
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Link stability: slug ↔ title ↔ wikiSegment round-trips                   */
+/* -------------------------------------------------------------------------- */
+
+test("slugify is idempotent", () => {
+  const inputs = ["Glow Fruit", "glow-fruit", "  Glow  Fruit  ", "GLOW_FRUIT"];
+  for (const input of inputs) {
+    const slug = slugify(input);
+    assert.equal(slugify(slug), slug, `slugify not idempotent for "${input}"`);
+  }
+});
+
+test("slug → title → wikiSegment → title round-trips are stable", () => {
+  const slugs = ["glow-fruit", "cultural-dissipation-factor", "san-francisco", "clock-orchard"];
+  for (const slug of slugs) {
+    const title = slugToTitle(slug);
+    const segment = titleToWikiSegment(title);
+    const backToTitle = wikiSegmentToTitle(segment);
+    assert.equal(backToTitle, title, `round-trip failed for slug "${slug}": "${title}" → "${segment}" → "${backToTitle}"`);
+  }
+});
+
+test("normalizeCanonicalTitle capitalizes first letter only when no mixed case", () => {
+  assert.equal(normalizeCanonicalTitle("delaware"), "Delaware");
+  assert.equal(normalizeCanonicalTitle("iPhone"), "iPhone");
+  assert.equal(normalizeCanonicalTitle("mcDonald"), "mcDonald");
+  assert.equal(normalizeCanonicalTitle("San Francisco"), "San Francisco");
+});
+
+test("halu links render to stable wiki paths", () => {
+  const markdown = [
+    '[Delaware](halu:delaware "A mid-Atlantic administrative zone")',
+    '[Cultural Dissipation Factor](halu:cultural-dissipation-factor "measure of energetic exchange")',
+    '[San Francisco](halu:san-francisco "fog registry district")',
+  ].join("\n\n");
+  const html = renderMarkdown(markdown);
+  assert.match(html, /href="\/wiki\/Delaware"/);
+  assert.match(html, /href="\/wiki\/Cultural_dissipation_factor"/);
+  assert.match(html, /href="\/wiki\/San_francisco"/);
+  assert.doesNotMatch(html, /halu:/);
+  assert.doesNotMatch(html, /hidden context/i);
+});
+
+test("halu links inside bold/italic render correctly", () => {
+  const html = renderMarkdown('The **[Dover Ash Bureau](halu:dover-ash-bureau "municipal ash authority")** governs all deposits.');
+  assert.match(html, /href="\/wiki\/Dover_ash_bureau"/);
+  assert.match(html, /<strong>/);
+});
+
+test("hidden hints are stripped from rendered output", () => {
+  const html = renderMarkdown('[Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar of the Dover Ash Bureau")');
+  assert.match(html, /href="\/wiki\/Cornelius_blackpenny"/);
+  assert.doesNotMatch(html, /Chief Registrar/);
+  assert.doesNotMatch(html, /title="/);
+});
+
+/* -------------------------------------------------------------------------- */
+/*  KaTeX: inline and block                                                   */
+/* -------------------------------------------------------------------------- */
+
+test("inline TeX inside article text renders math-inline spans", () => {
+  const html = renderMarkdown("The coefficient $\\alpha$ governs drift.");
+  assert.match(html, /class="[^"]*math-inline/);
+  assert.doesNotMatch(html, /\$\\alpha\$/);
+});
+
+test("block TeX renders as math-block div", () => {
+  const html = renderMarkdown([
+    "The formula is:",
+    "",
+    "$$",
+    "E = mc^2",
+    "$$",
+    "",
+    "This is important.",
+  ].join("\n"));
+  assert.match(html, /class="[^"]*math-block/);
+  assert.match(html, /class="[^"]*katex/);
+  assert.doesNotMatch(html, /\$\$/);
+  assert.match(html, /This is important/);
+});
+
+test("single-line block TeX renders correctly", () => {
+  const html = renderMarkdown("$$E = mc^2$$");
+  assert.match(html, /class="[^"]*math-block/);
+});
+
+test("blockquote markdown renders correctly for attributed quotes", () => {
+  const html = renderMarkdown([
+    '> "The ledger does not forgive."',
+    '>',
+    '> — [Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar")',
+  ].join("\n"));
+  assert.match(html, /<blockquote>/);
+  assert.match(html, /href="\/wiki\/Cornelius_blackpenny"/);
+  assert.doesNotMatch(html, /Chief Registrar/);
 });

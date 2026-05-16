@@ -11,7 +11,8 @@ import { createConsoleLogger, type Logger } from "./logger";
 import { articleSectionMarkdown, extractInternalLinks, extractTitle, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, replaceArticleSection, sectionSlice, stripFootnoteArtifacts, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
 import { getPrompt, renderTemplate } from "./prompts";
 import { indexArticleChunks, retrieveContext } from "./retrieval";
-import { slugToTitle, slugify, titleToWikiSegment, wikiSegmentToTitle } from "./slug";
+import { normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToTitle } from "./slug";
+import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
 import type { LinkSelectionSuggestion, LinkSuggestion, SeeAlsoCandidate } from "./types";
 
 const RESERVED_PATHS = new Set(["", "search", "all-entries", "admin", "api", "assets"]);
@@ -37,7 +38,37 @@ export interface CreateAppOptions {
 }
 
 function titleMatchesRequested(title: string, requestedTitle: string, requestedSlug: string): boolean {
-  return slugify(title) === requestedSlug && titleToWikiSegment(title) === titleToWikiSegment(requestedTitle);
+  return (
+    slugify(title) === requestedSlug &&
+    titleToWikiSegment(normalizeCanonicalTitle(title)) === titleToWikiSegment(normalizeCanonicalTitle(requestedTitle))
+  );
+}
+
+function leadSubjectMatchesRequested(markdown: string, requestedTitle: string, requestedSlug: string): boolean {
+  const body = stripTopLevelSections(markdown.replace(/^#\s+.+?$/m, "").trim(), ["References", "See also"]);
+  const firstParagraph = body
+    .split(/\n{2,}/)
+    .map((part) => part.replace(/^#+\s+/gm, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\s+/g, " ").trim())
+    .find(Boolean);
+  if (!firstParagraph) return true;
+
+  const subjectMatch = firstParagraph.match(
+    /^(.{1,120}?)\s+(?:refers?\s+to|is|are|was|were|describes|denotes|constitutes|represents)\b/i
+  );
+  const subject = subjectMatch?.[1]?.replace(/^the\s+/i, "").trim();
+  if (!subject) return true;
+  if (slugify(subject) === requestedSlug || slugify(subject) === slugify(requestedTitle)) return true;
+
+  const words = subject.split(/\s+/).filter(Boolean);
+  const looksLikeArticleTitle =
+    words.length > 1 &&
+    words.every((word) => /^(?:and|or|of|the|a|an|in|on|for|to|with|by)$/i.test(word) || /^[A-Z][A-Za-z0-9'-]*$/.test(word));
+  return !looksLikeArticleTitle;
+}
+
+function articleSubjectMatchesRequested(markdown: string, requestedTitle: string, requestedSlug: string): boolean {
+  return titleMatchesRequested(extractTitle(markdown, requestedTitle), requestedTitle, requestedSlug)
+    && leadSubjectMatchesRequested(markdown, requestedTitle, requestedSlug);
 }
 
 type InternalArticleCandidate = {
@@ -95,6 +126,15 @@ function cachedArticleNeedsRepair(markdown: string): boolean {
     if (seeAlsoLinks.some((link) => bodyLinkSlugs.has(link.targetSlug))) return true;
   }
   return false;
+}
+
+function rewriteArticleTitleHeading(markdown: string, title: string): string {
+  const normalizedTitle = normalizeCanonicalTitle(title);
+  if (!normalizedTitle) return markdown;
+  if (/^#\s+.+$/m.test(markdown)) {
+    return markdown.replace(/^#\s+.+$/m, `# ${normalizedTitle}`);
+  }
+  return `# ${normalizedTitle}\n\n${markdown.trim()}`.trim();
 }
 
 function sanitizeGeneratedBody(markdown: string): string {
@@ -220,6 +260,47 @@ async function generateSeeAlsoCandidates(
       hiddenHint: (item.hint ?? "").replace(/\s+/g, " ").trim(),
     }))
   );
+}
+
+async function generateArticleSummary(
+  llm: LlmClient,
+  promptConfig: ReturnType<typeof loadConfig>["prompts"],
+  requestedTitle: string,
+  articleMarkdown: string
+): Promise<string> {
+  const prompt = getPrompt(promptConfig, "article_summary");
+  const currentArticle = stripTopLevelSections(articleMarkdown, ["References", "See also"]).slice(0, 12000);
+  let previousSummary = "(none)";
+  let summaryFeedback = "(none)";
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const raw = await llm.chat(
+      prompt.system,
+      renderTemplate(prompt.user, {
+        slug: slugify(requestedTitle),
+        requested_title: requestedTitle,
+        current_article: currentArticle,
+        previous_summary: previousSummary,
+        summary_feedback: summaryFeedback,
+        article_excerpt: currentArticle,
+        rag_context: "",
+        link_hints: "",
+        related_titles: "",
+        parent_comment: "",
+        selected_text: "",
+        edit_instructions: "",
+        full_article: articleMarkdown.slice(0, 12000),
+      })
+    );
+    const summary = normalizeSummaryMarkdown(raw);
+    if (summary && !summaryLooksLikeLeadCopy(summary, articleMarkdown)) {
+      return summary;
+    }
+    previousSummary = summary || raw.replace(/\s+/g, " ").trim().slice(0, 360) || "(empty)";
+    summaryFeedback = "too_similar_to_lead";
+  }
+
+  return summaryMarkdownFromArticle(articleMarkdown);
 }
 
 function buildLinkedPromptSystem(promptConfig: ReturnType<typeof loadConfig>["prompts"], key: string): string {
@@ -354,7 +435,40 @@ export async function createApp(options: CreateAppOptions = {}) {
   await reloadRuntime();
 
   function canonicalPathForArticle(article: { canonicalSlug: string; title: string }) {
-    return `/wiki/${titleToWikiSegment(article.title || slugToTitle(article.canonicalSlug))}`;
+    return `/wiki/${titleToWikiSegment(normalizeCanonicalTitle(article.title || slugToTitle(article.canonicalSlug)))}`;
+  }
+
+  function repairStoredArticleTitle(article: {
+    slug: string;
+    canonicalSlug: string;
+    title: string;
+    markdown: string;
+    html: string;
+    summaryMarkdown?: string;
+    plain_text: string;
+    generated_at: number;
+  }) {
+    const normalizedTitle = normalizeCanonicalTitle(article.title || slugToTitle(article.canonicalSlug));
+    const normalizedMarkdown = rewriteArticleTitleHeading(article.markdown, normalizedTitle);
+    if (normalizedTitle === article.title && normalizedMarkdown === article.markdown) return article;
+
+    const links = extractInternalLinks(normalizedMarkdown);
+    const repairedArticle = {
+      ...article,
+      title: normalizedTitle,
+      markdown: normalizedMarkdown,
+      plain_text: markdownToPlainText(normalizedMarkdown),
+      html: rewriteArticleHtml(renderMarkdown(normalizedMarkdown), links),
+      generated_at: Date.now(),
+    };
+    saveArticle(
+      db,
+      repairedArticle,
+      links,
+      Array.from(new Set([repairedArticle.slug, repairedArticle.canonicalSlug])),
+      { operation: "repair", instructions: "Normalize lowercase-first canonical title." }
+    );
+    return repairedArticle;
   }
 
   function rewriteArticleHtml(articleHtml: string, links: Array<{ targetSlug: string }>) {
@@ -380,6 +494,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       revertedFromRevisionId?: number | null;
     } = {}
   ) {
+    const normalizedTitle = normalizeCanonicalTitle(requestedTitle);
+    const normalizedBodyMarkdown = rewriteArticleTitleHeading(bodyMarkdown, normalizedTitle);
     const deterministicReferences = dedupeArticleCandidates(
       retrieved.sourceArticles.map((article) => ({
         slug: article.slug,
@@ -388,28 +504,30 @@ export async function createApp(options: CreateAppOptions = {}) {
       }))
     );
 
-    const bodyLinkSlugs = new Set(extractInternalLinks(bodyMarkdown).map((link) => link.targetSlug));
+    const bodyLinkSlugs = new Set(extractInternalLinks(normalizedBodyMarkdown).map((link) => link.targetSlug));
     const seeAlso = (await generateSeeAlsoCandidates(
       llm,
       runtime.prompts,
-      requestedTitle,
-      bodyMarkdown,
+      normalizedTitle,
+      normalizedBodyMarkdown,
       retrieved.context,
       hints,
       retrieved.relatedTitles
     ).catch(() => []))
       .filter((candidate) => candidate.slug !== slug && !bodyLinkSlugs.has(candidate.slug))
       .slice(0, 7);
-    const markdown = assembleArticleMarkdown(bodyMarkdown, deterministicReferences, seeAlso);
+    const markdown = assembleArticleMarkdown(normalizedBodyMarkdown, deterministicReferences, seeAlso);
+    const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, normalizedTitle, markdown)
+      .catch(() => summaryMarkdownFromArticle(markdown));
 
     const normalizedSlug = slugify(slug);
     const article = {
       slug: normalizedSlug,
       canonicalSlug: normalizedSlug,
-      title: requestedTitle,
+      title: normalizedTitle,
       markdown,
       html: "",
-      summaryMarkdown: summaryMarkdownFromArticle(markdown),
+      summaryMarkdown,
       plain_text: markdownToPlainText(markdown),
       generated_at: Date.now(),
     };
@@ -468,7 +586,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
     const resolvedTitle = extractTitle(markdown, requestedTitle);
     const uniqueLinkCount = extractInternalLinks(markdown).length;
-    const titleOk = titleMatchesRequested(resolvedTitle, requestedTitle, slug);
+    const titleOk = articleSubjectMatchesRequested(markdown, requestedTitle, slug);
     logger.info("page.generation_attempt", {
       slug,
       title: resolvedTitle,
@@ -477,7 +595,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       retrieved_sources: retrieved.sourceArticles.length,
     });
     if (!titleOk) {
-      throw new Error(`generated article title did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
+      throw new Error(`generated article subject did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
     }
     const { article, links } = await finalizeArticle(slug, requestedTitle, markdown, retrieved, hints, { operation: "generate" });
     logger.info("page.generation_done", {
@@ -498,7 +616,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/page/:slug", async (c) => {
     const requestedSegment = c.req.param("slug");
-    const requestedTitle = wikiSegmentToTitle(requestedSegment);
+    const requestedTitle = normalizeCanonicalTitle(wikiSegmentToTitle(requestedSegment));
     const lookupSlug = slugify(requestedTitle);
     if (!lookupSlug || !requestedTitle) return c.json({ error: "invalid slug" }, 400);
     const requestedPath = `/wiki/${requestedSegment}`;
@@ -510,6 +628,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     let article = getArticleByLookup(db, lookupSlug);
     if (article) {
+      article = repairStoredArticleTitle(article);
       const cachedLinks = extractInternalLinks(article.markdown).length;
       if (!cachedArticleNeedsRepair(article.markdown)) {
         const canonicalPath = canonicalPathForArticle(article);
@@ -644,7 +763,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       ...article,
       markdown: nextMarkdown,
       html: "",
-      summaryMarkdown: summaryMarkdownFromArticle(nextMarkdown),
+      summaryMarkdown: article.summaryMarkdown || summaryMarkdownFromArticle(nextMarkdown),
       plain_text: markdownToPlainText(nextMarkdown),
       generated_at: Date.now(),
     };
@@ -720,9 +839,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       const nextMarkdown = sectionId
         ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
         : rewrittenBody;
-      const resolvedTitle = extractTitle(nextMarkdown, article.title);
-      if (!titleMatchesRequested(resolvedTitle, article.title, article.slug)) {
-        throw new Error("rewrite changed the article title unexpectedly");
+      if (!articleSubjectMatchesRequested(nextMarkdown, article.title, article.slug)) {
+        throw new Error("rewrite changed the article subject unexpectedly");
       }
 
       const { article: updatedArticle } = await finalizeArticle(article.slug, article.title, nextMarkdown, retrieved, hints, {
@@ -820,9 +938,8 @@ export async function createApp(options: CreateAppOptions = {}) {
         })
       );
       bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
-      const resolvedTitle = extractTitle(bodyMarkdown, article.title);
-      if (!titleMatchesRequested(resolvedTitle, article.title, article.slug)) {
-        return c.json({ error: "refresh changed the article title unexpectedly" }, 422);
+      if (!articleSubjectMatchesRequested(bodyMarkdown, article.title, article.slug)) {
+        return c.json({ error: "refresh changed the article subject unexpectedly" }, 422);
       }
       operation = "refresh-context-rewrite";
       instructions = "Refreshed article body from retrieved context.";

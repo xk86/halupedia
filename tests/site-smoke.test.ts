@@ -58,6 +58,29 @@ class FakeLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
+class FixedArticleLlmClient implements LlmClient {
+  constructor(private readonly markdown: string) {}
+
+  async chat(): Promise<string> {
+    return JSON.stringify({ items: [] });
+  }
+
+  async streamChat(
+    _system: string,
+    _user: string,
+    onChunk: (delta: string, accumulated: string) => void
+  ): Promise<{ content: string; finishReason: string }> {
+    onChunk(this.markdown, this.markdown);
+    return { content: this.markdown, finishReason: "stop" };
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
 class CountingLlmClient implements LlmClient {
   chatCalls = 0;
   streamCalls = 0;
@@ -177,6 +200,32 @@ async function createTestServer(options: { logger?: Logger; llmClient?: LlmClien
     request: (path: string, init?: RequestInit) =>
       app.fetch(new Request(`http://halupedia.test${path}`, init)),
   };
+}
+
+async function createServerForDatabase(
+  root: string,
+  databasePath: string,
+  options: { logger?: Logger; llmClient?: LlmClient } = {}
+) {
+  const { app } = await createApp({
+    databasePath,
+    skipLlmProbe: true,
+    logger: options.logger,
+    llmClient: options.llmClient,
+  });
+  return {
+    root,
+    request: (path: string, init?: RequestInit) =>
+      app.fetch(new Request(`http://halupedia.test${path}`, init)),
+  };
+}
+
+function parseNdjson<T>(payload: string): T[] {
+  return payload
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T);
 }
 
 test("site smoke tests cover core routes and API contracts", async (t) => {
@@ -335,5 +384,74 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.ok(entries.some((entry) => entry.event === "page.generation_attempt" && entry.fields?.slug === "fresh-page"));
     assert.ok(entries.some((entry) => entry.event === "rag.index_complete" && entry.fields?.slug === "fresh-page"));
     assert.ok(entries.some((entry) => entry.event === "page.generation_done" && entry.fields?.slug === "fresh-page"));
+  });
+
+  await t.test("generated articles do not canonize a lowercase-first request path", async (t) => {
+    const generatedServer = await createTestServer({
+      seed: false,
+      llmClient: new FixedArticleLlmClient([
+        "# invertible sexuality theorem",
+        "",
+        "A foundational postulate about pleasure vectors.",
+      ].join("\n")),
+    });
+    t.after(() => {
+      rmSync(generatedServer.root, { recursive: true, force: true });
+    });
+
+    const res = await generatedServer.request("/api/page/invertible_sexuality_theorem");
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /application\/x-ndjson/);
+
+    const packets = parseNdjson<Array<Record<string, unknown>>[number]>(await res.text());
+    const done = packets.find((packet) => packet.type === "done");
+    assert.ok(done);
+    assert.equal(done.article.title, "Invertible sexuality theorem");
+    assert.equal(done.article.markdown.startsWith("# Invertible sexuality theorem"), true);
+    assert.equal(done.canonicalPath, "/wiki/Invertible_sexuality_theorem");
+    assert.equal(done.redirectedFrom, "/wiki/invertible_sexuality_theorem");
+  });
+
+  await t.test("cached articles with lowercase-first titles are repaired before becoming canonical", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+    const databasePath = join(root, "halupedia.sqlite");
+    const db = openDatabase(databasePath);
+    const markdown = [
+      "# invertible sexuality theorem",
+      "",
+      "A foundational postulate about pleasure vectors.",
+    ].join("\n");
+
+    saveArticle(
+      db,
+      {
+        slug: "invertible-sexuality-theorem",
+        canonicalSlug: "invertible-sexuality-theorem",
+        title: "invertible sexuality theorem",
+        markdown,
+        html: renderMarkdown(markdown),
+        plain_text: markdownToPlainText(markdown),
+        generated_at: 1_715_000_000_100,
+      },
+      [],
+      ["invertible-sexuality-theorem"]
+    );
+    db.close();
+
+    const cachedServer = await createServerForDatabase(root, databasePath);
+    t.after(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    const res = await cachedServer.request("/api/page/Invertible_sexuality_theorem");
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /application\/json/);
+
+    const body = await res.json();
+    assert.equal(body.cached, true);
+    assert.equal(body.article.title, "Invertible sexuality theorem");
+    assert.equal(body.article.markdown.startsWith("# Invertible sexuality theorem"), true);
+    assert.equal(body.canonicalPath, "/wiki/Invertible_sexuality_theorem");
+    assert.equal(body.redirectedFrom, undefined);
   });
 });

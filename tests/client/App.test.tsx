@@ -230,7 +230,7 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/article/test-article/refresh-context", { method: "POST" });
   });
 
-  it("rolls back streamed rewrite progress when the server rejects a title change", async () => {
+  it("rolls back streamed rewrite progress when the server rejects a body subject change", async () => {
     const original = pagePayload({
       article: {
         ...pagePayload().article,
@@ -253,10 +253,10 @@ describe("App", () => {
         ndjsonResponse([
           {
             type: "progress",
-            html: "<h1>Maternal Energy Potential</h1><p>Rejected renamed article body.</p>",
-            markdown: "# Maternal Energy Potential\n\nRejected renamed article body.",
+            html: "<h1>Energy storage</h1><p>Maternal Energy Potential refers to rejected renamed article body.</p>",
+            markdown: "# Energy storage\n\nMaternal Energy Potential refers to rejected renamed article body.",
           },
-          { type: "error", message: "rewrite changed the article title unexpectedly" },
+          { type: "error", message: "rewrite changed the article subject unexpectedly" },
         ])
       );
     vi.stubGlobal("fetch", fetchMock);
@@ -271,7 +271,7 @@ describe("App", () => {
     await userEvent.type(screen.getByPlaceholderText("Describe your changes."), "make this article to be about your mom");
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
 
-    expect(await screen.findByText("rewrite changed the article title unexpectedly")).toBeInTheDocument();
+    expect(await screen.findByText("rewrite changed the article subject unexpectedly")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Energy storage" })).toBeInTheDocument();
     expect(screen.getByText("Original retained energy body.")).toBeInTheDocument();
     expect(screen.queryByText("Rejected renamed article body.")).not.toBeInTheDocument();

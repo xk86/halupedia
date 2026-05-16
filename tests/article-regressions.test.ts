@@ -15,8 +15,14 @@ class QueueLlmClient implements LlmClient {
     private readonly chatResponses: string[] = []
   ) {}
 
-  async chat(): Promise<string> {
-    return this.chatResponses.shift() ?? JSON.stringify({ items: [] });
+  async chat(system?: string): Promise<string> {
+    if (this.chatResponses.length) {
+      return this.chatResponses.shift()!;
+    }
+    if ((system ?? "").includes("concise summary")) {
+      return "Fallback summary for the article as a whole.";
+    }
+    return JSON.stringify({ items: [] });
   }
 
   async streamChat(
@@ -189,6 +195,41 @@ test("article generation succeeds even when the body contains zero internal link
   assert.doesNotMatch(payload, /"type":"error"/);
 });
 
+test("generated articles store an actual summary instead of the opening paragraph", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const body = [
+    "# Coal futures markets",
+    "",
+    "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources.",
+    "",
+    "Their exchanges are run by ash clerks, delayed furnace indices, and regional reserve ceremonies.",
+  ].join("\n");
+  const llm = new QueueLlmClient(body, [
+    JSON.stringify({ items: [] }),
+    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.",
+  ]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/page/Coal_futures_markets");
+  assert.equal(res.status, 200);
+  const events = (await res.text())
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const done = events.find((event) => event.type === "done");
+  assert.ok(done);
+  assert.equal(
+    done.article.summaryMarkdown,
+    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites."
+  );
+  assert.notEqual(
+    done.article.summaryMarkdown,
+    "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources."
+  );
+});
+
 test("add-link refines oversized selections before wrapping markdown", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -271,7 +312,7 @@ test("rewrite endpoint applies user instructions and preserves the article title
   assert.match(body.article.markdown, /municipal weather bureau/);
 });
 
-test("rewrite endpoint rejects generated title changes without mutating the stored article", async (t) => {
+test("rewrite endpoint rejects generated body subject changes without mutating the stored article", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -286,12 +327,12 @@ test("rewrite endpoint rejects generated title changes without mutating the stor
     markdown: originalMarkdown,
   });
 
-  const renamedRewrite = [
-    "# Maternal Energy Potential",
+  const bodyRenamedRewrite = [
+    "# Energy storage",
     "",
     "Maternal Energy Potential refers to a redirected concept that should not replace this article.",
   ].join("\n");
-  const llm = new QueueLlmClient("", [renamedRewrite, JSON.stringify({ items: [] })]);
+  const llm = new QueueLlmClient("", [bodyRenamedRewrite, JSON.stringify({ items: [] })]);
   const server = await createServer(databasePath, llm);
 
   const res = await server.request("/api/article/Energy_storage/rewrite", {
@@ -304,7 +345,7 @@ test("rewrite endpoint rejects generated title changes without mutating the stor
 
   assert.equal(res.status, 422);
   const body = await res.json();
-  assert.equal(body.error, "rewrite changed the article title unexpectedly");
+  assert.equal(body.error, "rewrite changed the article subject unexpectedly");
 
   const db = openDatabase(databasePath);
   const stored = getArticle(db, "energy-storage");

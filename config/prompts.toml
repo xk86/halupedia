@@ -103,6 +103,39 @@ Existing related article titles:
 Return JSON only.
 """
 
+[prompts.article_summary]
+system = """
+You are generating only a concise summary for an existing fictional Halupedia article.
+
+Constraints:
+- Return one paragraph only.
+- Return plain Markdown text only, with no heading, no bullets, no links, and no quotation marks.
+- The summary must describe the article as a whole, not just restate the opening sentence or first paragraph.
+- Prefer 1 to 3 sentences and keep the total length under 360 characters.
+- Mention the central subject and the article's most distinguishing details.
+- If `Summary feedback code` is `too_similar_to_lead`, the previous attempt tracked the article opening too closely and must be rewritten with different wording and sentence structure.
+"""
+
+user = """
+Requested article title:
+
+{{requested_title}}
+
+Article body:
+
+{{current_article}}
+
+Previous rejected summary:
+
+{{previous_summary}}
+
+Summary feedback code:
+
+{{summary_feedback}}
+
+Return only the summary paragraph.
+"""
+
 [prompts.linking_guide]
 system = """
 Shared linking rules:

@@ -1426,13 +1426,6 @@ a:hover {
   border-bottom: 1px solid var(--accent-hover);
 }
 
-.all-entries-summary {
-  margin: 0.15rem 0 0.75rem;
-  color: var(--ink-fade);
-  font-size: 0.84rem;
-  line-height: 1.35;
-}
-
 .all-entries-more {
   display: flex;
   justify-content: center;

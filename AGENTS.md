@@ -94,6 +94,8 @@ Related note:
 ## Preferred Change Strategy
 
 - First inspect existing modules and fit new code into the current boundaries.
+- When debugging a behavior bug, first trace the current logic path that produces it, then write tests that capture that understanding before writing any patch.
+- Prefer deterministic application logic over asking a language model to infer something an algorithm can decide. If someone has already done the hard part of the algorithmic work, reuse or adapt that logic instead of delegating it to the model.
 - If adding prompt-driven behavior, create or extend prompt keys in `config/prompts.toml` instead of embedding instructions inline.
 - If adding config, update `src/server/types.ts`, `src/server/config.ts`, and any affected runtime call sites together.
 - If adding server logic that is independently testable, extract a helper/module instead of growing one large route handler.

@@ -40,15 +40,6 @@ function groupByLetter(items: IndexItem[]): Map<string, IndexItem[]> {
   );
 }
 
-function lightMarkdownText(markdown: string): string {
-  return markdown
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[*_`~#>]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export function AllEntries({ onNavigate }: Props) {
   const [items, setItems] = useState<IndexItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -177,7 +168,6 @@ export function AllEntries({ onNavigate }: Props) {
                     >
                       {it.title}
                     </a>
-                    {it.summaryMarkdown ? <p className="all-entries-summary">{lightMarkdownText(it.summaryMarkdown)}</p> : null}
                   </li>
                 ))}
               </ul>

@@ -9,13 +9,28 @@ export function slugify(input: string): string {
     .slice(0, 120);
 }
 
+export function normalizeCanonicalTitle(title: string): string {
+  const normalized = title.replace(/\s+/g, " ").trim();
+  if (!normalized) return normalized;
+
+  const firstLetterIndex = normalized.search(/\p{L}/u);
+  if (firstLetterIndex < 0) return normalized;
+
+  const firstLetter = normalized[firstLetterIndex];
+  const rest = normalized.slice(firstLetterIndex + 1);
+  if (firstLetter === firstLetter.toUpperCase()) return normalized;
+  if (/\p{Lu}/u.test(rest)) return normalized;
+
+  return `${normalized.slice(0, firstLetterIndex)}${firstLetter.toUpperCase()}${rest}`;
+}
+
 export function slugToTitle(slug: string): string {
   if (!slug) return "Untitled";
   const title = slug
     .split("-")
     .filter(Boolean)
     .join(" ");
-  return title.charAt(0).toUpperCase() + title.slice(1);
+  return normalizeCanonicalTitle(title);
 }
 
 export function titleToWikiSegment(title: string): string {

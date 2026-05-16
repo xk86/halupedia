@@ -7,6 +7,7 @@ import { openDatabase, saveArticle } from "../src/server/db";
 import { extractInternalLinks, markdownToPlainText, renderMarkdown } from "../src/server/markdown";
 import type { LlmClient } from "../src/server/llm";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
+import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "../src/server/summary";
 
 class NoopLlmClient implements LlmClient {
   async chat(): Promise<string> {
@@ -50,6 +51,35 @@ test("renderMarkdown rewrites halu links to wiki paths", () => {
   const html = renderMarkdown('Visit [Glow Fruit](halu:glow-fruit "hidden hint") for details.');
   assert.match(html, /href="\/wiki\/Glow_fruit"/);
   assert.doesNotMatch(html, /hidden hint/);
+});
+
+test("summary helpers normalize single-paragraph summaries and detect copied leads", () => {
+  const articleMarkdown = [
+    "# Coal futures markets",
+    "",
+    "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources.",
+    "",
+    "They also rely on ceremonial pit clerks and delayed ash ledgers.",
+  ].join("\n");
+
+  assert.equal(
+    normalizeSummaryMarkdown("## Summary\n\nCoal futures markets turn buried fuel contracts into a ritualized pricing system."),
+    "Coal futures markets turn buried fuel contracts into a ritualized pricing system."
+  );
+  assert.equal(
+    summaryLooksLikeLeadCopy(
+      "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources.",
+      articleMarkdown
+    ),
+    true
+  );
+  assert.equal(
+    summaryLooksLikeLeadCopy(
+      "Coal futures markets recast buried fuel trading as a ceremonial bureaucracy built around ash ledgers and future delivery rites.",
+      articleMarkdown
+    ),
+    false
+  );
 });
 
 test("retrieveContext returns matching lexical context from indexed article chunks", async (t) => {

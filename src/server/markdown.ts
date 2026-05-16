@@ -1,6 +1,7 @@
 import MarkdownIt from "markdown-it";
+import katex from "katex";
 import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
-import type { ParsedInternalLink } from "./types";
+import type { ArticleSection, ParsedInternalLink } from "./types";
 
 const LINK_RE = /\[([^\]]+)\]\(halu:([^) "\t\r\n]+)(?:\s+"([^"]*)")?\)/g;
 
@@ -9,52 +10,6 @@ const md = new MarkdownIt({
   linkify: false,
   breaks: false,
 });
-
-const TEX_COMMANDS: Record<string, string> = {
-  alpha: "α",
-  beta: "β",
-  gamma: "γ",
-  delta: "δ",
-  epsilon: "ϵ",
-  zeta: "ζ",
-  eta: "η",
-  theta: "θ",
-  iota: "ι",
-  kappa: "κ",
-  lambda: "λ",
-  mu: "μ",
-  nu: "ν",
-  xi: "ξ",
-  pi: "π",
-  rho: "ρ",
-  sigma: "σ",
-  tau: "τ",
-  upsilon: "υ",
-  phi: "φ",
-  chi: "χ",
-  psi: "ψ",
-  omega: "ω",
-  Gamma: "Γ",
-  Delta: "Δ",
-  Theta: "Θ",
-  Lambda: "Λ",
-  Xi: "Ξ",
-  Pi: "Π",
-  Sigma: "Σ",
-  Phi: "Φ",
-  Psi: "Ψ",
-  Omega: "Ω",
-  cdot: "·",
-  times: "×",
-  pm: "±",
-  leq: "≤",
-  geq: "≥",
-  neq: "≠",
-  approx: "≈",
-  to: "→",
-  leftarrow: "←",
-  rightarrow: "→",
-};
 
 function escapeHtml(value: string): string {
   return value
@@ -65,12 +20,17 @@ function escapeHtml(value: string): string {
 }
 
 function renderInlineTeX(tex: string): string {
-  const replaced = tex
-    .trim()
-    .replace(/\\([A-Za-z]+)/g, (_match, command: string) => TEX_COMMANDS[command] ?? command)
-    .replace(/\\_/g, "_")
-    .replace(/\\\$/g, "$");
-  return escapeHtml(replaced);
+  try {
+    return katex.renderToString(tex.trim(), {
+      displayMode: false,
+      output: "html",
+      strict: "ignore",
+      throwOnError: false,
+      trust: false,
+    });
+  } catch {
+    return escapeHtml(tex.trim());
+  }
 }
 
 md.inline.ruler.before("escape", "inline_tex", (state, silent) => {
@@ -201,6 +161,24 @@ export function renderMarkdown(markdown: string): string {
   return md.render(markdown);
 }
 
+export function summaryMarkdownFromArticle(markdown: string): string {
+  const withoutTitle = markdown.replace(/^#\s+.+?$/m, "").trim();
+  const withoutDerivedSections = stripTopLevelSections(withoutTitle, ["References", "See also"]);
+  const firstParagraph =
+    withoutDerivedSections
+      .split(/\n{2,}/)
+      .map((part) => part.trim())
+      .find((part) => part && !part.startsWith("## ")) ?? "";
+  return firstParagraph
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\(halu:[^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^#+\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 360);
+}
+
 export function extractTitle(markdown: string, fallbackSlug: string): string {
   const match = markdown.match(/^#\s+(.+)$/m);
   return match?.[1]?.trim() || fallbackSlug;
@@ -211,4 +189,63 @@ export function markdownToPlainText(markdown: string): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+interface SectionRange extends ArticleSection {
+  start: number;
+  end: number;
+  heading: string;
+}
+
+function sectionRanges(markdown: string): SectionRange[] {
+  const h1 = /^#\s+.+?$/m.exec(markdown);
+  const bodyStart = h1 ? h1.index + h1[0].length : 0;
+  const headingRe = /^##\s+(.+?)\s*$/gm;
+  const headings: Array<{ title: string; start: number; end: number; raw: string }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = headingRe.exec(markdown)) !== null) {
+    headings.push({ title: match[1].trim(), start: match.index, end: match.index + match[0].length, raw: match[0] });
+  }
+
+  const ranges: SectionRange[] = [];
+  const leadEnd = headings[0]?.start ?? markdown.length;
+  const lead = markdown.slice(bodyStart, leadEnd).trim();
+  if (lead) {
+    ranges.push({ id: "lead", title: "Lead", start: bodyStart, end: leadEnd, heading: "" });
+  }
+  for (let i = 0; i < headings.length; i += 1) {
+    const heading = headings[i];
+    ranges.push({
+      id: slugify(heading.title) || `section-${i + 1}`,
+      title: heading.title,
+      start: heading.start,
+      end: headings[i + 1]?.start ?? markdown.length,
+      heading: heading.raw,
+    });
+  }
+  return ranges;
+}
+
+export function listArticleSections(markdown: string): ArticleSection[] {
+  return sectionRanges(markdown).map(({ id, title }) => ({ id, title }));
+}
+
+export function articleSectionMarkdown(markdown: string, sectionId: string): string {
+  const range = sectionRanges(markdown).find((section) => section.id === sectionId);
+  return range ? markdown.slice(range.start, range.end).trim() : markdown;
+}
+
+export function replaceArticleSection(markdown: string, sectionId: string, nextSectionMarkdown: string): string {
+  const range = sectionRanges(markdown).find((section) => section.id === sectionId);
+  if (!range) return nextSectionMarkdown.trim();
+
+  let replacement = nextSectionMarkdown.trim();
+  if (sectionId === "lead") {
+    replacement = replacement.replace(/^#\s+.+?$/m, "").replace(/^##\s+.+?$/m, "").trim();
+    replacement = replacement ? `\n\n${replacement}\n\n` : "\n\n";
+  } else if (!replacement.match(/^##\s+/m)) {
+    replacement = `${range.heading}\n\n${replacement}`;
+  }
+
+  return `${markdown.slice(0, range.start).trimEnd()}${replacement.startsWith("\n") ? "" : "\n\n"}${replacement}${replacement.endsWith("\n") ? "" : "\n\n"}${markdown.slice(range.end).trimStart()}`.trim();
 }

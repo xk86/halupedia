@@ -58,11 +58,44 @@ class FakeLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
+class CountingLlmClient implements LlmClient {
+  chatCalls = 0;
+  streamCalls = 0;
+  embedCalls = 0;
+
+  async chat(): Promise<string> {
+    this.chatCalls += 1;
+    return JSON.stringify({
+      title: "Glow Fruit",
+      hint: "A fruit referenced from the source article",
+      items: [],
+    });
+  }
+
+  async streamChat(
+    _system: string,
+    _user: string,
+    _onChunk: (delta: string, accumulated: string) => void
+  ): Promise<{ content: string; finishReason: string }> {
+    this.streamCalls += 1;
+    throw new Error("streamChat should not be called");
+  }
+
+  async embed(): Promise<number[][]> {
+    this.embedCalls += 1;
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
 function buildArticleMarkdown() {
   return [
     "# Test Article",
     "",
     "Halupedia links out to [Alpha](halu:alpha \"Alpha hint\"), [Beta](halu:beta \"Beta hint\"), [Gamma](halu:gamma \"Gamma hint\"), [Delta](halu:delta \"Delta hint\"), and [Epsilon](halu:epsilon \"Epsilon hint\").",
+    "",
+    "The Glow Fruit appears in several old notes and remains unlinked in this draft.",
   ].join("\n");
 }
 
@@ -200,6 +233,23 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.equal(body.redirectedFrom, undefined);
     assert.equal(body.backlinks.existing.length, 1);
     assert.equal(body.backlinks.existing[0].slug, "linking-article");
+    assert.match(body.backlinks.existing[0].summaryMarkdown, /This page references Test Article/);
+  });
+
+  await t.test("cached article reads never regenerate existing pages", async (t) => {
+    const llm = new CountingLlmClient();
+    const cachedServer = await createTestServer({ llmClient: llm });
+    t.after(() => {
+      rmSync(cachedServer.root, { recursive: true, force: true });
+    });
+
+    const res = await cachedServer.request("/api/page/Test_Article");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.cached, true);
+    assert.equal(llm.chatCalls, 0);
+    assert.equal(llm.streamCalls, 0);
+    assert.equal(llm.embedCalls, 0);
   });
 
   await t.test("browser entry routes serve the SPA shell and bare slugs redirect", async () => {
@@ -217,6 +267,27 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 
     const notFoundRes = await server.request("/missing.txt");
     assert.equal(notFoundRes.status, 404);
+  });
+
+  await t.test("highlight add-link updates markdown without regenerating the article", async (t) => {
+    const llm = new CountingLlmClient();
+    const linkServer = await createTestServer({ llmClient: llm });
+    t.after(() => {
+      rmSync(linkServer.root, { recursive: true, force: true });
+    });
+
+    const res = await linkServer.request("/api/article/test-article/add-link", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ selectedText: "Glow Fruit" }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    assert.equal(body.cached, true);
+    assert.match(body.article.markdown, /\[Glow Fruit\]\(halu:glow-fruit "A fruit referenced from the source article"\)/);
+    assert.equal(llm.chatCalls, 1);
+    assert.equal(llm.streamCalls, 0);
   });
 
   await t.test("core request paths emit structured page logs", async (t) => {

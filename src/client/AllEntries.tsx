@@ -6,6 +6,7 @@ interface IndexItem {
   slug: string;
   canonicalSlug?: string;
   title: string;
+  summaryMarkdown?: string;
   generatedAt: number | null;
 }
 
@@ -37,6 +38,15 @@ function groupByLetter(items: IndexItem[]): Map<string, IndexItem[]> {
       return a.localeCompare(b);
     })
   );
+}
+
+function lightMarkdownText(markdown: string): string {
+  return markdown
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_`~#>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function AllEntries({ onNavigate }: Props) {
@@ -167,6 +177,7 @@ export function AllEntries({ onNavigate }: Props) {
                     >
                       {it.title}
                     </a>
+                    {it.summaryMarkdown ? <p className="all-entries-summary">{lightMarkdownText(it.summaryMarkdown)}</p> : null}
                   </li>
                 ))}
               </ul>

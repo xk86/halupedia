@@ -5,10 +5,10 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { loadConfig } from "./config";
-import { deleteArticleBySlug, getAdminOverview, getArticleByLookup, getCanonicalSlugForTarget, listArticles, listBacklinks, listIncomingHints, openDatabase, saveArticle, searchCorpus, wipeGeneratedCorpus } from "./db";
+import { deleteArticleBySlug, getAdminOverview, getArticleByLookup, getArticleRevision, getCanonicalSlugForTarget, listArticleRevisions, listArticles, listBacklinks, listIncomingHints, openDatabase, saveArticle, searchCorpus, wipeGeneratedCorpus } from "./db";
 import { OpenAICompatClient, type LlmClient } from "./llm";
 import { createConsoleLogger, type Logger } from "./logger";
-import { extractInternalLinks, extractTitle, markdownToPlainText, normalizeMarkdown, renderMarkdown, sectionSlice, stripFootnoteArtifacts, stripTopLevelSections } from "./markdown";
+import { articleSectionMarkdown, extractInternalLinks, extractTitle, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, replaceArticleSection, sectionSlice, stripFootnoteArtifacts, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
 import { getPrompt, renderTemplate } from "./prompts";
 import { indexArticleChunks, retrieveContext } from "./retrieval";
 import { slugToTitle, slugify, titleToWikiSegment, wikiSegmentToTitle } from "./slug";
@@ -373,7 +373,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     requestedTitle: string,
     bodyMarkdown: string,
     retrieved: Awaited<ReturnType<typeof retrieveContext>>,
-    hints: string[]
+    hints: string[],
+    revision: {
+      operation?: string;
+      instructions?: string;
+      revertedFromRevisionId?: number | null;
+    } = {}
   ) {
     const deterministicReferences = dedupeArticleCandidates(
       retrieved.sourceArticles.map((article) => ({
@@ -404,12 +409,13 @@ export async function createApp(options: CreateAppOptions = {}) {
       title: requestedTitle,
       markdown,
       html: "",
+      summaryMarkdown: summaryMarkdownFromArticle(markdown),
       plain_text: markdownToPlainText(markdown),
       generated_at: Date.now(),
     };
     const links = extractInternalLinks(markdown);
     article.html = rewriteArticleHtml(renderMarkdown(markdown), links);
-    saveArticle(db, article, links, Array.from(new Set([normalizedSlug, article.canonicalSlug])));
+    saveArticle(db, article, links, Array.from(new Set([normalizedSlug, article.canonicalSlug])), revision);
     await indexArticleChunks(
       db,
       llm,
@@ -422,7 +428,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     return { article, links };
   }
 
-  async function buildArticle(slug: string, requestedTitle: string, onProgress?: (html: string) => void) {
+  async function buildArticle(slug: string, requestedTitle: string, onProgress?: (html: string, markdown: string) => void) {
     logger.info("page.generation_start", { slug, requested_title: requestedTitle });
     const hints = listIncomingHints(db, slug);
     const retrieved = await retrieveContext(
@@ -452,7 +458,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (onProgress) {
       await llm.streamChat(prompt.system, renderedUserPrompt, (_delta, accumulated) => {
         rawMarkdown = accumulated;
-        onProgress(renderMarkdown(sanitizeGeneratedBody(normalizeMarkdown(accumulated))));
+        const progressMarkdown = sanitizeGeneratedBody(normalizeMarkdown(accumulated));
+        onProgress(renderMarkdown(progressMarkdown), progressMarkdown);
       });
     } else {
       rawMarkdown = await llm.chat(prompt.system, renderedUserPrompt);
@@ -472,7 +479,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!titleOk) {
       throw new Error(`generated article title did not match requested slug: requested=${JSON.stringify(requestedTitle)} got=${JSON.stringify(resolvedTitle)}`);
     }
-    const { article, links } = await finalizeArticle(slug, requestedTitle, markdown, retrieved, hints);
+    const { article, links } = await finalizeArticle(slug, requestedTitle, markdown, retrieved, hints, { operation: "generate" });
     logger.info("page.generation_done", {
       slug,
       title: article.title,
@@ -516,6 +523,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           redirectedFrom: canonicalPath !== requestedPath ? requestedPath : undefined,
           canonicalPath,
           article,
+          sections: listArticleSections(article.markdown),
           backlinks: listBacklinks(db, article.slug),
         });
       }
@@ -538,8 +546,8 @@ export async function createApp(options: CreateAppOptions = {}) {
         };
         try {
           send({ type: "start", slug: lookupSlug, cached: false });
-          article = await buildArticle(lookupSlug, requestedTitle, (html) => {
-            send({ type: "progress", html });
+          article = await buildArticle(lookupSlug, requestedTitle, (html, markdown) => {
+            send({ type: "progress", html, markdown });
           });
           const canonicalPath = canonicalPathForArticle(article);
           send({
@@ -548,6 +556,7 @@ export async function createApp(options: CreateAppOptions = {}) {
             redirectedFrom: canonicalPath !== requestedPath ? requestedPath : undefined,
             canonicalPath,
             article,
+            sections: listArticleSections(article.markdown),
             backlinks: listBacklinks(db, article.slug),
           });
           controller.close();
@@ -635,12 +644,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       ...article,
       markdown: nextMarkdown,
       html: "",
+      summaryMarkdown: summaryMarkdownFromArticle(nextMarkdown),
       plain_text: markdownToPlainText(nextMarkdown),
       generated_at: Date.now(),
     };
     const links = extractInternalLinks(nextMarkdown);
     nextArticle.html = rewriteArticleHtml(renderMarkdown(nextMarkdown), links);
-    saveArticle(db, nextArticle, links, Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])));
+    saveArticle(db, nextArticle, links, Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])), {
+      operation: "add-link",
+      instructions: `Linked selected text: ${selectedText}`,
+    });
     await indexArticleChunks(
       db,
       llm,
@@ -655,6 +668,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       cached: true,
       canonicalPath: canonicalPathForArticle(nextArticle),
       article: nextArticle,
+      sections: listArticleSections(nextArticle.markdown),
       backlinks: listBacklinks(db, nextArticle.slug),
     });
   });
@@ -663,12 +677,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     const lookupSlug = slugify(c.req.param("slug"));
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
 
-    const body = (await c.req.json().catch(() => ({}))) as { instructions?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { instructions?: string; sectionId?: string };
     const instructions = (body.instructions ?? "").replace(/\s+/g, " ").trim().slice(0, 2500);
     if (!instructions) return c.json({ error: "missing rewrite instructions" }, 400);
 
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
+    const sectionId = (body.sectionId ?? "").trim();
+    const selectedSection = sectionId ? articleSectionMarkdown(article.markdown, sectionId) : article.markdown;
 
     const hints = listIncomingHints(db, article.slug);
     const retrieved = await retrieveContext(
@@ -684,34 +700,203 @@ export async function createApp(options: CreateAppOptions = {}) {
     );
 
     const prompt = getPrompt(runtime.prompts, "article_rewrite");
-    const raw = await llm.chat(
-      prompt.system,
-      renderTemplate(prompt.user, {
-        slug: article.slug,
-        requested_title: article.title,
-        edit_instructions: instructions,
-        current_article: article.markdown,
-        link_hints: hints.length ? hints.map((hint) => `- ${hint}`).join("\n") : "(none yet)",
-        rag_context: retrieved.context || "(none)",
-        related_titles: retrieved.relatedTitles.length ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
-        article_excerpt: "",
-        parent_comment: "",
-        selected_text: "",
-      })
-    );
+    const renderedRewritePrompt = renderTemplate(prompt.user, {
+      slug: article.slug,
+      requested_title: article.title,
+      edit_instructions: instructions,
+      current_article: selectedSection,
+      full_article: article.markdown,
+      link_hints: hints.length ? hints.map((hint) => `- ${hint}`).join("\n") : "(none yet)",
+      rag_context: retrieved.context || "(none)",
+      related_titles: retrieved.relatedTitles.length ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
+      article_excerpt: "",
+      parent_comment: "",
+      selected_text: "",
+    });
 
-    const rewrittenBody = sanitizeGeneratedBody(normalizeMarkdown(raw));
-    const resolvedTitle = extractTitle(rewrittenBody, article.title);
-    if (!titleMatchesRequested(resolvedTitle, article.title, article.slug)) {
-      return c.json({ error: "rewrite changed the article title unexpectedly" }, 422);
+    const wantsStream = c.req.query("stream") === "1" || (c.req.header("accept") ?? "").includes("application/x-ndjson");
+    const persistRewrite = async (raw: string) => {
+      const rewrittenBody = sanitizeGeneratedBody(normalizeMarkdown(raw));
+      const nextMarkdown = sectionId
+        ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
+        : rewrittenBody;
+      const resolvedTitle = extractTitle(nextMarkdown, article.title);
+      if (!titleMatchesRequested(resolvedTitle, article.title, article.slug)) {
+        throw new Error("rewrite changed the article title unexpectedly");
+      }
+
+      const { article: updatedArticle } = await finalizeArticle(article.slug, article.title, nextMarkdown, retrieved, hints, {
+        operation: sectionId ? "section-rewrite" : "rewrite",
+        instructions,
+      });
+      return {
+        cached: true,
+        canonicalPath: canonicalPathForArticle(updatedArticle),
+        article: updatedArticle,
+        sections: listArticleSections(updatedArticle.markdown),
+        backlinks: listBacklinks(db, updatedArticle.slug),
+      };
+    };
+
+    if (wantsStream) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const send = (payload: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+          try {
+            send({ type: "start", slug: article.slug, cached: false });
+            let raw = "";
+            await llm.streamChat(prompt.system, renderedRewritePrompt, (_delta, accumulated) => {
+              raw = accumulated;
+              const progressMarkdown = sanitizeGeneratedBody(normalizeMarkdown(accumulated));
+              const mergedMarkdown = sectionId
+                ? replaceArticleSection(article.markdown, sectionId, progressMarkdown)
+                : progressMarkdown;
+              send({ type: "progress", html: renderMarkdown(mergedMarkdown), markdown: mergedMarkdown });
+            });
+            const payload = await persistRewrite(raw);
+            send({ type: "done", ...payload });
+            controller.close();
+          } catch (error) {
+            send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+            controller.close();
+          }
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "content-type": "application/x-ndjson; charset=utf-8",
+          "cache-control": "no-store",
+        },
+      });
     }
 
-    const { article: updatedArticle } = await finalizeArticle(article.slug, article.title, rewrittenBody, retrieved, hints);
+    const raw = await llm.chat(prompt.system, renderedRewritePrompt);
+
+    try {
+      return c.json(await persistRewrite(raw));
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 422);
+    }
+  });
+
+  app.post("/api/article/:slug/refresh-context", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+
+    const hints = listIncomingHints(db, article.slug);
+    const retrieved = await retrieveContext(
+      db,
+      llm,
+      article.slug,
+      hints,
+      runtime.app.rag.enabled,
+      runtime.app.rag.max_results,
+      runtime.app.rag.min_score,
+      runtime.llm.embeddings.enabled,
+      logger
+    );
+    const currentBodyMarkdown = stripTopLevelSections(article.markdown, ["References", "See also"]);
+    let bodyMarkdown = currentBodyMarkdown;
+    let operation = "refresh-context";
+    let instructions = "Refreshed retrieved context and derived references.";
+    if (retrieved.context || hints.length) {
+      const prompt = getPrompt(runtime.prompts, "article_refresh");
+      const raw = await llm.chat(
+        prompt.system,
+        renderTemplate(prompt.user, {
+          slug: article.slug,
+          requested_title: article.title,
+          current_article: currentBodyMarkdown,
+          link_hints: hints.length ? hints.map((hint) => `- ${hint}`).join("\n") : "(none yet)",
+          rag_context: retrieved.context || "(none)",
+          related_titles: retrieved.relatedTitles.length ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
+          article_excerpt: "",
+          parent_comment: "",
+          selected_text: "",
+          edit_instructions: "",
+        })
+      );
+      bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
+      const resolvedTitle = extractTitle(bodyMarkdown, article.title);
+      if (!titleMatchesRequested(resolvedTitle, article.title, article.slug)) {
+        return c.json({ error: "refresh changed the article title unexpectedly" }, 422);
+      }
+      operation = "refresh-context-rewrite";
+      instructions = "Refreshed article body from retrieved context.";
+    }
+    const { article: updatedArticle } = await finalizeArticle(article.slug, article.title, bodyMarkdown, retrieved, hints, {
+      operation,
+      instructions,
+    });
+    const refreshChanged = updatedArticle.markdown !== article.markdown;
+    logger.info("page.refresh_context", {
+      slug: updatedArticle.slug,
+      changed: refreshChanged,
+      retrieved_sources: retrieved.sourceArticles.length,
+    });
     return c.json({
       cached: true,
       canonicalPath: canonicalPathForArticle(updatedArticle),
       article: updatedArticle,
+      sections: listArticleSections(updatedArticle.markdown),
       backlinks: listBacklinks(db, updatedArticle.slug),
+      refreshChanged,
+    });
+  });
+
+  app.get("/api/article/:slug/history", (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+    return c.json({ revisions: listArticleRevisions(db, article.slug) });
+  });
+
+  app.post("/api/article/:slug/revert", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { revisionId?: number };
+    const revisionId = Math.max(0, Number(body.revisionId) || 0);
+    if (!revisionId) return c.json({ error: "missing revision id" }, 400);
+    const current = getArticleByLookup(db, lookupSlug);
+    if (!current) return c.json({ error: "article not found" }, 404);
+    const revision = getArticleRevision(db, revisionId);
+    if (!revision || revision.articleSlug !== current.slug) return c.json({ error: "revision not found" }, 404);
+
+    const nextArticle = {
+      ...current,
+      title: revision.title,
+      markdown: revision.markdown,
+      html: revision.html,
+      summaryMarkdown: revision.summaryMarkdown,
+      plain_text: revision.plain_text,
+      generated_at: Date.now(),
+    };
+    const links = extractInternalLinks(nextArticle.markdown);
+    nextArticle.html = rewriteArticleHtml(renderMarkdown(nextArticle.markdown), links);
+    saveArticle(db, nextArticle, links, Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])), {
+      operation: "revert",
+      instructions: `Reverted to revision ${revision.id}.`,
+      revertedFromRevisionId: revision.id,
+    });
+    await indexArticleChunks(
+      db,
+      llm,
+      nextArticle.slug,
+      nextArticle.markdown,
+      runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
+      runtime.app.rag.chunk_size,
+      logger
+    );
+    return c.json({
+      cached: true,
+      canonicalPath: canonicalPathForArticle(nextArticle),
+      article: nextArticle,
+      sections: listArticleSections(nextArticle.markdown),
+      backlinks: listBacklinks(db, nextArticle.slug),
     });
   });
 

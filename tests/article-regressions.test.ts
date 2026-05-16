@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle } from "../src/server/db";
+import { getArticle, openDatabase, saveArticle } from "../src/server/db";
 import { createApp } from "../src/server/index";
 import type { LlmClient } from "../src/server/llm";
 import { extractInternalLinks, markdownToPlainText, renderMarkdown } from "../src/server/markdown";
@@ -84,8 +84,9 @@ test("inline TeX renders as math markup", () => {
   const html = renderMarkdown(
     "Cultural Dissipation Factor ($\\delta$): centralized systems may yield higher $\\delta$ readings."
   );
-  assert.match(html, /<span class="math-inline">δ<\/span>/);
-  assert.doesNotMatch(html, /\\delta/);
+  assert.match(html, /class="[^"]*katex/);
+  assert.match(html, /class="[^"]*math-inline/);
+  assert.doesNotMatch(html, /<img/i);
 });
 
 test("retrieveContext works with joined article lookups when RAG is enabled", async (t) => {
@@ -268,4 +269,213 @@ test("rewrite endpoint applies user instructions and preserves the article title
   const body = await res.json();
   assert.equal(body.article.title, "San Francisco");
   assert.match(body.article.markdown, /municipal weather bureau/);
+});
+
+test("rewrite endpoint rejects generated title changes without mutating the stored article", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const originalMarkdown = [
+    "# Energy storage",
+    "",
+    "Energy storage is the practice of retaining usable energy for later deployment.",
+  ].join("\n");
+  saveMarkdownArticle(databasePath, {
+    slug: "energy-storage",
+    title: "Energy storage",
+    markdown: originalMarkdown,
+  });
+
+  const renamedRewrite = [
+    "# Maternal Energy Potential",
+    "",
+    "Maternal Energy Potential refers to a redirected concept that should not replace this article.",
+  ].join("\n");
+  const llm = new QueueLlmClient("", [renamedRewrite, JSON.stringify({ items: [] })]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/article/Energy_storage/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instructions: "make this article to be about your mom",
+    }),
+  });
+
+  assert.equal(res.status, 422);
+  const body = await res.json();
+  assert.equal(body.error, "rewrite changed the article title unexpectedly");
+
+  const db = openDatabase(databasePath);
+  const stored = getArticle(db, "energy-storage");
+  const revisionCount = db
+    .prepare(`SELECT count(*) AS count FROM article_revisions WHERE article_slug = ?`)
+    .get("energy-storage") as { count: number };
+  db.close();
+
+  assert.ok(stored);
+  assert.equal(stored.title, "Energy storage");
+  assert.equal(stored.markdown, originalMarkdown);
+  assert.equal(revisionCount.count, 1);
+});
+
+test("section rewrite streams only the selected section and records revertable history", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const markdown = [
+    "# Clock Orchard",
+    "",
+    "Clock Orchard has a dry introductory paragraph.",
+    "",
+    "## History",
+    "",
+    "The orchard originally counted minutes with brass ladders.",
+    "",
+    "## Layout",
+    "",
+    "The orchard is arranged in narrow rows.",
+  ].join("\n");
+  saveMarkdownArticle(databasePath, {
+    slug: "clock-orchard",
+    title: "Clock Orchard",
+    markdown,
+  });
+
+  const rewrittenHistory = [
+    "## History",
+    "",
+    "The orchard originally counted minutes with brass ladders and a municipal bell ledger.",
+  ].join("\n");
+  const llm = new QueueLlmClient(rewrittenHistory, [JSON.stringify({ items: [] })]);
+  const server = await createServer(databasePath, llm);
+
+  const rewriteRes = await server.request("/api/article/Clock_Orchard/rewrite?stream=1", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+    body: JSON.stringify({
+      sectionId: "history",
+      instructions: "Add the municipal bell ledger to the history section.",
+    }),
+  });
+  assert.equal(rewriteRes.status, 200);
+  assert.match(rewriteRes.headers.get("content-type") ?? "", /application\/x-ndjson/);
+  const events = (await rewriteRes.text())
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.ok(events.some((event) => event.type === "progress" && event.markdown.includes("municipal bell ledger")));
+  const done = events.find((event) => event.type === "done");
+  assert.ok(done);
+  assert.match(done.article.markdown, /municipal bell ledger/);
+  assert.match(done.article.markdown, /Clock Orchard has a dry introductory paragraph/);
+  assert.match(done.article.markdown, /The orchard is arranged in narrow rows/);
+  assert.equal(done.sections.some((section: { id: string }) => section.id === "history"), true);
+
+  const historyRes = await server.request("/api/article/Clock_Orchard/history");
+  assert.equal(historyRes.status, 200);
+  const history = await historyRes.json();
+  assert.equal(history.revisions[0].operation, "section-rewrite");
+  assert.equal(history.revisions[1].operation, "update");
+
+  const revertRes = await server.request("/api/article/Clock_Orchard/revert", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ revisionId: history.revisions[1].id }),
+  });
+  assert.equal(revertRes.status, 200);
+  const reverted = await revertRes.json();
+  assert.doesNotMatch(reverted.article.markdown, /municipal bell ledger/);
+  assert.match(reverted.article.markdown, /brass ladders/);
+});
+
+test("refresh-context reports when references are already current", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const markdown = [
+    "# Stable Page",
+    "",
+    "Stable Page has a body that does not need derived reference changes.",
+  ].join("\n");
+  saveMarkdownArticle(databasePath, {
+    slug: "stable-page",
+    title: "Stable Page",
+    markdown,
+  });
+
+  const server = await createServer(databasePath, new QueueLlmClient("", [JSON.stringify({ items: [] })]));
+  const res = await server.request("/api/article/Stable_Page/refresh-context", {
+    method: "POST",
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.refreshChanged, false);
+  assert.equal(body.article.markdown, markdown);
+});
+
+test("refresh-context can rewrite from retrieved context", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const db = openDatabase(databasePath);
+  const sourceMarkdown = [
+    "# Ledger Source",
+    "",
+    "The archived ledger says the algebra office stores commas in copper drawers.",
+  ].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "ledger-source",
+      canonicalSlug: "ledger-source",
+      title: "Ledger Source",
+      markdown: sourceMarkdown,
+      html: renderMarkdown(sourceMarkdown),
+      plain_text: markdownToPlainText(sourceMarkdown),
+      generated_at: Date.now(),
+    },
+    [
+      {
+        targetSlug: "algebra",
+        visibleLabel: "Algebra",
+        hiddenHint: "copper drawers archived ledger",
+      },
+    ],
+    ["ledger-source"]
+  );
+  await indexArticleChunks(db, new QueueLlmClient(""), "ledger-source", sourceMarkdown, false, 500);
+
+  const targetMarkdown = ["# Algebra", "", "Algebra is a bureau for arranging letters."].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "algebra",
+      canonicalSlug: "algebra",
+      title: "Algebra",
+      markdown: targetMarkdown,
+      html: renderMarkdown(targetMarkdown),
+      plain_text: markdownToPlainText(targetMarkdown),
+      generated_at: Date.now(),
+    },
+    [],
+    ["algebra"]
+  );
+  db.close();
+
+  const refreshed = [
+    "# Algebra",
+    "",
+    "Algebra is a bureau for arranging letters and storing commas in copper drawers.",
+  ].join("\n");
+  const server = await createServer(databasePath, new QueueLlmClient("", [refreshed, JSON.stringify({ items: [] })]));
+  const res = await server.request("/api/article/Algebra/refresh-context", {
+    method: "POST",
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.refreshChanged, true);
+  assert.match(body.article.markdown, /copper drawers/);
 });

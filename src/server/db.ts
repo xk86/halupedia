@@ -1,7 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
-import type { ArticleRecord, BacklinkItem, ParsedInternalLink } from "./types";
+import type { ArticleRecord, ArticleRevision, BacklinkItem, ParsedInternalLink } from "./types";
+import { summaryMarkdownFromArticle } from "./markdown";
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -21,6 +22,7 @@ export function openDatabase(databasePath: string): DatabaseSync {
       title TEXT NOT NULL,
       markdown TEXT NOT NULL,
       html TEXT NOT NULL,
+      summary_markdown TEXT NOT NULL DEFAULT '',
       plain_text TEXT NOT NULL,
       generated_at INTEGER NOT NULL
     );
@@ -80,9 +82,29 @@ export function openDatabase(databasePath: string): DatabaseSync {
       alias_slug TEXT PRIMARY KEY,
       article_slug TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS article_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      markdown TEXT NOT NULL,
+      html TEXT NOT NULL,
+      summary_markdown TEXT NOT NULL DEFAULT '',
+      plain_text TEXT NOT NULL,
+      generated_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      operation TEXT NOT NULL,
+      instructions TEXT NOT NULL DEFAULT '',
+      reverted_from_revision_id INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_article_revisions_slug ON article_revisions(article_slug, created_at DESC, id DESC);
   `);
   if (!hasColumn(db, "articles", "canonical_slug")) {
     db.exec(`ALTER TABLE articles ADD COLUMN canonical_slug TEXT`);
+  }
+  if (!hasColumn(db, "articles", "summary_markdown")) {
+    db.exec(`ALTER TABLE articles ADD COLUMN summary_markdown TEXT NOT NULL DEFAULT ''`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   return db;
@@ -97,6 +119,7 @@ export function getArticle(db: DatabaseSync, slug: string): ArticleRecord | null
                 title,
                 markdown,
                 html,
+                summary_markdown AS summaryMarkdown,
                 plain_text,
                 generated_at
          FROM articles
@@ -136,19 +159,42 @@ export function saveArticle(
   db: DatabaseSync,
   article: ArticleRecord,
   links: ParsedInternalLink[],
-  aliases: string[]
+  aliases: string[],
+  revision: {
+    operation?: string;
+    instructions?: string;
+    revertedFromRevisionId?: number | null;
+  } = {}
 ): void {
   const now = article.generated_at;
+  const summaryMarkdown = article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(article.markdown);
   const insertArticle = db.prepare(`
-    INSERT INTO articles (slug, canonical_slug, title, markdown, html, plain_text, generated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO articles (slug, canonical_slug, title, markdown, html, summary_markdown, plain_text, generated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(slug) DO UPDATE SET
       canonical_slug = excluded.canonical_slug,
       title = excluded.title,
       markdown = excluded.markdown,
       html = excluded.html,
+      summary_markdown = excluded.summary_markdown,
       plain_text = excluded.plain_text,
       generated_at = excluded.generated_at
+  `);
+  const insertRevision = db.prepare(`
+    INSERT INTO article_revisions (
+      article_slug,
+      title,
+      markdown,
+      html,
+      summary_markdown,
+      plain_text,
+      generated_at,
+      created_at,
+      operation,
+      instructions,
+      reverted_from_revision_id
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const deleteLinks = db.prepare(`DELETE FROM article_links WHERE source_slug = ?`);
   const deleteAliases = db.prepare(`DELETE FROM article_aliases WHERE article_slug = ?`);
@@ -178,8 +224,22 @@ export function saveArticle(
       article.title,
       article.markdown,
       article.html,
+      summaryMarkdown,
       article.plain_text,
       now
+    );
+    insertRevision.run(
+      article.slug,
+      article.title,
+      article.markdown,
+      article.html,
+      summaryMarkdown,
+      article.plain_text,
+      article.generated_at,
+      Date.now(),
+      revision.operation ?? "update",
+      revision.instructions ?? "",
+      revision.revertedFromRevisionId ?? null
     );
     db.exec("COMMIT");
   } catch (error) {
@@ -207,6 +267,7 @@ export function listBacklinks(db: DatabaseSync, slug: string) {
               COALESCE(a.title, l.source_slug) AS title,
               l.visible_label AS visibleLabel,
               l.hidden_hint AS hiddenHint,
+              COALESCE(a.summary_markdown, '') AS summaryMarkdown,
               l.created_at AS createdAt,
               CASE WHEN a.slug IS NULL THEN 0 ELSE 1 END AS existsFlag
        FROM article_links l
@@ -228,12 +289,13 @@ export function listArticles(db: DatabaseSync, offset: number, limit: number) {
       `SELECT slug,
               COALESCE(canonical_slug, slug) AS canonicalSlug,
               title,
+              summary_markdown AS summaryMarkdown,
               generated_at AS generatedAt
        FROM articles
        ORDER BY title COLLATE NOCASE ASC
        LIMIT ? OFFSET ?`
     )
-    .all(limit, offset) as Array<{ slug: string; canonicalSlug: string; title: string; generatedAt: number }>;
+    .all(limit, offset) as Array<{ slug: string; canonicalSlug: string; title: string; summaryMarkdown: string; generatedAt: number }>;
   const totalRow = db.prepare(`SELECT COUNT(*) AS count FROM articles`).get() as { count: number };
   return {
     items,
@@ -327,4 +389,84 @@ export function deleteArticleBySlug(db: DatabaseSync, lookupSlug: string) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+export function listArticleRevisions(db: DatabaseSync, lookupSlug: string): ArticleRevision[] {
+  const article = getArticleByLookup(db, lookupSlug);
+  if (!article) return [];
+  const select = db
+    .prepare(
+      `SELECT id,
+              article_slug AS articleSlug,
+              title,
+              markdown,
+              html,
+              summary_markdown AS summaryMarkdown,
+              plain_text,
+              generated_at AS generatedAt,
+              created_at AS createdAt,
+              operation,
+              instructions,
+              reverted_from_revision_id AS revertedFromRevisionId
+       FROM article_revisions
+       WHERE article_slug = ?
+       ORDER BY created_at DESC, id DESC`
+    );
+  let revisions = select.all(article.slug) as unknown as ArticleRevision[];
+  if (revisions.length === 0) {
+    const summaryMarkdown = article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(article.markdown);
+    db.prepare(
+      `INSERT INTO article_revisions (
+        article_slug,
+        title,
+        markdown,
+        html,
+        summary_markdown,
+        plain_text,
+        generated_at,
+        created_at,
+        operation,
+        instructions,
+        reverted_from_revision_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      article.slug,
+      article.title,
+      article.markdown,
+      article.html,
+      summaryMarkdown,
+      article.plain_text,
+      article.generated_at,
+      article.generated_at,
+      "baseline",
+      "Initial history snapshot.",
+      null
+    );
+    revisions = select.all(article.slug) as unknown as ArticleRevision[];
+  }
+  return revisions;
+}
+
+export function getArticleRevision(db: DatabaseSync, id: number): ArticleRevision | null {
+  return (
+    db
+      .prepare(
+        `SELECT id,
+                article_slug AS articleSlug,
+                title,
+                markdown,
+                html,
+                summary_markdown AS summaryMarkdown,
+                plain_text,
+                generated_at AS generatedAt,
+                created_at AS createdAt,
+                operation,
+                instructions,
+                reverted_from_revision_id AS revertedFromRevisionId
+         FROM article_revisions
+         WHERE id = ?`
+      )
+      .get(id) as ArticleRevision | undefined
+  ) ?? null;
 }

@@ -203,14 +203,15 @@ Tone and Vibe Constraints:
 - You may (and should) cover explicit, racy, sexual, violent, and problematic topics.
 - Keep the inaccuracies mundane and grounded, not mystical and elaborate.
 - Treat nonsense as serious- don't "hypothetical" or "pseudo" your way around topics: everything should be taken at face value and treated like a real thing.
-- Never use the phrase "pseudoscience" or "quasi-" around things that may not exist. Confidently assert they exist.
+- Never use the phrase "pseudoscience" or "quasi-" or "controversial" around things that may not exist. Confidently assert they exist.
 
 Because you are rewriting an article, tread the rewrite instructions the user gives as gospel and prefer any tone or ideas they bring up to ones already present in the article.
 
 Formatting Constraints:
 - Output restricted Markdown only.
-- Return the full rewritten article, not a diff or notes.
-- Begin with a single level-1 heading containing exactly the requested article title.
+- Return rewritten Markdown only, not a diff or notes.
+- If the current article field contains a full article, return the full rewritten article and begin with a single level-1 heading containing exactly the requested article title.
+- If the current article field contains one section, return only that rewritten section.
 - Keep the article on the same topic as the requested article title.
 - Incorporate the user's rewrite instructions directly into the article.
 - Preserve and update internal links in the form [visible text](halu:target-slug "hidden context hint") when appropriate, but do not output a `## References` section or a `## See also` section.
@@ -245,6 +246,49 @@ Suggested related existing Halupedia topics:
 {{related_titles}}
 
 Return the full rewritten article as Markdown.
+"""
+
+[prompts.article_refresh]
+system = """
+You are refreshing one existing Halupedia article using newly retrieved local context.
+
+Tone and Vibe Constraints:
+- Preserve the fictional encyclopedia tone and the existing subject.
+- Everything remains fictional and local to Halupedia canon.
+
+Formatting Constraints:
+- Output restricted Markdown only.
+- Return the full refreshed article, not a diff or notes.
+- Begin with a single level-1 heading containing exactly the requested article title.
+- Keep the article on the same topic as the requested article title.
+- Incorporate retrieved context only where it improves or corrects the article.
+- Preserve and update internal links in the form [visible text](halu:target-slug "hidden context hint") when appropriate, but do not output a `## References` section or a `## See also` section.
+- Every internal halu link must include a non-empty hidden context hint.
+- Do not use footnotes, endnotes, citation callouts, raw HTML, scripts, iframes, or fenced code blocks.
+"""
+
+user = """
+Requested article title:
+
+{{requested_title}}
+
+Current article:
+
+{{current_article}}
+
+Incoming canonical references:
+
+{{link_hints}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Suggested related existing Halupedia topics:
+
+{{related_titles}}
+
+Return the full refreshed article as Markdown.
 """
 
 [prompts.identity]

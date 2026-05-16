@@ -74,6 +74,7 @@ export interface ArticleRecord {
   title: string;
   markdown: string;
   html: string;
+  summaryMarkdown?: string;
   plain_text: string;
   generated_at: number;
 }
@@ -83,6 +84,7 @@ export interface PagePayload {
   redirectedFrom?: string;
   canonicalPath?: string;
   article: ArticleRecord;
+  sections?: ArticleSection[];
   backlinks: {
     existing: BacklinkItem[];
     unwritten: BacklinkItem[];
@@ -100,5 +102,26 @@ export interface BacklinkItem {
   title: string;
   visibleLabel: string;
   hiddenHint: string;
+  summaryMarkdown?: string;
   createdAt: number;
+}
+
+export interface ArticleRevision {
+  id: number;
+  articleSlug: string;
+  title: string;
+  markdown: string;
+  html: string;
+  summaryMarkdown: string;
+  plain_text: string;
+  generatedAt: number;
+  createdAt: number;
+  operation: string;
+  instructions: string;
+  revertedFromRevisionId: number | null;
+}
+
+export interface ArticleSection {
+  id: string;
+  title: string;
 }

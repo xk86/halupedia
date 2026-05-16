@@ -5,6 +5,7 @@ interface BacklinkItem {
   title: string;
   visibleLabel: string;
   hiddenHint: string;
+  summaryMarkdown?: string;
   createdAt: number;
 }
 
@@ -16,6 +17,15 @@ interface SidebarProps {
     unwritten: BacklinkItem[];
   } | null;
   onNavigate: (slug: string) => void;
+}
+
+function lightMarkdownText(markdown: string): string {
+  return markdown
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_`~#>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function Sidebar({ articleSlug, articleTitle, backlinks, onNavigate }: SidebarProps) {
@@ -55,7 +65,7 @@ export function Sidebar({ articleSlug, articleTitle, backlinks, onNavigate }: Si
                         >
                           {item.title}
                         </a>
-                        <span className="sb-hint">{item.hiddenHint}</span>
+                        <span className="sb-hint">{lightMarkdownText(item.summaryMarkdown || item.hiddenHint)}</span>
                       </li>
                     ))}
                   </ul>
@@ -77,7 +87,7 @@ export function Sidebar({ articleSlug, articleTitle, backlinks, onNavigate }: Si
                         >
                           {item.title}
                         </a>
-                        <span className="sb-hint">{item.hiddenHint}</span>
+                        <span className="sb-hint">{lightMarkdownText(item.hiddenHint)}</span>
                       </li>
                     ))}
                   </ul>

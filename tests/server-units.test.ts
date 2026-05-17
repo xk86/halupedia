@@ -151,6 +151,20 @@ test("extractInternalLinks dedupes targets and ignores invalid links", () => {
   ]);
 });
 
+test("extractInternalLinks accepts halu links with unterminated quoted hints", () => {
+  const links = extractInternalLinks(
+    'The page cites [Hyper-attachment](halu:hyper-attachment "the biological drive toward permanent sexual bonding).',
+  );
+
+  assert.deepEqual(links, [
+    {
+      targetSlug: "hyper-attachment",
+      visibleLabel: "Hyper-attachment",
+      hiddenHint: "the biological drive toward permanent sexual bonding",
+    },
+  ]);
+});
+
 test("renderMarkdown rewrites halu links to wiki paths using visible text", () => {
   const html = renderMarkdown(
     'Visit [Glow Fruit](halu:glow-fruit "hidden hint") for details.',
@@ -181,7 +195,6 @@ test("loadConfig resolves prompt manifest file references", () => {
   const articlePrompt = getPrompt(prompts, "article");
   assert.match(articlePrompt.system, /shared_article_rules|formatting|article/i);
   assert.equal(articlePrompt.model, "heavy");
-});
   assert.doesNotMatch(articlePrompt.system, /\{\{shared_article_rules\}\}/);
 });
 

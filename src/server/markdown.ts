@@ -3,7 +3,7 @@ import katex from "katex";
 import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
 import type { ArticleSection, ParsedInternalLink } from "./types";
 
-export const LINK_RE = /\[([^\]]+)\]\(halu:([^)"\t\r\n ]+)-?\s*(?:"([^"]*)")?\)/g;
+export const LINK_RE = /\[([^\]]+)\]\(halu:([^)"\t\r\n ]+)-?\s*(?:"([^"\r\n)]*)"?\s*)?\)/g;
 
 export function buildHaluLink(title: string, slug: string, hint: string): string {
   return `[${title}](halu:${slug} "${hint.replace(/"/g, "'")}")`;

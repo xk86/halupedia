@@ -1582,16 +1582,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       deterministicReferences,
       [],
     );
-    // Attempt to repair any halu links the normalizer couldn't parse
-    logger.debug("save.article_immediate.repairing_links", { slug: canonicalSlug });
-    const repaired = await repairMalformedHaluLinks(
-      assembled,
-      lightLlm,
-      runtime.prompts,
-      logger,
-    );
-    logger.debug("save.article_immediate.links_repaired", { slug: canonicalSlug });
-    const markdown = stripSelfLinks(repaired, canonicalSlug);
+    // Link repair happens in post-processing, not here
+    // This allows the article to be saved immediately without waiting for LLM calls
+    const markdown = stripSelfLinks(assembled, canonicalSlug);
 
     const article = {
       slug: canonicalSlug,
@@ -1649,8 +1642,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     const normalizedSlug = slugify(slug);
     logger.debug("post_process.start", { slug: normalizedSlug });
     try {
+      // Repair malformed halu links in the background (after article is saved)
+      logger.debug("post_process.repairing_links", { slug: normalizedSlug });
+      const repairedBodyMarkdown = await repairMalformedHaluLinks(
+        normalizedBodyMarkdown,
+        lightLlm,
+        runtime.prompts,
+        logger,
+      );
+      logger.debug("post_process.links_repaired", { slug: normalizedSlug });
+
       const bodyLinkSlugs = new Set(
-        extractInternalLinks(normalizedBodyMarkdown).map(
+        extractInternalLinks(repairedBodyMarkdown).map(
           (link) => link.targetSlug,
         ),
       );
@@ -1661,7 +1664,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           lightLlm,
           runtime.prompts,
           normalizedTitle,
-          normalizedBodyMarkdown,
+          repairedBodyMarkdown,
           retrieved.context,
           hints,
           retrieved.relatedTitles,
@@ -1700,7 +1703,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
       const markdown = stripSelfLinks(
         assembleArticleMarkdown(
-          normalizedBodyMarkdown,
+          repairedBodyMarkdown,
           deterministicReferences,
           seeAlso,
         ),
@@ -1764,7 +1767,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       llm,
       normalizedSlug,
       getArticleByLookup(db, normalizedSlug)?.markdown ??
-        normalizedBodyMarkdown,
+        repairedBodyMarkdown,
       runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
       runtime.app.rag.chunk_size,
       logger,
@@ -1855,6 +1858,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger.warn("page.title_mismatch", { slug, got: resolvedTitle });
     }
     onStatus?.("Resolving canon...");
+    // Build article WITHOUT link repair (repair happens in post-processing)
     const { article, links, normalizedTitle, normalizedBodyMarkdown } =
       await saveArticleImmediately(slug, requestedTitle, markdown, retrieved, {
         operation: "generate",
@@ -1862,6 +1866,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     logger.info("page.generated", { slug, links: links.length, sources: retrieved.sourceArticles.length });
 
     logger.debug("build.article_returning", { slug: article.slug });
+    // Post-processing: link repair, see-also, summary, indexing
     trackGeneration(
       postProcessArticle(
         article.slug,

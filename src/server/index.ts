@@ -1582,12 +1582,14 @@ export async function createApp(options: CreateAppOptions = {}) {
       [],
     );
     // Attempt to repair any halu links the normalizer couldn't parse
+    logger.debug("save.article_immediate.repairing_links", { slug: canonicalSlug });
     const repaired = await repairMalformedHaluLinks(
       assembled,
       lightLlm,
       runtime.prompts,
       logger,
     );
+    logger.debug("save.article_immediate.links_repaired", { slug: canonicalSlug });
     const markdown = stripSelfLinks(repaired, canonicalSlug);
 
     const article = {
@@ -1647,6 +1649,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           (link) => link.targetSlug,
         ),
       );
+      logger.debug("post_process.generating_see_also", { slug: normalizedSlug });
       const seeAlso = (
         await generateSeeAlsoCandidates(
           llm,
@@ -1664,6 +1667,7 @@ export async function createApp(options: CreateAppOptions = {}) {
             candidate.slug !== slug && !bodyLinkSlugs.has(candidate.slug),
         )
         .slice(0, 7);
+      logger.debug("post_process.see_also_generated", { slug: normalizedSlug, count: seeAlso.length });
 
       const existing = getArticleByLookup(db, normalizedSlug);
       if (!existing) return;
@@ -1691,6 +1695,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         ),
         slug,
       );
+      logger.debug("post_process.generating_summary", { slug: normalizedSlug });
       const summaryMarkdown = await generateArticleSummary(
         llm,
         lightLlm,
@@ -1698,6 +1703,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         normalizedTitle,
         markdown,
       ).catch(() => summaryMarkdownFromArticle(markdown));
+      logger.debug("post_process.summary_generated", { slug: normalizedSlug });
 
       const freshCheck = getArticleByLookup(db, normalizedSlug);
       if (
@@ -1737,6 +1743,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
     }
 
+    logger.debug("post_process.indexing_chunks", { slug: normalizedSlug, rag_enabled: runtime.app.rag.enabled, embeddings_enabled: runtime.llm.embeddings.enabled });
     await indexArticleChunks(
       db,
       llm,
@@ -1764,6 +1771,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     logger.debug("build.article_start", { slug });
     onStatus?.("Gathering references...");
     const hints = listIncomingHints(db, slug);
+    logger.debug("build.article_rag_retrieving", { slug, incoming_hints: hints.length });
     const retrieved = await retrieveContext(
       db,
       llm,
@@ -1776,6 +1784,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.llm.embeddings.enabled,
       logger,
     );
+    logger.debug("build.article_rag_retrieved", {
+      slug,
+      sources: retrieved.sourceArticles.length,
+      related_titles: retrieved.relatedTitles.length,
+      context_length: retrieved.context?.length ?? 0,
+    });
 
     const prompt = getPrompt(runtime.prompts, "article");
     const selectedLlm = prompt.model === "light" ? lightLlm : llm;
@@ -1791,6 +1805,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       parent_comment: "",
     });
 
+    logger.debug("build.article_generating_body", { slug, rag_sources: retrieved.sourceArticles.length, link_hints: hints.length });
     onStatus?.("Writing...");
     let rawMarkdown = "";
     if (onProgress) {
@@ -1811,6 +1826,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         thinking: prompt.thinking,
       });
     }
+    logger.debug("build.article_body_generated", { slug, body_length: rawMarkdown.length });
 
     let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
     const resolvedTitle = extractTitle(markdown, requestedTitle);
@@ -2415,12 +2431,23 @@ export async function createApp(options: CreateAppOptions = {}) {
       .map((s) => slugify(s))
       .filter(Boolean);
 
+    const rewriteReason = selectionRange ? "selection_edit" : sectionId ? "section_edit" : "full_rewrite";
+    logger.debug("rewrite.starting", {
+      slug: lookupSlug,
+      reason: rewriteReason,
+      references_mode: explicitSlugs.length > 0 ? "explicit" : ragEnabled ? "rag_query" : "automatic",
+      explicit_refs: explicitSlugs.length,
+      rag_query_length: ragQuery.length,
+      instructions_length: instructions.length,
+    });
+
     const hints = listIncomingHints(db, article.slug);
     let retrieved: Awaited<ReturnType<typeof retrieveContext>>;
 
     if (explicitSlugs.length > 0) {
       // User explicitly selected references — use them directly, skip automatic RAG.
       // Also include saved prior-session references for continuity.
+      logger.debug("rewrite.using_explicit_references", { slug: lookupSlug, count: explicitSlugs.length });
       const savedRefSlugs = getLatestArticleReferences(db, article.slug).map((r) => r.slug);
       const allDirectSlugs = Array.from(new Set([...explicitSlugs, ...savedRefSlugs]));
       const direct = retrieveDirectArticleContext(
@@ -2611,6 +2638,12 @@ export async function createApp(options: CreateAppOptions = {}) {
           send({ type: "start", slug: article.slug, cached: false });
 
           const rewrite = (async () => {
+            logger.debug("rewrite.generating", {
+              slug: article.slug,
+              operation: operationName,
+              rag_sources: retrieved.sourceArticles.length,
+              selected_text_length: selectionRange ? selectionRange.end - selectionRange.start : 0,
+            });
             let raw = "";
             await selectedLlm.streamChat(
               renderedSystemPrompt,
@@ -2646,7 +2679,16 @@ export async function createApp(options: CreateAppOptions = {}) {
               },
               { thinking: prompt.thinking },
             );
+            logger.debug("rewrite.generated", {
+              slug: article.slug,
+              operation: operationName,
+              rewrite_length: raw.length,
+            });
             const payload = await persistRewrite(raw);
+            logger.debug("rewrite.persisted", {
+              slug: article.slug,
+              operation: operationName,
+            });
             send({ type: "done", ...payload });
             close();
           })().catch((error) => {
@@ -2671,14 +2713,30 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
     }
 
+    logger.debug("rewrite.generating", {
+      slug: article.slug,
+      operation: operationName,
+      rag_sources: retrieved.sourceArticles.length,
+      selected_text_length: selectionRange ? selectionRange.end - selectionRange.start : 0,
+    });
     const raw = await selectedLlm.chat(
       renderedSystemPrompt,
       renderedRewritePrompt,
       { thinking: prompt.thinking },
     );
+    logger.debug("rewrite.generated", {
+      slug: article.slug,
+      operation: operationName,
+      rewrite_length: raw.length,
+    });
 
     try {
-      return c.json(await persistRewrite(raw));
+      const result = await persistRewrite(raw);
+      logger.debug("rewrite.persisted", {
+        slug: article.slug,
+        operation: operationName,
+      });
+      return c.json(result);
     } catch (error) {
       return c.json(
         { error: error instanceof Error ? error.message : String(error) },

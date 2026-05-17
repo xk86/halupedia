@@ -55,6 +55,8 @@ Title and Link Text Rules:
 - Lists may be lists of lists.
 - When writing lists, prefer concise encyclopedic entries with parallel structure and consistent formatting.
 - When writing lists, use bullet lists by default and only use numbered lists when order or sequence is semantically important.
+- When writing lists, each item is a link to a potentially new page.
+- When writing lists, you generally do not describe the items in great detail (except as the halu: hint...)
 - If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.
 - Prefer linking the first mention of notable entities in the prose body before repeating them unlinked later.
 - The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
@@ -94,7 +96,7 @@ Return the full article as Markdown, not notes.
 
 [prompts.see_also]
 system = """
-You are generating only `See also` suggestions for a fictional encyclopedia article.
+You are generating only `See also` suggestions for a fictional Wikipedia article.
 
 Constraints:
 - Return JSON only.
@@ -141,10 +143,14 @@ Constraints:
 - Return one paragraph only.
 - Return plain Markdown text only, with no heading, no bullets, no links, and no quotation marks.
 - The summary must describe the article as a whole, not just restate the opening sentence or first paragraph.
-- Prefer 1 to 3 sentences and keep the total length under 360 characters.
+- Prefer 1 to 3 sentences and keep the total to about a paragraph.
 - Mention the central subject and the article's most distinguishing details.
 - If `Summary feedback code` is `too_similar_to_lead`, the previous attempt tracked the article opening too closely and must be rewritten with different wording and sentence structure.
+- Never refer to articles as "satirical", "pseudo-scientific", etc- take everything at face value and write your summary plainly and neutrally.
+- Do not be self-referential or refer to articles as "articles"- if you're describing Concept, you write the summary by describing the concept in brief.
+- Do not introduce or frame your summary- it should be as dense as possible.
 """
+
 
 user = """
 Requested article title:
@@ -165,6 +171,25 @@ Summary feedback code:
 
 Return only the summary paragraph.
 """
+
+[prompts.random_page]
+system = """
+You are selecting a single random Halupedia article URL to generate next.
+
+Constraints:
+- Return exactly one path and no explanation.
+- The path must start with `wiki/`.
+- The path must contain a compact encyclopedia-style page title using underscores between words.
+- Choose a specific, interesting fictional encyclopedia topic rather than a broad category.
+- Do not choose an existing real Wikipedia-style famous subject unless you transform it into a Halupedia-specific concept.
+"""
+
+user = """
+Return one random article path in this exact form:
+
+wiki/Page_name
+"""
+
 
 [prompts.linking_guide]
 system = """
@@ -349,26 +374,29 @@ system = """
 You generate "Did you know..." facts for a fictional encyclopedia homepage.
 
 Constraints:
-- Return JSON only.
-- Return an object with key `items`.
-- `items` must be an array of objects, one per article provided.
-- Each object must contain a single key `fact`.
-- Each fact must be a single sentence fragment that completes the phrase "Did you know..."
-- Begin each fact with a lowercase word (no leading capital).
+- Return only one fact.
+- Give one fun fact from the article that completes the sentence "Did you know...".
+- Do not include "Did you know" in your response.
+- Start your completion with "... ".
+- Include the provided Markdown article title link naturally in the fact.
+- Preserve the Markdown link exactly as provided.
 - Facts should highlight a surprising, amusing, or absurd detail from the article.
 - Prefer specific, concrete claims over vague descriptions.
-- Do not repeat the article title verbatim at the start of the fact.
-- Keep each fact under 160 characters.
-- Do not include links, markdown, or formatting.
+- Keep the fact under 220 characters.
+- Do not add headings, bullets, JSON, code fences, commentary, or extra facts.
 - Maintain the confident, wrong, encyclopedic tone of the source material.
 """
 
 user = """
-Did you know? Generate one surprising fact per article below.
+Article title link:
 
-{{dyk_articles}}
+{{article_title}}
 
-Return JSON only.
+Article:
+
+{{article_excerpt}}
+
+Return only the fact.
 """
 
 [prompts.comment]

@@ -1,7 +1,10 @@
 # AGENTS
 
-This file is for future Codex sessions working in this fork of Halupedia. Treat it as the local operating manual for the project as it exists here, not as a generic upstream summary.
+This file is for future Codex and Claude sessions working in this fork of Halupedia. Treat it as the local operating manual for the project as it exists here, not as a generic upstream summary.
 
+For the love of christ never ever commit examples to this specific data/halupedia version or anything the user may reference in debug logs as articles. The last thing you should be doing is seeing a slug like "example-local-slug" and telling THE GENERAL PROMPT THAT EVERYBODY SEES IN THE CODE to use that as an example. This is a local instance, and I'm developing it live, so there are going to be really weird things that get pasted into the logs. Grepping logs and shit is generally not to be taken literally for tests or examples.
+
+you also generally want to avoid giving specific examples that are named, and avoid modifying or instructing the vibe and tone of the encyclopedia with your language when modifying prompts- even when asked, you need to be very mindful of your phrasing and to not insert language that would divulge from the tone and vibe of the prompt you found in the codebase and are modifying.
 ## Mission
 
 Halupedia is a local-first fictional encyclopedia engine.

@@ -1203,7 +1203,8 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
   assert.equal(body.featured.title, "Index Lamp");
   assert.equal(body.didYouKnow.length, 1);
   assert.equal(body.didYouKnow[0].slug, "index-lamp");
-  assert.equal(body.didYouKnow[0].fact, "... [Index Lamp](halu:index-lamp \"Index Lamp\") secretly reconcile canal tax ledgers after dusk.");
+  // DYK facts use /wiki/ path links, not halu links — ensureDykHasSourceLink converts any halu link emitted by the LLM
+  assert.equal(body.didYouKnow[0].fact, "... [Index Lamp](/wiki/Index_Lamp) secretly reconcile canal tax ledgers after dusk.");
   assert.equal(chatCalls, 1);
 });
 

@@ -169,6 +169,7 @@ export function App() {
   const [copySlugMessage, setCopySlugMessage] = useState<string | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => initialThemeMode());
   const articleRef = useRef<HTMLElement | null>(null);
+  const editTrayRef = useRef<HTMLElement | null>(null);
   const inFlightSlugRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -831,6 +832,43 @@ export function App() {
     };
   }, [route.kind, page, loading]);
 
+  // Scroll edit tray into view when it opens, and manage the selection highlight.
+  // We use the CSS Custom Highlight API (CSS.highlights) if available so we can
+  // keep a visual mark on the selected text without modifying the article DOM.
+  useEffect(() => {
+    const HIGHLIGHT_NAME = "halu-selection";
+    if (!editOpen || !editSelectedText) {
+      // Clean up any lingering highlight when the tray closes
+      if (typeof CSS !== "undefined" && CSS.highlights) {
+        CSS.highlights.delete(HIGHLIGHT_NAME);
+      }
+      return;
+    }
+
+    // Scroll tray into view
+    editTrayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // Re-apply the highlight using the current DOM selection range, if still present
+    if (typeof CSS === "undefined" || !CSS.highlights) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+    try {
+      const range = selection.getRangeAt(0);
+      // CSS.highlights requires the Highlight constructor to be available
+      if (typeof (globalThis as any).Highlight === "undefined") return;
+      const highlight = new (globalThis as any).Highlight(range);
+      CSS.highlights.set(HIGHLIGHT_NAME, highlight);
+    } catch {
+      // Browser may not support this; degrade gracefully
+    }
+
+    return () => {
+      if (typeof CSS !== "undefined" && CSS.highlights) {
+        CSS.highlights.delete(HIGHLIGHT_NAME);
+      }
+    };
+  }, [editOpen, editSelectedText]);
+
   const articleSlug = route.kind === "article" || route.kind === "history" || route.kind === "disambiguation" ? route.slug : null;
   const articleDisplayTitle = page?.article.displayTitle || page?.article.title || "";
   const articleTitle = page?.article.title ?? "";
@@ -845,6 +883,8 @@ export function App() {
     } catch {
       setCopySlugMessage("Could not copy slug.");
     }
+    // Auto-clear the confirmation after 2 s so it doesn't linger
+    window.setTimeout(() => setCopySlugMessage(null), 2000);
   }, [page]);
 
   const mainView = useMemo(() => {
@@ -1051,7 +1091,7 @@ export function App() {
         </div>
         {copySlugMessage ? <div className="status">{copySlugMessage}</div> : null}
         {editOpen ? (
-          <section className="edit-tray" aria-label="Edit article">
+          <section className="edit-tray" aria-label="Edit article" ref={editTrayRef}>
             <div className="edit-tray-row">
               <label>
                 Section

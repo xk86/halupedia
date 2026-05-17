@@ -106,6 +106,31 @@ export function openDatabase(databasePath: string): DatabaseSync {
       generated_at INTEGER NOT NULL,
       payload_json TEXT NOT NULL
     );
+
+    -- Each row is one historical homepage snapshot, newest-first via DESC index.
+    CREATE TABLE IF NOT EXISTS homepage_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      generated_at INTEGER NOT NULL,
+      payload_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_homepage_history_generated
+      ON homepage_history(generated_at DESC);
+
+    -- Articles used as references during a save/edit/refresh, grouped by saved_at.
+    -- saved_at matches the article's generated_at for that event, making it a
+    -- foreign-key-free join: SELECT ... WHERE article_slug = ? ORDER BY saved_at DESC.
+    CREATE TABLE IF NOT EXISTS article_references (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      saved_at INTEGER NOT NULL,
+      referenced_slug TEXT NOT NULL,
+      referenced_title TEXT NOT NULL,
+      referenced_summary_markdown TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_article_references_slug
+      ON article_references(article_slug, saved_at DESC);
   `);
   if (!hasColumn(db, "articles", "canonical_slug")) {
     db.exec(`ALTER TABLE articles ADD COLUMN canonical_slug TEXT`);
@@ -503,13 +528,123 @@ export function getHomepageCache(db: DatabaseSync): HomepagePayload | null {
 }
 
 export function saveHomepageCache(db: DatabaseSync, payload: HomepagePayload): void {
-  db.prepare(
-    `INSERT INTO homepage_cache (id, generated_at, payload_json)
-     VALUES (1, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       generated_at = excluded.generated_at,
-       payload_json = excluded.payload_json`
-  ).run(payload.generatedAt, JSON.stringify(payload));
+  const json = JSON.stringify(payload);
+  db.exec("BEGIN");
+  try {
+    // Update the single current-cache row
+    db.prepare(
+      `INSERT INTO homepage_cache (id, generated_at, payload_json)
+       VALUES (1, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         generated_at = excluded.generated_at,
+         payload_json = excluded.payload_json`,
+    ).run(payload.generatedAt, json);
+
+    // Append to history so users can browse prior sets
+    db.prepare(
+      `INSERT INTO homepage_history (generated_at, payload_json) VALUES (?, ?)`,
+    ).run(payload.generatedAt, json);
+
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+/**
+ * Return the most-recent `limit` historical homepage snapshots, newest first.
+ * Does not include the `expiresAt` field (it is no longer meaningful for history).
+ */
+export function listHomepageHistory(
+  db: DatabaseSync,
+  limit: number,
+): HomepagePayload[] {
+  const rows = db
+    .prepare(
+      `SELECT generated_at AS generatedAt, payload_json AS payloadJson
+       FROM homepage_history
+       ORDER BY generated_at DESC, id DESC
+       LIMIT ?`,
+    )
+    .all(Math.max(1, limit)) as Array<{
+    generatedAt: number;
+    payloadJson: string;
+  }>;
+
+  return rows.flatMap((row) => {
+    try {
+      const parsed = JSON.parse(row.payloadJson) as HomepagePayload;
+      return [{ ...parsed, generatedAt: row.generatedAt }];
+    } catch {
+      return [];
+    }
+  });
+}
+
+export interface ArticleReference {
+  slug: string;
+  title: string;
+  summaryMarkdown: string;
+}
+
+/**
+ * Persist the set of articles used as references during a save event.
+ * `savedAt` should equal the article's `generated_at` for that event so the
+ * set can be retrieved without a separate foreign key.
+ */
+export function saveArticleReferences(
+  db: DatabaseSync,
+  articleSlug: string,
+  savedAt: number,
+  references: ArticleReference[],
+): void {
+  if (references.length === 0) return;
+  const insert = db.prepare(
+    `INSERT INTO article_references
+       (article_slug, saved_at, referenced_slug, referenced_title, referenced_summary_markdown)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  db.exec("BEGIN");
+  try {
+    for (const ref of references) {
+      insert.run(articleSlug, savedAt, ref.slug, ref.title, ref.summaryMarkdown ?? "");
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+/**
+ * Return the most-recent set of references saved for an article.
+ * Returns an empty array when no references have been saved yet.
+ */
+export function getLatestArticleReferences(
+  db: DatabaseSync,
+  articleSlug: string,
+): ArticleReference[] {
+  // Find the timestamp of the most recent save event for this article
+  const latest = db
+    .prepare(
+      `SELECT saved_at FROM article_references
+       WHERE article_slug = ?
+       ORDER BY saved_at DESC
+       LIMIT 1`,
+    )
+    .get(articleSlug) as { saved_at: number } | undefined;
+  if (!latest) return [];
+
+  return db
+    .prepare(
+      `SELECT referenced_slug AS slug,
+              referenced_title AS title,
+              referenced_summary_markdown AS summaryMarkdown
+       FROM article_references
+       WHERE article_slug = ? AND saved_at = ?`,
+    )
+    .all(articleSlug, latest.saved_at) as unknown as ArticleReference[];
 }
 
 export function countArticles(db: DatabaseSync): number {

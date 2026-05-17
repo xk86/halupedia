@@ -889,11 +889,24 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-style: italic;
 }
 
+/* Custom highlight for persisting the selection mark while the edit tray is open */
+::highlight(halu-selection) {
+  background-color: var(--accent, #c9a227);
+  color: inherit;
+  opacity: 0.35;
+}
+
+.homepage-timer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
 .homepage-timer {
   display: inline-flex;
   align-items: center;
   min-height: 1.6rem;
-  margin-bottom: 0.75rem;
   padding: 0.2rem 0.5rem;
   border: 1px solid var(--rule);
   border-radius: 4px;
@@ -901,6 +914,54 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 0.75rem;
   color: var(--ink-fade);
   background: var(--parchment-deep);
+}
+
+.homepage-history-btn {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--parchment-deep);
+  color: var(--ink-fade);
+  cursor: pointer;
+}
+
+.homepage-history-btn:hover:not(:disabled) {
+  background: var(--parchment);
+  color: var(--ink);
+}
+
+.homepage-history-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  background: var(--parchment-deep);
+}
+
+.homepage-history-nav button {
+  font-size: 0.78rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--parchment);
+  cursor: pointer;
+}
+
+.homepage-history-nav button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.homepage-history-label {
+  flex: 1;
+  text-align: center;
+  color: var(--ink-fade);
+  font-family: var(--mono);
 }
 
 .homepage-panels {

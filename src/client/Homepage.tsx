@@ -30,6 +30,13 @@ export function Homepage({ onNavigate }: Props) {
   const [error, setError] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
+  // History: list of prior homepage snapshots and which one is being previewed
+  const [history, setHistory] = useState<HomepageData[] | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+
   const loadHomepage = useCallback(async (cancelled: () => boolean) => {
     return fetch("/api/homepage")
       .then((r) => r.json())
@@ -69,6 +76,24 @@ export function Homepage({ onNavigate }: Props) {
     return () => clearInterval(interval);
   }, []);
 
+  const loadHistory = useCallback(async () => {
+    if (historyLoading) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch("/api/homepage/history");
+      const body = await res.json() as { history: HomepageData[] };
+      if (!res.ok) throw new Error("Failed to load history");
+      setHistory(body.history);
+      setHistoryOpen(true);
+      setHistoryIndex(body.history.length > 0 ? 0 : null);
+    } catch {
+      setHistoryError("Could not load homepage history.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyLoading]);
+
   const handleClick = (slug: string) => (e: React.MouseEvent) => {
     e.preventDefault();
     onNavigate(toWikiSegment(slug));
@@ -89,9 +114,62 @@ export function Homepage({ onNavigate }: Props) {
     ? "Loading homepage cache..."
     : `Homepage refreshes in ${formatDuration(secondsRemaining)}`;
 
+  // Whichever snapshot is being displayed (history preview or current)
+  const displayData = historyOpen && history && historyIndex !== null
+    ? history[historyIndex] ?? null
+    : data;
+
   return (
     <article className="article homepage">
-      <div className="homepage-timer">{timerText}</div>
+      <div className="homepage-timer-row">
+        <div className="homepage-timer">{timerText}</div>
+        <button
+          type="button"
+          className="homepage-history-btn"
+          onClick={historyOpen ? () => { setHistoryOpen(false); setHistoryIndex(null); } : loadHistory}
+          disabled={historyLoading}
+          aria-label="View homepage history"
+        >
+          {historyOpen ? "Current" : historyLoading ? "Loading..." : "History"}
+        </button>
+      </div>
+
+      {historyError && (
+        <p className="homepage-empty">{historyError}</p>
+      )}
+
+      {/* History navigation bar — shown when browsing past snapshots */}
+      {historyOpen && history && history.length > 0 && (
+        <div className="homepage-history-nav">
+          <button
+            type="button"
+            disabled={historyIndex === null || historyIndex <= 0}
+            onClick={() => setHistoryIndex((i) => (i !== null && i > 0 ? i - 1 : i))}
+            aria-label="Newer snapshot"
+          >
+            ← Newer
+          </button>
+          <span className="homepage-history-label">
+            {historyIndex !== null
+              ? new Date(history[historyIndex].generatedAt).toLocaleString()
+              : ""}
+            {" "}({historyIndex !== null ? historyIndex + 1 : "?"} of {history.length})
+          </span>
+          <button
+            type="button"
+            disabled={historyIndex === null || historyIndex >= history.length - 1}
+            onClick={() => setHistoryIndex((i) => (i !== null && i < history.length - 1 ? i + 1 : i))}
+            aria-label="Older snapshot"
+          >
+            Older →
+          </button>
+        </div>
+      )}
+
+      {historyOpen && history && history.length === 0 && (
+        <p className="homepage-empty">No prior homepage snapshots yet.</p>
+      )}
+
       <h1>Halupedia</h1>
       <p>
         A local fictional encyclopedia whose canon accumulates over time. Articles seed future articles through
@@ -102,37 +180,37 @@ export function Homepage({ onNavigate }: Props) {
         <p className="homepage-empty">Could not load homepage content.</p>
       )}
 
-      {data && !data.featured && data.didYouKnow.length === 0 && (
+      {displayData && !displayData.featured && displayData.didYouKnow.length === 0 && (
         <p className="homepage-empty">
           No articles yet. Search for a topic to generate your first entry.
         </p>
       )}
 
-      {data && (
+      {displayData && (
         <div className="homepage-panels">
-          {data.featured && (
+          {displayData.featured && (
             <section className="homepage-featured">
               <h2>Featured article</h2>
               <div className="homepage-featured-card">
                 <h3>
                   <a
-                    href={`/wiki/${toWikiSegment(data.featured.title)}`}
-                    onClick={handleClick(data.featured.title)}
+                    href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
+                    onClick={handleClick(displayData.featured.title)}
                   >
-                    {data.featured.title}
+                    {displayData.featured.title}
                   </a>
                 </h3>
-                {data.featured.summaryMarkdown && (
+                {displayData.featured.summaryMarkdown && (
                   <div
                     className="homepage-summary"
                     onClick={handleRenderedClick}
-                    dangerouslySetInnerHTML={{ __html: renderSummaryHtml(data.featured.summaryMarkdown) }}
+                    dangerouslySetInnerHTML={{ __html: renderSummaryHtml(displayData.featured.summaryMarkdown) }}
                   />
                 )}
                 <a
                   className="homepage-read-more"
-                  href={`/wiki/${toWikiSegment(data.featured.title)}`}
-                  onClick={handleClick(data.featured.title)}
+                  href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
+                  onClick={handleClick(displayData.featured.title)}
                 >
                   Read full article →
                 </a>
@@ -142,9 +220,9 @@ export function Homepage({ onNavigate }: Props) {
 
           <section className="homepage-dyk">
             <h2>Did you know...</h2>
-            {data.didYouKnow.length > 0 ? (
+            {displayData.didYouKnow.length > 0 ? (
               <ul>
-                {data.didYouKnow.map((item) => (
+                {displayData.didYouKnow.map((item) => (
                   <li
                     key={item.slug}
                     onClick={handleRenderedClick}

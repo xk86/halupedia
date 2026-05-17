@@ -18,11 +18,15 @@ import {
   listArticleRevisions,
   listArticles,
   listBacklinks,
+  listHomepageHistory,
   type IncomingHint,
   listIncomingHints,
   openDatabase,
   renameArticleSlug,
   saveArticle,
+  saveArticleReferences,
+  getLatestArticleReferences,
+  type ArticleReference,
   saveHomepageCache,
   getRandomSuggestions,
   searchCorpus,
@@ -370,6 +374,228 @@ function normalizeSelectionText(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 220);
 }
 
+/**
+ * Strip inline markdown formatting (bold, italic, links) while building a
+ * map from each plain-text character index → its position in the raw markdown.
+ * Used so we can locate a rendered-text selection inside the raw markdown source.
+ *
+ * Limitations: block-level constructs (headings, bullets) are passed through
+ * as-is since selections come from rendered inline content.
+ */
+function stripInlineMarkdownWithPositions(
+  md: string,
+): { plain: string; posMap: number[] } {
+  const posMap: number[] = [];
+  let plain = "";
+  let i = 0;
+
+  while (i < md.length) {
+    // Bold: **...** — skip opening/closing markers, include inner text
+    if (md[i] === "*" && md[i + 1] === "*") {
+      i += 2;
+      continue;
+    }
+
+    // Bold: __...__ — same treatment
+    if (md[i] === "_" && md[i + 1] === "_") {
+      i += 2;
+      continue;
+    }
+
+    // Link or halu-link: [label](url "hint") — include only the label chars,
+    // skip the [, ](url) parts so the visible label is mapped to label positions.
+    if (md[i] === "[") {
+      const labelEnd = md.indexOf("]", i + 1);
+      if (labelEnd >= 0 && md[labelEnd + 1] === "(") {
+        const parenClose = md.indexOf(")", labelEnd + 2);
+        if (parenClose >= 0) {
+          for (let j = i + 1; j < labelEnd; j++) {
+            plain += md[j];
+            posMap.push(j);
+          }
+          i = parenClose + 1;
+          continue;
+        }
+      }
+    }
+
+    // Italic: * or _ (single) — skip the marker character
+    if (
+      (md[i] === "*" || md[i] === "_") &&
+      md[i + 1] !== "*" &&
+      md[i + 1] !== "_"
+    ) {
+      i++;
+      continue;
+    }
+
+    // Inline code: `code` — include content, skip backticks
+    if (md[i] === "`") {
+      const closeBacktick = md.indexOf("`", i + 1);
+      if (closeBacktick >= 0) {
+        for (let j = i + 1; j < closeBacktick; j++) {
+          plain += md[j];
+          posMap.push(j);
+        }
+        i = closeBacktick + 1;
+        continue;
+      }
+    }
+
+    plain += md[i];
+    posMap.push(i);
+    i++;
+  }
+
+  return { plain, posMap };
+}
+
+/**
+ * Extend a markdown range outward to include any enclosing formatting markers
+ * (bold **, italic *, link [label](url)) that straddle the current boundaries.
+ * This ensures replacement splices don't leave dangling markers.
+ */
+function extendRangeToFormattingBoundaries(
+  md: string,
+  start: number,
+  end: number,
+): { start: number; end: number } {
+  let s = start;
+  let e = end;
+
+  // Extend backward: absorb consecutive * or _ markers, and the [ of a link label
+  while (s > 0) {
+    const ch = md[s - 1];
+    if (ch === "*" || ch === "_") {
+      s--;
+    } else if (ch === "[") {
+      // We are at the start of a link label — include the opening [
+      s--;
+      break;
+    } else {
+      break;
+    }
+  }
+
+  // Extend forward: absorb closing * or _ markers, and the ](url) of a link
+  while (e < md.length) {
+    const ch = md[e];
+    if (ch === "*" || ch === "_") {
+      e++;
+    } else if (ch === "]" && md[e + 1] === "(") {
+      // End of link label — include the closing ](url) part
+      const parenClose = md.indexOf(")", e + 2);
+      if (parenClose >= 0) e = parenClose + 1;
+      break;
+    } else {
+      break;
+    }
+  }
+
+  return { start: s, end: e };
+}
+
+/**
+ * Find the markdown character range that corresponds to a plain-text selection
+ * made in the rendered article HTML.
+ *
+ * Falls back from a fast exact indexOf to a position-mapped search that
+ * accounts for inline formatting markers (bold, italic, links) between words.
+ * The returned range is extended to include any enclosing formatting markers
+ * so that splicing in a replacement doesn't leave dangling syntax.
+ *
+ * Returns null if the selection cannot be located.
+ */
+export function findSelectionRangeInMarkdown(
+  markdown: string,
+  plainTextSelection: string,
+): { start: number; end: number } | null {
+  const normalized = normalizeSelectionText(plainTextSelection);
+  if (!normalized) return null;
+
+  // Fast path: the plain text is already a verbatim substring of the markdown.
+  // Still extend to formatting boundaries so callers get a well-formed splice range.
+  const exactIdx = markdown.indexOf(normalized);
+  if (exactIdx >= 0) {
+    return extendRangeToFormattingBoundaries(
+      markdown,
+      exactIdx,
+      exactIdx + normalized.length,
+    );
+  }
+
+  // Slow path: strip inline formatting, find the selection in the plain text,
+  // then map back to the markdown positions.
+  const { plain, posMap } = stripInlineMarkdownWithPositions(markdown);
+  const plainNorm = plain.replace(/\s+/g, " ");
+  const searchLower = normalized.toLowerCase();
+  const ptIdx = plainNorm.toLowerCase().indexOf(searchLower);
+  if (ptIdx < 0) return null;
+
+  const ptEnd = ptIdx + normalized.length - 1;
+  const mdStart = posMap[ptIdx];
+  const mdEnd = posMap[ptEnd];
+  if (mdStart === undefined || mdEnd === undefined) return null;
+
+  return extendRangeToFormattingBoundaries(markdown, mdStart, mdEnd + 1);
+}
+
+/**
+ * Ensure a DYK fact string contains a link to the source article.
+ *
+ * If the fact already has a halu link pointing at `slug`, it is returned
+ * unchanged.  If the article title appears as plain text, the first occurrence
+ * is replaced with an inline halu link.  Otherwise a link is prepended to the
+ * fact so readers always have a way to navigate to the source.
+ */
+export function ensureDykHasSourceLink(
+  fact: string,
+  slug: string,
+  title: string,
+): string {
+  // DYK facts use standard wiki-path links ([Title](/wiki/Page)), not halu links.
+  // Halu links are for seeding article generation; DYK is read-only display content.
+  const wikiPath = `/wiki/${titleToWikiSegment(title)}`;
+  const titleLink = `[${title}](${wikiPath})`;
+
+  // Already contains a wiki-path link to this article → nothing to do
+  const wikiPattern = new RegExp(
+    `\\(${escapeRegExp(wikiPath)}\\)`,
+    "i",
+  );
+  if (wikiPattern.test(fact)) return fact;
+
+  // Bug guard: never insert a halu link either (shouldn't happen, but be safe)
+  const haluPattern = new RegExp(`\\(halu:${escapeRegExp(slug)}[\\s"')/]`, "i");
+  if (haluPattern.test(fact)) {
+    // Strip the halu link and replace with a wiki link — halu in DYK is wrong
+    return fact.replace(
+      new RegExp(`\\[([^\\]]+)\\]\\(halu:${escapeRegExp(slug)}[^)]*\\)`, "gi"),
+      `[$1](${wikiPath})`,
+    );
+  }
+
+  // Title appears as plain text → linkify the first occurrence
+  const titlePattern = new RegExp(
+    `(?<![\\[(/])${escapeRegExp(title)}(?![\\]])`,
+    "i",
+  );
+  const match = titlePattern.exec(fact);
+  if (match) {
+    return (
+      fact.slice(0, match.index) +
+      titleLink +
+      fact.slice(match.index + match[0].length)
+    );
+  }
+
+  // Title not present → prepend a link attribution
+  if (fact.startsWith("... ")) {
+    return `... ${titleLink}: ${fact.slice("... ".length)}`;
+  }
+  return `${titleLink} — ${fact}`;
+}
+
 function shouldRefineSelection(text: string): boolean {
   const normalized = normalizeSelectionText(text);
   return (
@@ -600,6 +826,85 @@ async function recheckArticleLinks(
   return result;
 }
 
+/**
+ * After the primary halu-link normalizer runs, scan for any `halu:` occurrences
+ * that are NOT inside a properly matched LINK_RE range. If found, send the
+ * surrounding context to a light LLM with the link_repair prompt so truly
+ * malformed links get a second chance at being fixed.
+ *
+ * This is deliberately lightweight: called only when malformed links remain.
+ */
+async function repairMalformedHaluLinks(
+  markdown: string,
+  lightLlm: LlmClient,
+  promptConfig: ReturnType<typeof loadConfig>["prompts"],
+  logger: Logger,
+): Promise<string> {
+  if (!markdown.includes("halu:")) return markdown;
+
+  // Collect ranges of already-valid halu links so we can skip them
+  const validRanges: Array<{ start: number; end: number }> = [];
+  const linkPattern = new RegExp(LINK_RE.source, LINK_RE.flags);
+  let m: RegExpExecArray | null;
+  while ((m = linkPattern.exec(markdown)) !== null) {
+    validRanges.push({ start: m.index, end: m.index + m[0].length });
+  }
+
+  // Identify positions of `halu:` that fall outside all valid ranges
+  const malformed: number[] = [];
+  let searchPos = 0;
+  while (true) {
+    const idx = markdown.indexOf("halu:", searchPos);
+    if (idx < 0) break;
+    if (!validRanges.some((r) => idx >= r.start && idx < r.end)) {
+      malformed.push(idx);
+    }
+    searchPos = idx + 1;
+  }
+
+  if (malformed.length === 0) return markdown;
+  logger.warn("link_repair.malformed_detected", { count: malformed.length });
+
+  let prompt: ReturnType<typeof getPrompt>;
+  try {
+    prompt = getPrompt(promptConfig, "link_repair");
+  } catch {
+    // Prompt not configured — skip repair
+    return markdown;
+  }
+
+  // Repair each malformed occurrence: send surrounding context to LLM
+  let result = markdown;
+  let offset = 0; // tracks position shift from prior replacements
+  for (const rawPos of malformed) {
+    const pos = rawPos + offset;
+    const contextStart = Math.max(0, pos - 120);
+    const contextEnd = Math.min(result.length, pos + 300);
+    const context = result.slice(contextStart, contextEnd);
+
+    try {
+      const repaired = await lightLlm.chat(
+        prompt.system,
+        renderTemplate(prompt.user, { context }),
+        { thinking: false },
+      );
+      if (repaired && repaired.trim() !== context.trim()) {
+        result =
+          result.slice(0, contextStart) +
+          repaired.trim() +
+          result.slice(contextEnd);
+        offset += repaired.trim().length - (contextEnd - contextStart);
+      }
+    } catch (err) {
+      logger.warn("link_repair.repair_failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return result;
+}
+
 async function generateArticleSummary(
   llm: LlmClient,
   lightLlm: LlmClient,
@@ -667,11 +972,9 @@ async function generateDidYouKnowFact(
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "did_you_know");
   const selectedLlm = prompt.model === "light" ? lightLlm : llm;
-  const articleTitleMarkdown = buildHaluLink(
-    article.title,
-    article.slug,
-    article.title,
-  );
+  // DYK facts use plain wiki-path links, not halu links.
+  // Halu links are for seeding new-article generation; DYK facts are read-only display.
+  const articleTitleMarkdown = `[${article.title}](/wiki/${titleToWikiSegment(article.title)})`;
   const raw = await selectedLlm.chat(
     prompt.system,
     renderTemplate(prompt.user, {
@@ -816,7 +1119,10 @@ async function ensureHomepageCache(
         article,
       );
       if (fact) {
-        didYouKnow.push({ slug: article.slug, title: article.title, fact });
+        // Guarantee every DYK fact links back to the source article.
+        // The LLM may or may not include a link natively; this is the fallback.
+        const linkedFact = ensureDykHasSourceLink(fact, article.slug, article.title);
+        didYouKnow.push({ slug: article.slug, title: article.title, fact: linkedFact });
       }
     } catch (error) {
       logger.warn("homepage.dyk_generation_failed", {
@@ -1261,14 +1567,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       hiddenHint: summarizeRetrievedSource(article) || article.title,
     }));
 
-    const markdown = stripSelfLinks(
-      assembleArticleMarkdown(
-        normalizedBodyMarkdown,
-        deterministicReferences,
-        [],
-      ),
-      canonicalSlug,
+    const assembled = assembleArticleMarkdown(
+      normalizedBodyMarkdown,
+      deterministicReferences,
+      [],
     );
+    // Attempt to repair any halu links the normalizer couldn't parse
+    const repaired = await repairMalformedHaluLinks(
+      assembled,
+      lightLlm,
+      runtime.prompts,
+      logger,
+    );
+    const markdown = stripSelfLinks(repaired, canonicalSlug);
 
     const article = {
       slug: canonicalSlug,
@@ -1290,6 +1601,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       Array.from(new Set([slug, canonicalSlug, article.canonicalSlug])),
       revision,
     );
+    // Persist the reference articles used during this save so they can be
+    // restored in subsequent edit sessions without a fresh RAG search.
+    const referenceEntries: ArticleReference[] = dedupeRetrievedSourceArticles(
+      retrieved.sourceArticles,
+    ).map((src) => ({
+      slug: src.slug,
+      title: src.title,
+      summaryMarkdown: src.content?.slice(0, 400) ?? "",
+    }));
+    saveArticleReferences(db, canonicalSlug, article.generated_at, referenceEntries);
     return {
       article,
       links,
@@ -1598,6 +1919,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   });
 
+  // Returns up to 50 prior homepage snapshots, newest first.
+  app.get("/api/homepage/history", (c) => {
+    const history = listHomepageHistory(db, 50);
+    return c.json({ history });
+  });
+
   app.get("/api/random-page", async (c) => {
     try {
       await reloadRuntime();
@@ -1817,6 +2144,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   });
 
+  // Returns the most-recent set of reference articles saved alongside the article.
+  app.get("/api/article/:slug/references", (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+    const references = getLatestArticleReferences(db, article.slug);
+    return c.json({ references });
+  });
+
   app.post("/api/article/:slug/add-link", async (c) => {
     const lookupSlug = slugify(c.req.param("slug"));
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
@@ -1961,15 +2298,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     const selectedText = (body.selectedText ?? "").trim();
     let selectionRange: { start: number; end: number } | null = null;
     if (selectedText) {
-      const idx = article.markdown.indexOf(selectedText);
-      if (idx < 0)
+      // Use the position-mapped finder so formatted selections (bold, links, etc.)
+      // are located correctly even when the plain-text does not appear verbatim.
+      selectionRange = findSelectionRangeInMarkdown(article.markdown, selectedText);
+      if (!selectionRange)
         return c.json({ error: "selected text not found in article" }, 422);
-      selectionRange = { start: idx, end: idx + selectedText.length };
     }
 
     const sectionId = (body.sectionId ?? "").trim();
+    // Send the actual markdown slice (not the client plain text) so the LLM
+    // sees proper markdown syntax and can return well-formed replacement markdown.
     const selectedSection = selectionRange
-      ? selectedText
+      ? article.markdown.slice(selectionRange.start, selectionRange.end)
       : sectionId
         ? articleSectionMarkdown(article.markdown, sectionId)
         : article.markdown;
@@ -2012,12 +2352,23 @@ export async function createApp(options: CreateAppOptions = {}) {
           (referencedArticle) => referencedArticle.slug,
         ),
       );
+      // Pre-seed with articles that were used as references the last time this
+      // article was saved/edited, so the context is consistent without a new search.
+      const savedRefSlugs = getLatestArticleReferences(db, article.slug).map(
+        (r) => r.slug,
+      );
+      const allDirectSlugs = Array.from(
+        new Set([
+          ...savedRefSlugs,
+          ...[...editReferences.articles, ...fuzzyTitleMatches].map(
+            (a) => a.slug,
+          ),
+        ]),
+      );
       const editRetrieved = retrieveDirectArticleContext(
         db,
         article.slug,
-        [...editReferences.articles, ...fuzzyTitleMatches].map(
-          (referencedArticle) => referencedArticle.slug,
-        ),
+        allDirectSlugs,
         runtime.app.rag.mode,
         runtime.app.rag.max_results,
         logger,
@@ -2292,6 +2643,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       operation = "refresh-context-rewrite";
       instructions = "Refreshed article body from retrieved context.";
     }
+    // Always normalize markdown formatting regardless of whether the LLM rewrote
+    // the body — this corrects whitespace, heading levels, and stray artifacts
+    // from prior edits even on a context-only refresh.
+    bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(bodyMarkdown));
     const {
       article: updatedArticle,
       normalizedTitle,

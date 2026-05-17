@@ -3,8 +3,10 @@ import katex from "katex";
 import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
 import type { ArticleSection, ParsedInternalLink } from "./types";
 
+// Matches already-normalised halu links produced by normalizeHaluLinks.
+// The slug has no spaces (slugify was applied), hints may use " or '.
 export const LINK_RE =
-  /\[([^\]]+)\]\(halu:([^)"\t\r\n ]+)-?\s*(?:"([^"\r\n)]*)"?\s*)?\)/g;
+  /\[([^\]]+)\]\(halu:([^)"'\t\r\n ]+)-?\s*(?:["']([^"'\r\n)]*?)["']?\s*)?\)/g;
 
 export function buildHaluLink(
   title: string,
@@ -77,14 +79,18 @@ export function normalizeHaluLinks(markdown: string): string {
 
     const slugStart = destinationStart + 5;
     let slugEnd = slugStart;
+    // Slug extends to the first quote character (single or double), closing paren,
+    // or newline — NOT to the first space. This allows slugs like
+    // "human-person- Junctional-Trauma-Mechanics" that the LLM sometimes emits.
     while (
       slugEnd < markdown.length &&
-      !/[)"\t\r\n ]/.test(markdown[slugEnd])
+      !/["'\t\r\n)]/. test(markdown[slugEnd])
     ) {
       slugEnd += 1;
     }
 
-    const rawSlug = markdown.slice(slugStart, slugEnd).replace(/-+$/, "");
+    // Strip trailing dashes and whitespace left from "slug- " patterns
+    const rawSlug = markdown.slice(slugStart, slugEnd).replace(/-+$/, "").trim();
     const targetSlug = slugify(rawSlug);
     if (!targetSlug) {
       output += markdown.slice(cursor, labelStart + 1);
@@ -98,9 +104,11 @@ export function normalizeHaluLinks(markdown: string): string {
 
     let hint = "";
     let linkEnd = -1;
-    if (markdown[position] === '"') {
+    // Accept both " and ' as hint delimiters
+    const quoteChar = markdown[position];
+    if (quoteChar === '"' || quoteChar === "'") {
       const hintStart = position + 1;
-      const closingQuote = markdown.indexOf('"', hintStart);
+      const closingQuote = markdown.indexOf(quoteChar, hintStart);
       const closingParen = markdown.indexOf(")", hintStart);
       if (
         closingParen >= 0 &&

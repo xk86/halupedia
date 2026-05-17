@@ -1291,6 +1291,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
   const slugGenerations = new Map<string, GenerationQueueEntry>();
   let generationSeq = 0;
+  const inFlightEdits = new Set<string>(); // Track slugs with in-flight edits to prevent stale overwrites
   const maintenance = new MaintenanceScheduler(logger);
 
   function trackGeneration<T>(promise: Promise<T>): Promise<T> {
@@ -1624,7 +1625,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       summaryMarkdown: src.content?.slice(0, 400) ?? "",
     }));
     saveArticleReferences(db, canonicalSlug, article.generated_at, referenceEntries);
-    logger.debug("save.article_immediate.saved_references", { slug: canonicalSlug });
+    logger.debug("save.article_immediate.saved_references", {
+      slug: canonicalSlug,
+      reference_count: referenceEntries.length,
+      references: referenceEntries.map((r) => ({ slug: r.slug, title: r.title })),
+    });
     return {
       article,
       links,
@@ -1687,6 +1692,12 @@ export async function createApp(options: CreateAppOptions = {}) {
           hiddenHint: normalizeArticleSnippet(article.content) || article.title,
         })),
       );
+      logger.debug("post_process.assembling_markdown", {
+        slug: normalizedSlug,
+        source_articles_count: retrieved.sourceArticles.length,
+        deterministic_references: deterministicReferences.map((r) => ({ slug: r.slug, title: r.title })),
+        see_also_count: seeAlso.length,
+      });
       const markdown = stripSelfLinks(
         assembleArticleMarkdown(
           normalizedBodyMarkdown,
@@ -1695,6 +1706,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         ),
         slug,
       );
+      logger.debug("post_process.markdown_assembled", {
+        slug: normalizedSlug,
+        markdown_length: markdown.length,
+      });
       logger.debug("post_process.generating_summary", { slug: normalizedSlug });
       const summaryMarkdown = await generateArticleSummary(
         llm,
@@ -2004,6 +2019,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       return c.json({ error: "invalid slug" }, 400);
     const requestedPath = `/wiki/${requestedSegment}`;
 
+    // Check if there's an in-flight edit for this article
+    const hasInFlightEdit = inFlightEdits.has(lookupSlug);
+    if (hasInFlightEdit) {
+      logger.info("page.in_flight_edit", { slug: lookupSlug });
+    }
+
     let article = getArticleByLookup(db, lookupSlug);
     if (!article) {
       const titleMatch = getArticleByTitle(db, requestedTitle);
@@ -2015,7 +2036,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       article = repairStoredArticleIdentity(article, lookupSlug);
       if (!cachedArticleNeedsRepair(article.markdown)) {
         const canonicalPath = canonicalPathForArticle(article);
-        logger.info("page.hit", { slug: lookupSlug });
+        logger.info("page.hit", { slug: lookupSlug, in_flight_edit: hasInFlightEdit });
         return c.json({
           cached: true,
           redirectedFrom:
@@ -2026,10 +2047,10 @@ export async function createApp(options: CreateAppOptions = {}) {
           backlinks: listBacklinks(db, article.slug),
         });
       }
-      logger.warn("page.cache_repair", { slug: article.slug });
+      logger.warn("page.cache_repair", { slug: article.slug, in_flight_edit: hasInFlightEdit });
       article = repairCachedArticle(article);
       const canonicalPath = canonicalPathForArticle(article);
-      logger.info("page.hit", { slug: lookupSlug });
+      logger.info("page.hit", { slug: lookupSlug, in_flight_edit: hasInFlightEdit });
       return c.json({
         cached: true,
         redirectedFrom:
@@ -2460,8 +2481,17 @@ export async function createApp(options: CreateAppOptions = {}) {
       );
       logger.info("rag.explicit_references", {
         slug: article.slug,
+        explicit_count: explicitSlugs.length,
         explicit: explicitSlugs.join(", "),
         saved_extra: savedRefSlugs.filter((s) => !explicitSlugs.includes(s)).join(", ") || "(none)",
+        total_direct_slugs: allDirectSlugs.length,
+        all_direct: allDirectSlugs.join(", "),
+      });
+      logger.debug("rag.explicit_references_detail", {
+        slug: article.slug,
+        explicit_slugs: explicitSlugs,
+        all_direct_slugs: allDirectSlugs,
+        direct_context_sources: direct.sourceArticles.map((a) => ({ slug: a.slug, title: a.title })),
       });
       retrieved = direct;
     } else if (ragEnabled) {
@@ -2566,50 +2596,61 @@ export async function createApp(options: CreateAppOptions = {}) {
         : "rewrite";
 
     const persistRewrite = async (raw: string) => {
-      let nextMarkdown: string;
-      if (selectionRange) {
-        const replacement = normalizeMarkdown(raw)
-          .replace(/^#\s+.+?\n*/m, "")
-          .trim();
-        nextMarkdown =
-          article.markdown.slice(0, selectionRange.start) +
-          replacement +
-          article.markdown.slice(selectionRange.end);
-      } else {
-        const rewrittenBody = sanitizeGeneratedBody(normalizeMarkdown(raw));
-        nextMarkdown = sectionId
-          ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
-          : rewrittenBody;
-      }
-      const {
-        article: updatedArticle,
-        links,
-        normalizedTitle,
-        normalizedBodyMarkdown,
-      } = await saveArticleImmediately(
-        article.slug,
-        article.title,
-        nextMarkdown,
-        retrieved,
-        { operation: operationName, instructions },
-      );
-      trackGeneration(
-        postProcessArticle(
-          updatedArticle.slug,
+      inFlightEdits.add(article.slug);
+      logger.debug("rewrite.edit_in_flight", { slug: article.slug, in_flight_edits: inFlightEdits.size });
+      try {
+        let nextMarkdown: string;
+        if (selectionRange) {
+          const replacement = normalizeMarkdown(raw)
+            .replace(/^#\s+.+?\n*/m, "")
+            .trim();
+          nextMarkdown =
+            article.markdown.slice(0, selectionRange.start) +
+            replacement +
+            article.markdown.slice(selectionRange.end);
+        } else {
+          const rewrittenBody = sanitizeGeneratedBody(normalizeMarkdown(raw));
+          nextMarkdown = sectionId
+            ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
+            : rewrittenBody;
+        }
+        // Strip out any References or See also sections that might be in the rewritten markdown
+        // so we don't create duplicates when assembleArticleMarkdown adds them
+        nextMarkdown = stripTopLevelSections(nextMarkdown, ["References", "See also"]);
+        logger.debug("rewrite.body_prepared", { slug: article.slug, body_length: nextMarkdown.length });
+        const {
+          article: updatedArticle,
+          links,
           normalizedTitle,
           normalizedBodyMarkdown,
+        } = await saveArticleImmediately(
+          article.slug,
+          article.title,
+          nextMarkdown,
           retrieved,
-          hints,
-          updatedArticle.generated_at,
-        ).catch(() => {}),
-      );
-      return {
-        cached: true,
-        canonicalPath: canonicalPathForArticle(updatedArticle),
-        article: updatedArticle,
-        sections: listArticleSections(updatedArticle.markdown),
-        backlinks: listBacklinks(db, updatedArticle.slug),
-      };
+          { operation: operationName, instructions },
+        );
+        trackGeneration(
+          postProcessArticle(
+            updatedArticle.slug,
+            normalizedTitle,
+            normalizedBodyMarkdown,
+            retrieved,
+            hints,
+            updatedArticle.generated_at,
+          ).catch(() => {}),
+        );
+        return {
+          cached: true,
+          canonicalPath: canonicalPathForArticle(updatedArticle),
+          article: updatedArticle,
+          sections: listArticleSections(updatedArticle.markdown),
+          backlinks: listBacklinks(db, updatedArticle.slug),
+        };
+      } finally {
+        inFlightEdits.delete(article.slug);
+        logger.debug("rewrite.edit_complete", { slug: article.slug, in_flight_edits: inFlightEdits.size });
+      }
     };
 
     if (wantsStream) {

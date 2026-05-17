@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle } from "../src/server/db";
+import { listArticles, openDatabase, saveArticle } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import {
   extractDisplayTitle,
@@ -17,11 +17,13 @@ import {
   stripSelfLinks,
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
-import { getPrompt, stripJsonFences } from "../src/server/prompts";
+import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
+import { getPrompt, getSharedPrompt, stripJsonFences } from "../src/server/prompts";
 import {
   slugify,
   slugToTitle,
   titleToWikiSegment,
+  wikiSegmentToRequestedTitle,
   wikiSegmentToTitle,
   normalizeCanonicalTitle,
 } from "../src/server/slug";
@@ -75,13 +77,15 @@ class CaptureLogger implements Logger {
 test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embeddings", async (t) => {
   const logger = new CaptureLogger();
   const originalFetch = globalThis.fetch;
+  const chatBodies: unknown[] = [];
   t.after(() => {
     globalThis.fetch = originalFetch;
   });
 
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url.endsWith("/chat/completions")) {
+      chatBodies.push(JSON.parse(String(init?.body ?? "{}")));
       return new Response(
         JSON.stringify({
           choices: [{ finish_reason: "stop", message: { content: "A logged response." } }],
@@ -116,7 +120,7 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
   const light = new OpenAICompatClient({ ...chatConfig, max_tokens: 3000 }, embeddingsConfig, logger, "light");
 
   await heavy.chat("system", "user");
-  await light.chat("system", "user");
+  await light.chat("system", "user", { thinking: true });
   await heavy.embed(["article chunk"]);
 
   assert.equal(logger.entries.find((entry) => entry.event === "llm.chat_request")?.fields.role, "heavy");
@@ -125,6 +129,79 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
   assert.ok(logger.entries.some((entry) => entry.event === "llm.embed_request" && entry.fields.role === "embeddings"));
   assert.ok(logger.entries.some((entry) => entry.event === "llm.embed_response" && entry.fields.role === "embeddings"));
   assert.ok(!logger.entries.some((entry) => entry.fields.role === "chat"));
+  assert.equal((chatBodies[0] as { think?: boolean }).think, false);
+  assert.equal((chatBodies[1] as { think?: boolean }).think, true);
+});
+
+test("heavy and light OpenAI-compatible requests are sent independently", async (t) => {
+  const logger = new CaptureLogger();
+  const originalFetch = globalThis.fetch;
+  const heavyGate = Promise.withResolvers<void>();
+  const completed: string[] = [];
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.startsWith("http://heavy.test")) {
+      await heavyGate.promise;
+      completed.push("heavy");
+      return new Response(
+        JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "heavy done" } }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.startsWith("http://light.test")) {
+      completed.push("light");
+      return new Response(
+        JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "light done" } }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  };
+
+  const embeddingsConfig = {
+    enabled: false,
+    base_url: "http://embed.test/v1",
+    api_key: "local",
+    model: "nomic",
+  };
+  const heavy = new OpenAICompatClient(
+    {
+      base_url: "http://heavy.test/v1",
+      api_key: "local",
+      model: "heavy-model",
+      temperature: 1,
+      max_tokens: 9001,
+    },
+    embeddingsConfig,
+    logger,
+    "heavy",
+  );
+  const light = new OpenAICompatClient(
+    {
+      base_url: "http://light.test/v1",
+      api_key: "local",
+      model: "light-model",
+      temperature: 1,
+      max_tokens: 3000,
+    },
+    embeddingsConfig,
+    logger,
+    "light",
+  );
+
+  const heavyRequest = heavy.chat("system", "user");
+  const lightResult = await light.chat("system", "user");
+
+  assert.equal(lightResult, "light done");
+  assert.deepEqual(completed, ["light"]);
+
+  heavyGate.resolve();
+  assert.equal(await heavyRequest, "heavy done");
+  assert.deepEqual(completed, ["light", "heavy"]);
 });
 
 test("extractInternalLinks dedupes targets and ignores invalid links", () => {
@@ -153,16 +230,80 @@ test("extractInternalLinks dedupes targets and ignores invalid links", () => {
 
 test("extractInternalLinks accepts halu links with unterminated quoted hints", () => {
   const links = extractInternalLinks(
-    'The page cites [Hyper-attachment](halu:hyper-attachment "the biological drive toward permanent sexual bonding).',
+    'The page cites [Sample Link](halu:sample-link "a short unclosed hint).',
   );
 
   assert.deepEqual(links, [
     {
-      targetSlug: "hyper-attachment",
-      visibleLabel: "Hyper-attachment",
-      hiddenHint: "the biological drive toward permanent sexual bonding",
+      targetSlug: "sample-link",
+      visibleLabel: "Sample Link",
+      hiddenHint: "a short unclosed hint",
     },
   ]);
+});
+
+test("formatIncomingHintsForPrompt preserves the requested target slug for mismatched labels", () => {
+  const promptText = formatIncomingHintsForPrompt(
+    [
+      {
+        sourceSlug: "source-article",
+        sourceTitle: "Source Article",
+        visibleLabel: "Mismatched Visible Label",
+        hiddenHint: "context for the target article",
+      },
+    ],
+    "actual-target",
+  );
+
+  assert.equal(
+    promptText,
+    '- [Mismatched Visible Label](halu:actual-target "context for the target article")',
+  );
+  assert.doesNotMatch(promptText, /halu:mismatched-visible-label/);
+});
+
+test("malformed halu links render and extract when the hidden hint quote is left open", () => {
+  const markdown = [
+    'Primarily engineered by [The Boring Company](halu:the-boring-company "subterranean infrastructure and tunneling enterprise),',
+    'the system deploys [Hyperloop Commuter Pod](halu:hyperloop-commuter-pod "capsule system for vacuum-sealed transportation) units.',
+  ].join(" ");
+
+  const links = extractInternalLinks(markdown);
+  const html = renderMarkdown(markdown);
+
+  assert.deepEqual(links, [
+    {
+      targetSlug: "the-boring-company",
+      visibleLabel: "The Boring Company",
+      hiddenHint: "subterranean infrastructure and tunneling enterprise",
+    },
+    {
+      targetSlug: "hyperloop-commuter-pod",
+      visibleLabel: "Hyperloop Commuter Pod",
+      hiddenHint: "capsule system for vacuum-sealed transportation",
+    },
+  ]);
+  assert.match(html, /href="\/wiki\/The_Boring_Company"/);
+  assert.match(html, /href="\/wiki\/Hyperloop_Commuter_Pod"/);
+  assert.doesNotMatch(html, /halu:/);
+  assert.doesNotMatch(html, /subterranean infrastructure/);
+});
+
+test("bare bracketed article titles become internal halu links", () => {
+  const markdown = "The archive cites [Text Like This]'s municipal ledger.";
+  const links = extractInternalLinks(markdown);
+  const html = renderMarkdown(markdown);
+
+  assert.deepEqual(links, [
+    {
+      targetSlug: "text-like-this",
+      visibleLabel: "Text Like This",
+      hiddenHint: "Text Like This",
+    },
+  ]);
+  assert.match(html, /href="\/wiki\/Text_Like_This"/);
+  assert.match(html, /<\/a>'s municipal ledger/);
+  assert.doesNotMatch(html, /\[Text Like This\]/);
 });
 
 test("renderMarkdown rewrites halu links to wiki paths using visible text", () => {
@@ -188,14 +329,21 @@ test("loadConfig resolves prompt manifest file references", () => {
   assert.ok(prompts.prompts.article.system);
   assert.ok(prompts.prompts.article.user);
   
-  // Verify shared rules are resolved
-  assert.ok(prompts.prompts.shared_article_rules);
-  assert.ok(prompts.prompts.shared_article_rules.system);
+  assert.ok(prompts.shared.shared_article_rules);
+  assert.ok(prompts.shared.shared_article_rules.system);
+  assert.equal(prompts.shared.shared_article_rules.model, undefined);
+  assert.equal(prompts.shared.shared_article_rules.thinking, undefined);
+  assert.equal(prompts.prompts.shared_article_rules, undefined);
+  assert.equal(prompts.prompts.linking_guide, undefined);
 
   const articlePrompt = getPrompt(prompts, "article");
   assert.match(articlePrompt.system, /shared_article_rules|formatting|article/i);
   assert.equal(articlePrompt.model, "heavy");
+  assert.equal(articlePrompt.thinking, false);
   assert.doesNotMatch(articlePrompt.system, /\{\{shared_article_rules\}\}/);
+
+  const linkingGuide = getSharedPrompt(prompts, "linking_guide");
+  assert.match(linkingGuide.system, /Shared linking rules/);
 });
 
 test("summarizeRetrievedSource returns truncated chunk content directly", () => {
@@ -248,6 +396,53 @@ test("summary helpers preserve complete long paragraphs", () => {
 
   assert.equal(normalizeSummaryMarkdown(longSummary), longSummary);
   assert.equal(summaryMarkdownFromArticle(articleMarkdown), longSummary);
+});
+
+test("listArticles only returns real article entries", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-index-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const articleMarkdown = "# Ledger Entry\n\nA real index entry.";
+  const disambiguationMarkdown = "# Ambiguous Entry\n\nA disambiguation entry.";
+
+  saveArticle(
+    db,
+    {
+      slug: "ledger-entry",
+      canonicalSlug: "ledger-entry",
+      title: "Ledger Entry",
+      markdown: articleMarkdown,
+      html: renderMarkdown(articleMarkdown),
+      plain_text: markdownToPlainText(articleMarkdown),
+      generated_at: 1,
+    },
+    [],
+    ["ledger-entry"],
+  );
+  saveArticle(
+    db,
+    {
+      slug: "ambiguous-entry",
+      canonicalSlug: "ambiguous-entry",
+      title: "Ambiguous Entry",
+      markdown: disambiguationMarkdown,
+      html: renderMarkdown(disambiguationMarkdown),
+      plain_text: markdownToPlainText(disambiguationMarkdown),
+      generated_at: 2,
+      isDisambiguation: true,
+    },
+    [],
+    ["ambiguous-entry"],
+  );
+
+  const page = listArticles(db, 0, 50);
+  db.close();
+
+  assert.deepEqual(page.items.map((item) => item.slug), ["ledger-entry"]);
+  assert.equal(page.total, 1);
+  assert.equal(page.nextOffset, null);
 });
 
 test("retrieveContext returns matching lexical context from indexed article chunks", async (t) => {
@@ -457,6 +652,19 @@ test("wikiSegmentToTitle preserves casing", () => {
     "Cultural Dissipation Factor",
   );
   assert.equal(wikiSegmentToTitle("EBay"), "EBay");
+});
+
+test("wikiSegmentToRequestedTitle treats slug-style wiki segments as titles", () => {
+  assert.equal(
+    wikiSegmentToRequestedTitle("cultural-dissipation-factor"),
+    "Cultural dissipation factor",
+  );
+  assert.equal(wikiSegmentToRequestedTitle("Beta-Carotene"), "Beta-Carotene");
+  assert.equal(wikiSegmentToRequestedTitle("fresh_page"), "fresh page");
+  assert.equal(
+    titleToWikiSegment(wikiSegmentToRequestedTitle("archive-rotation-mechanics-protocol")),
+    "Archive_rotation_mechanics_protocol",
+  );
 });
 
 test("normalizeCanonicalTitle capitalizes first letter only when no mixed case", () => {

@@ -365,16 +365,17 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const searchBody = await searchRes.json();
     assert.equal(searchBody.query, "Test");
     assert.equal(searchBody.results.length, 1);
-    assert.deepEqual(searchBody.results[0], {
-      slug: "test-article",
-      title: "Test Article",
-      exists: true,
-    });
+    assert.equal(searchBody.results[0].slug, "test-article");
+    assert.equal(searchBody.results[0].title, "Test Article");
+    assert.equal(searchBody.results[0].exists, true);
+    assert.ok(typeof searchBody.results[0].summary === "string");
+    assert.ok(Array.isArray(searchBody.suggestions));
 
     const emptySearchRes = await server.request("/api/search");
     assert.equal(emptySearchRes.status, 200);
     const emptySearchBody = await emptySearchRes.json();
     assert.deepEqual(emptySearchBody.results, []);
+    assert.ok(Array.isArray(emptySearchBody.suggestions));
 
     const indexRes = await server.request("/api/index?limit=1");
     assert.equal(indexRes.status, 200);
@@ -417,6 +418,63 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.equal(llm.embedCalls, 0);
   });
 
+  await t.test("cached article repair does not fall through to regeneration", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+    const databasePath = join(root, TEST_CONFIG.database_path);
+    const db = openDatabase(databasePath);
+    const markdown = [
+      "# Cache Repair",
+      "",
+      "Cache Repair links to [Ledger Index](halu:ledger-index \"ledger index\").",
+      "",
+      "## References",
+      "",
+      "- Plain legacy reference",
+    ].join("\n");
+    saveArticle(
+      db,
+      {
+        slug: "cache-repair",
+        canonicalSlug: "cache-repair",
+        title: "Cache Repair",
+        markdown,
+        html: renderMarkdown(markdown),
+        plain_text: markdownToPlainText(markdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["cache-repair"],
+    );
+    db.close();
+
+    const entries: CapturedLogEntry[] = [];
+    const llm = new CountingLlmClient();
+    const cachedServer = await createServerForDatabase(root, databasePath, {
+      logger: createMemoryLogger(entries),
+      llmClient: llm,
+    });
+    t.after(() => {
+      rmSync(cachedServer.root, { recursive: true, force: true });
+    });
+
+    const res = await cachedServer.request("/api/page/Cache_Repair");
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /application\/json/);
+    const body = await res.json();
+    assert.equal(body.cached, true);
+    assert.equal(body.article.slug, "cache-repair");
+    assert.doesNotMatch(body.article.markdown, /Plain legacy reference/);
+    assert.ok(entries.some((entry) => entry.event === "page.cache_repair"));
+    assert.ok(entries.some((entry) => entry.event === "page.hit" && entry.fields?.slug === "cache-repair"));
+    assert.equal(
+      entries.some((entry) => entry.event === "page.miss" && entry.fields?.slug === "cache-repair"),
+      false,
+    );
+    assert.equal(llm.chatCalls, 0);
+    assert.equal(llm.streamCalls, 0);
+    assert.equal(llm.embedCalls, 0);
+  });
+
   await t.test("browser entry routes serve the SPA shell and bare slugs redirect", async () => {
     for (const path of ["/", "/search", "/all-entries", "/admin", "/wiki/Test_Article", "/wiki/%E6%98%AF%E9%B1%BC%E6%88%91"]) {
       const res = await server.request(path);
@@ -430,6 +488,14 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const redirectRes = await server.request("/test-article", { redirect: "manual" });
     assert.equal(redirectRes.status, 302);
     assert.equal(redirectRes.headers.get("location"), "/wiki/test-article");
+
+    const slugStyleWikiRes = await server.request("/wiki/cultural-dissipation-factor", { redirect: "manual" });
+    assert.equal(slugStyleWikiRes.status, 302);
+    assert.equal(slugStyleWikiRes.headers.get("location"), "/wiki/Cultural_dissipation_factor");
+
+    const dashedWikiRes = await server.request("/wiki/archive-rotation-mechanics-protocol", { redirect: "manual" });
+    assert.equal(dashedWikiRes.status, 302);
+    assert.equal(dashedWikiRes.headers.get("location"), "/wiki/Archive_rotation_mechanics_protocol");
 
     const notFoundRes = await server.request("/missing.txt");
     assert.equal(notFoundRes.status, 404);
@@ -467,9 +533,8 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     await loggedServer.request("/test-article", { redirect: "manual" });
 
     assert.ok(entries.some((entry) => entry.event === "startup"));
-    assert.ok(entries.some((entry) => entry.event === "page.request" && entry.fields?.slug === "test-article"));
-    assert.ok(entries.some((entry) => entry.event === "page.cache_hit" && entry.fields?.slug === "test-article"));
-    assert.ok(entries.some((entry) => entry.event === "page.redirect" && entry.fields?.bare_slug === "test-article"));
+    assert.ok(entries.some((entry) => entry.event === "page.hit" && entry.fields?.slug === "test-article"));
+    assert.ok(entries.some((entry) => entry.event === "page.redirect" && entry.fields?.slug === "test-article"));
   });
 
   await t.test("cache misses emit generation and rag lifecycle logs", async (t) => {
@@ -489,8 +554,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const payload = await res.text();
     assert.match(payload, /"type":"done"/);
 
-    assert.ok(entries.some((entry) => entry.event === "page.cache_miss" && entry.fields?.slug === "fresh-page"));
-    assert.ok(entries.some((entry) => entry.event === "page.generation_start" && entry.fields?.slug === "fresh-page"));
+    assert.ok(entries.some((entry) => entry.event === "page.miss" && entry.fields?.slug === "fresh-page"));
     assert.ok(
       entries.some(
         (entry) =>
@@ -498,47 +562,46 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
           entry.fields?.slug === "fresh-page"
       )
     );
-    assert.ok(entries.some((entry) => entry.event === "page.generation_attempt" && entry.fields?.slug === "fresh-page"));
+    assert.ok(entries.some((entry) => entry.event === "page.generated" && entry.fields?.slug === "fresh-page"));
     assert.ok(entries.some((entry) => entry.event === "rag.index_complete" && entry.fields?.slug === "fresh-page"));
-    assert.ok(entries.some((entry) => entry.event === "page.generation_done" && entry.fields?.slug === "fresh-page"));
   });
 
   await t.test("unicode wiki paths generate, cache, and log correctly", async (t) => {
     const entries: CapturedLogEntry[] = [];
+    const unicodeSegment = encodeURIComponent("百科甲");
     const unicodeServer = await createTestServer({
       seed: false,
       logger: createMemoryLogger(entries),
       llmClient: new FixedArticleLlmClient([
-        "# 是鱼我",
+        "# 百科甲",
         "",
-        "是鱼我是一个多语言条目，引用了[甲](halu:甲)。",
+        "百科甲是一个多语言条目，引用了[甲](halu:甲)。",
       ].join("\n")),
     });
     t.after(() => {
       rmSync(unicodeServer.root, { recursive: true, force: true });
     });
 
-    const generatedRes = await unicodeServer.request("/api/page/%E6%98%AF%E9%B1%BC%E6%88%91");
+    const generatedRes = await unicodeServer.request(`/api/page/${unicodeSegment}`);
     assert.equal(generatedRes.status, 200);
     assert.match(generatedRes.headers.get("content-type") ?? "", /application\/x-ndjson/);
 
     const packets = parseNdjson<Array<Record<string, unknown>>[number]>(await generatedRes.text());
     const done = packets.find((packet) => packet.type === "done");
     assert.ok(done);
-    assert.equal(done.article.slug, "是鱼我");
-    assert.equal(done.article.title, "是鱼我");
-    assert.equal(done.canonicalPath, "/wiki/是鱼我");
+    assert.equal(done.article.slug, "百科甲");
+    assert.equal(done.article.title, "百科甲");
+    assert.equal(done.canonicalPath, "/wiki/百科甲");
 
-    const cachedRes = await unicodeServer.request("/api/page/%E6%98%AF%E9%B1%BC%E6%88%91");
+    const cachedRes = await unicodeServer.request(`/api/page/${unicodeSegment}`);
     assert.equal(cachedRes.status, 200);
     const cachedBody = await cachedRes.json();
     assert.equal(cachedBody.cached, true);
-    assert.equal(cachedBody.article.slug, "是鱼我");
-    assert.equal(cachedBody.canonicalPath, "/wiki/是鱼我");
+    assert.equal(cachedBody.article.slug, "百科甲");
+    assert.equal(cachedBody.canonicalPath, "/wiki/百科甲");
 
-    assert.ok(entries.some((entry) => entry.event === "page.request" && entry.fields?.slug === "是鱼我"));
-    assert.ok(entries.some((entry) => entry.event === "page.cache_miss" && entry.fields?.slug === "是鱼我"));
-    assert.ok(entries.some((entry) => entry.event === "page.cache_hit" && entry.fields?.slug === "是鱼我"));
+    assert.ok(entries.some((entry) => entry.event === "page.miss" && entry.fields?.slug === "百科甲"));
+    assert.ok(entries.some((entry) => entry.event === "page.hit" && entry.fields?.slug === "百科甲"));
   });
 
   await t.test("cached articles repair stale ascii-only slugs when the title-derived slug includes unicode", async (t) => {
@@ -546,9 +609,9 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const databasePath = join(root, TEST_CONFIG.database_path);
     const db = openDatabase(databasePath);
     const markdown = [
-      "# Fish 鱼怕我女人是鱼我是鱼害怕",
+      "# Café β Registry",
       "",
-      "A multilingual fish registry entry.",
+      "A multilingual registry entry.",
     ].join("\n");
 
     saveArticle(
@@ -556,7 +619,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       {
         slug: "fish",
         canonicalSlug: "fish",
-        title: "Fish 鱼怕我女人是鱼我是鱼害怕",
+        title: "Café β Registry",
         markdown,
         html: renderMarkdown(markdown),
         plain_text: markdownToPlainText(markdown),
@@ -572,18 +635,18 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       rmSync(root, { recursive: true, force: true });
     });
 
-    const res = await server.request("/api/page/Fish_%E9%B1%BC%E6%80%95%E6%88%91%E5%A5%B3%E4%BA%BA%E6%98%AF%E9%B1%BC%E6%88%91%E6%98%AF%E9%B1%BC%E5%AE%B3%E6%80%95");
+    const res = await server.request(`/api/page/${encodeURIComponent("Café_β_Registry")}`);
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.cached, true);
-    assert.equal(body.article.slug, "fish-鱼怕我女人是鱼我是鱼害怕");
-    assert.equal(body.article.canonicalSlug, "fish-鱼怕我女人是鱼我是鱼害怕");
-    assert.equal(body.canonicalPath, "/wiki/Fish_鱼怕我女人是鱼我是鱼害怕");
+    assert.equal(body.article.slug, "café-β-registry");
+    assert.equal(body.article.canonicalSlug, "café-β-registry");
+    assert.equal(body.canonicalPath, "/wiki/Café_β_Registry");
 
     const aliasRes = await server.request("/api/page/Fish");
     assert.equal(aliasRes.status, 200);
     const aliasBody = await aliasRes.json();
-    assert.equal(aliasBody.article.slug, "fish-鱼怕我女人是鱼我是鱼害怕");
+    assert.equal(aliasBody.article.slug, "café-β-registry");
     assert.equal(aliasBody.redirectedFrom, "/wiki/Fish");
   });
 
@@ -603,7 +666,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const generatedServer = await createTestServer({
       seed: false,
       llmClient: new FixedArticleLlmClient([
-        "# invertible sexuality theorem",
+        "# archival rotation theorem",
         "",
         "A foundational postulate about pleasure vectors.",
       ].join("\n")),
@@ -612,41 +675,67 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       rmSync(generatedServer.root, { recursive: true, force: true });
     });
 
-    const res = await generatedServer.request("/api/page/invertible_sexuality_theorem");
+    const res = await generatedServer.request("/api/page/archival_rotation_theorem");
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type") ?? "", /application\/x-ndjson/);
 
     const packets = parseNdjson<Array<Record<string, unknown>>[number]>(await res.text());
     const done = packets.find((packet) => packet.type === "done");
     assert.ok(done);
-    assert.equal(done.article.title, "Invertible sexuality theorem");
-    assert.equal(done.article.markdown.startsWith("# Invertible sexuality theorem"), true);
-    assert.equal(done.canonicalPath, "/wiki/Invertible_sexuality_theorem");
-    assert.equal(done.redirectedFrom, "/wiki/invertible_sexuality_theorem");
+    assert.equal(done.article.title, "Archival rotation theorem");
+    assert.equal(done.article.markdown.startsWith("# Archival rotation theorem"), true);
+    assert.equal(done.canonicalPath, "/wiki/Archival_rotation_theorem");
+    assert.equal(done.redirectedFrom, "/wiki/archival_rotation_theorem");
   });
 
-  await t.test("generated articles adopt a unicode-extended canonical slug from the resolved heading", async (t) => {
+  await t.test("slug-style wiki API requests resolve to underscored canonical paths", async (t) => {
     const generatedServer = await createTestServer({
       seed: false,
       llmClient: new FixedArticleLlmClient([
-        "# Fish 鱼怕我女人是鱼我是鱼害怕",
+        "# Cultural Dissipation Factor",
         "",
-        "A multilingual fish registry entry.",
+        "A quiet registry metric for archival energy loss.",
       ].join("\n")),
     });
     t.after(() => {
       rmSync(generatedServer.root, { recursive: true, force: true });
     });
 
-    const res = await generatedServer.request("/api/page/Fish");
+    const res = await generatedServer.request("/api/page/cultural-dissipation-factor");
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /application\/x-ndjson/);
+
+    const packets = parseNdjson<Array<Record<string, unknown>>[number]>(await res.text());
+    const done = packets.find((packet) => packet.type === "done");
+    assert.ok(done);
+    assert.equal(done.article.slug, "cultural-dissipation-factor");
+    assert.equal(done.article.title, "Cultural dissipation factor");
+    assert.equal(done.canonicalPath, "/wiki/Cultural_dissipation_factor");
+    assert.equal(done.redirectedFrom, "/wiki/cultural-dissipation-factor");
+  });
+
+  await t.test("generated articles adopt a unicode-extended canonical slug from the resolved heading", async (t) => {
+    const generatedServer = await createTestServer({
+      seed: false,
+      llmClient: new FixedArticleLlmClient([
+        "# Café β Registry",
+        "",
+        "A multilingual registry entry.",
+      ].join("\n")),
+    });
+    t.after(() => {
+      rmSync(generatedServer.root, { recursive: true, force: true });
+    });
+
+    const res = await generatedServer.request(`/api/page/${encodeURIComponent("Café_β_Registry")}`);
     assert.equal(res.status, 200);
     const packets = parseNdjson<Array<Record<string, unknown>>[number]>(await res.text());
     const done = packets.find((packet) => packet.type === "done");
     assert.ok(done);
-    assert.equal(done.article.slug, "fish-鱼怕我女人是鱼我是鱼害怕");
-    assert.equal(done.article.title, "Fish 鱼怕我女人是鱼我是鱼害怕");
-    assert.equal(done.canonicalPath, "/wiki/Fish_鱼怕我女人是鱼我是鱼害怕");
-    assert.equal(done.redirectedFrom, "/wiki/Fish");
+    assert.equal(done.article.slug, "café-β-registry");
+    assert.equal(done.article.title, "Café β Registry");
+    assert.equal(done.canonicalPath, "/wiki/Café_β_Registry");
+    assert.equal(done.redirectedFrom, undefined);
   });
 
   await t.test("cached articles with lowercase-first titles are repaired before becoming canonical", async (t) => {
@@ -654,7 +743,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const databasePath = join(root, TEST_CONFIG.database_path);
     const db = openDatabase(databasePath);
     const markdown = [
-      "# invertible sexuality theorem",
+      "# archival rotation theorem",
       "",
       "A foundational postulate about pleasure vectors.",
     ].join("\n");
@@ -662,16 +751,16 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     saveArticle(
       db,
       {
-        slug: "invertible-sexuality-theorem",
-        canonicalSlug: "invertible-sexuality-theorem",
-        title: "invertible sexuality theorem",
+        slug: "archival-rotation-theorem",
+        canonicalSlug: "archival-rotation-theorem",
+        title: "archival rotation theorem",
         markdown,
         html: renderMarkdown(markdown),
         plain_text: markdownToPlainText(markdown),
         generated_at: 1_715_000_000_100,
       },
       [],
-      ["invertible-sexuality-theorem"]
+      ["archival-rotation-theorem"]
     );
     db.close();
 
@@ -680,15 +769,15 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       rmSync(root, { recursive: true, force: true });
     });
 
-    const res = await cachedServer.request("/api/page/Invertible_sexuality_theorem");
+    const res = await cachedServer.request("/api/page/Archival_rotation_theorem");
     assert.equal(res.status, 200);
     assert.match(res.headers.get("content-type") ?? "", /application\/json/);
 
     const body = await res.json();
     assert.equal(body.cached, true);
-    assert.equal(body.article.title, "Invertible sexuality theorem");
-    assert.equal(body.article.markdown.startsWith("# Invertible sexuality theorem"), true);
-    assert.equal(body.canonicalPath, "/wiki/Invertible_sexuality_theorem");
+    assert.equal(body.article.title, "Archival rotation theorem");
+    assert.equal(body.article.markdown.startsWith("# Archival rotation theorem"), true);
+    assert.equal(body.canonicalPath, "/wiki/Archival_rotation_theorem");
     assert.equal(body.redirectedFrom, undefined);
   });
 });
@@ -769,15 +858,60 @@ test("concurrent requests for the same uncached slug share a single generation",
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(llm.streamCallCount, 1, "only one LLM stream should start for duplicate slug requests");
 
+  const res2 = await req2;
+  const text2 = await res2.text();
+  assert.match(text2, /"type":"status","message":"Waiting and contemplating\.\.\."/);
+  assert.doesNotMatch(text2, /"type":"done"/);
+
   llm.gate.resolve();
-  const [res1, res2] = await Promise.all([req1, req2]);
+  const res1 = await req1;
 
   const text1 = await res1.text();
-  const text2 = await res2.text();
   assert.match(text1, /"type":"done"/);
-  const body2 = JSON.parse(text2);
-  assert.equal(body2.cached, true);
-  assert.equal(body2.article.slug, "gated-article");
+  assert.match(text1, /"slug":"gated-article"/);
+});
+
+test("admin generation queue reports active articles and waiter counts", async (t) => {
+  const llm = new GatedLlmClient();
+  const server = await createTestServer({ seed: false, llmClient: llm });
+  t.after(() => {
+    rmSync(server.root, { recursive: true, force: true });
+  });
+
+  const req1 = server.request("/api/page/Gated_Article");
+  await new Promise((r) => setTimeout(r, 50));
+
+  let queueRes = await server.request("/api/admin/generation-queue");
+  let queue = (await queueRes.json()) as any;
+  assert.equal(queue.items.length, 1);
+  assert.equal(queue.items[0].slug, "gated-article");
+  assert.equal(queue.items[0].title, "Gated Article");
+  assert.equal(queue.items[0].waiting, 0);
+
+  const req2 = server.request("/api/page/Gated_Article");
+  await new Promise((r) => setTimeout(r, 50));
+
+  queueRes = await server.request("/api/admin/generation-queue");
+  queue = (await queueRes.json()) as any;
+  assert.equal(queue.items.length, 1);
+  assert.equal(queue.items[0].waiting, 0);
+
+  const waitRes = await server.request("/api/page/Gated_Article?wait=0");
+  assert.equal(waitRes.status, 202);
+  assert.deepEqual(await waitRes.json(), {
+    generating: true,
+    slug: "gated-article",
+    title: "Gated Article",
+    seq: queue.items[0].seq,
+    waiting: 0,
+  });
+
+  llm.gate.resolve();
+  await Promise.all([req1.then((res) => res.text()), req2.then((res) => res.text())]);
+
+  queueRes = await server.request("/api/admin/generation-queue");
+  queue = (await queueRes.json()) as any;
+  assert.deepEqual(queue.items, []);
 });
 
 test("failed generation releases the slug so a retry can succeed", async (t) => {
@@ -895,7 +1029,7 @@ test("second request during post-processing gets cache hit, not cache miss", asy
   assert.ok(secondBody.cached, "second request should be cache hit");
 
   const cacheMissEvents = logEntries.filter(
-    (e) => e.event === "page.cache_miss" && e.fields?.slug === "test-entry"
+    (e) => e.event === "page.miss" && e.fields?.slug === "test-entry"
   );
   assert.equal(cacheMissEvents.length, 1, "should only have one cache miss (the initial generation)");
 
@@ -963,9 +1097,9 @@ test("homepage featured article uses the literal first paragraph", async (t) => 
   const databasePath = join(root, TEST_CONFIG.database_path);
   const db = openDatabase(databasePath);
   const markdown = [
-    "# Goldfish",
+    "# Index Lamp",
     "",
-    "Goldfish are ceremonial freshwater accountants with [gravel](halu:gravel \"approved fish gravel\") and $\\sigma$.",
+    "Index Lamp are ceremonial freshwater accountants with [gravel](halu:gravel \"approved fish gravel\") and $\\sigma$.",
     "",
     "They are often cited in ballast ledgers.",
   ].join("\n");
@@ -973,9 +1107,9 @@ test("homepage featured article uses the literal first paragraph", async (t) => 
   saveArticle(
     db,
     {
-      slug: "goldfish",
-      canonicalSlug: "goldfish",
-      title: "Goldfish",
+      slug: "index-lamp",
+      canonicalSlug: "index-lamp",
+      title: "Index Lamp",
       markdown,
       html: renderMarkdown(markdown),
       summaryMarkdown: "",
@@ -983,14 +1117,14 @@ test("homepage featured article uses the literal first paragraph", async (t) => 
       generated_at: Date.now(),
     },
     [],
-    ["goldfish"]
+    ["index-lamp"]
   );
-  db.prepare("UPDATE articles SET summary_markdown = '' WHERE slug = ?").run("goldfish");
+  db.prepare("UPDATE articles SET summary_markdown = '' WHERE slug = ?").run("index-lamp");
   db.close();
 
   const llm: LlmClient = {
     async chat() {
-      return "... [Goldfish](halu:goldfish \"Goldfish\") reconcile canal tax ledgers after dusk.";
+      return "... [Index Lamp](halu:index-lamp \"Index Lamp\") reconcile canal tax ledgers after dusk.";
     },
     async streamChat(_s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
@@ -1008,12 +1142,12 @@ test("homepage featured article uses the literal first paragraph", async (t) => 
 
   const body = await waitForHomepage(
     server,
-    (payload) => payload.featured?.title === "Goldfish",
+    (payload) => payload.featured?.title === "Index Lamp",
   );
-  assert.equal(body.featured.title, "Goldfish");
+  assert.equal(body.featured.title, "Index Lamp");
   assert.equal(
     body.featured.summaryMarkdown,
-    "Goldfish are ceremonial freshwater accountants with [gravel](halu:gravel \"approved fish gravel\") and $\\sigma$."
+    "Index Lamp are ceremonial freshwater accountants with [gravel](halu:gravel \"approved fish gravel\") and $\\sigma$."
   );
 });
 
@@ -1022,23 +1156,23 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
   const databasePath = join(root, TEST_CONFIG.database_path);
   const db = openDatabase(databasePath);
   const markdown = [
-    "# Goldfish",
+    "# Index Lamp",
     "",
-    "Goldfish are ceremonial freshwater accountants with a suspicious fondness for gravel.",
+    "Index Lamp are ceremonial freshwater accountants with a suspicious fondness for gravel.",
   ].join("\n");
   saveArticle(
     db,
     {
-      slug: "goldfish",
-      canonicalSlug: "goldfish",
-      title: "Goldfish",
+      slug: "index-lamp",
+      canonicalSlug: "index-lamp",
+      title: "Index Lamp",
       markdown,
       html: renderMarkdown(markdown),
       plain_text: markdownToPlainText(markdown),
       generated_at: Date.now(),
     },
     [],
-    ["goldfish"]
+    ["index-lamp"]
   );
   db.close();
 
@@ -1046,7 +1180,7 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
   const llm: LlmClient = {
     async chat() {
       chatCalls += 1;
-      return "... [Goldfish](halu:goldfish \"Goldfish\") secretly reconcile canal tax ledgers after dusk.";
+      return "... [Index Lamp](halu:index-lamp \"Index Lamp\") secretly reconcile canal tax ledgers after dusk.";
     },
     async streamChat(_s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
@@ -1066,10 +1200,10 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
     server,
     (payload) => payload.didYouKnow?.length === 1,
   );
-  assert.equal(body.featured.title, "Goldfish");
+  assert.equal(body.featured.title, "Index Lamp");
   assert.equal(body.didYouKnow.length, 1);
-  assert.equal(body.didYouKnow[0].slug, "goldfish");
-  assert.equal(body.didYouKnow[0].fact, "... [Goldfish](halu:goldfish \"Goldfish\") secretly reconcile canal tax ledgers after dusk.");
+  assert.equal(body.didYouKnow[0].slug, "index-lamp");
+  assert.equal(body.didYouKnow[0].fact, "... [Index Lamp](halu:index-lamp \"Index Lamp\") secretly reconcile canal tax ledgers after dusk.");
   assert.equal(chatCalls, 1);
 });
 

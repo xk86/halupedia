@@ -58,6 +58,7 @@ class QueueLlmClient implements LlmClient {
 
 class CapturingChatLlmClient implements LlmClient {
   public calls: Array<{ system?: string; user?: string }> = [];
+  public embedInputs: string[][] = [];
 
   constructor(private readonly responses: string[]) {}
 
@@ -77,6 +78,7 @@ class CapturingChatLlmClient implements LlmClient {
   }
 
   async embed(input: string[]): Promise<number[][]> {
+    this.embedInputs.push(input);
     return input.map(() => []);
   }
 
@@ -190,49 +192,139 @@ test("admin summary regeneration accepts bare wiki paths", async (t) => {
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   saveMarkdownArticle(databasePath, {
-    slug: "corvid-scouts-of-armenia",
-    title: "Corvid scouts of Armenia",
+    slug: "archive-scouts",
+    title: "Archive scouts",
     markdown: [
-      "# Corvid scouts of Armenia",
+      "# Archive scouts",
       "",
-      "**Corvid scouts of Armenia** are field observers for contested mountain postal routes.",
+      "**Archive scouts** are field observers for contested mountain postal routes.",
     ].join("\n"),
   });
 
   const llm = new CapturingChatLlmClient([
-    "A regenerated summary covers Armenian corvid scouts and their postal-route observations.",
+    "A regenerated summary covers archive scouts and their postal-route observations.",
   ]);
   const server = await createServer(databasePath, llm);
   const res = await server.request("/api/admin/regenerate-summary", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ slug: "wiki/Corvid_scouts_of_Armenia" }),
+    body: JSON.stringify({ slug: "wiki/Archive_scouts" }),
   });
 
   assert.equal(res.status, 200);
   const body = (await res.json()) as any;
-  assert.equal(body.article.slug, "corvid-scouts-of-armenia");
+  assert.equal(body.article.slug, "archive-scouts");
   assert.equal(
     body.article.summaryMarkdown,
-    "A regenerated summary covers Armenian corvid scouts and their postal-route observations.",
+    "A regenerated summary covers archive scouts and their postal-route observations.",
   );
 });
 
-test("random page endpoint asks the model for one wiki path and normalizes redirects", async (t) => {
+test("random page endpoint preserves model title and slug separately", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
-  const llm = new CapturingChatLlmClient(["wiki/night soil tariff"]);
+  const llm = new CapturingChatLlmClient([
+    JSON.stringify({ title: "Ledger Tariff", slug: "ledger-tariff" }),
+  ]);
   const server = await createServer(databasePath, llm);
   const res = await server.request("/api/random-page");
 
   assert.equal(res.status, 200);
   const body = (await res.json()) as any;
-  assert.equal(body.path, "/wiki/Night_soil_tariff");
-  assert.match(
-    llm.calls[0]?.system ?? "",
-    /single random Halupedia article URL/,
+  assert.equal(body.path, "/wiki/Ledger_tariff");
+  assert.equal(body.slug, "ledger-tariff");
+  assert.equal(body.title, "Ledger Tariff");
+});
+
+test("random page endpoint does not expose the internal dashed slug as the wiki URL", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new CapturingChatLlmClient([
+    JSON.stringify({
+      title: "Archive rotation protocol",
+      slug: "archive-rotation-protocol",
+    }),
+  ]);
+  const server = await createServer(databasePath, llm);
+  const res = await server.request("/api/random-page");
+
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as any;
+  assert.equal(
+    body.path,
+    "/wiki/Archive_rotation_protocol",
   );
+  assert.doesNotMatch(body.path, /\/wiki\/archive-rotation-protocol/);
+});
+
+test("random page endpoint repairs slug-shaped model titles", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new CapturingChatLlmClient([
+    JSON.stringify({
+      title: "archive-rotation-mechanics-protocol",
+      slug: "archive-rotation-mechanics-protocol",
+    }),
+  ]);
+  const server = await createServer(databasePath, llm);
+  const res = await server.request("/api/random-page");
+
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as any;
+  assert.equal(body.title, "Archive rotation mechanics protocol");
+  assert.equal(body.slug, "archive-rotation-mechanics-protocol");
+  assert.equal(
+    body.path,
+    "/wiki/Archive_rotation_mechanics_protocol",
+  );
+});
+
+test("random page endpoint repairs plain wiki path model responses", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new CapturingChatLlmClient(["/wiki/archive-rotation-mechanics-protocol"]);
+  const server = await createServer(databasePath, llm);
+  const res = await server.request("/api/random-page");
+
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as any;
+  assert.equal(body.title, "Archive rotation mechanics protocol");
+  assert.equal(body.slug, "archive-rotation-mechanics-protocol");
+  assert.equal(
+    body.path,
+    "/wiki/Archive_rotation_mechanics_protocol",
+  );
+});
+
+test("random page inspiration count comes from app config", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  for (let i = 1; i <= 15; i++) {
+    saveMarkdownArticle(databasePath, {
+      slug: `seed-${i}`,
+      title: `Seed ${i}`,
+      markdown: `# Seed ${i}\n\nSeed article ${i}.`,
+      generated_at: 1_715_000_000_000 + i,
+    });
+  }
+
+  const llm = new CapturingChatLlmClient([
+    JSON.stringify({ title: "Adjacent Seed", slug: "adjacent-seed" }),
+  ]);
+  const server = await createServer(databasePath, llm);
+  const res = await server.request("/api/random-page");
+
+  assert.equal(res.status, 200);
+  const userPrompt = llm.calls[0]?.user ?? "";
+  const presented = userPrompt
+    .split("\n")
+    .filter((line) => line.startsWith("- Seed "));
+  assert.equal(presented.length, 12);
 });
 
 test("retrieveContext works with joined article lookups when RAG is enabled", async (t) => {
@@ -354,6 +446,35 @@ test("article generation succeeds even when the body contains zero internal link
   const payload = await res.text();
   assert.match(payload, /"type":"done"/);
   assert.doesNotMatch(payload, /"type":"error"/);
+});
+
+test("generated formatted slug headings do not override the requested title", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new QueueLlmClient(
+    [
+      "# *archive-rotation-protocol*",
+      "",
+      "**archive-rotation-protocol** is a malformed heading that should not win.",
+    ].join("\n"),
+    [JSON.stringify({ items: [] })],
+  );
+  const server = await createServer(databasePath, llm);
+  const res = await server.request(
+    "/api/page/Archive_rotation_protocol",
+  );
+
+  assert.equal(res.status, 200);
+  const events = (await res.text())
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const done = events.find((event) => event.type === "done");
+  assert.ok(done);
+  assert.equal(done.article.title, "Archive rotation protocol");
+  assert.equal(done.article.displayTitle, undefined);
+  assert.match(done.article.html, /<h1>Archive rotation protocol<\/h1>/);
 });
 
 test("generated articles store an actual summary instead of the opening paragraph", async (t) => {
@@ -561,7 +682,7 @@ test("rewrite endpoint applies user instructions and preserves the article title
   ]);
   const server = await createServer(databasePath, llm);
 
-  const res = await server.request("/api/article/San_Francisco/rewrite", {
+  const res = await server.request("/api/article/San_francisco/rewrite", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -623,13 +744,103 @@ test("rewrite endpoint includes explicitly referenced articles in edit RAG", asy
   const llm = new CapturingChatLlmClient([rewritten, "Updated summary."]);
   const server = await createServer(databasePath, llm);
 
-  const res = await server.request("/api/article/San_Francisco/rewrite", {
+  const res = await server.request("/api/article/San_francisco/rewrite", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       instructions: "Revise this using the Municipal Weather Bureau article.",
       ragEnabled: true,
       ragQuery: "Municipal Weather Bureau",
+    }),
+  });
+
+  assert.equal(res.status, 200);
+  assert.match(llm.calls[0]?.user ?? "", /Municipal Weather Bureau/);
+  assert.match(llm.calls[0]?.user ?? "", /brass rain ledgers/);
+});
+
+test("rewrite RAG uses the user's typed query as the vector search text", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "ledger-index",
+    title: "Ledger Index",
+    markdown: "# Ledger Index\n\nThe current page tracks local ledger entries.",
+  });
+  saveMarkdownArticle(databasePath, {
+    slug: "quiet-archive",
+    title: "Quiet Archive",
+    markdown: "# Quiet Archive\n\nA source page available to the retrieval index.",
+  });
+  {
+    const db = openDatabase(databasePath);
+    await indexArticleChunks(
+      db,
+      new QueueLlmClient(""),
+      "quiet-archive",
+      "# Quiet Archive\n\nA source page available to the retrieval index.",
+      true,
+      500,
+    );
+    db.close();
+  }
+
+  const llm = new CapturingChatLlmClient([
+    "# Ledger Index\n\nRewritten ledger entry.",
+    "Updated summary.",
+  ]);
+  const server = await createServer(databasePath, llm);
+  const query = "arbitrary operator text about cracked brass indexes";
+
+  const res = await server.request("/api/article/Ledger_Index/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instructions: "Use the reference search.",
+      ragEnabled: true,
+      ragQuery: query,
+    }),
+  });
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(llm.embedInputs.at(-1), [query]);
+});
+
+test("rewrite RAG includes fuzzy title matches in addition to vector retrieval", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "san-francisco",
+    title: "San Francisco",
+    markdown: "# San Francisco\n\nSan Francisco is a quiet administrative district.",
+  });
+  saveMarkdownArticle(databasePath, {
+    slug: "municipal-weather-bureau",
+    title: "Municipal Weather Bureau",
+    markdown: [
+      "# Municipal Weather Bureau",
+      "",
+      "The Municipal Weather Bureau coordinates cloud permits, civic umbrellas, and brass rain ledgers.",
+    ].join("\n"),
+  });
+
+  const rewritten = [
+    "# San Francisco",
+    "",
+    "San Francisco now cites the Municipal Weather Bureau.",
+  ].join("\n");
+  const llm = new CapturingChatLlmClient([rewritten, "Updated summary."]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/article/San_francisco/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instructions: "Use this reference.",
+      ragEnabled: true,
+      ragQuery: "municpal wether buro",
     }),
   });
 

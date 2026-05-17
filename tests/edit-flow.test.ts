@@ -499,3 +499,168 @@ test("rewrite sanitizes generated body (strips References/See also)", async (t) 
   assert.match(body.article.markdown, /Good content here/, "body content should survive");
   await server.shutdown();
 });
+
+test("selection edit replaces selected text in article", async (t) => {
+  const { root, databasePath } = createTestDb();
+  const originalBody = "The sky is blue and the grass is green. Birds sing in the morning.";
+  seedArticle(databasePath, "test-sel-edit", "Test Selection Edit", originalBody);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("the ocean is turquoise");
+
+  const server = await createTestServer({ databasePath, llmClient: llm });
+  const res = await server.request("/api/article/test-sel-edit/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      instructions: "make it about the ocean",
+      selectedText: "The sky is blue",
+    }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.ok(body.article.markdown.includes("the ocean is turquoise"),
+    "replacement text should be spliced in");
+  assert.ok(body.article.markdown.includes("Birds sing in the morning"),
+    "non-selected text should be preserved");
+  assert.ok(!body.article.markdown.includes("The sky is blue"),
+    "original selected text should be replaced");
+
+  assert.ok(llm.chatCalls.length > 0, "should have called the LLM");
+  const rewriteCall = llm.chatCalls.find((c) => c.system.includes("Rewrite"));
+  assert.ok(rewriteCall, "should call with rewrite prompt");
+  assert.ok(rewriteCall!.user.includes("The sky is blue"),
+    "prompt should include selected text");
+  await server.shutdown();
+});
+
+test("selection edit returns 400 when selected text not found in article", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "test-sel-miss", "Test Selection Miss", "Actual article content.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("replacement");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+  const res = await server.request("/api/article/test-sel-miss/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      instructions: "fix it",
+      selectedText: "text that does not exist in the article",
+    }),
+  });
+  assert.equal(res.status, 422);
+  const body = await res.json() as any;
+  assert.ok(body.error, "should return an error message");
+  assert.equal(llm.chatCalls.length, 0, "should not call LLM when selection not found");
+  await server.shutdown();
+});
+
+test("selection edit streaming replaces selected text", async (t) => {
+  const { root, databasePath } = createTestDb();
+  const originalBody = "Alpha bravo charlie delta echo.";
+  seedArticle(databasePath, "test-sel-stream", "Test Selection Stream", originalBody);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("BRAVO CHARLIE");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+  const res = await server.request("/api/article/test-sel-stream/rewrite?stream=1", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+    body: JSON.stringify({
+      instructions: "capitalize",
+      selectedText: "bravo charlie",
+    }),
+  });
+  assert.equal(res.status, 200);
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  const done = packets.find((p) => p.type === "done") as any;
+  assert.ok(done, "should get a done event");
+  assert.ok(done.article.markdown.includes("BRAVO CHARLIE"),
+    "streamed result should contain replacement");
+  assert.ok(done.article.markdown.includes("Alpha"),
+    "surrounding text should be preserved");
+  assert.ok(!done.article.markdown.includes("bravo charlie"),
+    "original selection should be replaced");
+  await server.shutdown();
+});
+
+test("selection edit creates a revision entry", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "test-selection-revision", "Test Selection Revision", "Some old text here.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("Some new text here");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+  const res = await server.request("/api/article/test-selection-revision/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      instructions: "update the text",
+      selectedText: "old text",
+    }),
+  });
+  assert.equal(res.status, 200);
+
+  const historyRes = await server.request("/api/article/test-selection-revision/history");
+  assert.equal(historyRes.status, 200);
+  const history = await historyRes.json() as any;
+  assert.ok(history.revisions.length >= 2, "should have seed + edit revisions");
+  const latest = history.revisions[0];
+  assert.equal(latest.operation, "selection-edit", "operation should be selection-edit");
+  await server.shutdown();
+});
+
+test("generated references use plain wiki links, not halu links", async (t) => {
+  const { root, databasePath } = createTestDb();
+  const sourceBody = '**Source Article** has content with [Some Link](halu:some-link "a hint") embedded.';
+  seedArticle(databasePath, "source-article", "Source Article", sourceBody);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const articleMarkdown = [
+    "# Generated Article",
+    "",
+    '**Generated Article** links to [Alpha](halu:alpha "hint"), [Beta](halu:beta "hint"), [Gamma](halu:gamma "hint"), [Delta](halu:delta "hint"), and [Epsilon](halu:epsilon "hint").',
+  ].join("\n");
+
+  const llm: LlmClient = {
+    async chat(): Promise<string> {
+      return JSON.stringify({ items: [{ title: "See This", hint: "related topic" }] });
+    },
+    async streamChat(
+      _s: string,
+      _u: string,
+      onChunk: (delta: string, accumulated: string) => void,
+    ): Promise<{ content: string; finishReason: string }> {
+      onChunk(articleMarkdown, articleMarkdown);
+      return { content: articleMarkdown, finishReason: "stop" };
+    },
+    async embed(): Promise<number[][]> { return []; },
+    async probeConnections(): Promise<void> {},
+  };
+
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/page/Generated_Article");
+  assert.equal(res.status, 200);
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  const done = packets.find((p) => p.type === "done") as any;
+  assert.ok(done, "should get a done event");
+
+  await new Promise((r) => setTimeout(r, 300));
+
+  const db = openDatabase(databasePath);
+  const saved = getArticleByLookup(db, "generated-article");
+  db.close();
+  assert.ok(saved, "article should exist in DB");
+
+  const referencesMatch = saved.markdown.match(/## References\n\n([\s\S]*?)(?:\n\n##|$)/);
+  if (referencesMatch) {
+    const referencesSection = referencesMatch[1];
+    assert.doesNotMatch(referencesSection, /\(halu:/,
+      "references should use plain wiki links, not halu links");
+    assert.match(referencesSection, /\[Source Article\]\(\/wiki\//,
+      "references should link to wiki paths");
+  }
+  await server.shutdown();
+});

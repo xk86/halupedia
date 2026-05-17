@@ -1,3 +1,22 @@
+/**
+ * @deprecated SCHEDULED FOR REMOVAL.
+ *
+ * This module's heuristic parsers (fuzzy title matching, edit-text scanning)
+ * were sometimes used to mutate the reference list directly, which is the
+ * root cause of stray LLM-shaped text appearing inside reference link labels.
+ *
+ * The replacement is `buildReferenceList` in `./referenceList.ts`, which
+ * constructs the reference list algorithmically from validated slugs only.
+ * All new code MUST route through `buildReferenceList`; do not add new
+ * callers of anything in this file.
+ *
+ * Removal blockers (delete this file once these are gone):
+ *   - findReferencedArticlesInEditText  (used by rewrite endpoint's RAG branch)
+ *   - findFuzzyTitleMatchesInEditText   (used by rewrite endpoint's RAG branch)
+ *
+ * Both will be replaced when the rewrite endpoint is migrated to
+ * `buildReferenceList`.
+ */
 import type { DatabaseSync } from "node:sqlite";
 import { getArticleByLookup } from "./db";
 import type { ArticleRecord } from "./types";

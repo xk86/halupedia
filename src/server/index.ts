@@ -25,6 +25,7 @@ import {
   renameArticleSlug,
   saveArticle,
   saveArticleReferences,
+  saveArticleSeeAlso,
   getLatestArticleReferences,
   type ArticleReference,
   saveHomepageCache,
@@ -84,8 +85,15 @@ import type {
   HomepagePayload,
   LinkSelectionSuggestion,
   LinkSuggestion,
+  ReferenceList,
+  ReferenceListEntry,
   SeeAlsoCandidate,
 } from "./types";
+import {
+  buildReferenceList,
+  loadPriorReferenceList,
+  renderReferencesSection,
+} from "./referenceList";
 
 const RESERVED_PATHS = new Set([
   "",
@@ -834,13 +842,40 @@ async function recheckArticleLinks(
  *
  * This is deliberately lightweight: called only when malformed links remain.
  */
+/**
+ * Repair malformed `halu:` link occurrences in article BODY markdown.
+ *
+ * **Contract**: the caller MUST pass body-only markdown — i.e. a string that
+ * does NOT contain the algorithmically-rendered "References" or "See also"
+ * sections. Those sections are constructed from validated slugs by
+ * `renderReferencesSection` / `buildSeeAlsoLine` and are guaranteed
+ * well-formed; passing them through here would let the LLM rewrite link
+ * labels that are known-correct (see referenceList.ts).
+ *
+ * If a References or See also heading is detected anywhere in the input,
+ * this function logs an error and returns the input unchanged rather than
+ * risk corrupting metadata.
+ */
 async function repairMalformedHaluLinks(
   markdown: string,
   lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   logger: Logger,
+  contextSlug?: string,
 ): Promise<string> {
   if (!markdown.includes("halu:")) return markdown;
+
+  // Hard guard: this function is body-only. Refuse to operate on input that
+  // still contains metadata sections — they are algorithmically generated
+  // from validated slugs and must never be rewritten by the LLM.
+  if (/^##\s+(references|see also)\s*$/im.test(markdown)) {
+    logger.error("link_repair.refused_metadata_in_input", {
+      slug: contextSlug ?? "(unknown)",
+      reason:
+        "Input contained References/See-also section; caller must strip metadata first.",
+    });
+    return markdown;
+  }
 
   // Collect ranges of already-valid halu links so we can skip them
   const validRanges: Array<{ start: number; end: number }> = [];
@@ -863,7 +898,10 @@ async function repairMalformedHaluLinks(
   }
 
   if (malformed.length === 0) return markdown;
-  logger.warn("link_repair.malformed_detected", { count: malformed.length });
+  logger.warn("link_repair.malformed_detected", {
+    slug: contextSlug ?? "(unknown)",
+    count: malformed.length,
+  });
 
   let prompt: ReturnType<typeof getPrompt>;
   try {
@@ -897,6 +935,7 @@ async function repairMalformedHaluLinks(
       }
     } catch (err) {
       logger.warn("link_repair.repair_failed", {
+        slug: contextSlug ?? "(unknown)",
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -1552,6 +1591,17 @@ export async function createApp(options: CreateAppOptions = {}) {
     return html;
   }
 
+  /**
+   * Save an article + its reference list immediately, without LLM calls.
+   *
+   * The reference list is constructed via `buildReferenceList` from validated
+   * slugs only — never produced or modified by an LLM. The "References"
+   * section in the saved markdown is rendered algorithmically.
+   *
+   * Any References/See-also sections present in the LLM body are stripped
+   * defensively, because metadata is owned by `buildReferenceList` /
+   * `renderReferencesSection`, not the body.
+   */
   async function saveArticleImmediately(
     slug: string,
     requestedTitle: string,
@@ -1565,25 +1615,37 @@ export async function createApp(options: CreateAppOptions = {}) {
   ) {
     const { canonicalTitle, canonicalSlug, displayTitle } =
       deriveArticleIdentity(bodyMarkdown, requestedTitle, slug);
+
+    // (a) Strip any References/See-also the LLM produced; those are metadata,
+    //     not body, and are owned by buildReferenceList/renderReferencesSection.
+    const sanitizedBody = stripTopLevelSections(bodyMarkdown, [
+      "References",
+      "See also",
+    ]);
     const normalizedBodyMarkdown = rewriteArticleTitleHeading(
-      bodyMarkdown,
+      sanitizedBody,
       canonicalTitle,
     );
-    const deterministicReferences = dedupeRetrievedSourceArticles(
-      retrieved.sourceArticles,
-    ).map((article) => ({
-      slug: article.slug,
-      title: article.title,
-      hiddenHint: summarizeRetrievedSource(article) || article.title,
-    }));
 
-    const assembled = assembleArticleMarkdown(
-      normalizedBodyMarkdown,
-      deterministicReferences,
-      [],
+    // (b) Build the canonical reference list from validated sources.
+    const referenceList = buildReferenceList(
+      db,
+      {
+        articleSlug: canonicalSlug,
+        ragSources: retrieved.sourceArticles,
+        priorReferences: loadPriorReferenceList(db, canonicalSlug),
+        userAdditions: [],
+        revisionId: "current",
+        config: runtime.app.rag,
+      },
+      logger,
     );
-    // Link repair happens in post-processing, not here
-    // This allows the article to be saved immediately without waiting for LLM calls
+
+    // (c) Render references algorithmically — no LLM involvement here.
+    const referencesSection = renderReferencesSection(referenceList);
+    const assembled = referencesSection
+      ? `${normalizedBodyMarkdown.trim()}\n\n${referencesSection}`
+      : normalizedBodyMarkdown.trim();
     const markdown = stripSelfLinks(assembled, canonicalSlug);
 
     const article = {
@@ -1599,6 +1661,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
     const links = extractInternalLinks(markdown);
     article.html = rewriteArticleHtml(renderMarkdown(markdown), links);
+
     logger.debug("save.article_immediate.starting", { slug: canonicalSlug });
     saveArticle(
       db,
@@ -1608,21 +1671,23 @@ export async function createApp(options: CreateAppOptions = {}) {
       revision,
     );
     logger.debug("save.article_immediate.saved_article", { slug: canonicalSlug });
-    // Persist the reference articles used during this save so they can be
-    // restored in subsequent edit sessions without a fresh RAG search.
-    const referenceEntries: ArticleReference[] = dedupeRetrievedSourceArticles(
-      retrieved.sourceArticles,
-    ).map((src) => ({
-      slug: src.slug,
-      title: src.title,
-      summaryMarkdown: src.content?.slice(0, 400) ?? "",
-    }));
-    saveArticleReferences(db, canonicalSlug, article.generated_at, referenceEntries);
+
+    // (d) Persist the reference list using the canonical ReferenceList shape.
+    saveArticleReferences(db, canonicalSlug, article.generated_at, referenceList);
     logger.debug("save.article_immediate.saved_references", {
       slug: canonicalSlug,
-      reference_count: referenceEntries.length,
-      references: referenceEntries.map((r) => ({ slug: r.slug, title: r.title })),
+      reference_count: referenceList.length,
+      references: JSON.stringify(
+        referenceList.map((r) => ({
+          slug: r.slug,
+          title: r.title,
+          kind: r.kind,
+          pinned: r.pinned,
+          revision: r.revisionId,
+        })),
+      ),
     });
+
     return {
       article,
       links,
@@ -1642,13 +1707,21 @@ export async function createApp(options: CreateAppOptions = {}) {
     const normalizedSlug = slugify(slug);
     logger.debug("post_process.start", { slug: normalizedSlug });
     try {
-      // Repair malformed halu links in the background (after article is saved)
+      // Repair malformed halu links in the BODY only. References/See-also are
+      // built algorithmically from validated slugs (referenceList.ts) and must
+      // never be sent through the LLM — strip them defensively even though
+      // postProcessArticle receives body markdown.
       logger.debug("post_process.repairing_links", { slug: normalizedSlug });
+      const bodyOnly = stripTopLevelSections(normalizedBodyMarkdown, [
+        "References",
+        "See also",
+      ]);
       const repairedBodyMarkdown = await repairMalformedHaluLinks(
-        normalizedBodyMarkdown,
+        bodyOnly,
         lightLlm,
         runtime.prompts,
         logger,
+        normalizedSlug,
       );
       logger.debug("post_process.links_repaired", { slug: normalizedSlug });
 
@@ -1688,27 +1761,51 @@ export async function createApp(options: CreateAppOptions = {}) {
         return;
       }
 
-      const deterministicReferences = dedupeArticleCandidates(
-        retrieved.sourceArticles.map((article) => ({
-          slug: article.slug,
-          title: article.title,
-          hiddenHint: normalizeArticleSnippet(article.content) || article.title,
-        })),
+      // Re-resolve the reference list from the now-persisted state so the
+      // post-processed body uses the same list (and any user pins) as the
+      // initial save. References are algorithmically rendered — no LLM.
+      const referenceList = buildReferenceList(
+        db,
+        {
+          articleSlug: normalizedSlug,
+          ragSources: retrieved.sourceArticles,
+          priorReferences: loadPriorReferenceList(db, normalizedSlug),
+          userAdditions: [],
+          revisionId: "current",
+          config: runtime.app.rag,
+        },
+        logger,
       );
       logger.debug("post_process.assembling_markdown", {
         slug: normalizedSlug,
         source_articles_count: retrieved.sourceArticles.length,
-        deterministic_references: deterministicReferences.map((r) => ({ slug: r.slug, title: r.title })),
+        reference_count: referenceList.length,
+        references: JSON.stringify(
+          referenceList.map((r) => ({
+            slug: r.slug,
+            kind: r.kind,
+            pinned: r.pinned,
+          })),
+        ),
         see_also_count: seeAlso.length,
       });
-      const markdown = stripSelfLinks(
-        assembleArticleMarkdown(
-          repairedBodyMarkdown,
-          deterministicReferences,
-          seeAlso,
-        ),
-        slug,
-      );
+
+      // Assemble: body (repaired) + References (algorithmic) + See also (LLM).
+      // The body is fully sanitised at this point — repair pass refuses to
+      // touch metadata, and buildReferenceList only emits validated slugs.
+      const referencesSection = renderReferencesSection(referenceList);
+      const seeAlsoSection =
+        seeAlso.length > 0
+          ? `## See also\n\n${seeAlso.map(buildSeeAlsoLine).join("\n")}`
+          : "";
+      const assembled = [
+        repairedBodyMarkdown.trim(),
+        referencesSection,
+        seeAlsoSection,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const markdown = stripSelfLinks(assembled, slug);
       logger.debug("post_process.markdown_assembled", {
         slug: normalizedSlug,
         markdown_length: markdown.length,
@@ -1753,7 +1850,26 @@ export async function createApp(options: CreateAppOptions = {}) {
         },
         links,
       );
-      logger.info("page.post_process_done", { slug: normalizedSlug });
+
+      // Persist see-also to its dedicated sidecar table. This makes see-also
+      // accessible as structured metadata (Article.metadata.seeAlso) without
+      // needing to re-parse the body markdown. The baked-in section in
+      // `markdown` above is kept for transitional rendering only.
+      saveArticleSeeAlso(
+        db,
+        normalizedSlug,
+        updated.generated_at,
+        seeAlso.map((entry) => ({
+          slug: entry.slug,
+          title: entry.title,
+          hint: entry.hiddenHint ?? "",
+        })),
+      );
+      logger.info("page.post_process_done", {
+        slug: normalizedSlug,
+        see_also_count: seeAlso.length,
+        reference_count: referenceList.length,
+      });
     } catch (error) {
       logger.warn("page.post_process_failed", {
         slug: normalizedSlug,
@@ -1767,7 +1883,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       llm,
       normalizedSlug,
       getArticleByLookup(db, normalizedSlug)?.markdown ??
-        repairedBodyMarkdown,
+        normalizedBodyMarkdown,
       runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
       runtime.app.rag.chunk_size,
       logger,
@@ -2494,9 +2610,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
       logger.debug("rag.explicit_references_detail", {
         slug: article.slug,
-        explicit_slugs: explicitSlugs,
-        all_direct_slugs: allDirectSlugs,
-        direct_context_sources: direct.sourceArticles.map((a) => ({ slug: a.slug, title: a.title })),
+        explicit_slugs: JSON.stringify(explicitSlugs),
+        all_direct_slugs: JSON.stringify(allDirectSlugs),
+        direct_context_sources: JSON.stringify(
+          direct.sourceArticles.map((a) => ({ slug: a.slug, title: a.title })),
+        ),
       });
       retrieved = direct;
     } else if (ragEnabled) {

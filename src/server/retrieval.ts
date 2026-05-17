@@ -2,14 +2,25 @@ import type { DatabaseSync } from "node:sqlite";
 import type { LlmClient } from "./llm";
 import type { Logger } from "./logger";
 
+/**
+ * A single chunk surfaced by the RAG pipeline.
+ *
+ * `score` is the relevancy score the chunk earned during ranking
+ * (cosine similarity for embeddings, lexical match ratio for fallback).
+ * Higher is better. Carried through so the reference-list builder can
+ * re-rank chunks against summaries without re-running retrieval.
+ */
+export interface RetrievedSourceArticle {
+  slug: string;
+  title: string;
+  content: string;
+  score?: number;
+}
+
 export interface RetrievedContextPacket {
   context: string;
   relatedTitles: string[];
-  sourceArticles: Array<{
-    slug: string;
-    title: string;
-    content: string;
-  }>;
+  sourceArticles: RetrievedSourceArticle[];
 }
 
 function chunkText(text: string, chunkSize: number): string[] {
@@ -292,6 +303,7 @@ export async function retrieveContext(
       slug: row.slug,
       title: row.title,
       content: row.content,
+      score: row.score,
     })),
   };
 }

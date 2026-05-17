@@ -120,18 +120,55 @@ export function openDatabase(databasePath: string): DatabaseSync {
     -- Articles used as references during a save/edit/refresh, grouped by saved_at.
     -- saved_at matches the article's generated_at for that event, making it a
     -- foreign-key-free join: SELECT ... WHERE article_slug = ? ORDER BY saved_at DESC.
+    --
+    -- A reference is pure metadata about an article. The rendered References
+    -- section in the article body is generated algorithmically from these rows
+    -- (no LLM involvement). The kind column records whether the source was a
+    -- chunk or a whole-article summary; pinned survives ranking/pruning;
+    -- revision_id holds the positive revision id this reference was attached
+    -- on. In-memory sentinel ids (initial, current, pinned-by-user) are NEVER
+    -- written.
     CREATE TABLE IF NOT EXISTS article_references (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       article_slug TEXT NOT NULL,
       saved_at INTEGER NOT NULL,
       referenced_slug TEXT NOT NULL,
       referenced_title TEXT NOT NULL,
-      referenced_summary_markdown TEXT NOT NULL DEFAULT ''
+      referenced_summary_markdown TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'summary',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      revision_id INTEGER
     );
 
     CREATE INDEX IF NOT EXISTS idx_article_references_slug
       ON article_references(article_slug, saved_at DESC);
+
+    -- See-also entries are sidecar metadata, similar in shape to references
+    -- but semantically distinct: the target article does not necessarily
+    -- exist yet (it is created lazily when the user clicks the link).
+    -- Grouped by saved_at the same way references are.
+    CREATE TABLE IF NOT EXISTS article_see_also (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      saved_at INTEGER NOT NULL,
+      target_slug TEXT NOT NULL,
+      target_title TEXT NOT NULL,
+      hint TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_article_see_also_slug
+      ON article_see_also(article_slug, saved_at DESC);
   `);
+  // Migrate existing article_references rows to include the new reference-list fields.
+  if (!hasColumn(db, "article_references", "kind")) {
+    db.exec(`ALTER TABLE article_references ADD COLUMN kind TEXT NOT NULL DEFAULT 'summary'`);
+  }
+  if (!hasColumn(db, "article_references", "pinned")) {
+    db.exec(`ALTER TABLE article_references ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!hasColumn(db, "article_references", "revision_id")) {
+    db.exec(`ALTER TABLE article_references ADD COLUMN revision_id INTEGER`);
+  }
   if (!hasColumn(db, "articles", "canonical_slug")) {
     db.exec(`ALTER TABLE articles ADD COLUMN canonical_slug TEXT`);
   }
@@ -582,6 +619,18 @@ export function listHomepageHistory(
   });
 }
 
+import type {
+  ReferenceList,
+  ReferenceListEntry,
+  ReferenceKind,
+  ReferenceRevisionId,
+} from "./types";
+
+/**
+ * @deprecated Use ReferenceListEntry from types.ts. Retained as a transitional
+ * alias so older call sites continue to compile while the migration to the
+ * unified reference path completes.
+ */
 export interface ArticleReference {
   slug: string;
   title: string;
@@ -589,26 +638,89 @@ export interface ArticleReference {
 }
 
 /**
- * Persist the set of articles used as references during a save event.
- * `savedAt` should equal the article's `generated_at` for that event so the
- * set can be retrieved without a separate foreign key.
+ * Resolve a possibly-sentinel revisionId down to the integer value (or null)
+ * that the database is allowed to store. Sentinels are in-memory bookkeeping
+ * only and must never round-trip through SQLite.
+ */
+function revisionIdForStorage(id: ReferenceRevisionId): number | null {
+  return typeof id === "number" ? id : null;
+}
+
+/**
+ * Hydrate a stored row back into a ReferenceListEntry. Rows pre-dating the
+ * pinned/kind/revision columns will report defaults; older callers using the
+ * legacy ArticleReference shape can ignore the extra fields.
+ */
+function rowToReferenceEntry(row: {
+  slug: string;
+  title: string;
+  summaryMarkdown: string;
+  kind?: string;
+  pinned?: number;
+  revision_id?: number | null;
+}): ReferenceListEntry {
+  const kind: ReferenceKind = row.kind === "chunk" ? "chunk" : "summary";
+  const revisionId: ReferenceRevisionId =
+    typeof row.revision_id === "number" && row.revision_id >= 0
+      ? row.revision_id
+      : "initial";
+  // `summaryMarkdown` is retained as a legacy alias for `content` so older
+  // callers (including tests) that haven't migrated to the new field name
+  // continue to work. Once those callers are updated this duplication can
+  // be removed.
+  const content = row.summaryMarkdown ?? "";
+  return {
+    slug: row.slug,
+    title: row.title,
+    content,
+    summaryMarkdown: content,
+    kind,
+    pinned: Boolean(row.pinned),
+    revisionId,
+  } as ReferenceListEntry;
+}
+
+/**
+ * Persist the reference list for an article at a given save event.
+ *
+ * `savedAt` should equal the article's `generated_at` so this set can be
+ * retrieved without a foreign-key join. Sentinel revisionIds are coerced to
+ * NULL; only positive integers reach the database.
+ *
+ * Accepts the new `ReferenceList` shape or the legacy `ArticleReference[]`
+ * shape during migration. New call sites should pass `ReferenceList`.
  */
 export function saveArticleReferences(
   db: DatabaseSync,
   articleSlug: string,
   savedAt: number,
-  references: ArticleReference[],
+  references: ReferenceList | ArticleReference[],
 ): void {
   if (references.length === 0) return;
   const insert = db.prepare(
     `INSERT INTO article_references
-       (article_slug, saved_at, referenced_slug, referenced_title, referenced_summary_markdown)
-     VALUES (?, ?, ?, ?, ?)`,
+       (article_slug, saved_at, referenced_slug, referenced_title,
+        referenced_summary_markdown, kind, pinned, revision_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   db.exec("BEGIN");
   try {
     for (const ref of references) {
-      insert.run(articleSlug, savedAt, ref.slug, ref.title, ref.summaryMarkdown ?? "");
+      const entry = ref as Partial<ReferenceListEntry> & ArticleReference;
+      const content = entry.content ?? entry.summaryMarkdown ?? "";
+      const kind: ReferenceKind = entry.kind === "chunk" ? "chunk" : "summary";
+      const pinned = entry.pinned ? 1 : 0;
+      const revisionId = revisionIdForStorage(entry.revisionId ?? "initial");
+      insert.run(
+        articleSlug,
+        savedAt,
+        ref.slug,
+        ref.title,
+        content,
+        kind,
+        pinned,
+        revisionId,
+      );
     }
     db.exec("COMMIT");
   } catch (err) {
@@ -618,14 +730,16 @@ export function saveArticleReferences(
 }
 
 /**
- * Return the most-recent set of references saved for an article.
- * Returns an empty array when no references have been saved yet.
+ * Return the most-recent persisted reference list for an article.
+ *
+ * Returns an empty list when no references have been saved yet. The returned
+ * entries are fully-typed `ReferenceListEntry` objects; legacy fields are
+ * still populated for transitional consumers.
  */
 export function getLatestArticleReferences(
   db: DatabaseSync,
   articleSlug: string,
-): ArticleReference[] {
-  // Find the timestamp of the most recent save event for this article
+): ReferenceList {
   const latest = db
     .prepare(
       `SELECT saved_at FROM article_references
@@ -636,15 +750,26 @@ export function getLatestArticleReferences(
     .get(articleSlug) as { saved_at: number } | undefined;
   if (!latest) return [];
 
-  return db
+  const rows = db
     .prepare(
       `SELECT referenced_slug AS slug,
               referenced_title AS title,
-              referenced_summary_markdown AS summaryMarkdown
+              referenced_summary_markdown AS summaryMarkdown,
+              kind,
+              pinned,
+              revision_id
        FROM article_references
        WHERE article_slug = ? AND saved_at = ?`,
     )
-    .all(articleSlug, latest.saved_at) as unknown as ArticleReference[];
+    .all(articleSlug, latest.saved_at) as Array<{
+      slug: string;
+      title: string;
+      summaryMarkdown: string;
+      kind?: string;
+      pinned?: number;
+      revision_id?: number | null;
+    }>;
+  return rows.map(rowToReferenceEntry);
 }
 
 export function countArticles(db: DatabaseSync): number {
@@ -853,4 +978,74 @@ export function getArticleRevision(db: DatabaseSync, id: number): ArticleRevisio
       )
       .get(id) as ArticleRevision | undefined
   ) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// See-also storage
+// ---------------------------------------------------------------------------
+//
+// See-also is sidecar metadata. The current `articles.markdown` column still
+// contains a baked-in "See also" section for transitional purposes, but the
+// authoritative location is `article_see_also`. New code paths should read
+// and write here; the body markdown will eventually omit the section
+// entirely (see `article.ts` for the typed Article contract).
+
+/** Persistence shape for a see-also entry; matches `SeeAlsoEntry` in article.ts. */
+export interface StoredSeeAlsoEntry {
+  slug: string;
+  title: string;
+  hint: string;
+}
+
+/**
+ * Persist the see-also list for an article at a given save event.
+ * Matches the saved_at convention used by article_references.
+ */
+export function saveArticleSeeAlso(
+  db: DatabaseSync,
+  articleSlug: string,
+  savedAt: number,
+  entries: StoredSeeAlsoEntry[],
+): void {
+  if (entries.length === 0) return;
+  const insert = db.prepare(
+    `INSERT INTO article_see_also (article_slug, saved_at, target_slug, target_title, hint)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  db.exec("BEGIN");
+  try {
+    for (const entry of entries) {
+      insert.run(articleSlug, savedAt, entry.slug, entry.title, entry.hint ?? "");
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+/**
+ * Return the most-recent see-also list for an article. Empty when none saved.
+ */
+export function getLatestArticleSeeAlso(
+  db: DatabaseSync,
+  articleSlug: string,
+): StoredSeeAlsoEntry[] {
+  const latest = db
+    .prepare(
+      `SELECT saved_at FROM article_see_also
+       WHERE article_slug = ?
+       ORDER BY saved_at DESC
+       LIMIT 1`,
+    )
+    .get(articleSlug) as { saved_at: number } | undefined;
+  if (!latest) return [];
+
+  return db
+    .prepare(
+      `SELECT target_slug AS slug, target_title AS title, hint
+       FROM article_see_also
+       WHERE article_slug = ? AND saved_at = ?`,
+    )
+    .all(articleSlug, latest.saved_at) as unknown as StoredSeeAlsoEntry[];
 }

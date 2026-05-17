@@ -19,7 +19,81 @@ export interface RagConfig {
   max_results: number;
   chunk_size: number;
   min_score: number;
+  /**
+   * Maximum number of candidate references to keep after ranking.
+   * The reference list is built from RAG sources (summaries + chunks);
+   * this trims the long tail. Pinned references do NOT count toward this cap.
+   */
+  reference_max_results: number;
+  /**
+   * Minimum relevancy score for a reference candidate to survive pruning.
+   * Independent of `min_score` so reference selectivity can be tuned without
+   * affecting the general RAG pipeline.
+   */
+  reference_min_score: number;
+  /**
+   * Hard ceiling on total references attached to an article. Pinned entries
+   * always survive regardless of this cap. Default 50.
+   */
+  max_references: number;
 }
+
+/**
+ * The kind of underlying data backing a reference entry.
+ * - "summary": pulled from an article's summary_markdown (database-cached)
+ * - "chunk":   pulled from article_chunks via RAG
+ *
+ * Not shown to the user; used for internal ranking, debugging, and ensuring
+ * we never round-trip reference content through an LLM.
+ */
+export type ReferenceKind = "summary" | "chunk";
+
+/**
+ * Sentinel revision identifiers used in-memory only. These MUST NEVER be
+ * persisted to the database. Positive integers refer to actual rows in
+ * `article_revisions`.
+ *
+ * - "initial":       attached when the article was first created
+ * - "current":       attached during the in-progress generation/edit (no rev id yet)
+ * - "pinned-by-user": user explicitly pinned via the editor UI
+ */
+export type ReferenceRevisionId =
+  | number
+  | "initial"
+  | "current"
+  | "pinned-by-user";
+
+/**
+ * Sole canonical representation of an article reference.
+ *
+ * The reference list is a pure-data structure constructed algorithmically
+ * from RAG retrieval, user pins, and previously-saved references. It is
+ * NEVER produced or modified by an LLM. The rendered "References" section
+ * in an article is just `entries.map(e => markdown-link(e.slug, e.title))`.
+ *
+ * Because every link is built from a validated slug, references are exempt
+ * from the link-repair pass and must never be fed back through a language
+ * model — they are metadata, not article body.
+ */
+export interface ReferenceListEntry {
+  /** Canonical article slug; doubles as the entry's primary id. */
+  slug: string;
+  /** Human-readable title used to render the link label. */
+  title: string;
+  /** The actual reference text (summary or chunk). Used for RAG context. */
+  content: string;
+  /** What kind of source produced this entry (internal only). */
+  kind: ReferenceKind;
+  /** True when the user explicitly pinned this reference in the editor. */
+  pinned: boolean;
+  /** Revision the reference was first attached on. Sentinels never hit the DB. */
+  revisionId: ReferenceRevisionId;
+  /** Ranking score (debug only). */
+  score?: number;
+}
+
+/** Type alias to make pipeline intent obvious at call sites. */
+export type ReferenceList = ReferenceListEntry[];
 
 export interface HomepageConfig {
   rotation_hours: number;

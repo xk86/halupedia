@@ -79,6 +79,9 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       max_results: app.rag?.max_results ?? 4,
       chunk_size: app.rag?.chunk_size ?? 500,
       min_score: app.rag?.min_score ?? 0.2,
+      reference_max_results: app.rag?.reference_max_results ?? 8,
+      reference_min_score: app.rag?.reference_min_score ?? 0.4,
+      max_references: app.rag?.max_references ?? 50,
     },
     homepage: {
       rotation_hours: app.homepage?.rotation_hours ?? 4,

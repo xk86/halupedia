@@ -42,32 +42,23 @@ function groupByLetter(items: IndexItem[]): Map<string, IndexItem[]> {
 
 export function AllEntries({ onNavigate }: Props) {
   const [items, setItems] = useState<IndexItem[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [complete, setComplete] = useState(false);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const inflight = useRef(false);
 
-  const fetchPage = useCallback(async (cur: string | null, append: boolean) => {
+  const fetchPage = useCallback(async () => {
     if (inflight.current) return;
     inflight.current = true;
-    if (append) setLoadingMore(true);
-    else setLoading(true);
+    setLoading(true);
     try {
-      const url = `/api/index?limit=200${cur ? `&cursor=${encodeURIComponent(cur)}` : ""}`;
+      const url = "/api/index?all=1";
       const res = await fetch(url);
       if (!res.ok) throw new Error(`error ${res.status}`);
       const data: IndexResponse = await res.json();
-      setItems((prev) => {
-        if (!append) return data.items;
-        // Dedupe by slug in case of overlap.
-        const seen = new Set(prev.map((p) => p.slug));
-        return [...prev, ...data.items.filter((d) => !seen.has(d.slug))];
-      });
-      setCursor(data.cursor);
+      setItems(data.items);
       setComplete(data.complete);
       if (typeof data.total === "number") setTotal(data.total);
     } catch (e: any) {
@@ -75,13 +66,12 @@ export function AllEntries({ onNavigate }: Props) {
     } finally {
       inflight.current = false;
       setLoading(false);
-      setLoadingMore(false);
     }
   }, []);
 
   useEffect(() => {
     document.title = "All entries — Halupedia";
-    fetchPage(null, false);
+    fetchPage();
   }, [fetchPage]);
 
   const filtered = useMemo(() => {
@@ -175,18 +165,11 @@ export function AllEntries({ onNavigate }: Props) {
           ))}
         </div>
       )}
-
-      {!complete && !loading && (
-        <div className="all-entries-more">
-          <button
-            className="all-entries-more-btn"
-            onClick={() => fetchPage(cursor, true)}
-            disabled={loadingMore}
-          >
-            {loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
+      {!complete && !loading ? (
+        <p className="all-entries-status">
+          Showing the first {items.length.toLocaleString()} entries.
+        </p>
+      ) : null}
     </div>
   );
 }

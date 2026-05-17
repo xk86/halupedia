@@ -15,6 +15,22 @@ interface AdminOverview {
   databasePath: string;
   promptConfigPath: string;
   ragMode: string;
+  modelConfigs?: Record<string, { model: string; baseUrl: string }>;
+  promptModelAssociations?: Array<{
+    key: string;
+    model: "heavy" | "light";
+    modelName: string;
+    baseUrl: string;
+    thinking: boolean;
+  }>;
+}
+
+interface GenerationQueueItem {
+  slug: string;
+  title: string;
+  seq: number;
+  startedAt: number;
+  waiting: number;
 }
 
 interface Props {
@@ -33,6 +49,8 @@ export function Admin({ onNavigate }: Props) {
   const [summarySlug, setSummarySlug] = useState("");
   const [regeneratingSummary, setRegeneratingSummary] = useState(false);
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
+  const [generationQueue, setGenerationQueue] = useState<GenerationQueueItem[]>([]);
+  const [savingPromptKey, setSavingPromptKey] = useState<string | null>(null);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -48,10 +66,24 @@ export function Admin({ onNavigate }: Props) {
     }
   }, []);
 
+  const loadGenerationQueue = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/generation-queue");
+      if (!res.ok) throw new Error(`error ${res.status}`);
+      const payload = await res.json();
+      setGenerationQueue(payload.items ?? []);
+    } catch {
+      setGenerationQueue([]);
+    }
+  }, []);
+
   useEffect(() => {
     document.title = "Admin - Halupedia";
     loadOverview();
-  }, [loadOverview]);
+    loadGenerationQueue();
+    const interval = window.setInterval(loadGenerationQueue, 1000);
+    return () => window.clearInterval(interval);
+  }, [loadOverview, loadGenerationQueue]);
 
   const reloadRuntime = useCallback(async () => {
     setReloading(true);
@@ -127,6 +159,29 @@ export function Admin({ onNavigate }: Props) {
     }
   }, [summarySlug, loadOverview]);
 
+  const updatePromptModel = useCallback(async (
+    key: string,
+    model: "heavy" | "light",
+    thinking: boolean,
+  ) => {
+    setSavingPromptKey(key);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/prompt-model", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key, model, thinking }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      await loadOverview();
+    } catch (err: any) {
+      setError(err?.message || "failed to update prompt model");
+    } finally {
+      setSavingPromptKey(null);
+    }
+  }, [loadOverview]);
+
   if (loading) return <p className="search-status">Loading admin overview...</p>;
   if (error) return <div className="search-error">{error}</div>;
   if (!overview) return null;
@@ -171,6 +226,96 @@ export function Admin({ onNavigate }: Props) {
         <p className="sb-copy">Database: {overview.databasePath}</p>
         <p className="sb-copy">Prompts: {overview.promptConfigPath}</p>
         <p className="sb-copy">RAG mode: {overview.ragMode}</p>
+      </div>
+
+      <div className="sb-panel">
+        <div className="admin-section-title-row">
+          <h3 className="sb-heading">Generation Queue</h3>
+          <span className="all-entries-count">{generationQueue.length} active</span>
+        </div>
+        {generationQueue.length ? (
+          <ul className="admin-queue-list">
+            {generationQueue.map((item) => (
+              <li key={`${item.slug}-${item.seq}`} className="admin-queue-item">
+                <a
+                  href={`/wiki/${toWikiSegment(item.title)}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onNavigate(toWikiSegment(item.title));
+                  }}
+                >
+                  {item.title}
+                </a>
+                <span>{item.waiting} waiting</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="sb-copy">No active article generations.</p>
+        )}
+      </div>
+
+      <div className="sb-panel">
+        <div className="admin-section-title-row">
+          <h3 className="sb-heading">Prompt Models</h3>
+          <span className="all-entries-count">{overview.promptModelAssociations?.length ?? 0} prompts</span>
+        </div>
+        {overview.promptModelAssociations?.length ? (
+          <div className="admin-model-table-wrap">
+            <table className="admin-model-table">
+              <thead>
+                <tr>
+                  <th>Prompt</th>
+                  <th>Role</th>
+                  <th>Model</th>
+                  <th>Thinking</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.promptModelAssociations.map((item) => (
+                  <tr key={item.key}>
+                    <td>{item.key}</td>
+                    <td>
+                      <select
+                        className="admin-model-select"
+                        value={item.model}
+                        disabled={savingPromptKey !== null}
+                        onChange={(e) => updatePromptModel(
+                          item.key,
+                          e.target.value as "heavy" | "light",
+                          item.thinking,
+                        )}
+                      >
+                        <option value="heavy">heavy</option>
+                        <option value="light">light</option>
+                      </select>
+                    </td>
+                    <td title={item.baseUrl}>{item.modelName}</td>
+                    <td>
+                      <label className="admin-thinking-toggle">
+                        <input
+                          type="checkbox"
+                          checked={item.thinking}
+                          disabled={savingPromptKey !== null}
+                          onChange={(e) => updatePromptModel(
+                            item.key,
+                            item.model,
+                            e.target.checked,
+                          )}
+                        />
+                        {item.thinking ? "on" : "off"}
+                      </label>
+                    </td>
+                    <td>{savingPromptKey === item.key ? "saving" : "saved"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="sb-copy">No prompt model configuration found.</p>
+        )}
       </div>
 
       <div className="sb-panel">

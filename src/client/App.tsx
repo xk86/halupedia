@@ -13,7 +13,7 @@ type Route =
   | { kind: "index" }
   | { kind: "admin" }
   | { kind: "random" }
-  | { kind: "article"; slug: string }
+  | { kind: "article"; slug: string; title?: string }
   | { kind: "history"; slug: string }
   | { kind: "disambiguation"; slug: string };
 
@@ -130,6 +130,7 @@ function parseRoute(): Route {
     return {
       kind: "article",
       slug: wikiPath,
+      title: new URLSearchParams(search).get("title") ?? undefined,
     };
   }
   return { kind: "home" };
@@ -145,6 +146,7 @@ export function App() {
   const [linkMenu, setLinkMenu] = useState<LinkMenuState | null>(null);
   const [linkMenuBusy, setLinkMenuBusy] = useState(false);
   const [linkMenuError, setLinkMenuError] = useState<string | null>(null);
+  const [editSelectedText, setEditSelectedText] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [editDraft, setEditDraft] = useState("");
   const [editSectionId, setEditSectionId] = useState("");
@@ -206,10 +208,16 @@ export function App() {
           const payload = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
           const path = String(payload.path ?? "");
-          if (!path.startsWith("/wiki/")) throw new Error("random page endpoint returned an invalid path");
+          const url = new URL(path, window.location.origin);
+          if (url.origin !== window.location.origin || !url.pathname.startsWith("/wiki/")) {
+            throw new Error("random page endpoint returned an invalid path");
+          }
           if (cancelled) return;
-          window.history.replaceState({}, "", path);
-          setRoute({ kind: "article", slug: path.slice("/wiki/".length) });
+          window.history.replaceState({}, "", url.pathname);
+          setRoute({
+            kind: "article",
+            slug: decodeURIComponent(url.pathname.slice("/wiki/".length)),
+          });
         } catch (err: any) {
           if (cancelled) return;
           console.error("[app] random_page_failed", err);
@@ -232,6 +240,7 @@ export function App() {
       setEditOpen(false);
       setEditDraft("");
       setEditSectionId("");
+      setEditSelectedText("");
       setEditBusy(false);
       setEditError(null);
       setHistoryOpen(false);
@@ -273,6 +282,7 @@ export function App() {
     setEditOpen(false);
     setEditDraft("");
     setEditSectionId("");
+    setEditSelectedText("");
     setEditBusy(false);
     setEditError(null);
     setHistoryOpen(false);
@@ -316,6 +326,56 @@ export function App() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        const pollGeneratedArticle = async (slug: string, attempt = 0) => {
+          if (cancelled || attempt >= 240) return;
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
+          if (cancelled) return;
+          try {
+            const res = await fetch(`/api/page/${encodeURIComponent(slug)}?wait=0`);
+            if (res.status === 202) {
+              await pollGeneratedArticle(slug, attempt + 1);
+              return;
+            }
+            if (!res.ok) return;
+            const data: PageData = await res.json();
+            if (cancelled) return;
+            setPage(data);
+            setLoading(false);
+            if (data.canonicalPath && data.redirectedFrom && window.location.pathname !== data.canonicalPath) {
+              window.history.replaceState({}, "", data.canonicalPath);
+            }
+            document.title = `${data.article.displayTitle || data.article.title} - Halupedia`;
+            void pollPostProcess(data.article);
+          } catch {
+            return;
+          }
+        };
+        const pollPostProcess = async (article: PageData["article"], attempt = 0) => {
+          if (cancelled || attempt >= 10) return;
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          if (cancelled) return;
+          try {
+            const res = await fetch(`/api/page/${encodeURIComponent(toWikiSegment(article.title))}?wait=0`);
+            if (res.status === 202) {
+              await pollPostProcess(article, attempt + 1);
+              return;
+            }
+            if (!res.ok) return;
+            const data: PageData = await res.json();
+            if (cancelled) return;
+            if ((data.article.generated_at ?? 0) > article.generated_at) {
+              setPage(data);
+              return;
+            }
+            if (data.article.markdown !== article.markdown) {
+              setPage(data);
+              return;
+            }
+          } catch {
+            return;
+          }
+          await pollPostProcess(article, attempt + 1);
+        };
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -327,7 +387,7 @@ export function App() {
             newlineIndex = buffer.indexOf("\n");
             if (!line) continue;
             const event = JSON.parse(line) as
-              | { type: "start"; slug: string; cached: boolean }
+              | { type: "start"; slug: string; cached: boolean; joined?: boolean }
               | { type: "status"; message: string }
               | { type: "progress"; html: string; markdown?: string }
               | {
@@ -341,7 +401,24 @@ export function App() {
                 }
               | { type: "error"; message: string };
             if (cancelled) return;
-            if (event.type === "status") {
+            if (event.type === "start") {
+              setPage((current) => current ?? {
+                cached: false,
+                article: {
+                  slug: route.slug,
+                  canonicalSlug: route.slug,
+                  title: titleFromSegment(route.slug),
+                  html: "",
+                  markdown: "",
+                  plain_text: "",
+                  generated_at: Date.now(),
+                },
+                backlinks: { existing: [], unwritten: [] },
+                statusMessage: event.joined ? "Waiting and contemplating..." : "Waiting and contemplating...",
+              });
+              setLoading(false);
+              if (event.joined) void pollGeneratedArticle(route.slug);
+            } else if (event.type === "status") {
               setPage((current) =>
                 current
                   ? { ...current, statusMessage: event.message }
@@ -392,6 +469,7 @@ export function App() {
                 window.history.replaceState({}, "", event.canonicalPath);
               }
               document.title = `${event.article.displayTitle || event.article.title} - Halupedia`;
+              if (!event.cached) void pollPostProcess(event.article);
             } else if (event.type === "error") {
               throw new Error(event.message);
             }
@@ -508,6 +586,14 @@ export function App() {
     }
   }, [page?.article.slug, linkMenu?.text, linkMenuBusy, clearLinkSelection]);
 
+  const openSelectionEdit = useCallback(() => {
+    if (!linkMenu?.text) return;
+    setEditSelectedText(linkMenu.text);
+    setEditSectionId("__selection__");
+    setEditOpen(true);
+    setLinkMenu(null);
+  }, [linkMenu?.text]);
+
   const rewriteArticle = useCallback(async () => {
     if (!page?.article.slug || !editDraft.trim() || editBusy) return;
     const previousPage = page;
@@ -520,7 +606,9 @@ export function App() {
         headers: { "content-type": "application/json", accept: "application/x-ndjson" },
         body: JSON.stringify({
           instructions: editDraft,
-          sectionId: editSectionId || undefined,
+          ...(editSectionId === "__selection__"
+            ? { selectedText: editSelectedText }
+            : { sectionId: editSectionId || undefined }),
           ragQuery: editRagEnabled ? editRagQuery || undefined : undefined,
           ragEnabled: editRagEnabled,
           rewriteMode: editRewriteMode,
@@ -589,6 +677,7 @@ export function App() {
       }
       setEditDraft("");
       setEditSectionId("");
+      setEditSelectedText("");
       setEditRagEnabled(false);
       setEditRagQuery("");
       setEditBusy(false);
@@ -600,7 +689,7 @@ export function App() {
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
     }
-  }, [page, editDraft, editSectionId, editRagEnabled, editRagQuery, editRewriteMode, editBusy]);
+  }, [page, editDraft, editSectionId, editSelectedText, editRagEnabled, editRagQuery, editRewriteMode, editBusy]);
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
@@ -789,7 +878,7 @@ export function App() {
       return (
         <div className="status">
           <span className="dot" />
-          <span>Generating article and resolving canon...</span>
+          <span>Waiting and contemplating...</span>
         </div>
       );
     }
@@ -966,8 +1055,11 @@ export function App() {
             <div className="edit-tray-row">
               <label>
                 Section
-                <select value={editSectionId} onChange={(e) => setEditSectionId(e.target.value)} disabled={editBusy}>
+                <select value={editSectionId} onChange={(e) => { setEditSectionId(e.target.value); if (e.target.value !== "__selection__") setEditSelectedText(""); }} disabled={editBusy}>
                   <option value="">Entire article</option>
+                  {editSelectedText && (
+                    <option value="__selection__">*Selected Text*</option>
+                  )}
                   {(page.sections ?? []).map((section) => (
                     <option key={section.id} value={section.id}>
                       {section.title}
@@ -1215,6 +1307,9 @@ export function App() {
         >
           <button type="button" className="selection-link-button" onClick={addLinkFromSelection} disabled={linkMenuBusy}>
             {linkMenuBusy ? "Adding..." : "Add a link here"}
+          </button>
+          <button type="button" className="selection-link-button" onClick={openSelectionEdit} disabled={linkMenuBusy}>
+            Edit selection
           </button>
           <button type="button" className="selection-link-dismiss" onClick={clearLinkSelection} disabled={linkMenuBusy}>
             Dismiss

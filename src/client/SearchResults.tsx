@@ -4,12 +4,20 @@ import { toWikiSegment } from "./wikiPath";
 interface SearchItem {
   slug: string;
   title: string;
+  summary?: string;
   exists: boolean;
+}
+
+interface Suggestion {
+  slug: string;
+  title: string;
+  summary: string;
 }
 
 interface SearchResponse {
   query: string;
   results: SearchItem[];
+  suggestions: Suggestion[];
   existing_count: number;
   hallucinated_count: number;
   rate_limited: boolean;
@@ -29,19 +37,11 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
   const [draft, setDraft] = useState(q);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Keep the input mirrored to the route's query (e.g. when user hits Back).
   useEffect(() => {
     setDraft(q);
   }, [q]);
 
-  // Fetch whenever the route's query changes.
   useEffect(() => {
-    if (!q) {
-      setData(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -50,9 +50,10 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
 
     (async () => {
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
-          signal: ctrl.signal,
-        });
+        const url = q
+          ? `/api/search?q=${encodeURIComponent(q)}`
+          : "/api/search";
+        const res = await fetch(url, { signal: ctrl.signal });
         if (!res.ok) {
           const j: any = await res.json().catch(() => ({}));
           throw new Error(j?.error || `error ${res.status}`);
@@ -105,6 +106,8 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
     return { existingResults: e, unwrittenResults: u };
   }, [data]);
 
+  const suggestions = data?.suggestions ?? [];
+
   return (
     <div className="search-page">
       <header className="search-header">
@@ -145,13 +148,6 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
             {q}
           </a>
         </div>
-      )}
-
-      {!q && (
-        <p className="search-hint">
-          Try a name, a place, a century, an obscure ritual — or anything at
-          all.
-        </p>
       )}
 
       {error && <div className="search-error">{error}</div>}
@@ -197,6 +193,9 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
                         >
                           {r.title}
                         </a>
+                        {r.summary && (
+                          <p className="search-item-summary">{r.summary}</p>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -235,6 +234,36 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
             </div>
           )}
         </>
+      )}
+
+      {suggestions.length > 0 && (
+        <section className="search-section search-suggestions">
+          <h2 className="search-section-title">
+            {q ? "You might also enjoy" : "Random entries"}
+          </h2>
+          <ul className="search-list">
+            {suggestions.map((s) => (
+              <li key={s.slug} className="search-item search-item-suggestion">
+                <a
+                  href={`/wiki/${toWikiSegment(s.title)}`}
+                  onClick={(e) => onLinkClick(e, toWikiSegment(s.title))}
+                >
+                  {s.title}
+                </a>
+                {s.summary && (
+                  <p className="search-item-summary">{s.summary}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {!q && !loading && suggestions.length === 0 && (
+        <p className="search-hint">
+          Try a name, a place, a century, an obscure ritual — or anything at
+          all.
+        </p>
       )}
     </div>
   );

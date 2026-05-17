@@ -384,16 +384,26 @@ export function renameArticleSlug(db: DatabaseSync, currentSlug: string, nextSlu
   }
 }
 
-export function listIncomingHints(db: DatabaseSync, slug: string): string[] {
-  const rows = db
+export interface IncomingHint {
+  sourceSlug: string;
+  sourceTitle: string;
+  visibleLabel: string;
+  hiddenHint: string;
+}
+
+export function listIncomingHints(db: DatabaseSync, slug: string): IncomingHint[] {
+  return db
     .prepare(
-      `SELECT hidden_hint
-       FROM article_links
-       WHERE target_slug = ?
-       ORDER BY created_at DESC`
+      `SELECT l.source_slug AS sourceSlug,
+              COALESCE(a.title, l.source_slug) AS sourceTitle,
+              l.visible_label AS visibleLabel,
+              l.hidden_hint AS hiddenHint
+       FROM article_links l
+       LEFT JOIN articles a ON a.slug = l.source_slug
+       WHERE l.target_slug = ?
+       ORDER BY l.created_at DESC`
     )
-    .all(slug) as Array<{ hidden_hint: string }>;
-  return rows.map((row) => row.hidden_hint);
+    .all(slug) as unknown as IncomingHint[];
 }
 
 export function listBacklinks(db: DatabaseSync, slug: string) {

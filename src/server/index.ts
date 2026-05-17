@@ -18,6 +18,7 @@ import {
   listArticleRevisions,
   listArticles,
   listBacklinks,
+  type IncomingHint,
   listIncomingHints,
   openDatabase,
   renameArticleSlug,
@@ -241,6 +242,17 @@ function buildInternalLinkLine(candidate: InternalArticleCandidate): string {
   return `- ${buildHaluLink(candidate.title, candidate.slug, candidate.hiddenHint)}`;
 }
 
+function formatHintsForPrompt(hints: IncomingHint[]): string {
+  if (!hints.length) return "(none yet)";
+  return hints
+    .map((h) => `- ${buildHaluLink(h.visibleLabel || h.sourceTitle, slugify(h.visibleLabel || h.sourceTitle), h.hiddenHint)}`)
+    .join("\n");
+}
+
+function hintsToSearchStrings(hints: IncomingHint[]): string[] {
+  return hints.map((h) => h.hiddenHint);
+}
+
 function dedupeArticleCandidates(
   candidates: InternalArticleCandidate[],
 ): InternalArticleCandidate[] {
@@ -456,7 +468,7 @@ async function generateSeeAlsoCandidates(
   requestedTitle: string,
   bodyMarkdown: string,
   ragContext: string,
-  linkHints: string[],
+  linkHints: IncomingHint[],
   relatedTitles: string[],
 ): Promise<InternalArticleCandidate[]> {
   const prompt = getPrompt(promptConfig, "see_also");
@@ -467,9 +479,7 @@ async function generateSeeAlsoCandidates(
       requested_title: requestedTitle,
       article_excerpt: bodyMarkdown.slice(0, 6000),
       rag_context: ragContext || "(none)",
-      link_hints: linkHints.length
-        ? linkHints.map((hint) => `- ${hint}`).join("\n")
-        : "(none yet)",
+      link_hints: formatHintsForPrompt(linkHints),
       related_titles: relatedTitles.length
         ? relatedTitles.map((title) => `- ${title}`).join("\n")
         : "(none)",
@@ -596,25 +606,26 @@ function normalizeRandomPagePath(raw: string): string {
 function sampleRandomInspirationTitles(db: ReturnType<typeof openDatabase>, count: number): string[] {
   const existing = db
     .prepare(
-      `SELECT title FROM articles
+      `SELECT title, COALESCE(canonical_slug, slug) AS slug, summary_markdown AS hint
+       FROM articles
        WHERE is_disambiguation = 0
        ORDER BY RANDOM() LIMIT ?`,
     )
-    .all(Math.ceil(count / 2)) as Array<{ title: string }>;
+    .all(Math.ceil(count / 2)) as Array<{ title: string; slug: string; hint: string }>;
 
   const unwritten = db
     .prepare(
-      `SELECT DISTINCT l.visible_label AS title
+      `SELECT DISTINCT l.visible_label AS title, l.target_slug AS slug, l.hidden_hint AS hint
        FROM article_links l
        LEFT JOIN articles a ON a.slug = l.target_slug
        WHERE a.slug IS NULL AND l.visible_label != ''
        ORDER BY RANDOM() LIMIT ?`,
     )
-    .all(Math.floor(count / 2)) as Array<{ title: string }>;
+    .all(Math.floor(count / 2)) as Array<{ title: string; slug: string; hint: string }>;
 
   return [...existing, ...unwritten]
-    .map((r) => r.title)
-    .sort(() => Math.random() - 0.5);
+    .sort(() => Math.random() - 0.5)
+    .map((r) => buildHaluLink(r.title, r.slug, r.hint || r.title));
 }
 
 async function generateRandomPagePath(
@@ -1081,7 +1092,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     normalizedTitle: string,
     normalizedBodyMarkdown: string,
     retrieved: Awaited<ReturnType<typeof retrieveContext>>,
-    hints: string[],
+    hints: IncomingHint[],
   ) {
     const normalizedSlug = slugify(slug);
     try {
@@ -1191,7 +1202,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       db,
       llm,
       slug,
-      hints,
+      hintsToSearchStrings(hints),
       runtime.app.rag.enabled,
       runtime.app.rag.mode,
       runtime.app.rag.max_results,
@@ -1204,9 +1215,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const renderedUserPrompt = renderTemplate(prompt.user, {
       slug,
       requested_title: requestedTitle,
-      link_hints: hints.length
-        ? hints.map((hint) => `- ${hint}`).join("\n")
-        : "(none yet)",
+      link_hints: formatHintsForPrompt(hints),
       rag_context: retrieved.context || "(none)",
       related_titles: retrieved.relatedTitles.length
         ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
@@ -1547,7 +1556,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       db,
       llm,
       article.slug,
-      hints,
+      hintsToSearchStrings(hints),
       runtime.app.rag.enabled,
       runtime.app.rag.mode,
       runtime.app.rag.max_results,
@@ -1672,11 +1681,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     const hints = listIncomingHints(db, article.slug);
     let retrieved: Awaited<ReturnType<typeof retrieveContext>>;
     if (ragEnabled) {
+      const hintStrings = hintsToSearchStrings(hints);
       const articleRetrieved = await retrieveContext(
         db,
         llm,
         article.slug,
-        ragQuery ? [ragQuery, ...hints] : hints,
+        ragQuery ? [ragQuery, ...hintStrings] : hintStrings,
         runtime.app.rag.enabled,
         runtime.app.rag.mode,
         runtime.app.rag.max_results,
@@ -1717,9 +1727,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       edit_instructions: instructions,
       current_article: selectedSection,
       full_article: article.markdown,
-      link_hints: hints.length
-        ? hints.map((hint) => `- ${hint}`).join("\n")
-        : "(none yet)",
+      link_hints: formatHintsForPrompt(hints),
       rag_context: retrieved.context || "(none)",
       related_titles: retrieved.relatedTitles.length
         ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
@@ -1864,7 +1872,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       db,
       llm,
       article.slug,
-      hints,
+      hintsToSearchStrings(hints),
       runtime.app.rag.enabled,
       runtime.app.rag.mode,
       runtime.app.rag.max_results,
@@ -1887,9 +1895,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           slug: article.slug,
           requested_title: article.title,
           current_article: currentBodyMarkdown,
-          link_hints: hints.length
-            ? hints.map((hint) => `- ${hint}`).join("\n")
-            : "(none yet)",
+          link_hints: formatHintsForPrompt(hints),
           rag_context: retrieved.context || "(none)",
           related_titles: retrieved.relatedTitles.length
             ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")

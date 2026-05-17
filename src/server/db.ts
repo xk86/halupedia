@@ -457,6 +457,30 @@ export function getRandomArticles(db: DatabaseSync, count: number) {
   }));
 }
 
+export function getRandomSuggestions(db: DatabaseSync, count: number, excludeSlugs: string[] = []) {
+  const placeholders = excludeSlugs.map(() => "?").join(",");
+  const whereClause = excludeSlugs.length
+    ? `WHERE is_disambiguation = 0 AND slug NOT IN (${placeholders})`
+    : "WHERE is_disambiguation = 0";
+  return db
+    .prepare(
+      `SELECT slug,
+              title,
+              summary_markdown AS summaryMarkdown,
+              markdown
+       FROM articles
+       ${whereClause}
+       ORDER BY RANDOM()
+       LIMIT ?`
+    )
+    .all(...excludeSlugs, count) as Array<{
+      slug: string;
+      title: string;
+      summaryMarkdown: string;
+      markdown: string;
+    }>;
+}
+
 export function getHomepageCache(db: DatabaseSync): HomepagePayload | null {
   const row = db
     .prepare(
@@ -501,11 +525,12 @@ export function listArticles(db: DatabaseSync, offset: number, limit: number) {
               summary_markdown AS summaryMarkdown,
               generated_at AS generatedAt
        FROM articles
+       WHERE is_disambiguation = 0
        ORDER BY title COLLATE NOCASE ASC
        LIMIT ? OFFSET ?`
     )
     .all(limit, offset) as Array<{ slug: string; canonicalSlug: string; title: string; summaryMarkdown: string; generatedAt: number }>;
-  const totalRow = db.prepare(`SELECT COUNT(*) AS count FROM articles`).get() as { count: number };
+  const totalRow = db.prepare(`SELECT COUNT(*) AS count FROM articles WHERE is_disambiguation = 0`).get() as { count: number };
   return {
     items,
     total: totalRow.count,
@@ -520,13 +545,23 @@ export function searchCorpus(db: DatabaseSync, query: string, limit: number) {
       `SELECT slug,
               COALESCE(canonical_slug, slug) AS canonicalSlug,
               title,
+              summary_markdown AS summaryMarkdown,
+              markdown,
               1 AS existsFlag
        FROM articles
        WHERE lower(title) LIKE ? OR lower(slug) LIKE ?
        ORDER BY title COLLATE NOCASE ASC
        LIMIT ?`
     )
-    .all(like, like, limit) as Array<{ slug: string; canonicalSlug: string; title: string; existsFlag: number }>;
+    .all(like, like, limit) as Array<{ slug: string; canonicalSlug: string; title: string; summaryMarkdown: string; markdown: string; existsFlag: number }>;
+
+  const existingWithSummary = existing.map((row) => ({
+    slug: row.slug,
+    canonicalSlug: row.canonicalSlug,
+    title: row.title,
+    summary: row.summaryMarkdown?.trim() || summaryMarkdownFromArticle(row.markdown),
+    existsFlag: row.existsFlag,
+  }));
 
   const remaining = Math.max(0, limit - existing.length);
   const unwritten = remaining
@@ -546,7 +581,12 @@ export function searchCorpus(db: DatabaseSync, query: string, limit: number) {
         .all(like, like, like, remaining) as Array<{ slug: string; canonicalSlug: string; title: string; existsFlag: number }>)
     : [];
 
-  return [...existing, ...unwritten];
+  const unwrittenWithSummary = unwritten.map((row) => ({
+    ...row,
+    summary: "",
+  }));
+
+  return [...existingWithSummary, ...unwrittenWithSummary];
 }
 
 export function getAdminOverview(db: DatabaseSync) {

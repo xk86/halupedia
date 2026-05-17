@@ -33,7 +33,7 @@ export function slugToTitle(slug: string): string {
 }
 
 export function titleToWikiSegment(title: string): string {
-  let segment = title
+  let segment = normalizeCanonicalTitle(title)
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[^\p{L}\p{N} _'(),.-]+/gu, "")
@@ -47,4 +47,19 @@ export function titleToWikiSegment(title: string): string {
 
 export function wikiSegmentToTitle(segment: string): string {
   return segment.trim().replace(/_/g, " ").replace(/\s+/g, " ");
+}
+
+export function isSlugStyleWikiSegment(segment: string): boolean {
+  const decoded = decodeURIComponent(segment).replace(/^\/+|\/+$/g, "");
+  if (decoded.includes("_")) return false;
+  if ((decoded.match(/-/g) ?? []).length < 2) return false;
+  return slugify(wikiSegmentToTitle(decoded)) === decoded.toLowerCase();
+}
+
+export function wikiSegmentToRequestedTitle(segment: string): string {
+  const decoded = decodeURIComponent(segment).replace(/^\/+|\/+$/g, "");
+  if (isSlugStyleWikiSegment(decoded)) {
+    return slugToTitle(slugify(decoded));
+  }
+  return wikiSegmentToTitle(decoded);
 }

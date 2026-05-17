@@ -13,6 +13,70 @@ function textMentionsTitle(text: string, title: string): boolean {
   return new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(normalizedTitle)}([^\\p{L}\\p{N}]|$)`, "iu").test(text);
 }
 
+function textTokens(text: string): string[] {
+  return text
+    .normalize("NFC")
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((token) => token.length >= 3);
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
+
+  for (let i = 1; i <= a.length; i++) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return previous[b.length];
+}
+
+function tokenSimilarity(a: string, b: string): number {
+  const maxLength = Math.max(a.length, b.length);
+  if (!maxLength) return 1;
+  return 1 - levenshtein(a, b) / maxLength;
+}
+
+function fuzzyTitleScore(text: string, queryTokens: string[], title: string): number {
+  const normalizedText = text.replace(/\s+/g, " ").trim().toLowerCase();
+  const normalizedTitle = title.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!normalizedTitle || normalizedTitle.length < 4) return 0;
+  if (normalizedText.includes(normalizedTitle)) return 1;
+
+  const titleTokens = textTokens(title);
+  if (titleTokens.length === 0 || queryTokens.length === 0) return 0;
+
+  let matched = 0;
+  let similarityTotal = 0;
+  for (const titleToken of titleTokens) {
+    const best = Math.max(
+      ...queryTokens.map((queryToken) =>
+        queryToken === titleToken ? 1 : tokenSimilarity(queryToken, titleToken),
+      ),
+    );
+    similarityTotal += best;
+    if (best >= 0.78) matched += 1;
+  }
+
+  const coverage = matched / titleTokens.length;
+  const averageSimilarity = similarityTotal / titleTokens.length;
+  return coverage >= 0.5 ? (coverage + averageSimilarity) / 2 : 0;
+}
+
 function decodeWikiSegment(segment: string): string {
   try {
     return decodeURIComponent(segment);
@@ -73,4 +137,47 @@ export function findReferencedArticlesInEditText(
   }
 
   return { articles, requested, missing };
+}
+
+export function findFuzzyTitleMatchesInEditText(
+  db: DatabaseSync,
+  text: string,
+  currentSlug: string,
+  limit = 6,
+  excludeSlugs: string[] = [],
+): ArticleRecord[] {
+  const query = text.replace(/\s+/g, " ").trim();
+  if (!query) return [];
+
+  const queryTokens = textTokens(query);
+  const seen = new Set<string>([
+    slugify(currentSlug),
+    ...excludeSlugs.map((slug) => slugify(slug)).filter(Boolean),
+  ]);
+  const candidates = db
+    .prepare(
+      `SELECT slug, title
+       FROM articles
+       WHERE is_disambiguation = 0
+       ORDER BY title COLLATE NOCASE ASC
+       LIMIT 1000`,
+    )
+    .all() as Array<{ slug: string; title: string }>;
+
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      score: fuzzyTitleScore(query, queryTokens, candidate.title),
+    }))
+    .filter((candidate) => candidate.score >= 0.68)
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+    .flatMap((candidate) => {
+      const slug = slugify(candidate.slug);
+      if (!slug || seen.has(slug)) return [];
+      const article = getArticleByLookup(db, candidate.slug);
+      if (!article) return [];
+      seen.add(slug);
+      return [article];
+    })
+    .slice(0, limit);
 }

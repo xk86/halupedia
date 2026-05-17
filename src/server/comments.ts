@@ -56,7 +56,8 @@ async function generateIdentity(llm: OpenAICompatClient, prompts: PromptConfig) 
       rag_context: "",
       article_excerpt: "",
       parent_comment: "",
-    })
+    }),
+    { thinking: prompt.thinking },
   );
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) throw new Error("identity generation returned invalid JSON");

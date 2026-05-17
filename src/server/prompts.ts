@@ -11,6 +11,18 @@ export function getPrompt(config: PromptConfig, key: string) {
     system: resolveSharedRefs(prompt.system, config),
     user: resolveSharedRefs(prompt.user, config),
     model: prompt.model ?? "heavy",
+    thinking: prompt.thinking ?? false,
+  };
+}
+
+export function getSharedPrompt(config: PromptConfig, key: string) {
+  const prompt = config.shared[key];
+  if (!prompt) {
+    throw new Error(`missing shared prompt template: ${key}`);
+  }
+  return {
+    system: resolveSharedRefs(prompt.system, config),
+    user: resolveSharedRefs(prompt.user, config),
   };
 }
 
@@ -21,7 +33,7 @@ function resolveSharedRefs(
 ): string {
   if (depth > 4) return template;
   const resolved = template.replace(TEMPLATE_RE, (match, ref: string) => {
-    const shared = config.prompts[ref];
+    const shared = config.shared[ref];
     return shared ? shared.system : match;
   });
   return resolved !== template

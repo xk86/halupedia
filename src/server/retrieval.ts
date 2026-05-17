@@ -203,7 +203,8 @@ export async function retrieveContext(
   maxResults: number,
   minScore: number,
   useEmbeddings: boolean,
-  logger?: Logger
+  logger?: Logger,
+  queryOverride?: string,
 ): Promise<RetrievedContextPacket> {
   if (!enabled) {
     logger?.info("rag.retrieve_skipped", {
@@ -235,7 +236,8 @@ export async function retrieveContext(
     return { context: "", relatedTitles: [], sourceArticles: [] };
   }
 
-  const query = [slug, ...hints.slice(0, 8)].join("\n");
+  const explicitQuery = queryOverride?.replace(/\s+/g, " ").trim();
+  const query = explicitQuery || [slug, ...hints.slice(0, 8)].join("\n");
 
   let ranked: Array<{ slug: string; title: string; content: string; score: number }> = [];
   if (useEmbeddings) {

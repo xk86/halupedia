@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -24,14 +24,19 @@ import {
   renameArticleSlug,
   saveArticle,
   saveHomepageCache,
+  getRandomSuggestions,
   searchCorpus,
   updateArticleSummary,
   updateArticleInPlace,
   wipeGeneratedCorpus,
 } from "./db";
-import { findReferencedArticlesInEditText } from "./editReferences";
+import {
+  findFuzzyTitleMatchesInEditText,
+  findReferencedArticlesInEditText,
+} from "./editReferences";
 import { OpenAICompatClient, type LlmClient } from "./llm";
 import { createConsoleLogger, type Logger } from "./logger";
+import { formatIncomingHintsForPrompt } from "./linkHints";
 import { MaintenanceScheduler } from "./maintenance";
 import {
   articleSectionMarkdown,
@@ -53,7 +58,7 @@ import {
   stripTopLevelSections,
   summaryMarkdownFromArticle,
 } from "./markdown";
-import { getPrompt, renderTemplate, stripJsonFences } from "./prompts";
+import { getPrompt, getSharedPrompt, renderTemplate, stripJsonFences } from "./prompts";
 import {
   indexArticleChunks,
   mergeRetrievedContextPackets,
@@ -61,10 +66,12 @@ import {
   retrieveDirectArticleContext,
 } from "./retrieval";
 import {
+  isSlugStyleWikiSegment,
   normalizeCanonicalTitle,
   slugToTitle,
   slugify,
   titleToWikiSegment,
+  wikiSegmentToRequestedTitle,
   wikiSegmentToTitle,
 } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
@@ -240,18 +247,12 @@ export function summarizeRetrievedSource(article: {
   return normalizeArticleSnippet(article.content);
 }
 
-function buildInternalLinkLine(candidate: InternalArticleCandidate): string {
+function buildReferenceLine(candidate: InternalArticleCandidate): string {
   return `- ${buildHaluLink(candidate.title, candidate.slug, candidate.hiddenHint)}`;
 }
 
-function formatHintsForPrompt(hints: IncomingHint[]): string {
-  if (!hints.length) return "(none yet)";
-  return hints
-    .map(
-      (h) =>
-        `- ${buildHaluLink(h.visibleLabel || h.sourceTitle, slugify(h.visibleLabel || h.sourceTitle), h.hiddenHint)}`,
-    )
-    .join("\n");
+function buildSeeAlsoLine(candidate: InternalArticleCandidate): string {
+  return `- ${buildHaluLink(candidate.title, candidate.slug, candidate.hiddenHint)}`;
 }
 
 function hintsToSearchStrings(hints: IncomingHint[]): string[] {
@@ -355,7 +356,13 @@ function deriveArticleIdentity(
     ? resolvedTitle
     : requestedCanonicalTitle;
   const canonicalSlug = slugify(canonicalTitle) || requestedSlug;
-  const displayTitle = rawDisplayTitle;
+  const rawDisplayPlainTitle = rawDisplayTitle
+    ? normalizeCanonicalTitle(extractTitle(`# ${rawDisplayTitle}`, requestedTitle))
+    : "";
+  const displayTitle =
+    rawDisplayTitle && rawDisplayPlainTitle === requestedCanonicalTitle
+      ? rawDisplayTitle
+      : undefined;
   return { canonicalTitle, canonicalSlug, displayTitle };
 }
 
@@ -454,15 +461,46 @@ function assembleArticleMarkdown(
   const sections = [bodyMarkdown.trim()];
   if (references.length) {
     sections.push(
-      `## References\n\n${references.map(buildInternalLinkLine).join("\n")}`,
+      `## References\n\n${references.map(buildReferenceLine).join("\n")}`,
     );
   }
   if (seeAlso.length) {
     sections.push(
-      `## See also\n\n${seeAlso.map(buildInternalLinkLine).join("\n")}`,
+      `## See also\n\n${seeAlso.map(buildSeeAlsoLine).join("\n")}`,
     );
   }
   return sections.filter(Boolean).join("\n\n").trim();
+}
+
+function replaceTopLevelTomlValue(
+  source: string,
+  key: "model" | "thinking",
+  value: string,
+): string {
+  const line = `${key} = ${value}`;
+  const pattern = new RegExp(`^${key}\\s*=.*$`, "m");
+  if (pattern.test(source)) {
+    return source.replace(pattern, line);
+  }
+  return `${line}\n${source}`;
+}
+
+function updateRunnablePromptConfig(
+  promptKey: string,
+  model: "heavy" | "light",
+  thinking: boolean,
+) {
+  if (!/^[a-z0-9_]+$/i.test(promptKey)) {
+    throw new Error("invalid prompt key");
+  }
+  const promptPath = resolve(process.cwd(), "config", "prompts", `${promptKey}.toml`);
+  if (!existsSync(promptPath)) {
+    throw new Error(`unknown prompt config: ${promptKey}`);
+  }
+  let next = readFileSync(promptPath, "utf8");
+  next = replaceTopLevelTomlValue(next, "model", `"${model}"`);
+  next = replaceTopLevelTomlValue(next, "thinking", thinking ? "true" : "false");
+  writeFileSync(promptPath, next);
 }
 
 async function generateSeeAlsoCandidates(
@@ -484,12 +522,13 @@ async function generateSeeAlsoCandidates(
       requested_title: requestedTitle,
       article_excerpt: bodyMarkdown.slice(0, 6000),
       rag_context: ragContext || "(none)",
-      link_hints: formatHintsForPrompt(linkHints),
+      link_hints: formatIncomingHintsForPrompt(linkHints, slugify(requestedTitle)),
       related_titles: relatedTitles.length
         ? relatedTitles.map((title) => `- ${title}`).join("\n")
         : "(none)",
       parent_comment: "",
     }),
+    { thinking: prompt.thinking },
   );
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) return [];
@@ -530,6 +569,7 @@ async function recheckArticleLinks(
       selected_text: "",
       edit_instructions: "",
     }),
+    { thinking: prompt.thinking },
   );
 
   const match = raw.match(/\{[\s\S]*\}/);
@@ -594,6 +634,7 @@ async function generateArticleSummary(
         edit_instructions: "",
         full_article: articleMarkdown.slice(0, 12000),
       }),
+      { thinking: prompt.thinking },
     );
     const summary = normalizeSummaryMarkdown(raw);
     if (summary && !summaryLooksLikeLeadCopy(summary, articleMarkdown)) {
@@ -653,61 +694,58 @@ async function generateDidYouKnowFact(
       full_article: article.markdown.slice(0, 12000),
       dyk_articles: "",
     }),
+    { thinking: prompt.thinking },
   );
   return normalizeHomepageFact(raw);
 }
 
-function normalizeRandomPagePath(raw: string): string {
-  const cleaned = stripJsonFences(raw)
-    .replace(/^["'`]+|["'`]+$/g, "")
-    .trim();
-  const wikiMatch = cleaned.match(/(?:^|[/\s"'])wiki\/([^\n"'<>#?]+)/i);
-  const candidate = (wikiMatch?.[1] ?? cleaned.split(/\n/)[0] ?? "")
-    .replace(/^\/+|\/+$/g, "")
-    .replace(/[?#].*$/, "");
-  const decoded = candidate ? decodeURIComponent(candidate) : "";
-  const title = normalizeCanonicalTitle(wikiSegmentToTitle(decoded));
-  if (!title) {
-    throw new Error("random page prompt returned an empty wiki path");
+function normalizeRandomPageChoice(raw: string): { title: string; slug: string } {
+  const cleaned = stripJsonFences(raw).trim();
+  let title = "";
+  let slug = "";
+  try {
+    const json = JSON.parse(cleaned) as { title?: unknown; slug?: unknown };
+    title = normalizeCanonicalTitle(String(json.title ?? ""));
+    slug = slugify(String(json.slug ?? ""));
+  } catch {
+    const wikiMatch = cleaned.match(/(?:^|[/\s"'])wiki\/([^\n"'<>#?]+)/i);
+    const candidate = (wikiMatch?.[1] ?? cleaned.split(/\n/)[0] ?? "")
+      .replace(/^["'`/]+|["'`/]+$/g, "")
+      .replace(/[?#].*$/, "")
+      .trim();
+    title = normalizeCanonicalTitle(wikiSegmentToRequestedTitle(candidate));
+    slug = slugify(title);
   }
-  return `/wiki/${titleToWikiSegment(title)}`;
+  if (title && slug && slugify(title) === slug && isSlugStyleWikiSegment(title)) {
+    title = wikiSegmentToRequestedTitle(title);
+  }
+  if (!title && slug) title = normalizeCanonicalTitle(slugToTitle(slug));
+  if (!slug && title) slug = slugify(title);
+  if (!title || !slug) throw new Error("random page prompt returned an empty title or slug");
+  return { title, slug };
 }
 
-function sampleRandomInspirationTitles(
+function sampleRandomInspirationArticles(
   db: ReturnType<typeof openDatabase>,
   count: number,
-): string[] {
-  const existing = db
+): Array<{ title: string; slug: string }> {
+  const articles = db
     .prepare(
-      `SELECT title, summary_markdown AS hint
-       FROM articles
+      `SELECT title, slug FROM articles
        WHERE is_disambiguation = 0
        ORDER BY RANDOM() LIMIT ?`,
     )
-    .all(Math.min(count, 4)) as Array<{ title: string; hint: string }>;
+    .all(Math.max(0, count)) as Array<{ title: string; slug: string }>;
 
-  const unwritten = db
-    .prepare(
-      `SELECT DISTINCT l.visible_label AS title, l.hidden_hint AS hint
-       FROM article_links l
-       LEFT JOIN articles a ON a.slug = l.target_slug
-       WHERE a.slug IS NULL AND l.visible_label != ''
-       ORDER BY RANDOM() LIMIT ?`,
-    )
-    .all(Math.min(count, 4)) as Array<{ title: string; hint: string }>;
-
-  return [...existing, ...unwritten]
-    .sort(() => Math.random() - 0.5)
-    .map((r) => `${r.title} — ${r.hint || r.title}`);
+  return articles;
 }
 
-async function generateRandomPagePath(
-  db: ReturnType<typeof openDatabase>,
+async function generateRandomPageChoice(
   llm: LlmClient,
   lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
-  inspiration: string[] = [],
-): Promise<string> {
+  inspiration: Array<{ title: string; slug: string }> = [],
+): Promise<{ title: string; slug: string }> {
   const prompt = getPrompt(promptConfig, "random_page");
   const selectedLlm = prompt.model === "light" ? lightLlm : llm;
   const raw = await selectedLlm.chat(
@@ -729,11 +767,13 @@ async function generateRandomPagePath(
       dyk_articles: "",
       article_title: "",
       inspiration_titles: inspiration.length
-        ? inspiration.map((t) => `- ${t}`).join("\n")
-        : "(no existing articles yet)",
+        ? inspiration.map((a) => `- ${a.title} (${a.slug})`).join("\n")
+        : "(none)",
     }),
+    { thinking: prompt.thinking },
   );
-  return normalizeRandomPagePath(raw);
+
+  return normalizeRandomPageChoice(raw);
 }
 
 async function ensureHomepageCache(
@@ -811,7 +851,7 @@ function buildLinkedPromptSystem(
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   key: string,
 ): string {
-  const guide = getPrompt(promptConfig, "linking_guide");
+  const guide = getSharedPrompt(promptConfig, "linking_guide");
   const prompt = getPrompt(promptConfig, key);
   return `${guide.system.trim()}\n\n${prompt.system.trim()}`;
 }
@@ -842,6 +882,7 @@ async function generateLinkSelection(
       link_hints: "",
       parent_comment: "",
     }),
+    { thinking: prompt.thinking },
   );
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) {
@@ -881,6 +922,7 @@ async function generateLinkSuggestion(
       link_hints: "",
       parent_comment: "",
     }),
+    { thinking: prompt.thinking },
   );
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) {
@@ -933,7 +975,15 @@ export async function createApp(options: CreateAppOptions = {}) {
     : resolve(process.cwd(), "dist");
 
   const inFlightGenerations = new Set<Promise<unknown>>();
-  const slugGenerations = new Map<string, Promise<ArticleRecord>>();
+  interface GenerationQueueEntry {
+    promise: Promise<ArticleRecord>;
+    slug: string;
+    title: string;
+    seq: number;
+    startedAt: number;
+    waiting: number;
+  }
+  const slugGenerations = new Map<string, GenerationQueueEntry>();
   let generationSeq = 0;
   const maintenance = new MaintenanceScheduler(logger);
 
@@ -945,37 +995,53 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   function reserveSlugGeneration(
     slug: string,
+    title: string,
     generate: () => Promise<ArticleRecord>,
-  ): { promise: Promise<ArticleRecord>; seq: number; joined: boolean } {
+  ): { promise: Promise<ArticleRecord>; seq: number; joined: boolean; releaseWaiter: () => void } {
     const seq = ++generationSeq;
     const queueDepth = slugGenerations.size;
     const existing = slugGenerations.get(slug);
     if (existing) {
-      logger.info("page.generation_join", {
-        slug,
+      existing.waiting += 1;
+      logger.info("page.join", { slug, seq, origin_seq: existing.seq, waiting: existing.waiting });
+      return {
+        promise: existing.promise,
         seq,
-        queue_depth: queueDepth,
-        in_flight: inFlightGenerations.size,
-      });
-      return { promise: existing, seq, joined: true };
+        joined: true,
+        releaseWaiter: () => {
+          existing.waiting = Math.max(0, existing.waiting - 1);
+        },
+      };
     }
-    logger.info("page.generation_reserve", {
-      slug,
-      seq,
-      queue_depth: queueDepth + 1,
-      in_flight: inFlightGenerations.size,
-    });
+    logger.info("page.generate", { slug, seq });
     const promise = generate().finally(() => {
-      slugGenerations.delete(slug);
-      logger.info("page.generation_release", {
-        slug,
-        seq,
-        queue_depth: slugGenerations.size,
-        in_flight: inFlightGenerations.size,
-      });
+      if (slugGenerations.get(slug)?.seq === seq) {
+        slugGenerations.delete(slug);
+      }
     });
-    slugGenerations.set(slug, promise);
-    return { promise, seq, joined: false };
+    slugGenerations.set(slug, {
+      promise,
+      slug,
+      title,
+      seq,
+      startedAt: Date.now(),
+      waiting: 0,
+    });
+    return { promise, seq, joined: false, releaseWaiter: () => {} };
+  }
+
+  function generationQueuePayload() {
+    return {
+      items: [...slugGenerations.values()]
+        .sort((a, b) => a.startedAt - b.startedAt)
+        .map((entry) => ({
+          slug: entry.slug,
+          title: entry.title,
+          seq: entry.seq,
+          startedAt: entry.startedAt,
+          waiting: entry.waiting,
+        })),
+    };
   }
 
   async function shutdown() {
@@ -1113,16 +1179,44 @@ export async function createApp(options: CreateAppOptions = {}) {
     ) {
       const renamed = renameArticleSlug(db, repaired.slug, requestedSlug);
       if (renamed) {
-        logger.info("page.slug_repair", {
-          from_slug: repaired.slug,
-          to_slug: requestedSlug,
-          title: repaired.title,
-        });
+        logger.info("page.slug_repair", { slug: requestedSlug, from: repaired.slug });
         const fresh = getArticleByLookup(db, requestedSlug);
         if (fresh) repaired = fresh;
       }
     }
     return repaired;
+  }
+
+  function repairCachedArticle(article: ArticleRecord): ArticleRecord {
+    const normalizedTitle = normalizeCanonicalTitle(
+      article.title || slugToTitle(article.canonicalSlug),
+    );
+    const bodyMarkdown = sanitizeGeneratedBody(article.markdown);
+    const markdown = rewriteArticleTitleHeading(bodyMarkdown, normalizedTitle);
+    const links = extractInternalLinks(markdown);
+    const repairedArticle: ArticleRecord = {
+      ...article,
+      title: normalizedTitle,
+      markdown,
+      html: rewriteArticleHtml(renderMarkdown(markdown), links),
+      summaryMarkdown:
+        article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: Date.now(),
+    };
+    saveArticle(
+      db,
+      repairedArticle,
+      links,
+      Array.from(
+        new Set([repairedArticle.slug, repairedArticle.canonicalSlug]),
+      ),
+      {
+        operation: "repair",
+        instructions: "Repair cached article artifacts.",
+      },
+    );
+    return getArticleByLookup(db, repairedArticle.slug) ?? repairedArticle;
   }
 
   function rewriteArticleHtml(
@@ -1244,12 +1338,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         expectedGeneratedAt &&
         existing.generated_at !== expectedGeneratedAt
       ) {
-        logger.info("page.post_process_skipped", {
-          slug: normalizedSlug,
-          reason: "article_modified_since_generation",
-          expected_at: expectedGeneratedAt,
-          actual_at: existing.generated_at,
-        });
+        logger.info("page.post_process_skipped", { slug: normalizedSlug, reason: "stale" });
         return;
       }
 
@@ -1282,10 +1371,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         freshCheck &&
         freshCheck.generated_at !== expectedGeneratedAt
       ) {
-        logger.info("page.post_process_skipped", {
-          slug: normalizedSlug,
-          reason: "article_modified_during_post_process",
-        });
+        logger.info("page.post_process_skipped", { slug: normalizedSlug, reason: "concurrent_edit" });
         return;
       }
 
@@ -1340,10 +1426,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     onProgress?: (html: string, markdown: string) => void,
     onStatus?: (message: string) => void,
   ) {
-    logger.info("page.generation_start", {
-      slug,
-      requested_title: requestedTitle,
-    });
     onStatus?.("Gathering references...");
     const hints = listIncomingHints(db, slug);
     const retrieved = await retrieveContext(
@@ -1364,7 +1446,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const renderedUserPrompt = renderTemplate(prompt.user, {
       slug,
       requested_title: requestedTitle,
-      link_hints: formatHintsForPrompt(hints),
+      link_hints: formatIncomingHintsForPrompt(hints, slug),
       rag_context: retrieved.context || "(none)",
       related_titles: retrieved.relatedTitles.length
         ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
@@ -1386,9 +1468,12 @@ export async function createApp(options: CreateAppOptions = {}) {
           );
           onProgress(renderMarkdown(progressMarkdown), progressMarkdown);
         },
+        { thinking: prompt.thinking },
       );
     } else {
-      rawMarkdown = await selectedLlm.chat(prompt.system, renderedUserPrompt);
+      rawMarkdown = await selectedLlm.chat(prompt.system, renderedUserPrompt, {
+        thinking: prompt.thinking,
+      });
     }
 
     let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
@@ -1399,30 +1484,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       requestedTitle,
       slug,
     );
-    logger.info("page.generation_attempt", {
-      slug,
-      title: resolvedTitle,
-      title_ok: titleOk,
-      body_unique_links: uniqueLinkCount,
-      retrieved_sources: retrieved.sourceArticles.length,
-    });
     if (!titleOk) {
-      logger.warn("page.generation_title_mismatch", {
-        slug,
-        requested_title: requestedTitle,
-        resolved_title: resolvedTitle,
-      });
+      logger.warn("page.title_mismatch", { slug, got: resolvedTitle });
     }
     onStatus?.("Resolving canon...");
     const { article, links, normalizedTitle, normalizedBodyMarkdown } =
       await saveArticleImmediately(slug, requestedTitle, markdown, retrieved, {
         operation: "generate",
       });
-    logger.info("page.generation_done", {
-      slug,
-      title: article.title,
-      links: links.length,
-    });
+    logger.info("page.generated", { slug, links: links.length, sources: retrieved.sourceArticles.length });
 
     trackGeneration(
       postProcessArticle(
@@ -1531,19 +1601,26 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/random-page", async (c) => {
     try {
       await reloadRuntime();
-      const inspiration = sampleRandomInspirationTitles(db, 4);
-      logger.info("random_page.request", {
-        inspiration: inspiration.join(", ") || "(none)",
-      });
-      const path = await generateRandomPagePath(
+      const inspiration = sampleRandomInspirationArticles(
         db,
+        runtime.app.random_page.inspiration_count,
+      );
+      logger.info("random_page.request", {
+        "random article inspiration titles": inspiration.map((a) => `${a.title} (${a.slug})`).join(", "),
+      });
+      const choice = await generateRandomPageChoice(
         llm,
         lightLlm,
         runtime.prompts,
         inspiration,
       );
-      logger.info("random_page.done", { path });
-      return c.json({ path });
+      logger.info("random_page.done", { slug: choice.slug, title: choice.title });
+      const wikiSegment = titleToWikiSegment(slugToTitle(choice.slug));
+      return c.json({
+        path: `/wiki/${wikiSegment}`,
+        slug: choice.slug,
+        title: choice.title,
+      });
     } catch (error) {
       logger.error("random_page.failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -1557,18 +1634,16 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/page/:slug", async (c) => {
     const requestedSegment = c.req.param("slug");
-    const requestedTitle = normalizeCanonicalTitle(
-      wikiSegmentToTitle(requestedSegment),
+    const segmentTitle = normalizeCanonicalTitle(
+      wikiSegmentToRequestedTitle(requestedSegment),
     );
-    const lookupSlug = slugify(requestedTitle);
+    const requestedTitle = normalizeCanonicalTitle(
+      c.req.query("title") || segmentTitle,
+    );
+    const lookupSlug = slugify(segmentTitle);
     if (!lookupSlug || !requestedTitle)
       return c.json({ error: "invalid slug" }, 400);
     const requestedPath = `/wiki/${requestedSegment}`;
-    logger.info("page.request", {
-      slug: lookupSlug,
-      requested_title: requestedTitle,
-      path: requestedPath,
-    });
 
     let article = getArticleByLookup(db, lookupSlug);
     if (!article) {
@@ -1579,14 +1654,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     if (article) {
       article = repairStoredArticleIdentity(article, lookupSlug);
-      const cachedLinks = extractInternalLinks(article.markdown).length;
       if (!cachedArticleNeedsRepair(article.markdown)) {
         const canonicalPath = canonicalPathForArticle(article);
-        logger.info("page.cache_hit", {
-          slug: article.slug,
-          links: cachedLinks,
-          canonical_path: canonicalPath,
-        });
+        logger.info("page.hit", { slug: lookupSlug });
         return c.json({
           cached: true,
           redirectedFrom:
@@ -1597,47 +1667,72 @@ export async function createApp(options: CreateAppOptions = {}) {
           backlinks: listBacklinks(db, article.slug),
         });
       }
-      logger.warn("page.cache_repair", {
-        slug: article.slug,
-        links: cachedLinks,
-        reason: "semantic_validation_failed",
+      logger.warn("page.cache_repair", { slug: article.slug });
+      article = repairCachedArticle(article);
+      const canonicalPath = canonicalPathForArticle(article);
+      logger.info("page.hit", { slug: lookupSlug });
+      return c.json({
+        cached: true,
+        redirectedFrom:
+          canonicalPath !== requestedPath ? requestedPath : undefined,
+        canonicalPath,
+        article,
+        sections: listArticleSections(article.markdown),
+        backlinks: listBacklinks(db, article.slug),
       });
-      article = null;
     }
-    if (!article) {
-      logger.info("page.cache_miss", { slug: lookupSlug });
-    }
+    logger.info("page.miss", { slug: lookupSlug });
 
+    const encoder = new TextEncoder();
     const existingGeneration = slugGenerations.get(lookupSlug);
     if (existingGeneration) {
       const joinSeq = ++generationSeq;
-      logger.info("page.generation_join_await", {
+      logger.info("page.join_await", {
         slug: lookupSlug,
         seq: joinSeq,
-        queue_depth: slugGenerations.size,
-        in_flight: inFlightGenerations.size,
+        origin_seq: existingGeneration.seq,
       });
-      try {
-        article = await existingGeneration;
-        const canonicalPath = canonicalPathForArticle(article);
-        return c.json({
-          cached: true,
-          redirectedFrom:
-            canonicalPath !== requestedPath ? requestedPath : undefined,
-          canonicalPath,
-          article,
-          sections: listArticleSections(article.markdown),
-          backlinks: listBacklinks(db, article.slug),
-        });
-      } catch (error) {
+      if (c.req.query("wait") === "0") {
         return c.json(
-          { error: error instanceof Error ? error.message : String(error) },
-          500,
+          {
+            generating: true,
+            slug: lookupSlug,
+            title: existingGeneration.title,
+            seq: existingGeneration.seq,
+            waiting: existingGeneration.waiting,
+          },
+          202,
         );
       }
+      let streamOpen = true;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const send = (payload: unknown) => {
+            if (!streamOpen) return;
+            try {
+              controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+            } catch {
+              streamOpen = false;
+            }
+          };
+          const close = () => {
+            if (!streamOpen) return;
+            streamOpen = false;
+            try {
+              controller.close();
+            } catch {}
+          };
+
+          send({ type: "start", slug: lookupSlug, cached: false, seq: joinSeq, joined: true });
+          send({ type: "status", message: "Waiting and contemplating..." });
+          close();
+        },
+      });
+      return new Response(stream, {
+        headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+      });
     }
 
-    const encoder = new TextEncoder();
     let streamOpen = true;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -1661,7 +1756,8 @@ export async function createApp(options: CreateAppOptions = {}) {
           promise: generation,
           seq,
           joined,
-        } = reserveSlugGeneration(lookupSlug, () =>
+          releaseWaiter,
+        } = reserveSlugGeneration(lookupSlug, requestedTitle, () =>
           buildArticle(
             lookupSlug,
             requestedTitle,
@@ -1675,17 +1771,13 @@ export async function createApp(options: CreateAppOptions = {}) {
         );
 
         send({ type: "start", slug: lookupSlug, cached: false, seq, joined });
+        send({ type: "status", message: "Waiting and contemplating..." });
 
         generation
           .then((result) => {
             article = result;
             const canonicalPath = canonicalPathForArticle(article);
-            logger.info("page.generation_complete", {
-              slug: lookupSlug,
-              seq,
-              joined,
-              queue_depth: slugGenerations.size,
-            });
+            logger.info("page.stream_done", { slug: lookupSlug, seq });
             send({
               type: "done",
               cached: false,
@@ -1697,20 +1789,17 @@ export async function createApp(options: CreateAppOptions = {}) {
               backlinks: listBacklinks(db, article.slug),
             });
             close();
+            releaseWaiter();
             return result;
           })
           .catch((error) => {
-            logger.error("page.generation_failed", {
-              slug: lookupSlug,
-              seq,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            logger.error("page.stream_error", { slug: lookupSlug, seq, error: error instanceof Error ? error.message : String(error) });
             send({
               type: "error",
               message: error instanceof Error ? error.message : String(error),
             });
             close();
-            throw error;
+            releaseWaiter();
           });
 
         trackGeneration(generation.catch(() => {}));
@@ -1854,6 +1943,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       instructions?: string;
       sectionId?: string;
+      selectedText?: string;
       ragEnabled?: boolean;
       ragQuery?: string;
       rewriteMode?: string;
@@ -1867,10 +1957,22 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
+
+    const selectedText = (body.selectedText ?? "").trim();
+    let selectionRange: { start: number; end: number } | null = null;
+    if (selectedText) {
+      const idx = article.markdown.indexOf(selectedText);
+      if (idx < 0)
+        return c.json({ error: "selected text not found in article" }, 422);
+      selectionRange = { start: idx, end: idx + selectedText.length };
+    }
+
     const sectionId = (body.sectionId ?? "").trim();
-    const selectedSection = sectionId
-      ? articleSectionMarkdown(article.markdown, sectionId)
-      : article.markdown;
+    const selectedSection = selectionRange
+      ? selectedText
+      : sectionId
+        ? articleSectionMarkdown(article.markdown, sectionId)
+        : article.markdown;
 
     const ragEnabled = body.ragEnabled === true;
     const ragQuery = (body.ragQuery ?? "")
@@ -1882,27 +1984,38 @@ export async function createApp(options: CreateAppOptions = {}) {
     let retrieved: Awaited<ReturnType<typeof retrieveContext>>;
     if (ragEnabled) {
       const hintStrings = hintsToSearchStrings(hints);
+      const userSearchText = ragQuery || instructions;
       const articleRetrieved = await retrieveContext(
         db,
         llm,
         article.slug,
-        ragQuery ? [ragQuery, ...hintStrings] : hintStrings,
+        userSearchText ? [userSearchText] : hintStrings,
         runtime.app.rag.enabled,
         runtime.app.rag.mode,
         runtime.app.rag.max_results,
         runtime.app.rag.min_score,
         runtime.llm.embeddings.enabled,
         logger,
+        userSearchText || undefined,
       );
       const editReferences = findReferencedArticlesInEditText(
         db,
         `${ragQuery} ${instructions}`,
         article.slug,
       );
+      const fuzzyTitleMatches = findFuzzyTitleMatchesInEditText(
+        db,
+        `${userSearchText} ${instructions}`,
+        article.slug,
+        runtime.app.rag.max_results,
+        editReferences.articles.map(
+          (referencedArticle) => referencedArticle.slug,
+        ),
+      );
       const editRetrieved = retrieveDirectArticleContext(
         db,
         article.slug,
-        editReferences.articles.map(
+        [...editReferences.articles, ...fuzzyTitleMatches].map(
           (referencedArticle) => referencedArticle.slug,
         ),
         runtime.app.rag.mode,
@@ -1914,9 +2027,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         ragQuery,
         requested: editReferences.requested.length,
         resolved: editReferences.articles.length,
+        fuzzy_resolved: fuzzyTitleMatches.length,
         missing: editReferences.missing.length,
         resolved_slugs:
-          editReferences.articles
+          [...editReferences.articles, ...fuzzyTitleMatches]
             .map((referencedArticle) => referencedArticle.slug)
             .join(", ") || "(none)",
       });
@@ -1935,15 +2049,19 @@ export async function createApp(options: CreateAppOptions = {}) {
     const selectedLlm = prompt.model === "light" ? lightLlm : llm;
     const renderedSystemPrompt = renderTemplate(prompt.system, {
       rewrite_mode: modePrompt,
-      link_hints: formatHintsForPrompt(hints),
+      link_hints: formatIncomingHintsForPrompt(hints, article.slug),
     });
+    const selectionEditInstructions = selectionRange
+      ? `SELECTION EDIT: The user selected specific text from the article and wants it rewritten. The "Current article" field below contains ONLY the selected text. Return ONLY the replacement text — do not return the full article, do not add headings, do not add surrounding context. Your response replaces the selection verbatim.\n\nUser instructions: ${instructions}`
+      : instructions;
+
     const renderedRewritePrompt = renderTemplate(prompt.user, {
       slug: article.slug,
       requested_title: article.title,
-      edit_instructions: instructions,
+      edit_instructions: selectionEditInstructions,
       current_article: selectedSection,
-      full_article: article.markdown,
-      link_hints: formatHintsForPrompt(hints),
+      full_article: selectionRange ? article.markdown : article.markdown,
+      link_hints: formatIncomingHintsForPrompt(hints, article.slug),
       rag_context: retrieved.context || "(none)",
       related_titles: retrieved.relatedTitles.length
         ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
@@ -1956,11 +2074,28 @@ export async function createApp(options: CreateAppOptions = {}) {
     const wantsStream =
       c.req.query("stream") === "1" ||
       (c.req.header("accept") ?? "").includes("application/x-ndjson");
+    const operationName = selectionRange
+      ? "selection-edit"
+      : sectionId
+        ? "section-rewrite"
+        : "rewrite";
+
     const persistRewrite = async (raw: string) => {
-      const rewrittenBody = sanitizeGeneratedBody(normalizeMarkdown(raw));
-      const nextMarkdown = sectionId
-        ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
-        : rewrittenBody;
+      let nextMarkdown: string;
+      if (selectionRange) {
+        const replacement = normalizeMarkdown(raw)
+          .replace(/^#\s+.+?\n*/m, "")
+          .trim();
+        nextMarkdown =
+          article.markdown.slice(0, selectionRange.start) +
+          replacement +
+          article.markdown.slice(selectionRange.end);
+      } else {
+        const rewrittenBody = sanitizeGeneratedBody(normalizeMarkdown(raw));
+        nextMarkdown = sectionId
+          ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
+          : rewrittenBody;
+      }
       const {
         article: updatedArticle,
         links,
@@ -1971,7 +2106,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         article.title,
         nextMarkdown,
         retrieved,
-        { operation: sectionId ? "section-rewrite" : "rewrite", instructions },
+        { operation: operationName, instructions },
       );
       trackGeneration(
         postProcessArticle(
@@ -2027,19 +2162,31 @@ export async function createApp(options: CreateAppOptions = {}) {
                 const progressMarkdown = sanitizeGeneratedBody(
                   normalizeMarkdown(accumulated),
                 );
-                const mergedMarkdown = sectionId
-                  ? replaceArticleSection(
-                      article.markdown,
-                      sectionId,
-                      progressMarkdown,
-                    )
-                  : progressMarkdown;
+                let mergedMarkdown: string;
+                if (selectionRange) {
+                  const replacement = normalizeMarkdown(accumulated)
+                    .replace(/^#\s+.+?\n*/m, "")
+                    .trim();
+                  mergedMarkdown =
+                    article.markdown.slice(0, selectionRange.start) +
+                    replacement +
+                    article.markdown.slice(selectionRange.end);
+                } else if (sectionId) {
+                  mergedMarkdown = replaceArticleSection(
+                    article.markdown,
+                    sectionId,
+                    progressMarkdown,
+                  );
+                } else {
+                  mergedMarkdown = progressMarkdown;
+                }
                 send({
                   type: "progress",
                   html: renderMarkdown(mergedMarkdown),
                   markdown: mergedMarkdown,
                 });
               },
+              { thinking: prompt.thinking },
             );
             const payload = await persistRewrite(raw);
             send({ type: "done", ...payload });
@@ -2069,6 +2216,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const raw = await selectedLlm.chat(
       renderedSystemPrompt,
       renderedRewritePrompt,
+      { thinking: prompt.thinking },
     );
 
     try {
@@ -2113,7 +2261,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       const subtleMode = runtime.prompts.rewriteModes.subtle?.prompt ?? "";
       const renderedRefreshSystem = renderTemplate(prompt.system, {
         rewrite_mode: subtleMode,
-        link_hints: formatHintsForPrompt(hints),
+        link_hints: formatIncomingHintsForPrompt(hints, article.slug),
       });
       const raw = await selectedLlm.chat(
         renderedRefreshSystem,
@@ -2121,7 +2269,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           slug: article.slug,
           requested_title: article.title,
           current_article: currentBodyMarkdown,
-          link_hints: formatHintsForPrompt(hints),
+          link_hints: formatIncomingHintsForPrompt(hints, article.slug),
           rag_context: retrieved.context || "(none)",
           related_titles: retrieved.relatedTitles.length
             ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
@@ -2131,6 +2279,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           selected_text: "",
           edit_instructions: "",
         }),
+        { thinking: prompt.thinking },
       );
       bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
       bodyMarkdown = await recheckArticleLinks(
@@ -2165,11 +2314,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       ).catch(() => {}),
     );
     const refreshChanged = updatedArticle.markdown !== article.markdown;
-    logger.info("page.refresh_context", {
-      slug: updatedArticle.slug,
-      changed: refreshChanged,
-      retrieved_sources: retrieved.sourceArticles.length,
-    });
+    logger.info("page.refresh", { slug: updatedArticle.slug, changed: refreshChanged });
     return c.json({
       cached: true,
       canonicalPath: canonicalPathForArticle(updatedArticle),
@@ -2247,9 +2392,10 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/index", (c) => {
     const offset = Math.max(parseInt(c.req.query("cursor") ?? "0", 10) || 0, 0);
+    const all = c.req.query("all") === "1";
     const limit = Math.min(
-      Math.max(parseInt(c.req.query("limit") ?? "200", 10) || 200, 1),
-      500,
+      Math.max(parseInt(c.req.query("limit") ?? (all ? "10000" : "200"), 10) || 200, 1),
+      all ? 10000 : 500,
     );
     const page = listArticles(db, offset, limit);
     return c.json({
@@ -2261,18 +2407,80 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   app.get("/api/admin/overview", (c) => {
+    const modelConfigs = {
+      heavy: {
+        model: runtime.llm.chat.model,
+        baseUrl: runtime.llm.chat.base_url,
+      },
+      light: {
+        model: runtime.llm.light.model,
+        baseUrl: runtime.llm.light.base_url,
+      },
+    };
     return c.json({
       ...getAdminOverview(db),
       model: runtime.llm.chat.model,
       databasePath: runtime.app.storage.database_path,
-      promptConfigPath: "config/prompts.toml",
+      promptConfigPath: "config/prompts",
       ragMode: runtime.app.rag.mode,
+      modelConfigs,
+      promptModelAssociations: Object.keys(runtime.prompts.prompts)
+        .sort()
+        .map((key) => {
+          const prompt = getPrompt(runtime.prompts, key);
+          const modelRole = prompt.model;
+          const modelConfig = modelConfigs[modelRole];
+          return {
+            key,
+            model: modelRole,
+            modelName: modelConfig.model,
+            baseUrl: modelConfig.baseUrl,
+            thinking: prompt.thinking,
+          };
+        }),
     });
+  });
+
+  app.get("/api/admin/generation-queue", (c) => {
+    return c.json(generationQueuePayload());
   });
 
   app.post("/api/admin/reload", async (c) => {
     await reloadRuntime();
     return c.json({ ok: true });
+  });
+
+  app.post("/api/admin/prompt-model", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      key?: string;
+      model?: string;
+      thinking?: unknown;
+    };
+    const key = String(body.key ?? "");
+    const model = body.model === "light" ? "light" : body.model === "heavy" ? "heavy" : null;
+    if (!key || !Object.hasOwn(runtime.prompts.prompts, key)) {
+      return c.json({ error: "unknown runnable prompt" }, 400);
+    }
+    if (!model) {
+      return c.json({ error: "model must be heavy or light" }, 400);
+    }
+    const thinking = body.thinking === true;
+    try {
+      updateRunnablePromptConfig(key, model, thinking);
+      await reloadRuntime();
+      const prompt = getPrompt(runtime.prompts, key);
+      return c.json({
+        ok: true,
+        key,
+        model: prompt.model,
+        thinking: prompt.thinking,
+      });
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        500,
+      );
+    }
   });
 
   app.post("/api/admin/wipe", (c) => {
@@ -2412,9 +2620,15 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/search", (c) => {
     const q = (c.req.query("q") ?? "").trim().slice(0, 100);
     if (!q) {
+      const random = getRandomSuggestions(db, 5).map((r) => ({
+        slug: r.slug,
+        title: r.title,
+        summary: r.summaryMarkdown?.trim() || summaryMarkdownFromArticle(r.markdown),
+      }));
       return c.json({
         query: "",
         results: [],
+        suggestions: random,
         existing_count: 0,
         hallucinated_count: 0,
         rate_limited: false,
@@ -2426,13 +2640,22 @@ export async function createApp(options: CreateAppOptions = {}) {
       (item) => ({
         slug: item.canonicalSlug,
         title: item.title === item.slug ? slugToTitle(item.slug) : item.title,
+        summary: item.summary,
         exists: Boolean(item.existsFlag),
       }),
     );
 
+    const resultSlugs = results.map((r) => r.slug);
+    const random = getRandomSuggestions(db, 5, resultSlugs).map((r) => ({
+      slug: r.slug,
+      title: r.title,
+      summary: r.summaryMarkdown?.trim() || summaryMarkdownFromArticle(r.markdown),
+    }));
+
     return c.json({
       query: q,
       results,
+      suggestions: random,
       existing_count: results.filter((item) => item.exists).length,
       hallucinated_count: results.filter((item) => !item.exists).length,
       rate_limited: false,
@@ -2449,12 +2672,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (path.startsWith("/api/")) return c.notFound();
 
     const bareSlug = routeSlug(path);
+    if (path.startsWith("/wiki/")) {
+      const requestedSegment = path.slice("/wiki/".length);
+      const canonicalPath = `/wiki/${titleToWikiSegment(
+        wikiSegmentToRequestedTitle(requestedSegment),
+      )}`;
+      if (isSlugStyleWikiSegment(requestedSegment) && canonicalPath !== path) {
+        logger.info("page.redirect", { slug: bareSlug, from: path });
+        return c.redirect(canonicalPath, 302);
+      }
+    }
     if (bareSlug && !path.startsWith("/wiki/")) {
-      logger.info("page.redirect", {
-        bare_slug: bareSlug,
-        from: path,
-        to: `/wiki/${bareSlug}`,
-      });
+      logger.info("page.redirect", { slug: bareSlug, from: path });
       return c.redirect(`/wiki/${bareSlug}`, 302);
     }
 

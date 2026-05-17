@@ -4,23 +4,29 @@ import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 export type LlmRole = "heavy" | "light" | "embeddings";
 type ChatLlmRole = Exclude<LlmRole, "embeddings">;
 
+export interface ChatOptions {
+  thinking?: boolean;
+}
+
 export interface LlmClient {
-  chat(system: string, user: string): Promise<string>;
+  chat(system: string, user: string, options?: ChatOptions): Promise<string>;
   streamChat(
     system: string,
     user: string,
-    onChunk: (delta: string, accumulated: string) => void
+    onChunk: (delta: string, accumulated: string) => void,
+    options?: ChatOptions,
   ): Promise<{ content: string; finishReason: string }>;
   embed(input: string[]): Promise<number[][]>;
   probeConnections(): Promise<void>;
 }
 
-function chatRequestFields(role: ChatLlmRole, config: ChatConfig, promptChars: number) {
+function chatRequestFields(role: ChatLlmRole, config: ChatConfig, promptChars: number, options: ChatOptions) {
   return {
     role,
     model: config.model,
     max_tokens: config.max_tokens,
     temperature: config.temperature,
+    thinking: options.thinking ?? false,
     prompt_chars: promptChars,
   };
 }
@@ -79,10 +85,10 @@ export class OpenAICompatClient implements LlmClient {
     private readonly role: ChatLlmRole,
   ) {}
 
-  async chat(system: string, user: string): Promise<string> {
+  async chat(system: string, user: string, options: ChatOptions = {}): Promise<string> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
-    this.logger.info("llm.chat_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length));
+    this.logger.info("llm.chat_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -93,6 +99,7 @@ export class OpenAICompatClient implements LlmClient {
         model: this.chatConfig.model,
         temperature: this.chatConfig.temperature,
         max_tokens: this.chatConfig.max_tokens,
+        think: options.thinking ?? false,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -136,11 +143,12 @@ export class OpenAICompatClient implements LlmClient {
   async streamChat(
     system: string,
     user: string,
-    onChunk: (delta: string, accumulated: string) => void
+    onChunk: (delta: string, accumulated: string) => void,
+    options: ChatOptions = {},
   ): Promise<{ content: string; finishReason: string }> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
-    this.logger.info("llm.stream_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length));
+    this.logger.info("llm.stream_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -152,6 +160,7 @@ export class OpenAICompatClient implements LlmClient {
         temperature: this.chatConfig.temperature,
         max_tokens: this.chatConfig.max_tokens,
         stream: true,
+        think: options.thinking ?? false,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },

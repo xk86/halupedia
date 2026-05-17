@@ -25,6 +25,10 @@ export interface HomepageConfig {
   rotation_hours: number;
 }
 
+export interface RandomPageConfig {
+  inspiration_count: number;
+}
+
 export interface TestConfig {
   database_path: string;
   llm_base_url: string;
@@ -38,6 +42,7 @@ export interface AppConfig {
   search: SearchConfig;
   rag: RagConfig;
   homepage: HomepageConfig;
+  random_page: RandomPageConfig;
   tests: TestConfig;
 }
 
@@ -66,6 +71,7 @@ export interface PromptTemplate {
   system: string;
   user: string;
   model?: "heavy" | "light";
+  thinking?: boolean;
 }
 
 export interface RewriteMode {
@@ -75,6 +81,7 @@ export interface RewriteMode {
 
 export interface PromptConfig {
   prompts: Record<string, PromptTemplate>;
+  shared: Record<string, PromptTemplate>;
   rewriteModes: Record<string, RewriteMode>;
 }
 

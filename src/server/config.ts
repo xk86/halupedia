@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
 import type { AppConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
@@ -10,27 +10,55 @@ function readToml<T>(path: string): T {
   return parse(raw) as T;
 }
 
-function loadPromptConfig(dir: string): PromptConfig {
-  const absDir = resolve(ROOT, dir);
-  const files = readdirSync(absDir).filter((f) => f.endsWith(".toml"));
+function loadPromptFiles(dir: string, runnable: boolean) {
+  const files = existsSync(dir)
+    ? readdirSync(dir).filter((f) => f.endsWith(".toml"))
+    : [];
   const prompts: Record<string, PromptTemplate> = {};
   let rewriteModes: Record<string, RewriteMode> = {};
   for (const file of files) {
     const key = basename(file, ".toml");
-    const raw = parse(readFileSync(resolve(absDir, file), "utf8")) as {
+    const raw = parse(readFileSync(resolve(dir, file), "utf8")) as {
       system?: string;
       user?: string;
+      model?: "heavy" | "light";
+      thinking?: boolean;
       modes?: Record<string, RewriteMode>;
     };
     prompts[key] = {
       system: raw.system ?? "",
       user: raw.user ?? "",
+      ...(runnable
+        ? {
+            model:
+              raw.model === "light"
+                ? "light"
+                : raw.model === "heavy"
+                  ? "heavy"
+                  : undefined,
+            thinking: raw.thinking ?? false,
+          }
+        : {}),
     };
     if (raw.modes) {
       rewriteModes = { ...rewriteModes, ...raw.modes };
     }
   }
   return { prompts, rewriteModes };
+}
+
+function loadPromptConfig(dir: string): PromptConfig {
+  const absDir = resolve(ROOT, dir);
+  const runnable = loadPromptFiles(absDir, true);
+  const shared = loadPromptFiles(resolve(absDir, "shared"), false);
+  return {
+    prompts: runnable.prompts,
+    shared: shared.prompts,
+    rewriteModes: {
+      ...shared.rewriteModes,
+      ...runnable.rewriteModes,
+    },
+  };
 }
 
 function withDefaults(app: Partial<AppConfig>): AppConfig {
@@ -54,6 +82,9 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     },
     homepage: {
       rotation_hours: app.homepage?.rotation_hours ?? 4,
+    },
+    random_page: {
+      inspiration_count: app.random_page?.inspiration_count ?? 12,
     },
     tests: {
       database_path: app.tests?.database_path ?? "halupedia.sqlite",

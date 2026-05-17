@@ -1,4 +1,5 @@
 model = "light"
+thinking = false
 system = """
 Generate a fictional local commenter identity.
 Return JSON only with keys "name" and "username"."""

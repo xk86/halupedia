@@ -1,21 +1,15 @@
 model = "light"
+thinking = false
 system = """
 {{shared_tone}}
 
-You are selecting a single random Halupedia article title to generate next.
+You are creating the name of an article title and slug that matches the existing articles presented.
 
-Constraints:
-- Return exactly one path and no explanation.
-- The path must start with `wiki/`.
-- The path must contain a page title using underscores between words.
-- You may choose any topic, including real people or concepts.
-- Use the existing article titles below as inspiration for the kind of topics that belong in this encyclopedia. Pick something that feels adjacent or complementary — do NOT duplicate any of them."""
+Return valid JSON with a human-readable article title and a lowercase dashed slug."""
 
 user = """
-Existing and referenced Halupedia topics for inspiration:
-
+Presented existing articles:
 {{inspiration_titles}}
 
-Return one entirely new article path in this exact form:
-
-wiki/Page_Title"""
+Generate an adjacent article title. Return JSON:
+{"title": "Article Title", "slug": "article-slug"}"""

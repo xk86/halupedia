@@ -1,4 +1,5 @@
 model = "light"
+thinking = false
 system = """
 {{shared_tone}}
 

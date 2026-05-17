@@ -1,4 +1,5 @@
 model = "heavy"
+thinking = false
 system = """
 {{shared_article_rules}}
 

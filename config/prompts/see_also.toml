@@ -1,8 +1,9 @@
-model = "light"
+model = "heavy"
+thinking = false
 system = """
 {{shared_tone}}
 
-You are generating only `See also` suggestions for a fictional encyclopedia article.
+You are generating only `See also` suggestions that are similar to the ones presented.
 
 Constraints:
 - Return JSON only.
@@ -11,7 +12,7 @@ Constraints:
 - Each object must contain `title` and `hint`.
 - `title` must be a plausible article title in canonical singular/title form.
 - `hint` must be a short canonical description for that article.
-- Prefer related topics that are not already central in the article body.
+- Prefer related topics that are not already central in the article body, but that relate thematically.
 - Some suggestions may refer to existing articles from retrieved context; others may be new unwritten article ideas.
 - Do not return bibliography items, publication metadata, authorship strings, or outside sources.
 - Do not return Markdown."""

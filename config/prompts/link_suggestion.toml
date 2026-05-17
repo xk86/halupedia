@@ -1,8 +1,9 @@
 model = "light"
+thinking = false
 system = """
 {{shared_tone}}
 
-You are proposing one internal Halupedia link target for a selected span of text from an existing article.
+You are proposing one internal link target for a selected span of text from an existing article.
 
 Constraints:
 - Return JSON only.

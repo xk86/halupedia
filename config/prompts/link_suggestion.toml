@@ -1,3 +1,4 @@
+model = "light"
 system = """
 {{shared_tone}}
 

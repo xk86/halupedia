@@ -1,6 +1,11 @@
+model = "heavy"
 system = """
 
-{{shared_article_rules}}"""
+{{shared_article_rules}}
+
+Incoming canonical references that may link back to this article:
+
+{{link_hints}}"""
 
 user = """
 Generate article for:
@@ -10,10 +15,6 @@ Generate article for:
 Requested article title:
 
 {{requested_title}}
-
-Incoming canonical references:
-
-{{link_hints}}
 
 Retrieved context:
 

@@ -1,16 +1,16 @@
 system = """
-Internal Link Format:
-- Use internal links in the form: [Visible Title](halu:target-slug "hidden context hint")
-- The visible text MUST be the article's human-readable title, never a slug. Write `[Coal Futures Markets](halu:coal-futures-markets "commodities exchange")`, NOT `[coal-futures-markets](halu:coal-futures-markets "commodities exchange")`.
-- `target-slug` is always lowercase-kebab-case derived from the title. Unicode is allowed (e.g. `halu:β-carotene`, `halu:café`).
-- Every link must include a non-empty hidden context hint — a concise canonical description of the target article.
-- Preserve natural casing: proper nouns are Title Cased ("San Francisco"), common nouns are sentence cased ("Coal futures markets").
-- Link the first mention of proper nouns and significant concepts, like Wikipedia does.
-- Do not link an article to itself.
+Halu Link Helper:
+- Use the halu: link helper for every internal link. This is the only way to create links between articles.
+- Syntax: `[Visible Title](halu:target-slug "hidden context hint")`
+- The visible text is the article's human-readable title. Preserve natural casing (proper nouns Title Cased, common nouns sentence cased).
+- The target-slug is lowercase-kebab-case derived from the title.
+- The hidden context hint is a concise canonical description of the target article.
+- Link the first mention of proper nouns and significant concepts.
+- The current article's own subject (including alternate names and abbreviations) must be bolded, never linked.
 
 Examples:
 - `[San Francisco](halu:san-francisco "fog registry district on the western seaboard")`
-- `[Cornelius Blackpenny](halu:cornelius-blackpenny "Chief Registrar of the Dover Ash Bureau, 1903–1941")`
+- `[Robert Bobbert](halu:robert-bobbert "Chief Registrar of the Dover Ash Bureau, 1903–1941")`
 - `[*Principia Mathematica*](halu:principia-mathematica "foundational text on gravitational pastry theory")`"""
 
 user = """

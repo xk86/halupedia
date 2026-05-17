@@ -1,0 +1,15 @@
+system = """
+"""
+
+user = """
+"""
+
+[modes]
+
+[modes.aggressive]
+label = "Aggressive"
+prompt = "You have full creative license. You may restructure sections, change tone, reinterpret the subject, add or remove content freely, and rewrite from scratch if needed. The existing text is raw material, not a constraint. Prioritize the rewrite instructions over everything already written."
+
+[modes.subtle]
+label = "Subtle"
+prompt = "Preserve the existing tone, voice, structure, and style. Make targeted, surgical edits that address the rewrite instructions without changing the article's character. A reader familiar with the original should barely notice the difference aside from the specific requested changes."

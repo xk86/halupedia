@@ -7,7 +7,11 @@ import { getArticle, openDatabase, saveArticle } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmClient } from "../src/server/llm";
-import { extractInternalLinks, markdownToPlainText, renderMarkdown } from "../src/server/markdown";
+import {
+  extractInternalLinks,
+  markdownToPlainText,
+  renderMarkdown,
+} from "../src/server/markdown";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 
 const TEST_CONFIG = loadConfig().app.tests;
@@ -18,7 +22,7 @@ class QueueLlmClient implements LlmClient {
   constructor(
     private readonly streamContent: string,
     private readonly chatResponses: string[] = [],
-    private readonly streamChunks?: string[]
+    private readonly streamChunks?: string[],
   ) {}
 
   async chat(system?: string): Promise<string> {
@@ -34,7 +38,7 @@ class QueueLlmClient implements LlmClient {
   async streamChat(
     _system: string,
     _user: string,
-    onChunk: (delta: string, accumulated: string) => void
+    onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
     let accumulated = "";
     for (const delta of this.streamChunks ?? [this.streamContent]) {
@@ -65,7 +69,7 @@ class CapturingChatLlmClient implements LlmClient {
   async streamChat(
     _system: string,
     _user: string,
-    onChunk: (delta: string, accumulated: string) => void
+    onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
     const content = "# Placeholder\n\nPlaceholder body.";
     onChunk(content, content);
@@ -91,7 +95,7 @@ function saveMarkdownArticle(
     title: string;
     markdown: string;
     generated_at?: number;
-  }
+  },
 ) {
   const db = openDatabase(databasePath);
   const links = extractInternalLinks(article.markdown);
@@ -107,7 +111,7 @@ function saveMarkdownArticle(
       generated_at: article.generated_at ?? Date.now(),
     },
     links,
-    [article.slug]
+    [article.slug],
   );
   db.close();
 }
@@ -127,7 +131,7 @@ async function createServer(databasePath: string, llmClient: LlmClient) {
 
 test("inline TeX renders as math markup", () => {
   const html = renderMarkdown(
-    "Cultural Dissipation Factor ($\\delta$): centralized systems may yield higher $\\delta$ readings."
+    "Cultural Dissipation Factor ($\\delta$): centralized systems may yield higher $\\delta$ readings.",
   );
   assert.match(html, /class="[^"]*katex/);
   assert.match(html, /class="[^"]*math-inline/);
@@ -163,7 +167,7 @@ test("admin summary regeneration accepts pasted wiki links and updates stored su
   });
 
   assert.equal(res.status, 200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   assert.equal(body.article.slug, "coal-futures-markets");
   assert.equal(
     body.article.summaryMarkdown,
@@ -206,7 +210,7 @@ test("admin summary regeneration accepts bare wiki paths", async (t) => {
   });
 
   assert.equal(res.status, 200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   assert.equal(body.article.slug, "corvid-scouts-of-armenia");
   assert.equal(
     body.article.summaryMarkdown,
@@ -223,9 +227,12 @@ test("random page endpoint asks the model for one wiki path and normalizes redir
   const res = await server.request("/api/random-page");
 
   assert.equal(res.status, 200);
-  const body = await res.json() as any;
+  const body = (await res.json()) as any;
   assert.equal(body.path, "/wiki/Night_soil_tariff");
-  assert.match(llm.calls[0]?.system ?? "", /single random Halupedia article URL/);
+  assert.match(
+    llm.calls[0]?.system ?? "",
+    /single random Halupedia article URL/,
+  );
 });
 
 test("retrieveContext works with joined article lookups when RAG is enabled", async (t) => {
@@ -250,9 +257,16 @@ test("retrieveContext works with joined article lookups when RAG is enabled", as
       generated_at: Date.now(),
     },
     [],
-    ["source-topic"]
+    ["source-topic"],
   );
-  await indexArticleChunks(db, new QueueLlmClient(""), "source-topic", sourceMarkdown, false, 500);
+  await indexArticleChunks(
+    db,
+    new QueueLlmClient(""),
+    "source-topic",
+    sourceMarkdown,
+    false,
+    500,
+  );
 
   const packet = await retrieveContext(
     db,
@@ -263,7 +277,7 @@ test("retrieveContext works with joined article lookups when RAG is enabled", as
     "full",
     4,
     0.2,
-    false
+    false,
   );
   db.close();
 
@@ -277,7 +291,11 @@ test("retrieveContext drops low-relevance matches below the configured score thr
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const db = openDatabase(databasePath);
-  const sourceMarkdown = ["# Distant Topic", "", "This article only discusses municipal varnishes and harbor brickwork."].join("\n");
+  const sourceMarkdown = [
+    "# Distant Topic",
+    "",
+    "This article only discusses municipal varnishes and harbor brickwork.",
+  ].join("\n");
   saveArticle(
     db,
     {
@@ -290,9 +308,16 @@ test("retrieveContext drops low-relevance matches below the configured score thr
       generated_at: Date.now(),
     },
     [],
-    ["distant-topic"]
+    ["distant-topic"],
   );
-  await indexArticleChunks(db, new QueueLlmClient(""), "distant-topic", sourceMarkdown, false, 500);
+  await indexArticleChunks(
+    db,
+    new QueueLlmClient(""),
+    "distant-topic",
+    sourceMarkdown,
+    false,
+    500,
+  );
 
   const packet = await retrieveContext(
     db,
@@ -302,7 +327,7 @@ test("retrieveContext drops low-relevance matches below the configured score thr
     true,
     4,
     0.6,
-    false
+    false,
   );
   db.close();
 
@@ -315,8 +340,10 @@ test("article generation succeeds even when the body contains zero internal link
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const llm = new QueueLlmClient(
-    ["# Plain Page", "", "This article has no internal links at all."].join("\n"),
-    [JSON.stringify({ items: [] })]
+    ["# Plain Page", "", "This article has no internal links at all."].join(
+      "\n",
+    ),
+    [JSON.stringify({ items: [] })],
   );
   const server = await createServer(databasePath, llm);
   const res = await server.request("/api/page/Plain_Page");
@@ -356,7 +383,7 @@ test("generated articles store an actual summary instead of the opening paragrap
   assert.ok(done);
   assert.equal(
     done.article.summaryMarkdown,
-    "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources."
+    "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources.",
   );
 
   let cachedSummary = "";
@@ -365,14 +392,17 @@ test("generated articles store an actual summary instead of the opening paragrap
     assert.equal(cachedRes.status, 200);
     const cached = await cachedRes.json();
     cachedSummary = cached.article.summaryMarkdown;
-    if (cachedSummary === "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.") {
+    if (
+      cachedSummary ===
+      "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites."
+    ) {
       break;
     }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(
     cachedSummary,
-    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites."
+    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.",
   );
 });
 
@@ -381,7 +411,8 @@ test("retrieveContext logs matched articles in descending relevance order", asyn
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const db = openDatabase(databasePath);
-  const entries: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+  const entries: Array<{ event: string; fields?: Record<string, unknown> }> =
+    [];
   const logger = {
     debug(event: string, fields?: Record<string, unknown>) {
       entries.push({ event, fields });
@@ -409,14 +440,32 @@ test("retrieveContext logs matched articles in descending relevance order", asyn
         generated_at: Date.now(),
       },
       [],
-      [slug]
+      [slug],
     );
   };
 
-  saveSeed("alpha-topic", "Alpha Topic", "# Alpha Topic\n\nAlpha beta gamma delta archive.");
+  saveSeed(
+    "alpha-topic",
+    "Alpha Topic",
+    "# Alpha Topic\n\nAlpha beta gamma delta archive.",
+  );
   saveSeed("beta-topic", "Beta Topic", "# Beta Topic\n\nAlpha beta archive.");
-  await indexArticleChunks(db, new QueueLlmClient(""), "alpha-topic", "# Alpha Topic\n\nAlpha beta gamma delta archive.", false, 500);
-  await indexArticleChunks(db, new QueueLlmClient(""), "beta-topic", "# Beta Topic\n\nAlpha beta archive.", false, 500);
+  await indexArticleChunks(
+    db,
+    new QueueLlmClient(""),
+    "alpha-topic",
+    "# Alpha Topic\n\nAlpha beta gamma delta archive.",
+    false,
+    500,
+  );
+  await indexArticleChunks(
+    db,
+    new QueueLlmClient(""),
+    "beta-topic",
+    "# Beta Topic\n\nAlpha beta archive.",
+    false,
+    500,
+  );
 
   await retrieveContext(
     db,
@@ -428,12 +477,17 @@ test("retrieveContext logs matched articles in descending relevance order", asyn
     4,
     0.2,
     false,
-    logger
+    logger,
   );
   db.close();
 
-  const retrieveLog = entries.find((entry) => entry.event === "rag.retrieve_complete");
-  assert.match(String(retrieveLog?.fields?.matched_articles), /^alpha-topic \([0-9.]+\), beta-topic \([0-9.]+\)$/);
+  const retrieveLog = entries.find(
+    (entry) => entry.event === "rag.retrieve_complete",
+  );
+  assert.match(
+    String(retrieveLog?.fields?.matched_articles),
+    /^alpha-topic \([0-9.]+\), beta-topic \([0-9.]+\)$/,
+  );
 });
 
 test("add-link refines oversized selections before wrapping markdown", async (t) => {
@@ -473,11 +527,11 @@ test("add-link refines oversized selections before wrapping markdown", async (t)
   const body = await res.json();
   assert.match(
     body.article.markdown,
-    /\[Cultural Dissipation Factor\]\(halu:cultural-dissipation-factor "measure of stable energetic exchange in recorded belief systems"\) \(\$\\delta\$\):/
+    /\[Cultural Dissipation Factor\]\(halu:cultural-dissipation-factor "measure of stable energetic exchange in recorded belief systems"\) \(\$\\delta\$\):/,
   );
   assert.doesNotMatch(
     body.article.markdown,
-    /\[Cultural Dissipation Factor \(\$\\delta\$\): This is perhaps the most abstract measurement/
+    /\[Cultural Dissipation Factor \(\$\\delta\$\): This is perhaps the most abstract measurement/,
   );
 });
 
@@ -501,14 +555,18 @@ test("rewrite endpoint applies user instructions and preserves the article title
     "",
     "San Francisco is a quiet administrative district known for fog registries and an elaborate municipal weather bureau.",
   ].join("\n");
-  const llm = new QueueLlmClient("", [rewritten, JSON.stringify({ items: [] })]);
+  const llm = new QueueLlmClient("", [
+    rewritten,
+    JSON.stringify({ items: [] }),
+  ]);
   const server = await createServer(databasePath, llm);
 
   const res = await server.request("/api/article/San_Francisco/rewrite", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      instructions: "Add a brief note about the municipal weather bureau and keep the tone dry.",
+      instructions:
+        "Add a brief note about the municipal weather bureau and keep the tone dry.",
     }),
   });
 
@@ -570,6 +628,8 @@ test("rewrite endpoint includes explicitly referenced articles in edit RAG", asy
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       instructions: "Revise this using the Municipal Weather Bureau article.",
+      ragEnabled: true,
+      ragQuery: "Municipal Weather Bureau",
     }),
   });
 
@@ -598,7 +658,10 @@ test("rewrite endpoint saves even when lead subject diverges from title", async 
     "",
     "Maternal Energy Potential refers to a redirected concept.",
   ].join("\n");
-  const llm = new QueueLlmClient("", [bodyRenamedRewrite, JSON.stringify({ items: [] })]);
+  const llm = new QueueLlmClient("", [
+    bodyRenamedRewrite,
+    JSON.stringify({ items: [] }),
+  ]);
   const server = await createServer(databasePath, llm);
 
   const res = await server.request("/api/article/Energy_storage/rewrite", {
@@ -642,17 +705,23 @@ test("streaming rewrite saves even when lead subject diverges from title", async
     [
       "# Energy storage\n\nMaternal Energy Potential refers to",
       " a redirected concept.",
-    ]
+    ],
   );
   const server = await createServer(databasePath, llm);
 
-  const res = await server.request("/api/article/Energy_storage/rewrite?stream=1", {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/x-ndjson" },
-    body: JSON.stringify({
-      instructions: "make this article to be about your mom",
-    }),
-  });
+  const res = await server.request(
+    "/api/article/Energy_storage/rewrite?stream=1",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/x-ndjson",
+      },
+      body: JSON.stringify({
+        instructions: "make this article to be about your mom",
+      }),
+    },
+  );
 
   assert.equal(res.status, 200);
   const events = (await res.text())
@@ -699,30 +768,53 @@ test("section rewrite streams only the selected section and records revertable h
     "",
     "The orchard originally counted minutes with brass ladders and a municipal bell ledger.",
   ].join("\n");
-  const llm = new QueueLlmClient(rewrittenHistory, [JSON.stringify({ items: [] })]);
+  const llm = new QueueLlmClient(rewrittenHistory, [
+    JSON.stringify({ items: [] }),
+  ]);
   const server = await createServer(databasePath, llm);
 
-  const rewriteRes = await server.request("/api/article/Clock_Orchard/rewrite?stream=1", {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/x-ndjson" },
-    body: JSON.stringify({
-      sectionId: "history",
-      instructions: "Add the municipal bell ledger to the history section.",
-    }),
-  });
+  const rewriteRes = await server.request(
+    "/api/article/Clock_Orchard/rewrite?stream=1",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/x-ndjson",
+      },
+      body: JSON.stringify({
+        sectionId: "history",
+        instructions: "Add the municipal bell ledger to the history section.",
+      }),
+    },
+  );
   assert.equal(rewriteRes.status, 200);
-  assert.match(rewriteRes.headers.get("content-type") ?? "", /application\/x-ndjson/);
+  assert.match(
+    rewriteRes.headers.get("content-type") ?? "",
+    /application\/x-ndjson/,
+  );
   const events = (await rewriteRes.text())
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-  assert.ok(events.some((event) => event.type === "progress" && event.markdown.includes("municipal bell ledger")));
+  assert.ok(
+    events.some(
+      (event) =>
+        event.type === "progress" &&
+        event.markdown.includes("municipal bell ledger"),
+    ),
+  );
   const done = events.find((event) => event.type === "done");
   assert.ok(done);
   assert.match(done.article.markdown, /municipal bell ledger/);
-  assert.match(done.article.markdown, /Clock Orchard has a dry introductory paragraph/);
+  assert.match(
+    done.article.markdown,
+    /Clock Orchard has a dry introductory paragraph/,
+  );
   assert.match(done.article.markdown, /The orchard is arranged in narrow rows/);
-  assert.equal(done.sections.some((section: { id: string }) => section.id === "history"), true);
+  assert.equal(
+    done.sections.some((section: { id: string }) => section.id === "history"),
+    true,
+  );
 
   const historyRes = await server.request("/api/article/Clock_Orchard/history");
   assert.equal(historyRes.status, 200);
@@ -756,7 +848,10 @@ test("refresh-context reports when references are already current", async (t) =>
     markdown,
   });
 
-  const server = await createServer(databasePath, new QueueLlmClient("", [JSON.stringify({ items: [] })]));
+  const server = await createServer(
+    databasePath,
+    new QueueLlmClient("", [JSON.stringify({ items: [] })]),
+  );
   const res = await server.request("/api/article/Stable_Page/refresh-context", {
     method: "POST",
   });
@@ -795,11 +890,22 @@ test("refresh-context can rewrite from retrieved context", async (t) => {
         hiddenHint: "copper drawers archived ledger",
       },
     ],
-    ["ledger-source"]
+    ["ledger-source"],
   );
-  await indexArticleChunks(db, new QueueLlmClient(""), "ledger-source", sourceMarkdown, false, 500);
+  await indexArticleChunks(
+    db,
+    new QueueLlmClient(""),
+    "ledger-source",
+    sourceMarkdown,
+    false,
+    500,
+  );
 
-  const targetMarkdown = ["# Algebra", "", "Algebra is a bureau for arranging letters."].join("\n");
+  const targetMarkdown = [
+    "# Algebra",
+    "",
+    "Algebra is a bureau for arranging letters.",
+  ].join("\n");
   saveArticle(
     db,
     {
@@ -812,7 +918,7 @@ test("refresh-context can rewrite from retrieved context", async (t) => {
       generated_at: Date.now(),
     },
     [],
-    ["algebra"]
+    ["algebra"],
   );
   db.close();
 
@@ -821,7 +927,10 @@ test("refresh-context can rewrite from retrieved context", async (t) => {
     "",
     "Algebra is a bureau for arranging letters and storing commas in copper drawers.",
   ].join("\n");
-  const server = await createServer(databasePath, new QueueLlmClient("", [refreshed, JSON.stringify({ items: [] })]));
+  const server = await createServer(
+    databasePath,
+    new QueueLlmClient("", [refreshed, JSON.stringify({ items: [] })]),
+  );
   const res = await server.request("/api/article/Algebra/refresh-context", {
     method: "POST",
   });
@@ -872,8 +981,14 @@ test("disambiguation pages can be created and retrieved via API", async (t) => {
     body: JSON.stringify({
       title: "Mercury",
       entries: [
-        { title: "Mercury (planet)", description: "The smallest planet in the solar system" },
-        { title: "Mercury (element)", description: "A liquid metal also known as quicksilver" },
+        {
+          title: "Mercury (planet)",
+          description: "The smallest planet in the solar system",
+        },
+        {
+          title: "Mercury (element)",
+          description: "A liquid metal also known as quicksilver",
+        },
         { title: "Mercury (mythology)", description: "Roman messenger god" },
       ],
     }),

@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
-import type { AppConfig, LlmConfig, PromptConfig, PromptTemplate } from "./types";
+import type { AppConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
 
 const ROOT = process.cwd();
 
@@ -14,18 +14,23 @@ function loadPromptConfig(dir: string): PromptConfig {
   const absDir = resolve(ROOT, dir);
   const files = readdirSync(absDir).filter((f) => f.endsWith(".toml"));
   const prompts: Record<string, PromptTemplate> = {};
+  let rewriteModes: Record<string, RewriteMode> = {};
   for (const file of files) {
     const key = basename(file, ".toml");
     const raw = parse(readFileSync(resolve(absDir, file), "utf8")) as {
       system?: string;
       user?: string;
+      modes?: Record<string, RewriteMode>;
     };
     prompts[key] = {
       system: raw.system ?? "",
       user: raw.user ?? "",
     };
+    if (raw.modes) {
+      rewriteModes = { ...rewriteModes, ...raw.modes };
+    }
   }
-  return { prompts };
+  return { prompts, rewriteModes };
 }
 
 function withDefaults(app: Partial<AppConfig>): AppConfig {

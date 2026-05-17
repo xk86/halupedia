@@ -1,7 +1,13 @@
+model = "heavy"
 system = """
 {{shared_article_rules}}
 
-Because you are rewriting an article, treat the rewrite instructions the user gives as gospel and prefer any tone or ideas they bring up to ones already present in the article.
+Incoming canonical references that may link back to this article:
+
+{{link_hints}}
+
+Rewrite Mode:
+{{rewrite_mode}}
 
 Rewrite Constraints:
 - Return rewritten Markdown only, not a diff or notes.
@@ -21,10 +27,6 @@ Rewrite instructions:
 Current article:
 
 {{current_article}}
-
-Incoming canonical references:
-
-{{link_hints}}
 
 Retrieved context:
 

@@ -1,0 +1,501 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openDatabase, saveArticle, getArticleByLookup } from "../src/server/db";
+import { loadConfig } from "../src/server/config";
+import { createApp } from "../src/server/index";
+import type { LlmClient } from "../src/server/llm";
+import type { LogFields, Logger } from "../src/server/logger";
+import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
+
+interface CapturedLogEntry {
+  level: "debug" | "info" | "warn" | "error";
+  event: string;
+  fields?: LogFields;
+}
+
+const TEST_CONFIG = loadConfig().app.tests;
+
+function createMemoryLogger(entries: CapturedLogEntry[]): Logger {
+  return {
+    debug(event, fields) { entries.push({ level: "debug", event, fields }); },
+    info(event, fields) { entries.push({ level: "info", event, fields }); },
+    warn(event, fields) { entries.push({ level: "warn", event, fields }); },
+    error(event, fields) { entries.push({ level: "error", event, fields }); },
+  };
+}
+
+function seedArticle(databasePath: string, slug: string, title: string, body: string) {
+  const markdown = `# ${title}\n\n${body}`;
+  const db = openDatabase(databasePath);
+  saveArticle(
+    db,
+    {
+      slug,
+      canonicalSlug: slug,
+      title,
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: Date.now(),
+    },
+    [],
+    [slug],
+  );
+  db.close();
+  return markdown;
+}
+
+function createTestDb() {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-edit-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  return { root, databasePath };
+}
+
+class RewriteLlmClient implements LlmClient {
+  chatCalls: Array<{ system: string; user: string }> = [];
+  private rewriteBody: string;
+
+  constructor(rewriteBody: string) {
+    this.rewriteBody = rewriteBody;
+  }
+
+  async chat(system: string, user: string): Promise<string> {
+    this.chatCalls.push({ system, user });
+    if (system.includes("Rewrite") || system.includes("Refresh")) {
+      return this.rewriteBody;
+    }
+    return JSON.stringify({ items: [] });
+  }
+
+  async streamChat(
+    system: string,
+    user: string,
+    onChunk: (delta: string, accumulated: string) => void,
+  ): Promise<{ content: string; finishReason: string }> {
+    this.chatCalls.push({ system, user });
+    onChunk(this.rewriteBody, this.rewriteBody);
+    return { content: this.rewriteBody, finishReason: "stop" };
+  }
+
+  async embed(): Promise<number[][]> { return []; }
+  async probeConnections(): Promise<void> {}
+}
+
+class DelayedRewriteLlmClient implements LlmClient {
+  chatCalls = 0;
+  readonly gate = Promise.withResolvers<void>();
+  private rewriteBody: string;
+
+  constructor(rewriteBody: string) {
+    this.rewriteBody = rewriteBody;
+  }
+
+  async chat(): Promise<string> {
+    this.chatCalls++;
+    await this.gate.promise;
+    return JSON.stringify({ items: [] });
+  }
+
+  async streamChat(
+    _system: string,
+    _user: string,
+    onChunk: (delta: string, accumulated: string) => void,
+  ): Promise<{ content: string; finishReason: string }> {
+    onChunk(this.rewriteBody, this.rewriteBody);
+    return { content: this.rewriteBody, finishReason: "stop" };
+  }
+
+  async embed(): Promise<number[][]> { return []; }
+  async probeConnections(): Promise<void> {}
+}
+
+async function createTestServer(options: {
+  databasePath: string;
+  logger?: Logger;
+  llmClient?: LlmClient;
+}) {
+  const { app, shutdown } = await createApp({
+    databasePath: options.databasePath,
+    skipLlmProbe: true,
+    skipHomepagePrepare: true,
+    logger: options.logger,
+    llmClient: options.llmClient,
+  });
+  return {
+    shutdown,
+    request: (path: string, init?: RequestInit) =>
+      app.fetch(new Request(`http://halupedia.test${path}`, init)),
+  };
+}
+
+function parseNdjson<T>(payload: string): T[] {
+  return payload.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as T);
+}
+
+test("rewrite persists updated article to database", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "test-rewrite", "Test Rewrite", "Original content about widgets.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const rewrittenMarkdown = "# Test Rewrite\n\n**Test Rewrite** is a revised article about gadgets and gizmos.";
+  const llm = new RewriteLlmClient(rewrittenMarkdown);
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/test-rewrite/rewrite?stream=1", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "change widgets to gadgets" }),
+  });
+  assert.equal(res.status, 200);
+
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  const done = packets.find((p) => p.type === "done");
+  assert.ok(done, "stream should emit a done event");
+  assert.ok((done as any).article, "done event should include article");
+  assert.match((done as any).article.markdown, /gadgets and gizmos/);
+
+  const db = openDatabase(databasePath);
+  const saved = getArticleByLookup(db, "test-rewrite");
+  db.close();
+  assert.ok(saved, "article should exist in DB after rewrite");
+  assert.match(saved.markdown, /gadgets and gizmos/, "DB should have the rewritten content");
+  assert.doesNotMatch(saved.markdown, /Original content/, "old content should be replaced");
+  await server.shutdown();
+});
+
+test("rewrite with non-streaming mode persists correctly", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "test-nostream", "Test Nostream", "Original boring text.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const rewrittenMarkdown = "# Test Nostream\n\n**Test Nostream** is now exciting and thrilling.";
+  const llm = new RewriteLlmClient(rewrittenMarkdown);
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/test-nostream/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "make it exciting" }),
+  });
+  assert.equal(res.status, 200);
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/x-ndjson")) {
+    const packets = parseNdjson<Record<string, unknown>>(await res.text());
+    const done = packets.find((p) => p.type === "done");
+    assert.ok(done);
+    assert.match((done as any).article.markdown, /exciting and thrilling/);
+  } else {
+    const body = await res.json();
+    assert.equal(body.cached, true);
+    assert.match(body.article.markdown, /exciting and thrilling/);
+  }
+
+  const db = openDatabase(databasePath);
+  const saved = getArticleByLookup(db, "test-nostream");
+  db.close();
+  assert.ok(saved);
+  assert.match(saved.markdown, /exciting and thrilling/);
+  await server.shutdown();
+});
+
+test("rewrite passes correct mode prompt to LLM", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "mode-test", "Mode Test", "Some content.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# Mode Test\n\nRewritten.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  await server.request("/api/article/mode-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "test", rewriteMode: "subtle" }),
+  });
+
+  const streamCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
+  assert.ok(streamCall, "LLM should receive a system prompt with Rewrite Mode");
+  assert.match(streamCall.system, /Preserve the existing tone/, "subtle mode prompt should be injected");
+  assert.doesNotMatch(streamCall.system, /full creative license/, "aggressive mode should not leak into subtle");
+
+  llm.chatCalls.length = 0;
+  await server.request("/api/article/mode-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "test", rewriteMode: "aggressive" }),
+  });
+
+  const aggressiveCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
+  assert.ok(aggressiveCall);
+  assert.match(aggressiveCall.system, /full creative license/, "aggressive mode prompt should be injected");
+  await server.shutdown();
+});
+
+test("rewrite defaults to aggressive mode when no mode specified", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "default-mode", "Default Mode", "Content.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# Default Mode\n\nRewritten.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  await server.request("/api/article/default-mode/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "test" }),
+  });
+
+  const call = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
+  assert.ok(call);
+  assert.match(call.system, /full creative license/, "default mode should be aggressive");
+  await server.shutdown();
+});
+
+test("post-process does not overwrite article edited after generation", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(
+    databasePath,
+    "race-test",
+    "Race Test",
+    '**Race Test** is about [Alpha](halu:alpha "hint"), [Beta](halu:beta "hint"), [Gamma](halu:gamma "hint"), [Delta](halu:delta "hint"), and [Epsilon](halu:epsilon "hint").',
+  );
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const logEntries: CapturedLogEntry[] = [];
+  const logger = createMemoryLogger(logEntries);
+
+  const rewrittenBody = '# Race Test\n\n**Race Test** is rewritten with [Alpha](halu:alpha "hint"), [Beta](halu:beta "hint"), [Gamma](halu:gamma "hint"), [Delta](halu:delta "hint"), and [Epsilon](halu:epsilon "hint").';
+  const llm = new DelayedRewriteLlmClient(rewrittenBody);
+  const server = await createTestServer({ databasePath, llmClient: llm, logger });
+
+  const res = await server.request("/api/article/race-test/rewrite?stream=1", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "rewrite it" }),
+  });
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  const done = packets.find((p) => p.type === "done");
+  assert.ok(done, "rewrite should complete");
+
+  const db = openDatabase(databasePath);
+  const afterRewrite = getArticleByLookup(db, "race-test");
+  assert.ok(afterRewrite);
+  const rewriteTimestamp = afterRewrite.generated_at;
+
+  const manualEdit = {
+    ...afterRewrite,
+    markdown: afterRewrite.markdown.replace("rewritten", "manually-edited"),
+    generated_at: Date.now() + 1000,
+  };
+  saveArticle(db, manualEdit, [], ["race-test"], { operation: "manual-edit" });
+
+  llm.gate.resolve();
+  await new Promise((r) => setTimeout(r, 300));
+
+  const final = getArticleByLookup(db, "race-test");
+  db.close();
+  assert.ok(final);
+  assert.match(final.markdown, /manually-edited/, "manual edit should survive post-processing");
+  assert.doesNotMatch(final.markdown, /See also/, "post-process should not have appended see-also to a stale article");
+
+  const skipped = logEntries.filter((e) => e.event === "page.post_process_skipped");
+  assert.ok(skipped.length > 0, "post-processing should be skipped for modified article");
+  await server.shutdown();
+});
+
+test("rewrite returns 404 for non-existent article", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("whatever");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/nonexistent/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "rewrite" }),
+  });
+  assert.equal(res.status, 404);
+  await server.shutdown();
+});
+
+test("rewrite returns 400 for missing instructions", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "no-instr", "No Instr", "Content.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("whatever");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/no-instr/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 400);
+  await server.shutdown();
+});
+
+test("rewrite creates a revision entry in history", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "history-test", "History Test", "Original text.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# History Test\n\nRevised text.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  await server.request("/api/article/history-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "revise it" }),
+  });
+
+  const historyRes = await server.request("/api/article/history-test/history");
+  assert.equal(historyRes.status, 200);
+  const historyBody = await historyRes.json();
+  assert.ok(historyBody.revisions.length >= 2, "should have at least the seed + rewrite revisions");
+
+  const rewriteRevision = historyBody.revisions.find(
+    (r: any) => r.operation === "rewrite",
+  );
+  assert.ok(rewriteRevision, "should have a rewrite operation revision");
+  assert.match(rewriteRevision.instructions, /revise it/, "revision should capture the instructions");
+  await server.shutdown();
+});
+
+test("section rewrite only modifies the targeted section", async (t) => {
+  const { root, databasePath } = createTestDb();
+  const fullBody = [
+    "# Section Test",
+    "",
+    "Lead paragraph stays.",
+    "",
+    "## History",
+    "",
+    "Old history content.",
+    "",
+    "## Culture",
+    "",
+    "Culture section stays.",
+  ].join("\n");
+  const db = openDatabase(databasePath);
+  saveArticle(
+    db,
+    {
+      slug: "section-test",
+      canonicalSlug: "section-test",
+      title: "Section Test",
+      markdown: fullBody,
+      html: renderMarkdown(fullBody),
+      plain_text: markdownToPlainText(fullBody),
+      generated_at: Date.now(),
+    },
+    [],
+    ["section-test"],
+  );
+  db.close();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("## History\n\nNew history content with details.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/section-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "expand history", sectionId: "history" }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  assert.match(body.article.markdown, /Lead paragraph stays/, "lead should be preserved");
+  assert.match(body.article.markdown, /New history content/, "history section should be updated");
+  assert.match(body.article.markdown, /Culture section stays/, "culture section should be preserved");
+  assert.doesNotMatch(body.article.markdown, /Old history content/, "old history should be gone");
+  await server.shutdown();
+});
+
+test("rewrite with rag passes context to LLM", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "rag-test", "Rag Test", "Some content for rag test.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# Rag Test\n\nRewritten with context.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/rag-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      instructions: "improve it",
+      ragEnabled: true,
+      ragQuery: "related topics",
+    }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.match(body.article.markdown, /Rewritten with context/);
+  await server.shutdown();
+});
+
+test("streaming rewrite emits start, progress, and done events in order", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "stream-order", "Stream Order", "Original.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# Stream Order\n\nStreamed rewrite.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/stream-order/rewrite?stream=1", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "rewrite" }),
+  });
+
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  const types = packets.map((p) => p.type);
+
+  assert.equal(types[0], "start", "first event should be start");
+  assert.ok(types.includes("progress"), "should have progress events");
+  assert.equal(types[types.length - 1], "done", "last event should be done");
+  assert.ok(types.indexOf("start") < types.indexOf("progress"), "start before progress");
+  assert.ok(types.indexOf("progress") < types.indexOf("done"), "progress before done");
+  await server.shutdown();
+});
+
+test("rewrite sanitizes generated body (strips References/See also)", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "sanitize-test", "Sanitize Test", "Content.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const badRewrite = [
+    "# Sanitize Test",
+    "",
+    "Good content here.",
+    "",
+    "## References",
+    "",
+    "- Some reference that should be stripped",
+    "",
+    "## See also",
+    "",
+    "- Some see also that should be stripped",
+  ].join("\n");
+
+  const llm = new RewriteLlmClient(badRewrite);
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/sanitize-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "rewrite" }),
+  });
+
+  const body = await res.json();
+  assert.doesNotMatch(body.article.markdown, /Some reference that should be stripped/,
+    "References section from LLM output should be stripped before save");
+  assert.match(body.article.markdown, /Good content here/, "body content should survive");
+  await server.shutdown();
+});

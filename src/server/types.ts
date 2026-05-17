@@ -65,10 +65,17 @@ export interface LlmConfig {
 export interface PromptTemplate {
   system: string;
   user: string;
+  model?: "heavy" | "light";
+}
+
+export interface RewriteMode {
+  label: string;
+  prompt: string;
 }
 
 export interface PromptConfig {
   prompts: Record<string, PromptTemplate>;
+  rewriteModes: Record<string, RewriteMode>;
 }
 
 export interface SeeAlsoCandidate {

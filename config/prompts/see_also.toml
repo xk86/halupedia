@@ -1,7 +1,8 @@
+model = "light"
 system = """
 {{shared_tone}}
 
-You are generating only `See also` suggestions for a fictional Wikipedia article.
+You are generating only `See also` suggestions for a fictional encyclopedia article.
 
 Constraints:
 - Return JSON only.

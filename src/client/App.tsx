@@ -47,6 +47,7 @@ interface PageData {
     unwritten: BacklinkItem[];
   };
   refreshChanged?: boolean;
+  statusMessage?: string;
 }
 
 interface ArticleSection {
@@ -149,6 +150,7 @@ export function App() {
   const [editSectionId, setEditSectionId] = useState("");
   const [editRagEnabled, setEditRagEnabled] = useState(false);
   const [editRagQuery, setEditRagQuery] = useState("");
+  const [editRewriteMode, setEditRewriteMode] = useState<"aggressive" | "subtle">("aggressive");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -165,6 +167,7 @@ export function App() {
   const [copySlugMessage, setCopySlugMessage] = useState<string | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => initialThemeMode());
   const articleRef = useRef<HTMLElement | null>(null);
+  const inFlightSlugRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (themeMode === "dark") {
@@ -256,6 +259,10 @@ export function App() {
       return;
     }
 
+    const fetchSlug = route.slug;
+    if (inFlightSlugRef.current === fetchSlug) return;
+    inFlightSlugRef.current = fetchSlug;
+
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -321,6 +328,7 @@ export function App() {
             if (!line) continue;
             const event = JSON.parse(line) as
               | { type: "start"; slug: string; cached: boolean }
+              | { type: "status"; message: string }
               | { type: "progress"; html: string; markdown?: string }
               | {
                   type: "done";
@@ -333,7 +341,13 @@ export function App() {
                 }
               | { type: "error"; message: string };
             if (cancelled) return;
-            if (event.type === "progress") {
+            if (event.type === "status") {
+              setPage((current) =>
+                current
+                  ? { ...current, statusMessage: event.message }
+                  : current
+              );
+            } else if (event.type === "progress") {
               streamedHtml = event.html;
               setPage((current) => ({
                 cached: false,
@@ -388,11 +402,14 @@ export function App() {
         console.error("[app] article_load_failed", err);
         setError(articleFailureMessage);
         setLoading(false);
+      } finally {
+        if (!cancelled) inFlightSlugRef.current = null;
       }
     })();
 
     return () => {
       cancelled = true;
+      inFlightSlugRef.current = null;
     };
   }, [route]);
 
@@ -496,6 +513,7 @@ export function App() {
     const previousPage = page;
     setEditBusy(true);
     setEditError(null);
+    setPage((current) => current ? { ...current, statusMessage: "Rewriting article..." } : current);
     try {
       const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/rewrite?stream=1`, {
         method: "POST",
@@ -505,6 +523,7 @@ export function App() {
           sectionId: editSectionId || undefined,
           ragQuery: editRagEnabled ? editRagQuery || undefined : undefined,
           ragEnabled: editRagEnabled,
+          rewriteMode: editRewriteMode,
         }),
       });
       if (!res.ok) {
@@ -528,10 +547,15 @@ export function App() {
           if (!line) continue;
           const event = JSON.parse(line) as
             | { type: "start"; slug: string; cached: boolean }
+            | { type: "status"; message: string }
             | { type: "progress"; html: string; markdown?: string }
             | ({ type: "done" } & PageData)
             | { type: "error"; message: string };
-          if (event.type === "progress") {
+          if (event.type === "status") {
+            setPage((current) =>
+              current ? { ...current, statusMessage: event.message } : current
+            );
+          } else if (event.type === "progress") {
             streamedHtml = event.html;
             setPage((current) =>
               current
@@ -576,7 +600,7 @@ export function App() {
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
     }
-  }, [page, editDraft, editSectionId, editRagEnabled, editRagQuery, editBusy]);
+  }, [page, editDraft, editSectionId, editRagEnabled, editRagQuery, editRewriteMode, editBusy]);
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
@@ -951,6 +975,13 @@ export function App() {
                   ))}
                 </select>
               </label>
+              <label className="edit-modal-mode-toggle">
+                Mode
+                <select value={editRewriteMode} onChange={(e) => setEditRewriteMode(e.target.value as "aggressive" | "subtle")} disabled={editBusy}>
+                  <option value="aggressive">Aggressive</option>
+                  <option value="subtle">Subtle</option>
+                </select>
+              </label>
               <button type="button" className="edit-modal-close" onClick={() => setEditOpen(false)} disabled={editBusy}>
                 Close
               </button>
@@ -1017,6 +1048,12 @@ export function App() {
         ) : null}
         <article ref={articleRef} className="article" onClick={interceptArticleLinks}>
           <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
+          {page.statusMessage ? (
+            <div className="article-status">
+              <span className="dot" />
+              <span>{page.statusMessage}</span>
+            </div>
+          ) : null}
         </article>
       </>
     );

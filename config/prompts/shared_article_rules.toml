@@ -39,8 +39,9 @@ Formatting Constraints:
 - If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.
 - Prefer linking the first mention of notable entities in the prose body before repeating them unlinked later.
 - The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
-- Do not link the article title to itself. The article about "Foo Bar" must never contain a link whose target slug resolves to the Foo Bar article.
-- Do not emit raw HTML, scripts, iframes, or fenced code blocks."""
+- Do not emit raw HTML, scripts, iframes, or fenced code blocks.
+- Produce exactly one article. Stop after the article body ends. Do not write a second version, alternate take, or continuation.
+- Do not emit meta-commentary, checklists, self-evaluation, link counts, confidence checks, or any text addressed to yourself or a reviewer."""
 
 user = """
 """

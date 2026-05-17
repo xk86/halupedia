@@ -1,3 +1,4 @@
+model = "light"
 system = """
 You are choosing a smaller linkable phrase from a highlighted span of article text.
 

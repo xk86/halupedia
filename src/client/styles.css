@@ -1019,6 +1019,26 @@ button.admin-danger-btn:hover:not(:disabled) {
   50%      { opacity: 1;   transform: scale(1.15); }
 }
 
+.article-status {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ink-fade);
+  margin: 1.5rem 0 0;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.article-status .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
 .error {
   font-family: var(--mono);
   padding: 1rem;
@@ -1205,16 +1225,18 @@ button.admin-danger-btn:hover:not(:disabled) {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  margin-top: 0.4rem;
-  padding: 0.35rem 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.6rem;
   font-family: var(--mono);
-  font-size: 0.82rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
   border: 1px solid var(--rule);
-  background: var(--bg);
+  background: var(--input-surface);
   color: var(--fg);
 }
 
 .edit-modal-rag-query:focus {
+  background: var(--input-surface-focus);
   outline: 1px solid var(--link);
 }
 

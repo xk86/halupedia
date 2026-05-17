@@ -232,9 +232,11 @@ function dedupeRetrievedSourceArticles(
   return unique;
 }
 
-export function summarizeRetrievedSource(
-  article: { slug: string; title: string; content: string },
-): string {
+export function summarizeRetrievedSource(article: {
+  slug: string;
+  title: string;
+  content: string;
+}): string {
   return normalizeArticleSnippet(article.content);
 }
 
@@ -245,7 +247,10 @@ function buildInternalLinkLine(candidate: InternalArticleCandidate): string {
 function formatHintsForPrompt(hints: IncomingHint[]): string {
   if (!hints.length) return "(none yet)";
   return hints
-    .map((h) => `- ${buildHaluLink(h.visibleLabel || h.sourceTitle, slugify(h.visibleLabel || h.sourceTitle), h.hiddenHint)}`)
+    .map(
+      (h) =>
+        `- ${buildHaluLink(h.visibleLabel || h.sourceTitle, slugify(h.visibleLabel || h.sourceTitle), h.hiddenHint)}`,
+    )
     .join("\n");
 }
 
@@ -350,9 +355,7 @@ function deriveArticleIdentity(
     ? resolvedTitle
     : requestedCanonicalTitle;
   const canonicalSlug = slugify(canonicalTitle) || requestedSlug;
-  const llmTitle = extractTitle(bodyMarkdown, requestedTitle);
-  const displayTitle =
-    rawDisplayTitle ?? (llmTitle !== canonicalTitle ? llmTitle : undefined);
+  const displayTitle = rawDisplayTitle;
   return { canonicalTitle, canonicalSlug, displayTitle };
 }
 
@@ -464,6 +467,7 @@ function assembleArticleMarkdown(
 
 async function generateSeeAlsoCandidates(
   llm: LlmClient,
+  lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   bodyMarkdown: string,
@@ -472,7 +476,8 @@ async function generateSeeAlsoCandidates(
   relatedTitles: string[],
 ): Promise<InternalArticleCandidate[]> {
   const prompt = getPrompt(promptConfig, "see_also");
-  const raw = await llm.chat(
+  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const raw = await selectedLlm.chat(
     prompt.system,
     renderTemplate(prompt.user, {
       slug: slugify(requestedTitle),
@@ -498,13 +503,72 @@ async function generateSeeAlsoCandidates(
   );
 }
 
+async function recheckArticleLinks(
+  llm: LlmClient,
+  lightLlm: LlmClient,
+  promptConfig: ReturnType<typeof loadConfig>["prompts"],
+  requestedTitle: string,
+  bodyMarkdown: string,
+): Promise<string> {
+  const links = extractInternalLinks(bodyMarkdown);
+  if (links.length === 0) return bodyMarkdown;
+
+  const prompt = getPrompt(promptConfig, "link_recheck");
+  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const raw = await selectedLlm.chat(
+    prompt.system,
+    renderTemplate(prompt.user, {
+      requested_title: requestedTitle,
+      article_body: bodyMarkdown.slice(0, 12000),
+      slug: slugify(requestedTitle),
+      article_excerpt: "",
+      rag_context: "",
+      link_hints: "",
+      link_list: "",
+      related_titles: "",
+      parent_comment: "",
+      selected_text: "",
+      edit_instructions: "",
+    }),
+  );
+
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return bodyMarkdown;
+
+  let parsed: {
+    links?: Array<{ original: string; action: string; fixed?: string }>;
+  };
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch {
+    return bodyMarkdown;
+  }
+  if (!parsed.links || parsed.links.length === 0) return bodyMarkdown;
+
+  let result = bodyMarkdown;
+  for (const entry of parsed.links) {
+    if (!entry.original) continue;
+    if (entry.action === "remove") {
+      const visibleMatch = entry.original.match(/^\[([^\]]+)\]/);
+      const plainText = visibleMatch ? visibleMatch[1] : "";
+      result = result.replace(entry.original, plainText);
+    } else if (entry.action === "fix" && entry.fixed) {
+      result = result.replace(entry.original, entry.fixed);
+    }
+  }
+
+  return result;
+}
+
 async function generateArticleSummary(
   llm: LlmClient,
+  lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   articleMarkdown: string,
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "article_summary");
+  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
   const currentArticle = stripTopLevelSections(articleMarkdown, [
     "References",
     "See also",
@@ -513,7 +577,7 @@ async function generateArticleSummary(
   let summaryFeedback = "(none)";
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const raw = await llm.chat(
+    const raw = await selectedLlm.chat(
       prompt.system,
       renderTemplate(prompt.user, {
         slug: slugify(requestedTitle),
@@ -556,12 +620,18 @@ function normalizeHomepageFact(raw: string): string {
 
 async function generateDidYouKnowFact(
   llm: LlmClient,
+  lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   article: ReturnType<typeof getRandomArticles>[number],
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "did_you_know");
-  const articleTitleMarkdown = buildHaluLink(article.title, article.slug, article.title);
-  const raw = await llm.chat(
+  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const articleTitleMarkdown = buildHaluLink(
+    article.title,
+    article.slug,
+    article.title,
+  );
+  const raw = await selectedLlm.chat(
     prompt.system,
     renderTemplate(prompt.user, {
       article_title: articleTitleMarkdown,
@@ -603,39 +673,44 @@ function normalizeRandomPagePath(raw: string): string {
   return `/wiki/${titleToWikiSegment(title)}`;
 }
 
-function sampleRandomInspirationTitles(db: ReturnType<typeof openDatabase>, count: number): string[] {
+function sampleRandomInspirationTitles(
+  db: ReturnType<typeof openDatabase>,
+  count: number,
+): string[] {
   const existing = db
     .prepare(
-      `SELECT title, COALESCE(canonical_slug, slug) AS slug, summary_markdown AS hint
+      `SELECT title, summary_markdown AS hint
        FROM articles
        WHERE is_disambiguation = 0
        ORDER BY RANDOM() LIMIT ?`,
     )
-    .all(Math.ceil(count / 2)) as Array<{ title: string; slug: string; hint: string }>;
+    .all(Math.min(count, 4)) as Array<{ title: string; hint: string }>;
 
   const unwritten = db
     .prepare(
-      `SELECT DISTINCT l.visible_label AS title, l.target_slug AS slug, l.hidden_hint AS hint
+      `SELECT DISTINCT l.visible_label AS title, l.hidden_hint AS hint
        FROM article_links l
        LEFT JOIN articles a ON a.slug = l.target_slug
        WHERE a.slug IS NULL AND l.visible_label != ''
        ORDER BY RANDOM() LIMIT ?`,
     )
-    .all(Math.floor(count / 2)) as Array<{ title: string; slug: string; hint: string }>;
+    .all(Math.min(count, 4)) as Array<{ title: string; hint: string }>;
 
   return [...existing, ...unwritten]
     .sort(() => Math.random() - 0.5)
-    .map((r) => buildHaluLink(r.title, r.slug, r.hint || r.title));
+    .map((r) => `${r.title} — ${r.hint || r.title}`);
 }
 
 async function generateRandomPagePath(
   db: ReturnType<typeof openDatabase>,
   llm: LlmClient,
+  lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   inspiration: string[] = [],
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "random_page");
-  const raw = await llm.chat(
+  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const raw = await selectedLlm.chat(
     prompt.system,
     renderTemplate(prompt.user, {
       slug: "",
@@ -664,6 +739,7 @@ async function generateRandomPagePath(
 async function ensureHomepageCache(
   db: ReturnType<typeof openDatabase>,
   llm: LlmClient,
+  lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   ttlMs: number,
   logger: Logger,
@@ -693,7 +769,12 @@ async function ensureHomepageCache(
   const didYouKnow = [];
   for (const article of sources) {
     try {
-      const fact = await generateDidYouKnowFact(llm, promptConfig, article);
+      const fact = await generateDidYouKnowFact(
+        llm,
+        lightLlm,
+        promptConfig,
+        article,
+      );
       if (fact) {
         didYouKnow.push({ slug: article.slug, title: article.title, fact });
       }
@@ -737,6 +818,7 @@ function buildLinkedPromptSystem(
 
 async function generateLinkSelection(
   llm: LlmClient,
+  lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   selectedText: string,
@@ -745,7 +827,8 @@ async function generateLinkSelection(
   relatedTitles: string[],
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "link_selection");
-  const raw = await llm.chat(
+  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const raw = await selectedLlm.chat(
     buildLinkedPromptSystem(promptConfig, "link_selection"),
     renderTemplate(prompt.user, {
       slug: slugify(requestedTitle),
@@ -774,6 +857,7 @@ async function generateLinkSelection(
 
 async function generateLinkSuggestion(
   llm: LlmClient,
+  lightLlm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   selectedText: string,
@@ -782,7 +866,8 @@ async function generateLinkSuggestion(
   relatedTitles: string[],
 ): Promise<LinkSuggestion> {
   const prompt = getPrompt(promptConfig, "link_suggestion");
-  const raw = await llm.chat(
+  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const raw = await selectedLlm.chat(
     buildLinkedPromptSystem(promptConfig, "link_suggestion"),
     renderTemplate(prompt.user, {
       slug: slugify(requestedTitle),
@@ -828,10 +913,20 @@ export async function createApp(options: CreateAppOptions = {}) {
   const db = openDatabase(runtime.app.storage.database_path);
   let llm: LlmClient =
     options.llmClient ??
-    new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings, logger, "heavy");
+    new OpenAICompatClient(
+      runtime.llm.chat,
+      runtime.llm.embeddings,
+      logger,
+      "heavy",
+    );
   let lightLlm: LlmClient =
     options.llmClient ??
-    new OpenAICompatClient(runtime.llm.light, runtime.llm.embeddings, logger, "light");
+    new OpenAICompatClient(
+      runtime.llm.light,
+      runtime.llm.embeddings,
+      logger,
+      "light",
+    );
   const app = new Hono();
   const distRoot = options.distRoot
     ? resolve(options.distRoot)
@@ -839,6 +934,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   const inFlightGenerations = new Set<Promise<unknown>>();
   const slugGenerations = new Map<string, Promise<ArticleRecord>>();
+  let generationSeq = 0;
   const maintenance = new MaintenanceScheduler(logger);
 
   function trackGeneration<T>(promise: Promise<T>): Promise<T> {
@@ -850,15 +946,36 @@ export async function createApp(options: CreateAppOptions = {}) {
   function reserveSlugGeneration(
     slug: string,
     generate: () => Promise<ArticleRecord>,
-  ): Promise<ArticleRecord> {
+  ): { promise: Promise<ArticleRecord>; seq: number; joined: boolean } {
+    const seq = ++generationSeq;
+    const queueDepth = slugGenerations.size;
     const existing = slugGenerations.get(slug);
     if (existing) {
-      logger.info("page.generation_join", { slug });
-      return existing;
+      logger.info("page.generation_join", {
+        slug,
+        seq,
+        queue_depth: queueDepth,
+        in_flight: inFlightGenerations.size,
+      });
+      return { promise: existing, seq, joined: true };
     }
-    const promise = generate().finally(() => slugGenerations.delete(slug));
+    logger.info("page.generation_reserve", {
+      slug,
+      seq,
+      queue_depth: queueDepth + 1,
+      in_flight: inFlightGenerations.size,
+    });
+    const promise = generate().finally(() => {
+      slugGenerations.delete(slug);
+      logger.info("page.generation_release", {
+        slug,
+        seq,
+        queue_depth: slugGenerations.size,
+        in_flight: inFlightGenerations.size,
+      });
+    });
     slugGenerations.set(slug, promise);
-    return promise;
+    return { promise, seq, joined: false };
   }
 
   async function shutdown() {
@@ -1093,6 +1210,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     normalizedBodyMarkdown: string,
     retrieved: Awaited<ReturnType<typeof retrieveContext>>,
     hints: IncomingHint[],
+    expectedGeneratedAt?: number,
   ) {
     const normalizedSlug = slugify(slug);
     try {
@@ -1104,6 +1222,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       const seeAlso = (
         await generateSeeAlsoCandidates(
           llm,
+          lightLlm,
           runtime.prompts,
           normalizedTitle,
           normalizedBodyMarkdown,
@@ -1121,6 +1240,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       const existing = getArticleByLookup(db, normalizedSlug);
       if (!existing) return;
 
+      if (
+        expectedGeneratedAt &&
+        existing.generated_at !== expectedGeneratedAt
+      ) {
+        logger.info("page.post_process_skipped", {
+          slug: normalizedSlug,
+          reason: "article_modified_since_generation",
+          expected_at: expectedGeneratedAt,
+          actual_at: existing.generated_at,
+        });
+        return;
+      }
+
       const deterministicReferences = dedupeArticleCandidates(
         retrieved.sourceArticles.map((article) => ({
           slug: article.slug,
@@ -1137,11 +1269,25 @@ export async function createApp(options: CreateAppOptions = {}) {
         slug,
       );
       const summaryMarkdown = await generateArticleSummary(
+        llm,
         lightLlm,
         runtime.prompts,
         normalizedTitle,
         markdown,
       ).catch(() => summaryMarkdownFromArticle(markdown));
+
+      const freshCheck = getArticleByLookup(db, normalizedSlug);
+      if (
+        expectedGeneratedAt &&
+        freshCheck &&
+        freshCheck.generated_at !== expectedGeneratedAt
+      ) {
+        logger.info("page.post_process_skipped", {
+          slug: normalizedSlug,
+          reason: "article_modified_during_post_process",
+        });
+        return;
+      }
 
       const links = extractInternalLinks(markdown);
       const updated = {
@@ -1192,11 +1338,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     slug: string,
     requestedTitle: string,
     onProgress?: (html: string, markdown: string) => void,
+    onStatus?: (message: string) => void,
   ) {
     logger.info("page.generation_start", {
       slug,
       requested_title: requestedTitle,
     });
+    onStatus?.("Gathering references...");
     const hints = listIncomingHints(db, slug);
     const retrieved = await retrieveContext(
       db,
@@ -1212,6 +1360,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     );
 
     const prompt = getPrompt(runtime.prompts, "article");
+    const selectedLlm = prompt.model === "light" ? lightLlm : llm;
     const renderedUserPrompt = renderTemplate(prompt.user, {
       slug,
       requested_title: requestedTitle,
@@ -1224,9 +1373,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       parent_comment: "",
     });
 
+    onStatus?.("Writing...");
     let rawMarkdown = "";
     if (onProgress) {
-      await llm.streamChat(
+      await selectedLlm.streamChat(
         prompt.system,
         renderedUserPrompt,
         (_delta, accumulated) => {
@@ -1238,7 +1388,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         },
       );
     } else {
-      rawMarkdown = await llm.chat(prompt.system, renderedUserPrompt);
+      rawMarkdown = await selectedLlm.chat(prompt.system, renderedUserPrompt);
     }
 
     let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
@@ -1263,6 +1413,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         resolved_title: resolvedTitle,
       });
     }
+    onStatus?.("Resolving canon...");
     const { article, links, normalizedTitle, normalizedBodyMarkdown } =
       await saveArticleImmediately(slug, requestedTitle, markdown, retrieved, {
         operation: "generate",
@@ -1280,6 +1431,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         normalizedBodyMarkdown,
         retrieved,
         hints,
+        article.generated_at,
       ).catch(() => {}),
     );
 
@@ -1301,7 +1453,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       nextDelayMs: () => {
         const cached = getHomepageCache(db);
         if (!cached) return 0;
-        return cached.generatedAt + HOMEPAGE_TTL_MS - Date.now() + HOMEPAGE_REFRESH_GRACE_MS;
+        return (
+          cached.generatedAt +
+          HOMEPAGE_TTL_MS -
+          Date.now() +
+          HOMEPAGE_REFRESH_GRACE_MS
+        );
       },
       run: async () => {
         const cached = getHomepageCache(db);
@@ -1321,6 +1478,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           const payload = await ensureHomepageCache(
             db,
             llm,
+            lightLlm,
             runtime.prompts,
             HOMEPAGE_TTL_MS,
             logger,
@@ -1373,11 +1531,17 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/random-page", async (c) => {
     try {
       await reloadRuntime();
-      const inspiration = sampleRandomInspirationTitles(db, 12);
+      const inspiration = sampleRandomInspirationTitles(db, 4);
       logger.info("random_page.request", {
         inspiration: inspiration.join(", ") || "(none)",
       });
-      const path = await generateRandomPagePath(db, llm, runtime.prompts, inspiration);
+      const path = await generateRandomPagePath(
+        db,
+        llm,
+        lightLlm,
+        runtime.prompts,
+        inspiration,
+      );
       logger.info("random_page.done", { path });
       return c.json({ path });
     } catch (error) {
@@ -1446,7 +1610,13 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const existingGeneration = slugGenerations.get(lookupSlug);
     if (existingGeneration) {
-      logger.info("page.generation_join", { slug: lookupSlug });
+      const joinSeq = ++generationSeq;
+      logger.info("page.generation_join_await", {
+        slug: lookupSlug,
+        seq: joinSeq,
+        queue_depth: slugGenerations.size,
+        in_flight: inFlightGenerations.size,
+      });
       try {
         article = await existingGeneration;
         const canonicalPath = canonicalPathForArticle(article);
@@ -1487,16 +1657,35 @@ export async function createApp(options: CreateAppOptions = {}) {
           } catch {}
         };
 
-        send({ type: "start", slug: lookupSlug, cached: false });
+        const {
+          promise: generation,
+          seq,
+          joined,
+        } = reserveSlugGeneration(lookupSlug, () =>
+          buildArticle(
+            lookupSlug,
+            requestedTitle,
+            (html, markdown) => {
+              send({ type: "progress", html, markdown });
+            },
+            (message) => {
+              send({ type: "status", message });
+            },
+          ),
+        );
 
-        const generation = reserveSlugGeneration(lookupSlug, () =>
-          buildArticle(lookupSlug, requestedTitle, (html, markdown) => {
-            send({ type: "progress", html, markdown });
-          }),
-        )
+        send({ type: "start", slug: lookupSlug, cached: false, seq, joined });
+
+        generation
           .then((result) => {
             article = result;
             const canonicalPath = canonicalPathForArticle(article);
+            logger.info("page.generation_complete", {
+              slug: lookupSlug,
+              seq,
+              joined,
+              queue_depth: slugGenerations.size,
+            });
             send({
               type: "done",
               cached: false,
@@ -1513,6 +1702,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           .catch((error) => {
             logger.error("page.generation_failed", {
               slug: lookupSlug,
+              seq,
               error: error instanceof Error ? error.message : String(error),
             });
             send({
@@ -1568,6 +1758,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const selectedPhrase = shouldRefineSelection(selectedText)
       ? await generateLinkSelection(
           llm,
+          lightLlm,
           runtime.prompts,
           article.title,
           selectedText,
@@ -1588,6 +1779,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     const suggestion = await generateLinkSuggestion(
       llm,
+      lightLlm,
       runtime.prompts,
       article.title,
       wrapRange.visibleLabel,
@@ -1603,7 +1795,11 @@ export async function createApp(options: CreateAppOptions = {}) {
         500,
       );
 
-    const wrapped = buildHaluLink(wrapRange.visibleLabel, targetSlug, suggestion.hint);
+    const wrapped = buildHaluLink(
+      wrapRange.visibleLabel,
+      targetSlug,
+      suggestion.hint,
+    );
     const nextMarkdown = stripSelfLinks(
       article.markdown.slice(0, wrapRange.start) +
         wrapped +
@@ -1660,6 +1856,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       sectionId?: string;
       ragEnabled?: boolean;
       ragQuery?: string;
+      rewriteMode?: string;
     };
     const instructions = (body.instructions ?? "")
       .replace(/\s+/g, " ")
@@ -1676,7 +1873,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       : article.markdown;
 
     const ragEnabled = body.ragEnabled === true;
-    const ragQuery = (body.ragQuery ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+    const ragQuery = (body.ragQuery ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500);
 
     const hints = listIncomingHints(db, article.slug);
     let retrieved: Awaited<ReturnType<typeof retrieveContext>>;
@@ -1702,7 +1902,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       const editRetrieved = retrieveDirectArticleContext(
         db,
         article.slug,
-        editReferences.articles.map((referencedArticle) => referencedArticle.slug),
+        editReferences.articles.map(
+          (referencedArticle) => referencedArticle.slug,
+        ),
         runtime.app.rag.mode,
         runtime.app.rag.max_results,
         logger,
@@ -1713,14 +1915,28 @@ export async function createApp(options: CreateAppOptions = {}) {
         requested: editReferences.requested.length,
         resolved: editReferences.articles.length,
         missing: editReferences.missing.length,
-        resolved_slugs: editReferences.articles.map((referencedArticle) => referencedArticle.slug).join(", ") || "(none)",
+        resolved_slugs:
+          editReferences.articles
+            .map((referencedArticle) => referencedArticle.slug)
+            .join(", ") || "(none)",
       });
       retrieved = mergeRetrievedContextPackets(editRetrieved, articleRetrieved);
     } else {
       retrieved = { context: "", relatedTitles: [], sourceArticles: [] };
     }
 
+    const requestedMode = (body.rewriteMode ?? "aggressive").toLowerCase();
+    const modeConfig =
+      runtime.prompts.rewriteModes[requestedMode] ??
+      runtime.prompts.rewriteModes.aggressive;
+    const modePrompt = modeConfig?.prompt ?? "";
+
     const prompt = getPrompt(runtime.prompts, "article_rewrite");
+    const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+    const renderedSystemPrompt = renderTemplate(prompt.system, {
+      rewrite_mode: modePrompt,
+      link_hints: formatHintsForPrompt(hints),
+    });
     const renderedRewritePrompt = renderTemplate(prompt.user, {
       slug: article.slug,
       requested_title: article.title,
@@ -1764,6 +1980,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           normalizedBodyMarkdown,
           retrieved,
           hints,
+          updatedArticle.generated_at,
         ).catch(() => {}),
       );
       return {
@@ -1802,8 +2019,8 @@ export async function createApp(options: CreateAppOptions = {}) {
 
           const rewrite = (async () => {
             let raw = "";
-            await llm.streamChat(
-              prompt.system,
+            await selectedLlm.streamChat(
+              renderedSystemPrompt,
               renderedRewritePrompt,
               (_delta, accumulated) => {
                 raw = accumulated;
@@ -1849,7 +2066,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
     }
 
-    const raw = await llm.chat(prompt.system, renderedRewritePrompt);
+    const raw = await selectedLlm.chat(
+      renderedSystemPrompt,
+      renderedRewritePrompt,
+    );
 
     try {
       return c.json(await persistRewrite(raw));
@@ -1889,8 +2109,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     let instructions = "Refreshed retrieved context and derived references.";
     if (retrieved.context || hints.length) {
       const prompt = getPrompt(runtime.prompts, "article_refresh");
-      const raw = await llm.chat(
-        prompt.system,
+      const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+      const subtleMode = runtime.prompts.rewriteModes.subtle?.prompt ?? "";
+      const renderedRefreshSystem = renderTemplate(prompt.system, {
+        rewrite_mode: subtleMode,
+        link_hints: formatHintsForPrompt(hints),
+      });
+      const raw = await selectedLlm.chat(
+        renderedRefreshSystem,
         renderTemplate(prompt.user, {
           slug: article.slug,
           requested_title: article.title,
@@ -1907,6 +2133,13 @@ export async function createApp(options: CreateAppOptions = {}) {
         }),
       );
       bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
+      bodyMarkdown = await recheckArticleLinks(
+        llm,
+        lightLlm,
+        runtime.prompts,
+        article.title,
+        bodyMarkdown,
+      );
       operation = "refresh-context-rewrite";
       instructions = "Refreshed article body from retrieved context.";
     }
@@ -1928,6 +2161,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         normalizedBodyMarkdown,
         retrieved,
         hints,
+        updatedArticle.generated_at,
       ).catch(() => {}),
     );
     const refreshChanged = updatedArticle.markdown !== article.markdown;
@@ -2078,6 +2312,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     try {
       await reloadRuntime();
       const summaryMarkdown = await generateArticleSummary(
+        llm,
         lightLlm,
         runtime.prompts,
         article.title,

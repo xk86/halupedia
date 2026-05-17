@@ -3,7 +3,7 @@ import katex from "katex";
 import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
 import type { ArticleSection, ParsedInternalLink } from "./types";
 
-export const LINK_RE = /\[([^\]]+)\]\(halu:([^) "\t\r\n]+)(?:\s+"([^"]*)")?\)/g;
+export const LINK_RE = /\[([^\]]+)\]\(halu:([^)"\t\r\n ]+)-?\s*(?:"([^"]*)")?\)/g;
 
 export function buildHaluLink(title: string, slug: string, hint: string): string {
   return `[${title}](halu:${slug} "${hint.replace(/"/g, "'")}")`;
@@ -143,7 +143,27 @@ export function normalizeMarkdown(input: string): string {
   markdown = markdown.replace(/<script[\s\S]*?<\/script>/gi, "");
   markdown = markdown.replace(/<iframe[\s\S]*?<\/iframe>/gi, "");
   markdown = markdown.replace(/<\/?[a-z][^>]*>/gi, "");
+  markdown = convertWikilinks(markdown);
+  markdown = truncateAtDuplicateH1(markdown);
   return markdown;
+}
+
+function convertWikilinks(markdown: string): string {
+  return markdown.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_match, target: string, display?: string) => {
+    const title = (display || target).trim();
+    const slug = slugify(target.trim());
+    return buildHaluLink(title, slug, title);
+  });
+}
+
+function truncateAtDuplicateH1(markdown: string): string {
+  const firstH1 = markdown.match(/^#\s+.+$/m);
+  if (!firstH1) return markdown;
+  const afterFirst = firstH1.index! + firstH1[0].length;
+  const rest = markdown.slice(afterFirst);
+  const secondH1 = rest.match(/^#\s+.+$/m);
+  if (!secondH1) return markdown;
+  return markdown.slice(0, afterFirst + secondH1.index!).replace(/\n{2,}$/, "\n").trim();
 }
 
 export function extractInternalLinks(markdown: string): ParsedInternalLink[] {

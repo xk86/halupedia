@@ -518,6 +518,66 @@ test("rewrite endpoint applies user instructions and preserves the article title
   assert.match(body.article.markdown, /municipal weather bureau/);
 });
 
+test("rewrite endpoint includes explicitly referenced articles in edit RAG", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "san-francisco",
+    title: "San Francisco",
+    markdown: [
+      "# San Francisco",
+      "",
+      "San Francisco is a quiet administrative district known for fog registries.",
+    ].join("\n"),
+  });
+  saveMarkdownArticle(databasePath, {
+    slug: "municipal-weather-bureau",
+    title: "Municipal Weather Bureau",
+    markdown: [
+      "# Municipal Weather Bureau",
+      "",
+      "The Municipal Weather Bureau coordinates cloud permits, civic umbrellas, and brass rain ledgers.",
+    ].join("\n"),
+  });
+  {
+    const db = openDatabase(databasePath);
+    await indexArticleChunks(
+      db,
+      new QueueLlmClient(""),
+      "municipal-weather-bureau",
+      [
+        "# Municipal Weather Bureau",
+        "",
+        "The Municipal Weather Bureau coordinates cloud permits, civic umbrellas, and brass rain ledgers.",
+      ].join("\n"),
+      false,
+      500,
+    );
+    db.close();
+  }
+
+  const rewritten = [
+    "# San Francisco",
+    "",
+    "San Francisco is a quiet administrative district known for fog registries and the Municipal Weather Bureau.",
+  ].join("\n");
+  const llm = new CapturingChatLlmClient([rewritten, "Updated summary."]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/article/San_Francisco/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instructions: "Revise this using the Municipal Weather Bureau article.",
+    }),
+  });
+
+  assert.equal(res.status, 200);
+  assert.match(llm.calls[0]?.user ?? "", /Municipal Weather Bureau/);
+  assert.match(llm.calls[0]?.user ?? "", /brass rain ledgers/);
+});
+
 test("rewrite endpoint saves even when lead subject diverges from title", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));

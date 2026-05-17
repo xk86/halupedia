@@ -9,3 +9,15 @@ export function toWikiSegment(titleOrSlug: string): string {
   }
   return segment;
 }
+
+export function articleInputToWikiSegment(input: string): string {
+  let raw = String(input ?? "").trim();
+  const wikiIndex = raw.toLowerCase().indexOf("wiki/");
+  if (wikiIndex >= 0) raw = raw.slice(wikiIndex + "wiki/".length);
+  raw = raw.replace(/[?#].*$/, "").replace(/^\/+|\/+$/g, "");
+  if (!raw) return "";
+  if (wikiIndex >= 0 || raw.includes("_") || raw.includes("-")) {
+    return raw;
+  }
+  return toWikiSegment(raw);
+}

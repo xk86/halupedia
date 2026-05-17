@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, saveArticle } from "../src/server/db";
@@ -17,7 +17,7 @@ import {
   stripSelfLinks,
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
-import { stripJsonFences } from "../src/server/prompts";
+import { getPrompt, stripJsonFences } from "../src/server/prompts";
 import {
   slugify,
   slugToTitle,
@@ -25,7 +25,8 @@ import {
   wikiSegmentToTitle,
   normalizeCanonicalTitle,
 } from "../src/server/slug";
-import type { LlmClient } from "../src/server/llm";
+import { OpenAICompatClient, type LlmClient } from "../src/server/llm";
+import type { Logger, LogFields } from "../src/server/logger";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 import {
   normalizeSummaryMarkdown,
@@ -50,6 +51,81 @@ class NoopLlmClient implements LlmClient {
 
   async probeConnections(): Promise<void> {}
 }
+
+class CaptureLogger implements Logger {
+  entries: Array<{ level: string; event: string; fields: LogFields }> = [];
+
+  debug(event: string, fields: LogFields = {}) {
+    this.entries.push({ level: "debug", event, fields });
+  }
+
+  info(event: string, fields: LogFields = {}) {
+    this.entries.push({ level: "info", event, fields });
+  }
+
+  warn(event: string, fields: LogFields = {}) {
+    this.entries.push({ level: "warn", event, fields });
+  }
+
+  error(event: string, fields: LogFields = {}) {
+    this.entries.push({ level: "error", event, fields });
+  }
+}
+
+test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embeddings", async (t) => {
+  const logger = new CaptureLogger();
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/chat/completions")) {
+      return new Response(
+        JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "A logged response." } }],
+          usage: { total_tokens: 12 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.endsWith("/embeddings")) {
+      return new Response(
+        JSON.stringify({ data: [{ embedding: [0.1, 0.2] }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  };
+
+  const chatConfig = {
+    base_url: "http://llm.test/v1",
+    api_key: "local",
+    model: "gemma4",
+    temperature: 1,
+    max_tokens: 9001,
+  };
+  const embeddingsConfig = {
+    enabled: true,
+    base_url: "http://llm.test/v1",
+    api_key: "local",
+    model: "nomic",
+  };
+  const heavy = new OpenAICompatClient(chatConfig, embeddingsConfig, logger, "heavy");
+  const light = new OpenAICompatClient({ ...chatConfig, max_tokens: 3000 }, embeddingsConfig, logger, "light");
+
+  await heavy.chat("system", "user");
+  await light.chat("system", "user");
+  await heavy.embed(["article chunk"]);
+
+  assert.equal(logger.entries.find((entry) => entry.event === "llm.chat_request")?.fields.role, "heavy");
+  assert.equal(logger.entries.find((entry) => entry.event === "llm.chat_response")?.fields.role, "heavy");
+  assert.ok(logger.entries.some((entry) => entry.event === "llm.chat_request" && entry.fields.role === "light"));
+  assert.ok(logger.entries.some((entry) => entry.event === "llm.embed_request" && entry.fields.role === "embeddings"));
+  assert.ok(logger.entries.some((entry) => entry.event === "llm.embed_response" && entry.fields.role === "embeddings"));
+  assert.ok(!logger.entries.some((entry) => entry.fields.role === "chat"));
+});
 
 test("extractInternalLinks dedupes targets and ignores invalid links", () => {
   const links = extractInternalLinks(
@@ -88,6 +164,21 @@ test("loadConfig populates a dedicated light LLM config section", () => {
   assert.equal(llm.light.model, llm.chat.model);
   assert.ok(llm.light.base_url);
   assert.equal(llm.light.max_tokens, 3000);
+});
+
+test("loadConfig resolves prompt manifest file references", () => {
+  const { prompts } = loadConfig();
+  const articleSystemFile = readFileSync("config/prompts/article.system.md", "utf8");
+  const articleUserFile = readFileSync("config/prompts/article.user.md", "utf8");
+  const sharedRulesFile = readFileSync("config/prompts/shared_article_rules.system.md", "utf8");
+
+  assert.equal(prompts.prompts.article.system, articleSystemFile);
+  assert.equal(prompts.prompts.article.user, articleUserFile);
+  assert.equal(prompts.prompts.shared_article_rules.system, sharedRulesFile);
+
+  const articlePrompt = getPrompt(prompts, "article");
+  assert.match(articlePrompt.system, /Tone and Vibe Constraints/);
+  assert.doesNotMatch(articlePrompt.system, /\{\{shared_article_rules\}\}/);
 });
 
 test("summarizeRetrievedSource returns truncated chunk content directly", () => {

@@ -96,6 +96,103 @@ export async function indexArticleChunks(
 
 export type RagMode = "summary" | "full";
 
+function summaryContent(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length <= 360
+    ? normalized
+    : `${normalized.slice(0, 360).trim()}...`;
+}
+
+function contextContent(text: string, mode: RagMode) {
+  return mode === "summary"
+    ? summaryContent(text)
+    : text.replace(/\s+/g, " ").trim();
+}
+
+function formatContextLine(row: { title: string; slug: string; content: string }, mode: RagMode) {
+  return `- ${row.title} (slug: ${row.slug}): ${contextContent(row.content, mode)}`;
+}
+
+export function mergeRetrievedContextPackets(
+  primary: RetrievedContextPacket,
+  secondary: RetrievedContextPacket,
+): RetrievedContextPacket {
+  const seen = new Set<string>();
+  const sourceArticles = [...primary.sourceArticles, ...secondary.sourceArticles].filter((article) => {
+    if (seen.has(article.slug)) return false;
+    seen.add(article.slug);
+    return true;
+  });
+  const relatedTitles = sourceArticles.map((article) => article.title);
+  return {
+    context: [primary.context, secondary.context].filter(Boolean).join("\n"),
+    relatedTitles,
+    sourceArticles,
+  };
+}
+
+export function retrieveDirectArticleContext(
+  db: DatabaseSync,
+  currentSlug: string,
+  referencedSlugs: string[],
+  mode: RagMode,
+  maxResults: number,
+  logger?: Logger,
+): RetrievedContextPacket {
+  const seen = new Set<string>([currentSlug]);
+  const rows: Array<{ slug: string; title: string; content: string }> = [];
+
+  for (const slug of referencedSlugs) {
+    if (seen.has(slug) || rows.length >= maxResults) continue;
+    seen.add(slug);
+    const chunks = db
+      .prepare(
+        `SELECT c.slug,
+                COALESCE(a.title, c.slug) AS title,
+                c.content
+         FROM article_chunks c
+         LEFT JOIN articles a ON a.slug = c.slug
+         WHERE c.slug = ?
+         ORDER BY c.chunk_index ASC
+         LIMIT ?`,
+      )
+      .all(slug, Math.max(1, maxResults - rows.length)) as Array<{ slug: string; title: string; content: string }>;
+
+    if (chunks.length > 0) {
+      rows.push(...chunks);
+      continue;
+    }
+
+    const article = db
+      .prepare(
+        `SELECT slug, title, markdown AS content
+         FROM articles
+         WHERE slug = ?
+         LIMIT 1`,
+      )
+      .get(slug) as { slug: string; title: string; content: string } | undefined;
+    if (article) rows.push(article);
+  }
+
+  const picked = rows.slice(0, maxResults);
+  logger?.info("rag.direct_references", {
+    slug: currentSlug,
+    requested: referencedSlugs.length,
+    picked: picked.length,
+    matched_articles: picked.map((row) => row.slug).join(", ") || "(none)",
+  });
+
+  return {
+    context: picked.map((row) => formatContextLine(row, mode)).join("\n"),
+    relatedTitles: [...new Set(picked.map((row) => row.title))],
+    sourceArticles: picked.map((row) => ({
+      slug: row.slug,
+      title: row.title,
+      content: row.content,
+    })),
+  };
+}
+
 export async function retrieveContext(
   db: DatabaseSync,
   llm: LlmClient,
@@ -184,21 +281,9 @@ export async function retrieveContext(
     min_score: minScore,
     top_score: ranked[0]?.score ?? 0,
   });
-  const summaryContent = (text: string) => {
-    const normalized = text.replace(/\s+/g, " ").trim();
-    return normalized.length <= 360
-      ? normalized
-      : `${normalized.slice(0, 360).trim()}...`;
-  };
-
   return {
     context: picked
-      .map((row) => {
-        const content = mode === "summary"
-          ? summaryContent(row.content)
-          : row.content.replace(/\s+/g, " ").trim();
-        return `- ${row.title} (slug: ${row.slug}): ${content}`;
-      })
+      .map((row) => formatContextLine(row, mode))
       .join("\n"),
     relatedTitles: picked.map((row) => row.title),
     sourceArticles: picked.map((row) => ({

@@ -288,6 +288,80 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Test_Article");
   });
 
+  it("header Go accepts a bare wiki path without nesting wiki twice", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(pagePayload({
+          article: {
+            ...pagePayload().article,
+            slug: "corvid-scouts-of-armenia",
+            canonicalSlug: "corvid-scouts-of-armenia",
+            title: "Corvid scouts of Armenia",
+            html: "<h1>Corvid scouts of Armenia</h1><p>Scout body.</p>",
+            markdown: "# Corvid scouts of Armenia\n\nScout body.",
+            plain_text: "Scout body.",
+          },
+        })), {
+          headers: { "content-type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    const input = screen.getByPlaceholderText("Search the register...");
+    await userEvent.type(input, "wiki/Corvid_scouts_of_Armenia");
+    await userEvent.click(screen.getByRole("button", { name: "Go" }));
+
+    expect(await screen.findByRole("heading", { name: "Corvid scouts of Armenia" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/wiki/Corvid_scouts_of_Armenia");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/page/Corvid_scouts_of_Armenia");
+  });
+
+  it("header Go accepts a full URL containing a wiki path", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(pagePayload({
+          article: {
+            ...pagePayload().article,
+            slug: "night-soil-tariff",
+            canonicalSlug: "night-soil-tariff",
+            title: "Night soil tariff",
+            html: "<h1>Night soil tariff</h1><p>Tariff body.</p>",
+            markdown: "# Night soil tariff\n\nTariff body.",
+            plain_text: "Tariff body.",
+          },
+        })), {
+          headers: { "content-type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    const input = screen.getByPlaceholderText("Search the register...");
+    await userEvent.type(input, "https://example.invalid/prefix/wiki/Night_soil_tariff?old=1");
+    await userEvent.click(screen.getByRole("button", { name: "Go" }));
+
+    expect(await screen.findByRole("heading", { name: "Night soil tariff" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/wiki/Night_soil_tariff");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/page/Night_soil_tariff");
+  });
+
   it("copies the canonical slug from the article toolbar", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(pagePayload({

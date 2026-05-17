@@ -1,6 +1,9 @@
 import type { ChatConfig, EmbeddingsConfig } from "./types";
 import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 
+export type LlmRole = "heavy" | "light" | "embeddings";
+type ChatLlmRole = Exclude<LlmRole, "embeddings">;
+
 export interface LlmClient {
   chat(system: string, user: string): Promise<string>;
   streamChat(
@@ -12,24 +15,74 @@ export interface LlmClient {
   probeConnections(): Promise<void>;
 }
 
+function chatRequestFields(role: ChatLlmRole, config: ChatConfig, promptChars: number) {
+  return {
+    role,
+    model: config.model,
+    max_tokens: config.max_tokens,
+    temperature: config.temperature,
+    prompt_chars: promptChars,
+  };
+}
+
+function chatResultFields(
+  role: ChatLlmRole,
+  config: ChatConfig,
+  fields: {
+    finishReason: string;
+    durationMs: number;
+    completionChars: number;
+    tokens?: number | string;
+  },
+) {
+  return {
+    role,
+    model: config.model,
+    finish_reason: fields.finishReason,
+    duration_ms: fields.durationMs,
+    completion_chars: fields.completionChars,
+    ...(fields.tokens === undefined ? {} : { tokens: fields.tokens }),
+  };
+}
+
+function llmErrorFields(role: LlmRole, model: string, status: number, body: string) {
+  return {
+    role,
+    model,
+    status,
+    body: truncateForLog(body, 300),
+  };
+}
+
+function embedRequestFields(config: EmbeddingsConfig, inputCount: number) {
+  return {
+    role: "embeddings" as const,
+    model: config.model,
+    inputs: inputCount,
+  };
+}
+
+function embedResponseFields(config: EmbeddingsConfig, vectorCount: number, durationMs: number) {
+  return {
+    role: "embeddings" as const,
+    model: config.model,
+    vectors: vectorCount,
+    duration_ms: durationMs,
+  };
+}
+
 export class OpenAICompatClient implements LlmClient {
   constructor(
     private readonly chatConfig: ChatConfig,
     private readonly embeddingsConfig: EmbeddingsConfig,
     private readonly logger: Logger = createConsoleLogger(),
-    private readonly role: string = "chat"
+    private readonly role: ChatLlmRole,
   ) {}
 
   async chat(system: string, user: string): Promise<string> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
-    this.logger.info("llm.chat_request", {
-      role: this.role,
-      model: this.chatConfig.model,
-      max_tokens: this.chatConfig.max_tokens,
-      temperature: this.chatConfig.temperature,
-      prompt_chars: system.length + user.length,
-    });
+    this.logger.info("llm.chat_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length));
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -49,12 +102,7 @@ export class OpenAICompatClient implements LlmClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      this.logger.error("llm.chat_error", {
-        role: this.role,
-        model: this.chatConfig.model,
-        status: response.status,
-        body: truncateForLog(text, 300),
-      });
+      this.logger.error("llm.chat_error", llmErrorFields(this.role, this.chatConfig.model, response.status, text));
       throw new Error(`chat completion failed: ${response.status} ${text.slice(0, 300)}`);
     }
 
@@ -66,14 +114,12 @@ export class OpenAICompatClient implements LlmClient {
     const content = json.choices?.[0]?.message?.content?.trim();
     const finishReason = json.choices?.[0]?.finish_reason ?? "unknown";
     const durationMs = Date.now() - startedAt;
-    this.logger.info("llm.chat_response", {
-      role: this.role,
-      model: this.chatConfig.model,
-      finish_reason: finishReason,
-      duration_ms: durationMs,
-      completion_chars: content?.length ?? 0,
+    this.logger.info("llm.chat_response", chatResultFields(this.role, this.chatConfig, {
+      finishReason,
+      durationMs,
+      completionChars: content?.length ?? 0,
       tokens: json.usage?.total_tokens ?? "?",
-    });
+    }));
     if (finishReason === "length") {
       this.logger.warn("llm.chat_truncated", {
         role: this.role,
@@ -94,13 +140,7 @@ export class OpenAICompatClient implements LlmClient {
   ): Promise<{ content: string; finishReason: string }> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
-    this.logger.info("llm.stream_request", {
-      role: this.role,
-      model: this.chatConfig.model,
-      max_tokens: this.chatConfig.max_tokens,
-      temperature: this.chatConfig.temperature,
-      prompt_chars: system.length + user.length,
-    });
+    this.logger.info("llm.stream_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length));
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -121,12 +161,7 @@ export class OpenAICompatClient implements LlmClient {
 
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => "");
-      this.logger.error("llm.stream_error", {
-        role: this.role,
-        model: this.chatConfig.model,
-        status: response.status,
-        body: truncateForLog(text, 300),
-      });
+      this.logger.error("llm.stream_error", llmErrorFields(this.role, this.chatConfig.model, response.status, text));
       throw new Error(`chat stream failed: ${response.status} ${text.slice(0, 300)}`);
     }
 
@@ -178,13 +213,11 @@ export class OpenAICompatClient implements LlmClient {
 
     const content = accumulated.trim();
     const durationMs = Date.now() - startedAt;
-    this.logger.info("llm.stream_response", {
-      role: this.role,
-      model: this.chatConfig.model,
-      finish_reason: finishReason,
-      duration_ms: durationMs,
-      completion_chars: content.length,
-    });
+    this.logger.info("llm.stream_response", chatResultFields(this.role, this.chatConfig, {
+      finishReason,
+      durationMs,
+      completionChars: content.length,
+    }));
     if (finishReason === "length") {
       this.logger.warn("llm.stream_truncated", {
         role: this.role,
@@ -205,10 +238,7 @@ export class OpenAICompatClient implements LlmClient {
 
     const startedAt = Date.now();
     const url = `${this.embeddingsConfig.base_url.replace(/\/$/, "")}/embeddings`;
-    this.logger.info("llm.embed_request", {
-      model: this.embeddingsConfig.model,
-      inputs: input.length,
-    });
+    this.logger.info("llm.embed_request", embedRequestFields(this.embeddingsConfig, input.length));
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -223,37 +253,29 @@ export class OpenAICompatClient implements LlmClient {
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      this.logger.error("llm.embed_error", {
-        model: this.embeddingsConfig.model,
-        status: response.status,
-        body: truncateForLog(text, 300),
-      });
+      this.logger.error("llm.embed_error", llmErrorFields("embeddings", this.embeddingsConfig.model, response.status, text));
       throw new Error(`embeddings failed: ${response.status} ${text.slice(0, 300)}`);
     }
 
     const json = (await response.json()) as {
       data?: Array<{ embedding?: number[] }>;
     };
-    this.logger.info("llm.embed_response", {
-      model: this.embeddingsConfig.model,
-      vectors: json.data?.length ?? 0,
-      duration_ms: Date.now() - startedAt,
-    });
+    this.logger.info("llm.embed_response", embedResponseFields(this.embeddingsConfig, json.data?.length ?? 0, Date.now() - startedAt));
     return (json.data ?? []).map((item) => item.embedding ?? []);
   }
 
   async probeConnections(): Promise<void> {
-    await this.probeEndpoint("chat", this.chatConfig.base_url, this.chatConfig.api_key);
+    await this.probeEndpoint(this.role, this.chatConfig.base_url, this.chatConfig.api_key);
     if (this.embeddingsConfig.enabled) {
       await this.probeEndpoint("embeddings", this.embeddingsConfig.base_url, this.embeddingsConfig.api_key);
     } else {
-      this.logger.info("llm.embed_disabled");
+      this.logger.info("llm.embed_disabled", { role: "embeddings" });
     }
   }
 
-  private async probeEndpoint(kind: string, baseUrl: string, apiKey: string): Promise<void> {
+  private async probeEndpoint(role: LlmRole, baseUrl: string, apiKey: string): Promise<void> {
     const url = `${baseUrl.replace(/\/$/, "")}/models`;
-    this.logger.info("llm.probe_start", { kind, url });
+    this.logger.info("llm.probe_start", { role, url });
     try {
       const response = await fetch(url, {
         headers: {
@@ -263,19 +285,19 @@ export class OpenAICompatClient implements LlmClient {
       const text = await response.text().catch(() => "");
       if (!response.ok) {
         this.logger.warn("llm.probe_failed", {
-          kind,
+          role,
           status: response.status,
           body: truncateForLog(text, 220),
         });
         return;
       }
       this.logger.info("llm.probe_ok", {
-        kind,
+        role,
         body: truncateForLog(text, 220),
       });
     } catch (error) {
       this.logger.warn("llm.probe_error", {
-        kind,
+        role,
         error: error instanceof Error ? error.message : String(error),
       });
     }

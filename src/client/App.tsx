@@ -5,7 +5,7 @@ import { Homepage } from "./Homepage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
 import { renderSummaryHtml } from "./summaryHtml";
-import { toWikiSegment } from "./wikiPath";
+import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
 
 type Route =
   | { kind: "home" }
@@ -92,6 +92,9 @@ function titleFromSegment(segment: string): string {
 
 type ThemeMode = "auto" | "dark";
 
+const articleFailureMessage =
+  "This article could not be generated right now. Adjust prompts or retry from the admin panel.";
+
 function initialThemeMode(): ThemeMode {
   try {
     return window.localStorage.getItem("halupedia-theme") === "dark" ? "dark" : "auto";
@@ -144,6 +147,8 @@ export function App() {
   const [editOpen, setEditOpen] = useState(false);
   const [editDraft, setEditDraft] = useState("");
   const [editSectionId, setEditSectionId] = useState("");
+  const [editRagEnabled, setEditRagEnabled] = useState(false);
+  const [editRagQuery, setEditRagQuery] = useState("");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -398,7 +403,8 @@ export function App() {
   }, []);
 
   const navigateToArticle = useCallback((slugOrTitleSegment: string) => {
-    const clean = slugOrTitleSegment.replace(/^\/+|\/+$/g, "");
+    const clean = articleInputToWikiSegment(slugOrTitleSegment);
+    if (!clean) return;
     window.history.pushState({}, "", `/wiki/${clean}`);
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     setRoute({ kind: "article", slug: clean });
@@ -494,7 +500,12 @@ export function App() {
       const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/rewrite?stream=1`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/x-ndjson" },
-        body: JSON.stringify({ instructions: editDraft, sectionId: editSectionId || undefined }),
+        body: JSON.stringify({
+          instructions: editDraft,
+          sectionId: editSectionId || undefined,
+          ragQuery: editRagEnabled ? editRagQuery || undefined : undefined,
+          ragEnabled: editRagEnabled,
+        }),
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -554,6 +565,8 @@ export function App() {
       }
       setEditDraft("");
       setEditSectionId("");
+      setEditRagEnabled(false);
+      setEditRagQuery("");
       setEditBusy(false);
       setHistoryOpen(false);
       setRevisions([]);
@@ -563,7 +576,7 @@ export function App() {
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
     }
-  }, [page, editDraft, editSectionId, editBusy]);
+  }, [page, editDraft, editSectionId, editRagEnabled, editRagQuery, editBusy]);
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
@@ -950,6 +963,20 @@ export function App() {
               rows={4}
               disabled={editBusy}
             />
+            <label className="edit-modal-rag-toggle">
+              <input type="checkbox" checked={editRagEnabled} onChange={(e) => setEditRagEnabled(e.target.checked)} disabled={editBusy} />
+              Reference other articles
+            </label>
+            {editRagEnabled ? (
+              <input
+                type="text"
+                className="edit-modal-rag-query"
+                value={editRagQuery}
+                onChange={(e) => setEditRagQuery(e.target.value)}
+                placeholder="Search query for related articles..."
+                disabled={editBusy}
+              />
+            ) : null}
             {editError ? <div className="edit-modal-error">{editError}</div> : null}
             <div className="edit-modal-actions">
               <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || !editDraft.trim()}>
@@ -1080,7 +1107,7 @@ export function App() {
           onSubmit={(e) => {
             e.preventDefault();
             if (headerSearchDraft.trim()) {
-              navigateToArticle(toWikiSegment(headerSearchDraft.trim()));
+              navigateToArticle(headerSearchDraft);
               setHeaderSearchDraft("");
             }
           }}
@@ -1103,7 +1130,7 @@ export function App() {
                     className="header-search-suggest-item"
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      navigateToArticle(toWikiSegment(headerSearchDraft.trim()));
+                      navigateToArticle(headerSearchDraft);
                       setHeaderSearchDraft("");
                       setSearchSuggestOpen(false);
                     }}
@@ -1164,5 +1191,3 @@ export function App() {
     </div>
   );
 }
-  const articleFailureMessage =
-    "This article could not be generated right now. Adjust prompts or retry from the admin panel.";

@@ -150,8 +150,15 @@ export function App() {
   const [editOpen, setEditOpen] = useState(false);
   const [editDraft, setEditDraft] = useState("");
   const [editSectionId, setEditSectionId] = useState("");
-  const [editRagEnabled, setEditRagEnabled] = useState(false);
-  const [editRagQuery, setEditRagQuery] = useState("");
+  // References panel state
+  const [editRefsEnabled, setEditRefsEnabled] = useState(false);
+  const [editRefs, setEditRefs] = useState<Array<{ slug: string; title: string; summaryMarkdown: string }>>([]);
+  const [editAddRefsOpen, setEditAddRefsOpen] = useState(false);
+  const [editFuzzyQuery, setEditFuzzyQuery] = useState("");
+  const [editRagSearchQuery, setEditRagSearchQuery] = useState("");
+  const [editRefResults, setEditRefResults] = useState<Array<{ slug: string; title: string; summaryMarkdown: string }>>([]);
+  const [editRefSearchBusy, setEditRefSearchBusy] = useState(false);
+  const [editRefSearchError, setEditRefSearchError] = useState<string | null>(null);
   const [editRewriteMode, setEditRewriteMode] = useState<"aggressive" | "subtle">("aggressive");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -242,6 +249,14 @@ export function App() {
       setEditDraft("");
       setEditSectionId("");
       setEditSelectedText("");
+      setEditRefsEnabled(false);
+      setEditRefs([]);
+      setEditAddRefsOpen(false);
+      setEditFuzzyQuery("");
+      setEditRagSearchQuery("");
+      setEditRefResults([]);
+      setEditRefSearchBusy(false);
+      setEditRefSearchError(null);
       setEditBusy(false);
       setEditError(null);
       setHistoryOpen(false);
@@ -595,6 +610,62 @@ export function App() {
     setLinkMenu(null);
   }, [linkMenu?.text]);
 
+  // Load saved references from the server when the edit tray opens
+  useEffect(() => {
+    if (!editOpen || !page?.article.slug) return;
+    let cancelled = false;
+    fetch(`/api/article/${encodeURIComponent(page.article.slug)}/references`)
+      .then((r) => r.json())
+      .then((body: { references?: Array<{ slug: string; title: string; summaryMarkdown: string }> }) => {
+        if (cancelled) return;
+        const refs = body.references ?? [];
+        if (refs.length > 0) {
+          setEditRefs(refs);
+          setEditRefsEnabled(true);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  // Only run when the tray first opens for a given article, not on every ref change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editOpen, page?.article.slug]);
+
+  // Search for references: runs both fuzzy and RAG queries against find-references endpoint
+  const searchEditRefs = useCallback(async (mode: "fuzzy" | "rag") => {
+    if (!page?.article.slug || editRefSearchBusy) return;
+    const query = mode === "fuzzy" ? editFuzzyQuery : editRagSearchQuery;
+    if (!query.trim()) return;
+    setEditRefSearchBusy(true);
+    setEditRefSearchError(null);
+    try {
+      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/find-references`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(mode === "fuzzy"
+          ? { fuzzyTitles: query }
+          : { ragQuery: query }),
+      });
+      const payload = await res.json() as { articles?: Array<{ slug: string; title: string; summaryMarkdown: string }> };
+      if (!res.ok) throw new Error((payload as any)?.error || `error ${res.status}`);
+      // Filter out articles already in editRefs
+      const existing = new Set(editRefs.map((r) => r.slug));
+      setEditRefResults((payload.articles ?? []).filter((a) => !existing.has(a.slug)));
+    } catch (err: any) {
+      setEditRefSearchError(err?.message || "Search failed.");
+    } finally {
+      setEditRefSearchBusy(false);
+    }
+  }, [page?.article.slug, editFuzzyQuery, editRagSearchQuery, editRefSearchBusy, editRefs]);
+
+  const addEditRef = useCallback((ref: { slug: string; title: string; summaryMarkdown: string }) => {
+    setEditRefs((prev) => prev.some((r) => r.slug === ref.slug) ? prev : [...prev, ref]);
+    setEditRefResults((prev) => prev.filter((r) => r.slug !== ref.slug));
+  }, []);
+
+  const removeEditRef = useCallback((slug: string) => {
+    setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
+  }, []);
+
   const rewriteArticle = useCallback(async () => {
     if (!page?.article.slug || !editDraft.trim() || editBusy) return;
     const previousPage = page;
@@ -610,8 +681,11 @@ export function App() {
           ...(editSectionId === "__selection__"
             ? { selectedText: editSelectedText }
             : { sectionId: editSectionId || undefined }),
-          ragQuery: editRagEnabled ? editRagQuery || undefined : undefined,
-          ragEnabled: editRagEnabled,
+          // Send explicit reference slugs when the user has a non-empty list;
+          // otherwise fall back to server-side RAG (legacy path, ragEnabled=false means no refs).
+          ...(editRefsEnabled && editRefs.length > 0
+            ? { referenceSlugs: editRefs.map((r) => r.slug) }
+            : {}),
           rewriteMode: editRewriteMode,
         }),
       });
@@ -679,8 +753,14 @@ export function App() {
       setEditDraft("");
       setEditSectionId("");
       setEditSelectedText("");
-      setEditRagEnabled(false);
-      setEditRagQuery("");
+      setEditRefsEnabled(false);
+      setEditRefs([]);
+      setEditAddRefsOpen(false);
+      setEditFuzzyQuery("");
+      setEditRagSearchQuery("");
+      setEditRefResults([]);
+      setEditRefSearchBusy(false);
+      setEditRefSearchError(null);
       setEditBusy(false);
       setHistoryOpen(false);
       setRevisions([]);
@@ -690,7 +770,7 @@ export function App() {
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
     }
-  }, [page, editDraft, editSectionId, editSelectedText, editRagEnabled, editRagQuery, editRewriteMode, editBusy]);
+  }, [page, editDraft, editSectionId, editSelectedText, editRefsEnabled, editRefs, editRewriteMode, editBusy]);
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
@@ -877,14 +957,13 @@ export function App() {
 
   const copyArticleSlug = useCallback(async () => {
     if (!page?.article.slug) return;
+    // Always show the slug so the user can copy it manually even if the API fails
+    setCopySlugMessage(`Slug: ${page.article.slug}`);
     try {
       await navigator.clipboard.writeText(page.article.slug);
-      setCopySlugMessage("Slug copied.");
     } catch {
-      setCopySlugMessage("Could not copy slug.");
+      // Clipboard write failed — the message still shows the slug for manual copy
     }
-    // Auto-clear the confirmation after 2 s so it doesn't linger
-    window.setTimeout(() => setCopySlugMessage(null), 2000);
   }, [page]);
 
   const mainView = useMemo(() => {
@@ -1126,20 +1205,134 @@ export function App() {
               rows={4}
               disabled={editBusy}
             />
-            <label className="edit-modal-rag-toggle">
-              <input type="checkbox" checked={editRagEnabled} onChange={(e) => setEditRagEnabled(e.target.checked)} disabled={editBusy} />
-              Reference other articles
-            </label>
-            {editRagEnabled ? (
-              <input
-                type="text"
-                className="edit-modal-rag-query"
-                value={editRagQuery}
-                onChange={(e) => setEditRagQuery(e.target.value)}
-                placeholder="Search query for related articles..."
-                disabled={editBusy}
-              />
-            ) : null}
+            {/* References panel */}
+            <div className="edit-refs-row">
+              <label className="edit-modal-rag-toggle">
+                <input
+                  type="checkbox"
+                  checked={editRefsEnabled}
+                  onChange={(e) => { setEditRefsEnabled(e.target.checked); if (!e.target.checked) { setEditAddRefsOpen(false); setEditRefResults([]); } }}
+                  disabled={editBusy}
+                />
+                Reference other articles
+              </label>
+              {editRefsEnabled && (
+                <button
+                  type="button"
+                  className="edit-refs-add-btn"
+                  onClick={() => { setEditAddRefsOpen((o) => !o); setEditRefResults([]); }}
+                  disabled={editBusy}
+                  aria-label="Add references"
+                  title="Add references"
+                >
+                  {editAddRefsOpen ? "−" : "+"}
+                </button>
+              )}
+            </div>
+
+            {editRefsEnabled && editRefs.length > 0 && (
+              <div className="edit-refs-tags">
+                {editRefs.map((ref) => (
+                  <span key={ref.slug} className="edit-ref-tag">
+                    <a
+                      href={`/wiki/${ref.slug}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="edit-ref-tag-link"
+                    >
+                      {ref.title}
+                    </a>
+                    <button
+                      type="button"
+                      className="edit-ref-tag-remove"
+                      onClick={() => removeEditRef(ref.slug)}
+                      disabled={editBusy}
+                      aria-label={`Remove ${ref.title}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {editRefsEnabled && editAddRefsOpen && (
+              <div className="edit-refs-search-panel">
+                {/* Left: CSV fuzzy title/slug/wiki-path search */}
+                <div className="edit-refs-search-col">
+                  <label className="edit-refs-search-label">Titles / slugs (comma-separated)</label>
+                  <div className="edit-refs-search-row">
+                    <input
+                      type="text"
+                      className="edit-refs-search-input"
+                      value={editFuzzyQuery}
+                      onChange={(e) => setEditFuzzyQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchEditRefs("fuzzy"); } }}
+                      placeholder="Title, slug, or wiki/Path (CSV)"
+                      disabled={editBusy || editRefSearchBusy}
+                    />
+                    <button
+                      type="button"
+                      className="edit-refs-search-btn"
+                      onClick={() => void searchEditRefs("fuzzy")}
+                      disabled={editBusy || editRefSearchBusy || !editFuzzyQuery.trim()}
+                    >
+                      Find
+                    </button>
+                  </div>
+                </div>
+                {/* Right: freeform RAG / vector search */}
+                <div className="edit-refs-search-col">
+                  <label className="edit-refs-search-label">Freeform search (RAG)</label>
+                  <div className="edit-refs-search-row">
+                    <input
+                      type="text"
+                      className="edit-refs-search-input"
+                      value={editRagSearchQuery}
+                      onChange={(e) => setEditRagSearchQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchEditRefs("rag"); } }}
+                      placeholder="Describe topic to find related articles..."
+                      disabled={editBusy || editRefSearchBusy}
+                    />
+                    <button
+                      type="button"
+                      className="edit-refs-search-btn"
+                      onClick={() => void searchEditRefs("rag")}
+                      disabled={editBusy || editRefSearchBusy || !editRagSearchQuery.trim()}
+                    >
+                      Search
+                    </button>
+                  </div>
+                </div>
+
+                {editRefSearchError && (
+                  <p className="edit-refs-search-error">{editRefSearchError}</p>
+                )}
+                {editRefSearchBusy && (
+                  <p className="edit-refs-search-status">Searching...</p>
+                )}
+                {editRefResults.length > 0 && (
+                  <ul className="edit-refs-results">
+                    {editRefResults.map((r) => (
+                      <li key={r.slug}>
+                        <button
+                          type="button"
+                          className="edit-refs-result-btn"
+                          onClick={() => addEditRef(r)}
+                          disabled={editBusy}
+                        >
+                          <span className="edit-refs-result-title">{r.title}</span>
+                          {r.summaryMarkdown && (
+                            <span className="edit-refs-result-summary">{r.summaryMarkdown.slice(0, 100)}</span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
             {editError ? <div className="edit-modal-error">{editError}</div> : null}
             <div className="edit-modal-actions">
               <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || !editDraft.trim()}>
@@ -1189,7 +1382,7 @@ export function App() {
         </article>
       </>
     );
-  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, rewriteArticle, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage]);
+  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, rewriteArticle, editRefsEnabled, editRefs, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, searchEditRefs, addEditRef, removeEditRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage]);
 
   return (
     <div className="site">

@@ -474,7 +474,8 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Café β Registry" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Copy slug" }));
     expect(writeText).toHaveBeenCalledWith("café-β-registry");
-    expect(screen.getByText("Slug copied.")).toBeInTheDocument();
+    // Message now shows the slug itself so it's visible even if clipboard fails
+    expect(screen.getByText("Slug: café-β-registry")).toBeInTheDocument();
   });
 
   it("handles streamed article responses and normalizes the canonical path", async () => {
@@ -727,6 +728,10 @@ describe("App", () => {
         plain_text: "Original retained energy body.",
       },
     });
+    const refsResponse = new Response(
+      JSON.stringify({ references: [] }),
+      { headers: { "content-type": "application/json" } },
+    );
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -734,6 +739,8 @@ describe("App", () => {
           headers: { "content-type": "application/json" },
         })
       )
+      // References fetch fires when the edit tray opens
+      .mockResolvedValueOnce(refsResponse)
       .mockResolvedValueOnce(
         ndjsonResponse([
           {

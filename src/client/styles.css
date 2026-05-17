@@ -1270,11 +1270,11 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--accent);
 }
 
+/* "Reference other articles" checkbox row + add button */
 .edit-modal-rag-toggle {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-top: 0.6rem;
   font-size: 0.82rem;
   cursor: pointer;
 }
@@ -1283,23 +1283,193 @@ button.admin-danger-btn:hover:not(:disabled) {
   margin: 0;
 }
 
-.edit-modal-rag-query {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
+.edit-refs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.edit-refs-add-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  background: var(--parchment);
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-refs-add-btn:hover:not(:disabled) {
+  background: var(--parchment-deep);
+}
+
+/* Rounded reference tags */
+.edit-refs-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   margin-top: 0.5rem;
-  padding: 0.45rem 0.6rem;
+}
+
+.edit-ref-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.2rem 0.45rem 0.2rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--parchment-deep);
+  font-size: 0.78rem;
+  max-width: 22ch;
+}
+
+.edit-ref-tag-link {
+  color: var(--link);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-ref-tag-link:hover {
+  text-decoration: underline;
+}
+
+.edit-ref-tag-remove {
+  background: none;
+  border: none;
+  padding: 0 0.1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--ink-fade);
+  flex-shrink: 0;
+}
+
+.edit-ref-tag-remove:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+/* Add-references search panel */
+.edit-refs-search-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem 1rem;
+  margin-top: 0.6rem;
+  padding: 0.7rem;
+  border: 1px solid var(--rule);
+  background: var(--parchment-deep);
+}
+
+.edit-refs-search-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.edit-refs-search-label {
   font-family: var(--mono);
-  font-size: 0.85rem;
-  line-height: 1.4;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-soft);
+}
+
+.edit-refs-search-row {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.edit-refs-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
   border: 1px solid var(--rule);
   background: var(--input-surface);
   color: var(--fg);
 }
 
-.edit-modal-rag-query:focus {
-  background: var(--input-surface-focus);
+.edit-refs-search-input:focus {
   outline: 1px solid var(--link);
+  background: var(--input-surface-focus);
+}
+
+.edit-refs-search-btn {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--rule);
+  background: var(--parchment);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.edit-refs-search-btn:hover:not(:disabled) {
+  background: var(--parchment-deep);
+}
+
+.edit-refs-search-error,
+.edit-refs-search-status {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-fade);
+}
+
+.edit-refs-search-error {
+  color: var(--accent);
+}
+
+/* Results list for add-refs search */
+.edit-refs-results {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.edit-refs-result-btn {
+  width: 100%;
+  text-align: left;
+  background: var(--parchment);
+  border: 1px solid var(--rule);
+  padding: 0.35rem 0.55rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.edit-refs-result-btn:hover {
+  background: var(--parchment-deep);
+}
+
+.edit-refs-result-title {
+  font-size: 0.84rem;
+  color: var(--ink);
+}
+
+.edit-refs-result-summary {
+  font-size: 0.74rem;
+  color: var(--ink-fade);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .edit-modal-actions {

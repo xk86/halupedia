@@ -1294,8 +1294,13 @@ export async function createApp(options: CreateAppOptions = {}) {
   const maintenance = new MaintenanceScheduler(logger);
 
   function trackGeneration<T>(promise: Promise<T>): Promise<T> {
+    const id = Math.random().toString(36).slice(2, 8);
     inFlightGenerations.add(promise);
-    promise.finally(() => inFlightGenerations.delete(promise));
+    logger.debug("generation.tracked", { id, in_flight: inFlightGenerations.size });
+    promise.finally(() => {
+      inFlightGenerations.delete(promise);
+      logger.debug("generation.settled", { id, in_flight: inFlightGenerations.size });
+    });
     return promise;
   }
 
@@ -1354,8 +1359,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     await maintenance.shutdown();
     if (inFlightGenerations.size > 0) {
       logger.info("shutdown.draining", { in_flight: inFlightGenerations.size });
+      const startTime = Date.now();
       await Promise.allSettled([...inFlightGenerations]);
+      const elapsed = Date.now() - startTime;
+      logger.info("shutdown.drained", { elapsed_ms: elapsed });
     }
+    logger.info("shutdown.closing_database");
     db.close();
     logger.info("shutdown.complete");
   }
@@ -1594,6 +1603,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
     const links = extractInternalLinks(markdown);
     article.html = rewriteArticleHtml(renderMarkdown(markdown), links);
+    logger.debug("save.article_immediate.starting", { slug: canonicalSlug });
     saveArticle(
       db,
       article,
@@ -1601,6 +1611,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       Array.from(new Set([slug, canonicalSlug, article.canonicalSlug])),
       revision,
     );
+    logger.debug("save.article_immediate.saved_article", { slug: canonicalSlug });
     // Persist the reference articles used during this save so they can be
     // restored in subsequent edit sessions without a fresh RAG search.
     const referenceEntries: ArticleReference[] = dedupeRetrievedSourceArticles(
@@ -1611,6 +1622,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       summaryMarkdown: src.content?.slice(0, 400) ?? "",
     }));
     saveArticleReferences(db, canonicalSlug, article.generated_at, referenceEntries);
+    logger.debug("save.article_immediate.saved_references", { slug: canonicalSlug });
     return {
       article,
       links,
@@ -1628,6 +1640,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     expectedGeneratedAt?: number,
   ) {
     const normalizedSlug = slugify(slug);
+    logger.debug("post_process.start", { slug: normalizedSlug });
     try {
       const bodyLinkSlugs = new Set(
         extractInternalLinks(normalizedBodyMarkdown).map(
@@ -1739,6 +1752,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+    logger.debug("post_process.complete", { slug: normalizedSlug });
   }
 
   async function buildArticle(
@@ -1747,6 +1761,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     onProgress?: (html: string, markdown: string) => void,
     onStatus?: (message: string) => void,
   ) {
+    logger.debug("build.article_start", { slug });
     onStatus?.("Gathering references...");
     const hints = listIncomingHints(db, slug);
     const retrieved = await retrieveContext(
@@ -1815,6 +1830,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
     logger.info("page.generated", { slug, links: links.length, sources: retrieved.sourceArticles.length });
 
+    logger.debug("build.article_returning", { slug: article.slug });
     trackGeneration(
       postProcessArticle(
         article.slug,
@@ -2154,6 +2170,78 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({ references });
   });
 
+  /**
+   * Find articles to use as references during editing.
+   * Accepts two independent search modes:
+   *   fuzzyTitles – comma-separated titles/slugs/wiki paths (uses existing parser logic)
+   *   ragQuery    – freeform text sent to the retrieval pipeline for vector/lexical search
+   * Both may be provided in the same request; results are deduped.
+   */
+  app.post("/api/article/:slug/find-references", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      fuzzyTitles?: string;
+      ragQuery?: string;
+    };
+
+    const seen = new Set<string>();
+    const articles: ArticleReference[] = [];
+
+    const addArticle = (a: { slug: string; title: string; summaryMarkdown?: string }) => {
+      const s = slugify(a.slug);
+      if (!s || s === article.slug || seen.has(s)) return;
+      seen.add(s);
+      articles.push({ slug: s, title: a.title, summaryMarkdown: a.summaryMarkdown ?? "" });
+    };
+
+    // Fuzzy / wiki-path lookup (reuses existing CSV parsing + title matching)
+    if (body.fuzzyTitles?.trim()) {
+      const { articles: matched } = findReferencedArticlesInEditText(
+        db,
+        body.fuzzyTitles,
+        article.slug,
+        10,
+      );
+      for (const a of matched) addArticle({ ...a, summaryMarkdown: a.summaryMarkdown ?? "" });
+
+      // Also try fuzzy title scoring for whatever wasn't resolved above
+      const fuzzy = findFuzzyTitleMatchesInEditText(
+        db,
+        body.fuzzyTitles,
+        article.slug,
+        10,
+        matched.map((a) => a.slug),
+      );
+      for (const a of fuzzy) addArticle({ ...a, summaryMarkdown: a.summaryMarkdown ?? "" });
+    }
+
+    // RAG / vector search
+    if (body.ragQuery?.trim()) {
+      const retrieved = await retrieveContext(
+        db,
+        llm,
+        article.slug,
+        [body.ragQuery.trim()],
+        runtime.app.rag.enabled,
+        runtime.app.rag.mode,
+        runtime.app.rag.max_results,
+        runtime.app.rag.min_score,
+        runtime.llm.embeddings.enabled,
+        logger,
+        body.ragQuery.trim(),
+      );
+      for (const src of retrieved.sourceArticles) {
+        addArticle({ slug: src.slug, title: src.title, summaryMarkdown: src.content?.slice(0, 360) ?? "" });
+      }
+    }
+
+    return c.json({ articles });
+  });
+
   app.post("/api/article/:slug/add-link", async (c) => {
     const lookupSlug = slugify(c.req.param("slug"));
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
@@ -2284,6 +2372,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       ragEnabled?: boolean;
       ragQuery?: string;
       rewriteMode?: string;
+      // Explicit list of article slugs to use as references (from the new UI).
+      // When provided, overrides the automatic RAG flow.
+      referenceSlugs?: string[];
     };
     const instructions = (body.instructions ?? "")
       .replace(/\s+/g, " ")
@@ -2319,10 +2410,34 @@ export async function createApp(options: CreateAppOptions = {}) {
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 500);
+    // Explicit reference slugs from the new UI take priority over automatic RAG.
+    const explicitSlugs = (body.referenceSlugs ?? [])
+      .map((s) => slugify(s))
+      .filter(Boolean);
 
     const hints = listIncomingHints(db, article.slug);
     let retrieved: Awaited<ReturnType<typeof retrieveContext>>;
-    if (ragEnabled) {
+
+    if (explicitSlugs.length > 0) {
+      // User explicitly selected references — use them directly, skip automatic RAG.
+      // Also include saved prior-session references for continuity.
+      const savedRefSlugs = getLatestArticleReferences(db, article.slug).map((r) => r.slug);
+      const allDirectSlugs = Array.from(new Set([...explicitSlugs, ...savedRefSlugs]));
+      const direct = retrieveDirectArticleContext(
+        db,
+        article.slug,
+        allDirectSlugs,
+        runtime.app.rag.mode,
+        runtime.app.rag.max_results,
+        logger,
+      );
+      logger.info("rag.explicit_references", {
+        slug: article.slug,
+        explicit: explicitSlugs.join(", "),
+        saved_extra: savedRefSlugs.filter((s) => !explicitSlugs.includes(s)).join(", ") || "(none)",
+      });
+      retrieved = direct;
+    } else if (ragEnabled) {
       const hintStrings = hintsToSearchStrings(hints);
       const userSearchText = ragQuery || instructions;
       const articleRetrieved = await retrieveContext(
@@ -2348,21 +2463,13 @@ export async function createApp(options: CreateAppOptions = {}) {
         `${userSearchText} ${instructions}`,
         article.slug,
         runtime.app.rag.max_results,
-        editReferences.articles.map(
-          (referencedArticle) => referencedArticle.slug,
-        ),
+        editReferences.articles.map((a) => a.slug),
       );
-      // Pre-seed with articles that were used as references the last time this
-      // article was saved/edited, so the context is consistent without a new search.
-      const savedRefSlugs = getLatestArticleReferences(db, article.slug).map(
-        (r) => r.slug,
-      );
+      const savedRefSlugs = getLatestArticleReferences(db, article.slug).map((r) => r.slug);
       const allDirectSlugs = Array.from(
         new Set([
           ...savedRefSlugs,
-          ...[...editReferences.articles, ...fuzzyTitleMatches].map(
-            (a) => a.slug,
-          ),
+          ...[...editReferences.articles, ...fuzzyTitleMatches].map((a) => a.slug),
         ]),
       );
       const editRetrieved = retrieveDirectArticleContext(
@@ -2382,7 +2489,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         missing: editReferences.missing.length,
         resolved_slugs:
           [...editReferences.articles, ...fuzzyTitleMatches]
-            .map((referencedArticle) => referencedArticle.slug)
+            .map((a) => a.slug)
             .join(", ") || "(none)",
       });
       retrieved = mergeRetrievedContextPackets(editRetrieved, articleRetrieved);

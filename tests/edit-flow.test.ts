@@ -664,3 +664,117 @@ test("generated references use plain wiki links, not halu links", async (t) => {
   }
   await server.shutdown();
 });
+
+/* ─────────────────────────────────────────────────────────────────
+   find-references endpoint
+   ───────────────────────────────────────────────────────────────── */
+
+test("find-references: fuzzy title lookup returns matching articles", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Seed two articles that can be found by fuzzy match
+  seedArticle(databasePath, "glow-fruit", "Glow Fruit", "A luminous orchard product.");
+  seedArticle(databasePath, "night-bloom", "Night Bloom", "Blooms at dusk.");
+  seedArticle(databasePath, "main-article", "Main Article", "The article being edited.");
+
+  const llm = new RewriteLlmClient("# Main Article\n\nUpdated body.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+  t.after(() => server.shutdown());
+
+  const res = await server.request("/api/article/main-article/find-references", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ fuzzyTitles: "Glow Fruit, Night Bloom" }),
+  });
+
+  assert.equal(res.status, 200, `expected 200 got ${res.status}`);
+  const body = await res.json() as { articles: Array<{ slug: string; title: string }> };
+  assert.ok(Array.isArray(body.articles));
+  // Both articles should be found
+  assert.ok(body.articles.some((a) => a.slug === "glow-fruit"), "should find Glow Fruit");
+  assert.ok(body.articles.some((a) => a.slug === "night-bloom"), "should find Night Bloom");
+});
+
+test("find-references: wiki path in fuzzy list is resolved", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  seedArticle(databasePath, "glow-fruit", "Glow Fruit", "A luminous orchard product.");
+  seedArticle(databasePath, "main-article", "Main Article", "The article being edited.");
+
+  const llm = new RewriteLlmClient("# Main Article\n\nUpdated.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+  t.after(() => server.shutdown());
+
+  // Wiki-path input should resolve via existing parsing logic
+  const res = await server.request("/api/article/main-article/find-references", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ fuzzyTitles: "wiki/Glow_Fruit" }),
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json() as { articles: Array<{ slug: string }> };
+  assert.ok(body.articles.some((a) => a.slug === "glow-fruit"), "wiki path should resolve to article");
+});
+
+test("find-references: returns 404 for unknown article slug", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const server = await createTestServer({ databasePath });
+  t.after(() => server.shutdown());
+
+  const res = await server.request("/api/article/nonexistent/find-references", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ fuzzyTitles: "anything" }),
+  });
+  assert.equal(res.status, 404);
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   rewrite with explicit referenceSlugs
+   ───────────────────────────────────────────────────────────────── */
+
+test("rewrite with explicit referenceSlugs passes them as context", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  seedArticle(databasePath, "ref-article", "Ref Article", "Reference content here.");
+  seedArticle(databasePath, "target", "Target", "Original content.");
+
+  // Capture what the LLM receives so we can verify reference context is present
+  let capturedUser = "";
+  const llm: LlmClient = {
+    async chat() { return "{}"; },
+    async streamChat(_s: string, user: string, onChunk: (d: string, a: string) => void) {
+      capturedUser = user;
+      const content = "# Target\n\nRewritten with context.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({ databasePath, llmClient: llm });
+  t.after(() => server.shutdown());
+
+  const res = await server.request("/api/article/target/rewrite?stream=1", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      instructions: "improve it",
+      referenceSlugs: ["ref-article"],
+    }),
+  });
+
+  assert.equal(res.status, 200);
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  const done = packets.find((p) => p.type === "done");
+  assert.ok(done, "should get done event");
+  // The LLM prompt should contain context from the referenced article
+  assert.match(capturedUser, /Reference content here/, "referenced article content should be in prompt");
+});

@@ -13,11 +13,15 @@ export function getPrompt(config: PromptConfig, key: string) {
   };
 }
 
-function resolveSharedRefs(template: string, config: PromptConfig): string {
-  return template.replace(TEMPLATE_RE, (match, ref: string) => {
+function resolveSharedRefs(template: string, config: PromptConfig, depth = 0): string {
+  if (depth > 4) return template;
+  const resolved = template.replace(TEMPLATE_RE, (match, ref: string) => {
     const shared = config.prompts[ref];
     return shared ? shared.system : match;
   });
+  return resolved !== template
+    ? resolveSharedRefs(resolved, config, depth + 1)
+    : resolved;
 }
 
 export function renderTemplate(template: string, vars: Record<string, string>): string {

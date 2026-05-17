@@ -3,7 +3,21 @@ import katex from "katex";
 import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
 import type { ArticleSection, ParsedInternalLink } from "./types";
 
-const LINK_RE = /\[([^\]]+)\]\(halu:([^) "\t\r\n]+)(?:\s+"([^"]*)")?\)/g;
+export const LINK_RE = /\[([^\]]+)\]\(halu:([^) "\t\r\n]+)(?:\s+"([^"]*)")?\)/g;
+
+export function buildHaluLink(title: string, slug: string, hint: string): string {
+  return `[${title}](halu:${slug} "${hint.replace(/"/g, "'")}")`;
+}
+
+export function fixSlugVisibleText(markdown: string): string {
+  return markdown.replace(LINK_RE, (match, visibleLabel: string, rawSlug: string, hint: string) => {
+    const trimmed = visibleLabel.trim();
+    if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(trimmed)) return match;
+    if (!/[-]/.test(trimmed)) return match;
+    const title = slugToTitle(trimmed);
+    return buildHaluLink(title, rawSlug, hint ?? "");
+  });
+}
 
 const md = new MarkdownIt({
   html: false,
@@ -135,9 +149,10 @@ export function normalizeMarkdown(input: string): string {
 export function extractInternalLinks(markdown: string): ParsedInternalLink[] {
   const links: ParsedInternalLink[] = [];
   const seen = new Set<string>();
+  const pattern = new RegExp(LINK_RE.source, LINK_RE.flags);
   let match: RegExpExecArray | null;
 
-  while ((match = LINK_RE.exec(markdown)) !== null) {
+  while ((match = pattern.exec(markdown)) !== null) {
     const visibleLabel = match[1].trim();
     const targetSlug = slugify(match[2]);
     const hiddenHint = (match[3] ?? "").trim().slice(0, 400);

@@ -28,15 +28,19 @@ import {
   updateArticleInPlace,
   wipeGeneratedCorpus,
 } from "./db";
+import { findReferencedArticlesInEditText } from "./editReferences";
 import { OpenAICompatClient, type LlmClient } from "./llm";
 import { createConsoleLogger, type Logger } from "./logger";
 import { MaintenanceScheduler } from "./maintenance";
 import {
   articleSectionMarkdown,
+  buildHaluLink,
   extractDisplayTitle,
   extractInternalLinks,
   extractTitle,
   firstParagraphMarkdownFromArticle,
+  fixSlugVisibleText,
+  LINK_RE,
   listArticleSections,
   markdownToPlainText,
   normalizeMarkdown,
@@ -49,7 +53,12 @@ import {
   summaryMarkdownFromArticle,
 } from "./markdown";
 import { getPrompt, renderTemplate, stripJsonFences } from "./prompts";
-import { indexArticleChunks, retrieveContext } from "./retrieval";
+import {
+  indexArticleChunks,
+  mergeRetrievedContextPackets,
+  retrieveContext,
+  retrieveDirectArticleContext,
+} from "./retrieval";
 import {
   normalizeCanonicalTitle,
   slugToTitle,
@@ -229,8 +238,7 @@ export function summarizeRetrievedSource(
 }
 
 function buildInternalLinkLine(candidate: InternalArticleCandidate): string {
-  const hint = candidate.hiddenHint.replace(/"/g, "'");
-  return `- [${candidate.title}](halu:${candidate.slug} "${hint}")`;
+  return `- ${buildHaluLink(candidate.title, candidate.slug, candidate.hiddenHint)}`;
 }
 
 function dedupeArticleCandidates(
@@ -294,8 +302,10 @@ function rewriteArticleTitleHeading(markdown: string, title: string): string {
 }
 
 function sanitizeGeneratedBody(markdown: string): string {
-  return stripFootnoteArtifacts(
-    stripTopLevelSections(markdown, ["References", "See also"]),
+  return fixSlugVisibleText(
+    stripFootnoteArtifacts(
+      stripTopLevelSections(markdown, ["References", "See also"]),
+    ),
   );
 }
 
@@ -359,7 +369,7 @@ function collectExistingLinkRanges(
   markdown: string,
 ): Array<{ start: number; end: number }> {
   const ranges: Array<{ start: number; end: number }> = [];
-  const pattern = /\[([^\]]+)\]\(halu:([^) "\t\r\n]+)(?:\s+"([^"]*)")?\)/g;
+  const pattern = new RegExp(LINK_RE.source, LINK_RE.flags);
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(markdown)) !== null) {
     ranges.push({ start: match.index, end: match.index + match[0].length });
@@ -540,7 +550,7 @@ async function generateDidYouKnowFact(
   article: ReturnType<typeof getRandomArticles>[number],
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "did_you_know");
-  const articleTitleMarkdown = `[${article.title}](halu:${article.slug} "${article.title}")`;
+  const articleTitleMarkdown = buildHaluLink(article.title, article.slug, article.title);
   const raw = await llm.chat(
     prompt.system,
     renderTemplate(prompt.user, {
@@ -583,10 +593,36 @@ function normalizeRandomPagePath(raw: string): string {
   return `/wiki/${titleToWikiSegment(title)}`;
 }
 
+function sampleRandomInspirationTitles(db: ReturnType<typeof openDatabase>, count: number): string[] {
+  const existing = db
+    .prepare(
+      `SELECT title FROM articles
+       WHERE is_disambiguation = 0
+       ORDER BY RANDOM() LIMIT ?`,
+    )
+    .all(Math.ceil(count / 2)) as Array<{ title: string }>;
+
+  const unwritten = db
+    .prepare(
+      `SELECT DISTINCT l.visible_label AS title
+       FROM article_links l
+       LEFT JOIN articles a ON a.slug = l.target_slug
+       WHERE a.slug IS NULL AND l.visible_label != ''
+       ORDER BY RANDOM() LIMIT ?`,
+    )
+    .all(Math.floor(count / 2)) as Array<{ title: string }>;
+
+  return [...existing, ...unwritten]
+    .map((r) => r.title)
+    .sort(() => Math.random() - 0.5);
+}
+
 async function generateRandomPagePath(
+  db: ReturnType<typeof openDatabase>,
   llm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
 ): Promise<string> {
+  const inspiration = sampleRandomInspirationTitles(db, 12);
   const prompt = getPrompt(promptConfig, "random_page");
   const raw = await llm.chat(
     prompt.system,
@@ -606,6 +642,9 @@ async function generateRandomPagePath(
       full_article: "",
       dyk_articles: "",
       article_title: "",
+      inspiration_titles: inspiration.length
+        ? inspiration.map((t) => `- ${t}`).join("\n")
+        : "(no existing articles yet)",
     }),
   );
   return normalizeRandomPagePath(raw);
@@ -778,7 +817,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   const db = openDatabase(runtime.app.storage.database_path);
   let llm: LlmClient =
     options.llmClient ??
-    new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings, logger, "chat");
+    new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings, logger, "heavy");
   let lightLlm: LlmClient =
     options.llmClient ??
     new OpenAICompatClient(runtime.llm.light, runtime.llm.embeddings, logger, "light");
@@ -840,7 +879,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.llm.chat,
         runtime.llm.embeddings,
         logger,
-        "chat",
+        "heavy",
       );
       lightLlm = new OpenAICompatClient(
         runtime.llm.light,
@@ -852,8 +891,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     logger.info("startup", {
       server: `http://${runtime.app.server.host}:${runtime.app.server.port}`,
       database: runtime.app.storage.database_path,
-      chat_base_url: runtime.llm.chat.base_url,
-      chat_model: runtime.llm.chat.model,
+      heavy_base_url: runtime.llm.chat.base_url,
+      heavy_model: runtime.llm.chat.model,
       light_base_url: runtime.llm.light.base_url,
       light_model: runtime.llm.light.model,
       embeddings_enabled: runtime.llm.embeddings.enabled,
@@ -1325,7 +1364,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/random-page", async (c) => {
     try {
       await reloadRuntime();
-      const path = await generateRandomPagePath(llm, runtime.prompts);
+      const path = await generateRandomPagePath(db, llm, runtime.prompts);
       return c.json({ path });
     } catch (error) {
       logger.error("random_page.failed", {
@@ -1550,7 +1589,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         500,
       );
 
-    const wrapped = `[${wrapRange.visibleLabel}](halu:${targetSlug} "${suggestion.hint.replace(/"/g, "'")}")`;
+    const wrapped = buildHaluLink(wrapRange.visibleLabel, targetSlug, suggestion.hint);
     const nextMarkdown = stripSelfLinks(
       article.markdown.slice(0, wrapRange.start) +
         wrapped +
@@ -1605,6 +1644,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       instructions?: string;
       sectionId?: string;
+      ragEnabled?: boolean;
+      ragQuery?: string;
     };
     const instructions = (body.instructions ?? "")
       .replace(/\s+/g, " ")
@@ -1620,19 +1661,49 @@ export async function createApp(options: CreateAppOptions = {}) {
       ? articleSectionMarkdown(article.markdown, sectionId)
       : article.markdown;
 
+    const ragEnabled = body.ragEnabled === true;
+    const ragQuery = (body.ragQuery ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+
     const hints = listIncomingHints(db, article.slug);
-    const retrieved = await retrieveContext(
-      db,
-      llm,
-      article.slug,
-      hints,
-      runtime.app.rag.enabled,
-      runtime.app.rag.mode,
-      runtime.app.rag.max_results,
-      runtime.app.rag.min_score,
-      runtime.llm.embeddings.enabled,
-      logger,
-    );
+    let retrieved: Awaited<ReturnType<typeof retrieveContext>>;
+    if (ragEnabled) {
+      const articleRetrieved = await retrieveContext(
+        db,
+        llm,
+        article.slug,
+        ragQuery ? [ragQuery, ...hints] : hints,
+        runtime.app.rag.enabled,
+        runtime.app.rag.mode,
+        runtime.app.rag.max_results,
+        runtime.app.rag.min_score,
+        runtime.llm.embeddings.enabled,
+        logger,
+      );
+      const editReferences = findReferencedArticlesInEditText(
+        db,
+        `${ragQuery} ${instructions}`,
+        article.slug,
+      );
+      const editRetrieved = retrieveDirectArticleContext(
+        db,
+        article.slug,
+        editReferences.articles.map((referencedArticle) => referencedArticle.slug),
+        runtime.app.rag.mode,
+        runtime.app.rag.max_results,
+        logger,
+      );
+      logger.info("rag.edit_references", {
+        slug: article.slug,
+        ragQuery,
+        requested: editReferences.requested.length,
+        resolved: editReferences.articles.length,
+        missing: editReferences.missing.length,
+        resolved_slugs: editReferences.articles.map((referencedArticle) => referencedArticle.slug).join(", ") || "(none)",
+      });
+      retrieved = mergeRetrievedContextPackets(editRetrieved, articleRetrieved);
+    } else {
+      retrieved = { context: "", relatedTitles: [], sourceArticles: [] };
+    }
 
     const prompt = getPrompt(runtime.prompts, "article_rewrite");
     const renderedRewritePrompt = renderTemplate(prompt.user, {
@@ -2045,9 +2116,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     ];
     for (const entry of entries) {
       const entrySlug = slugify(entry.title.trim());
-      const hint = entry.description.replace(/"/g, "'").trim();
+      const hint = entry.description.trim();
       lines.push(
-        `- [${entry.title.trim()}](halu:${entrySlug} "${hint}") — ${hint}`,
+        `- ${buildHaluLink(entry.title.trim(), entrySlug, hint)} — ${hint.replace(/"/g, "'")}`,
       );
     }
     const markdown = lines.join("\n");

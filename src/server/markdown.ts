@@ -219,8 +219,7 @@ export function summaryMarkdownFromArticle(markdown: string): string {
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/^#+\s+/gm, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 360);
+    .trim();
 }
 
 export function firstParagraphMarkdownFromArticle(markdown: string): string {

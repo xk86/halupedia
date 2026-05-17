@@ -16,13 +16,15 @@ export class OpenAICompatClient implements LlmClient {
   constructor(
     private readonly chatConfig: ChatConfig,
     private readonly embeddingsConfig: EmbeddingsConfig,
-    private readonly logger: Logger = createConsoleLogger()
+    private readonly logger: Logger = createConsoleLogger(),
+    private readonly role: string = "chat"
   ) {}
 
   async chat(system: string, user: string): Promise<string> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
     this.logger.info("llm.chat_request", {
+      role: this.role,
       model: this.chatConfig.model,
       max_tokens: this.chatConfig.max_tokens,
       temperature: this.chatConfig.temperature,
@@ -48,6 +50,7 @@ export class OpenAICompatClient implements LlmClient {
     if (!response.ok) {
       const text = await response.text().catch(() => "");
       this.logger.error("llm.chat_error", {
+        role: this.role,
         model: this.chatConfig.model,
         status: response.status,
         body: truncateForLog(text, 300),
@@ -64,6 +67,7 @@ export class OpenAICompatClient implements LlmClient {
     const finishReason = json.choices?.[0]?.finish_reason ?? "unknown";
     const durationMs = Date.now() - startedAt;
     this.logger.info("llm.chat_response", {
+      role: this.role,
       model: this.chatConfig.model,
       finish_reason: finishReason,
       duration_ms: durationMs,
@@ -72,6 +76,7 @@ export class OpenAICompatClient implements LlmClient {
     });
     if (finishReason === "length") {
       this.logger.warn("llm.chat_truncated", {
+        role: this.role,
         model: this.chatConfig.model,
         preview: truncateForLog(content ?? "", 240),
       });
@@ -90,6 +95,7 @@ export class OpenAICompatClient implements LlmClient {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
     this.logger.info("llm.stream_request", {
+      role: this.role,
       model: this.chatConfig.model,
       max_tokens: this.chatConfig.max_tokens,
       temperature: this.chatConfig.temperature,
@@ -116,6 +122,7 @@ export class OpenAICompatClient implements LlmClient {
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => "");
       this.logger.error("llm.stream_error", {
+        role: this.role,
         model: this.chatConfig.model,
         status: response.status,
         body: truncateForLog(text, 300),
@@ -172,6 +179,7 @@ export class OpenAICompatClient implements LlmClient {
     const content = accumulated.trim();
     const durationMs = Date.now() - startedAt;
     this.logger.info("llm.stream_response", {
+      role: this.role,
       model: this.chatConfig.model,
       finish_reason: finishReason,
       duration_ms: durationMs,
@@ -179,6 +187,7 @@ export class OpenAICompatClient implements LlmClient {
     });
     if (finishReason === "length") {
       this.logger.warn("llm.stream_truncated", {
+        role: this.role,
         model: this.chatConfig.model,
         preview: truncateForLog(content, 240),
       });

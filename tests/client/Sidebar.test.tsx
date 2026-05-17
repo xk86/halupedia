@@ -105,4 +105,35 @@ describe("Sidebar", () => {
     expect(hintNode?.tagName).toBe("DIV");
     expect(screen.getByText("Second paragraph.")).toBeInTheDocument();
   });
+
+  it("renders complete long backlink summaries without clipping text", () => {
+    const longSummary = [
+      "The concept of a pickle-like object is defined by rigid geometry, color, and institutional handling rather than edibility.",
+      "Its taxonomy spans preserved vegetables, mineral formations, and manufactured cylinders that only resemble food under disputed laboratory conditions.",
+      "The article also distinguishes ordinary culinary classification from the administrative registers used by municipal brine offices.",
+    ].join(" ");
+
+    render(
+      <Sidebar
+        articleSlug="test-article"
+        articleTitle="Test Article"
+        backlinks={{
+          existing: [
+            {
+              slug: "pickle-like-object",
+              title: "Pickle like object",
+              visibleLabel: "Pickle like object",
+              hiddenHint: "Fallback hint",
+              summaryMarkdown: longSummary,
+              createdAt: 1,
+            },
+          ],
+          unwritten: [],
+        }}
+        onNavigate={vi.fn()}
+      />
+    );
+
+    expect(document.querySelector(".sb-hint")?.textContent).toBe(longSummary);
+  });
 });

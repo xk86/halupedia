@@ -24,11 +24,13 @@ import {
   saveArticle,
   saveHomepageCache,
   searchCorpus,
+  updateArticleSummary,
   updateArticleInPlace,
   wipeGeneratedCorpus,
 } from "./db";
 import { OpenAICompatClient, type LlmClient } from "./llm";
 import { createConsoleLogger, type Logger } from "./logger";
+import { MaintenanceScheduler } from "./maintenance";
 import {
   articleSectionMarkdown,
   extractDisplayTitle,
@@ -69,11 +71,16 @@ const RESERVED_PATHS = new Set([
   "search",
   "all-entries",
   "admin",
+  "random",
+  "Random",
   "api",
   "assets",
 ]);
 const LARGE_SELECTION_CHAR_THRESHOLD = 120;
 const LARGE_SELECTION_WORD_THRESHOLD = 18;
+const HOMEPAGE_MAINTENANCE_TASK = "homepage.refresh";
+const HOMEPAGE_PENDING_RETRY_MS = 1_000;
+const HOMEPAGE_REFRESH_GRACE_MS = 250;
 
 function routeSlug(pathname: string) {
   if (pathname.startsWith("/wiki/")) {
@@ -84,6 +91,15 @@ function routeSlug(pathname: string) {
     return null;
   if (trimmed.includes(".")) return null;
   return slugify(decodeURIComponent(trimmed));
+}
+
+function articleLookupSlugFromInput(input: string): string {
+  let raw = input.trim();
+  const wikiIndex = raw.toLowerCase().indexOf("wiki/");
+  if (wikiIndex >= 0) raw = raw.slice(wikiIndex + "wiki/".length);
+  raw = raw.replace(/[?#].*$/, "").replace(/^\/+|\/+$/g, "");
+  if (!raw) return "";
+  return slugify(wikiSegmentToTitle(decodeURIComponent(raw)));
 }
 
 export interface CreateAppOptions {
@@ -206,24 +222,10 @@ function dedupeRetrievedSourceArticles(
   return unique;
 }
 
-export async function summarizeRetrievedSource(
-  llm: LlmClient,
-  promptConfig: ReturnType<typeof loadConfig>["prompts"],
+export function summarizeRetrievedSource(
   article: { slug: string; title: string; content: string },
-): Promise<string> {
-  try {
-    const prompt = getPrompt(promptConfig, "rag_source_summary");
-    const raw = await llm.chat(
-      prompt.system,
-      renderTemplate(prompt.user, {
-        article_title: article.title,
-        article_excerpt: article.content,
-      }),
-    );
-    return normalizeSummaryMarkdown(raw) || normalizeArticleSnippet(article.content);
-  } catch {
-    return normalizeArticleSnippet(article.content);
-  }
+): string {
+  return normalizeArticleSnippet(article.content);
 }
 
 function buildInternalLinkLine(candidate: InternalArticleCandidate): string {
@@ -565,6 +567,50 @@ async function generateDidYouKnowFact(
   return normalizeHomepageFact(raw);
 }
 
+function normalizeRandomPagePath(raw: string): string {
+  const cleaned = stripJsonFences(raw)
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim();
+  const wikiMatch = cleaned.match(/(?:^|[/\s"'])wiki\/([^\n"'<>#?]+)/i);
+  const candidate = (wikiMatch?.[1] ?? cleaned.split(/\n/)[0] ?? "")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/[?#].*$/, "");
+  const decoded = candidate ? decodeURIComponent(candidate) : "";
+  const title = normalizeCanonicalTitle(wikiSegmentToTitle(decoded));
+  if (!title) {
+    throw new Error("random page prompt returned an empty wiki path");
+  }
+  return `/wiki/${titleToWikiSegment(title)}`;
+}
+
+async function generateRandomPagePath(
+  llm: LlmClient,
+  promptConfig: ReturnType<typeof loadConfig>["prompts"],
+): Promise<string> {
+  const prompt = getPrompt(promptConfig, "random_page");
+  const raw = await llm.chat(
+    prompt.system,
+    renderTemplate(prompt.user, {
+      slug: "",
+      requested_title: "",
+      current_article: "",
+      previous_summary: "",
+      summary_feedback: "",
+      article_excerpt: "",
+      rag_context: "",
+      link_hints: "",
+      related_titles: "",
+      parent_comment: "",
+      selected_text: "",
+      edit_instructions: "",
+      full_article: "",
+      dyk_articles: "",
+      article_title: "",
+    }),
+  );
+  return normalizeRandomPagePath(raw);
+}
+
 async function ensureHomepageCache(
   db: ReturnType<typeof openDatabase>,
   llm: LlmClient,
@@ -732,10 +778,10 @@ export async function createApp(options: CreateAppOptions = {}) {
   const db = openDatabase(runtime.app.storage.database_path);
   let llm: LlmClient =
     options.llmClient ??
-    new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings, logger);
-  let summaryLlm: LlmClient =
+    new OpenAICompatClient(runtime.llm.chat, runtime.llm.embeddings, logger, "chat");
+  let lightLlm: LlmClient =
     options.llmClient ??
-    new OpenAICompatClient(runtime.llm.summary, runtime.llm.embeddings, logger);
+    new OpenAICompatClient(runtime.llm.light, runtime.llm.embeddings, logger, "light");
   const app = new Hono();
   const distRoot = options.distRoot
     ? resolve(options.distRoot)
@@ -743,6 +789,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   const inFlightGenerations = new Set<Promise<unknown>>();
   const slugGenerations = new Map<string, Promise<ArticleRecord>>();
+  const maintenance = new MaintenanceScheduler(logger);
 
   function trackGeneration<T>(promise: Promise<T>): Promise<T> {
     inFlightGenerations.add(promise);
@@ -765,6 +812,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   async function shutdown() {
+    await maintenance.shutdown();
     if (inFlightGenerations.size > 0) {
       logger.info("shutdown.draining", { in_flight: inFlightGenerations.size });
       await Promise.allSettled([...inFlightGenerations]);
@@ -792,11 +840,13 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.llm.chat,
         runtime.llm.embeddings,
         logger,
+        "chat",
       );
-      summaryLlm = new OpenAICompatClient(
-        runtime.llm.summary,
+      lightLlm = new OpenAICompatClient(
+        runtime.llm.light,
         runtime.llm.embeddings,
         logger,
+        "light",
       );
     }
     logger.info("startup", {
@@ -804,8 +854,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       database: runtime.app.storage.database_path,
       chat_base_url: runtime.llm.chat.base_url,
       chat_model: runtime.llm.chat.model,
-      summary_base_url: runtime.llm.summary.base_url,
-      summary_model: runtime.llm.summary.model,
+      light_base_url: runtime.llm.light.base_url,
+      light_model: runtime.llm.light.model,
       embeddings_enabled: runtime.llm.embeddings.enabled,
       embeddings_base_url: runtime.llm.embeddings.base_url,
       embeddings_model: runtime.llm.embeddings.model,
@@ -942,17 +992,13 @@ export async function createApp(options: CreateAppOptions = {}) {
       bodyMarkdown,
       canonicalTitle,
     );
-    const deterministicReferences = await Promise.all(
-      dedupeRetrievedSourceArticles(retrieved.sourceArticles).map(
-        async (article) => ({
-          slug: article.slug,
-          title: article.title,
-          hiddenHint:
-            (await summarizeRetrievedSource(summaryLlm, runtime.prompts, article)) ||
-            article.title,
-        }),
-      ),
-    );
+    const deterministicReferences = dedupeRetrievedSourceArticles(
+      retrieved.sourceArticles,
+    ).map((article) => ({
+      slug: article.slug,
+      title: article.title,
+      hiddenHint: summarizeRetrievedSource(article) || article.title,
+    }));
 
     const markdown = stripSelfLinks(
       assembleArticleMarkdown(
@@ -1041,7 +1087,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         slug,
       );
       const summaryMarkdown = await generateArticleSummary(
-        summaryLlm,
+        lightLlm,
         runtime.prompts,
         normalizedTitle,
         markdown,
@@ -1202,25 +1248,94 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   const HOMEPAGE_TTL_MS = runtime.app.homepage.rotation_hours * 60 * 60 * 1000;
   if (!options.skipHomepagePrepare) {
-    await ensureHomepageCache(
-      db,
-      llm,
-      runtime.prompts,
-      HOMEPAGE_TTL_MS,
-      logger,
-    );
+    maintenance.register({
+      name: HOMEPAGE_MAINTENANCE_TASK,
+      nextDelayMs: () => {
+        const cached = getHomepageCache(db);
+        if (!cached) return 0;
+        return cached.generatedAt + HOMEPAGE_TTL_MS - Date.now() + HOMEPAGE_REFRESH_GRACE_MS;
+      },
+      run: async () => {
+        const cached = getHomepageCache(db);
+        const now = Date.now();
+        const reason = !cached
+          ? "missing"
+          : cached.generatedAt + HOMEPAGE_TTL_MS <= now
+            ? "expired"
+            : "scheduled";
+        logger.info("homepage.refresh_start", {
+          reason,
+          age_ms: cached ? now - cached.generatedAt : 0,
+          ttl_ms: HOMEPAGE_TTL_MS,
+        });
+        try {
+          await reloadRuntime();
+          const payload = await ensureHomepageCache(
+            db,
+            llm,
+            runtime.prompts,
+            HOMEPAGE_TTL_MS,
+            logger,
+          );
+          logger.info("homepage.refresh_done", {
+            facts: payload.didYouKnow.length,
+            featured: payload.featured?.slug ?? "",
+            generated_at: payload.generatedAt,
+            expires_at: payload.expiresAt,
+          });
+        } catch (error) {
+          logger.error("homepage.refresh_failed", {
+            reason,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+      },
+    });
   }
 
   app.get("/api/homepage", (c) => {
     const cached = getHomepageCache(db);
-    return c.json(
-      cached ?? {
-        featured: null,
-        didYouKnow: [],
-        generatedAt: Date.now(),
-        expiresAt: Date.now() + HOMEPAGE_TTL_MS,
-      },
+    const now = Date.now();
+    if (cached && cached.generatedAt + HOMEPAGE_TTL_MS > now) {
+      return c.json({
+        ...cached,
+        expiresAt: cached.generatedAt + HOMEPAGE_TTL_MS,
+      });
+    }
+
+    maintenance.trigger(
+      HOMEPAGE_MAINTENANCE_TASK,
+      cached ? "expired_cache_request" : "missing_cache_request",
     );
+    if (cached) {
+      return c.json({
+        ...cached,
+        expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,
+      });
+    }
+    return c.json({
+      featured: null,
+      didYouKnow: [],
+      generatedAt: now,
+      expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,
+    });
+  });
+
+  app.get("/api/random-page", async (c) => {
+    try {
+      await reloadRuntime();
+      const path = await generateRandomPagePath(llm, runtime.prompts);
+      return c.json({ path });
+    } catch (error) {
+      logger.error("random_page.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return c.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        500,
+      );
+    }
   });
 
   app.get("/api/page/:slug", async (c) => {
@@ -1871,6 +1986,40 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({ ok: deleted, slug });
   });
 
+  app.post("/api/admin/regenerate-summary", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { slug?: string };
+    const lookupSlug = articleLookupSlugFromInput(body.slug ?? "");
+    if (!lookupSlug) return c.json({ error: "missing slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+
+    try {
+      await reloadRuntime();
+      const summaryMarkdown = await generateArticleSummary(
+        lightLlm,
+        runtime.prompts,
+        article.title,
+        article.markdown,
+      );
+      const updated = updateArticleSummary(db, article.slug, summaryMarkdown, {
+        operation: "summary-regenerate",
+        instructions: "Regenerated article summary from current prompt config.",
+      });
+      if (!updated) return c.json({ error: "article not found" }, 404);
+      return c.json({
+        ok: true,
+        slug: updated.slug,
+        canonicalPath: canonicalPathForArticle(updated),
+        article: updated,
+      });
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        500,
+      );
+    }
+  });
+
   app.post("/api/disambiguation", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       title?: string;
@@ -1994,6 +2143,8 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     if (
       path === "/" ||
+      path === "/Random" ||
+      path === "/random" ||
       path === "/search" ||
       path === "/all-entries" ||
       path === "/admin" ||

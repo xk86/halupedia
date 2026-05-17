@@ -13,10 +13,11 @@ import {
   markdownToPlainText,
   renderMarkdown,
   normalizeMarkdown,
+  summaryMarkdownFromArticle,
   stripSelfLinks,
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
-import { getPrompt, stripJsonFences } from "../src/server/prompts";
+import { stripJsonFences } from "../src/server/prompts";
 import {
   slugify,
   slugToTitle,
@@ -82,46 +83,20 @@ test("renderMarkdown rewrites halu links to wiki paths using visible text", () =
   assert.doesNotMatch(html, /hidden hint/);
 });
 
-test("loadConfig populates a dedicated summary LLM config section", () => {
+test("loadConfig populates a dedicated light LLM config section", () => {
   const { llm } = loadConfig();
-  assert.equal(llm.summary.model, llm.chat.model);
-  assert.ok(llm.summary.base_url);
-  assert.equal(llm.summary.max_tokens, 3000);
+  assert.equal(llm.light.model, llm.chat.model);
+  assert.ok(llm.light.base_url);
+  assert.equal(llm.light.max_tokens, 3000);
 });
 
-test("rag_source_summary prompt is configured and resolves correctly", () => {
-  const prompt = getPrompt(loadConfig().prompts, "rag_source_summary");
-  assert.match(prompt.system, /retrieved article excerpt/i);
-  assert.match(prompt.user, /Article excerpt:/);
-});
-
-class SummaryLlmClient implements LlmClient {
-  async chat(): Promise<string> {
-    return "A concise retrieved article summary.";
-  }
-
-  async streamChat(): Promise<{ content: string; finishReason: string }> {
-    throw new Error("streamChat should not be called in this test");
-  }
-
-  async embed(): Promise<number[][]> {
-    return [];
-  }
-
-  async probeConnections(): Promise<void> {}
-}
-
-test("summarizeRetrievedSource uses the summary prompt and normalizes output", async () => {
-  const summary = await summarizeRetrievedSource(
-    new SummaryLlmClient(),
-    loadConfig().prompts,
-    {
-      slug: "test-article",
-      title: "Test Article",
-      content: "This is a test retrieved excerpt to summarize.",
-    },
-  );
-  assert.equal(summary, "A concise retrieved article summary.");
+test("summarizeRetrievedSource returns truncated chunk content directly", () => {
+  const summary = summarizeRetrievedSource({
+    slug: "test-article",
+    title: "Test Article",
+    content: "This is a test retrieved excerpt used as a reference hint.",
+  });
+  assert.equal(summary, "This is a test retrieved excerpt used as a reference hint.");
 });
 
 test("summary helpers normalize single-paragraph summaries and detect copied leads", () => {
@@ -153,6 +128,18 @@ test("summary helpers normalize single-paragraph summaries and detect copied lea
     ),
     false,
   );
+});
+
+test("summary helpers preserve complete long paragraphs", () => {
+  const longSummary = [
+    "The concept of a pickle-like object is defined by rigid geometry, color, and institutional handling rather than edibility.",
+    "Its taxonomy spans preserved vegetables, mineral formations, and manufactured cylinders that only resemble food under disputed laboratory conditions.",
+    "The article also distinguishes ordinary culinary classification from the administrative registers used by municipal brine offices.",
+  ].join(" ");
+  const articleMarkdown = ["# Pickle like object", "", longSummary].join("\n");
+
+  assert.equal(normalizeSummaryMarkdown(longSummary), longSummary);
+  assert.equal(summaryMarkdownFromArticle(articleMarkdown), longSummary);
 });
 
 test("retrieveContext returns matching lexical context from indexed article chunks", async (t) => {
@@ -238,7 +225,7 @@ test("retrieveContext returns matching lexical context from indexed article chun
   assert.match(packet.context, /Glow fruit grows in the crater orchard/);
 });
 
-test("retrieveContext summary mode produces abbreviated retrieved context", async (t) => {
+test("retrieveContext summary mode caps chunk content at 360 chars", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-retrieval-summary-"));
   t.after(() => {
     rmSync(root, { recursive: true, force: true });
@@ -246,13 +233,8 @@ test("retrieveContext summary mode produces abbreviated retrieved context", asyn
 
   const db = openDatabase(join(root, TEST_CONFIG.database_path));
   const llm = new NoopLlmClient();
-  const sourceMarkdown = [
-    "# Archive Entry",
-    "",
-    "Glow fruit grows in the crater orchard near the observatory.",
-    "",
-    "Keep a lantern nearby when harvesting glow fruit at dusk.",
-  ].join("\n");
+  const longParagraph = "Glow fruit grows in the crater orchard near the observatory. ".repeat(10).trim();
+  const sourceMarkdown = `# Archive Entry\n\n${longParagraph}`;
   saveArticle(
     db,
     {
@@ -267,7 +249,7 @@ test("retrieveContext summary mode produces abbreviated retrieved context", asyn
     [],
     ["archive-entry"],
   );
-  await indexArticleChunks(db, llm, "archive-entry", sourceMarkdown, false, 120);
+  await indexArticleChunks(db, llm, "archive-entry", sourceMarkdown, false, 800);
 
   const packetFull = await retrieveContext(
     db,
@@ -297,7 +279,7 @@ test("retrieveContext summary mode produces abbreviated retrieved context", asyn
 });
 
 test("test config exposes isolated database filename and live LLM target", () => {
-  assert.equal(TEST_CONFIG.database_path, "halupedia.sqlite");
+  assert.equal(TEST_CONFIG.database_path, "halupedia-testing.sqlite");
   assert.equal(TEST_CONFIG.llm_base_url, "http://localhost:11434/v1");
   assert.equal(TEST_CONFIG.llm_api_key, "ollama");
   assert.equal(TEST_CONFIG.llm_model, "gemma4");

@@ -30,6 +30,9 @@ export function Admin({ onNavigate }: Props) {
   const [wipeConfirm, setWipeConfirm] = useState(false);
   const [deleteSlug, setDeleteSlug] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [summarySlug, setSummarySlug] = useState("");
+  const [regeneratingSummary, setRegeneratingSummary] = useState(false);
+  const [summaryResult, setSummaryResult] = useState<string | null>(null);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -100,6 +103,30 @@ export function Admin({ onNavigate }: Props) {
     }
   }, [deleteSlug, loadOverview]);
 
+  const regenerateSummary = useCallback(async () => {
+    const slug = summarySlug.trim();
+    if (!slug) return;
+    setRegeneratingSummary(true);
+    setSummaryResult(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/regenerate-summary", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      setSummarySlug("");
+      setSummaryResult(`Summary regenerated for ${payload.article?.title ?? payload.slug}.`);
+      await loadOverview();
+    } catch (err: any) {
+      setError(err?.message || "failed to regenerate summary");
+    } finally {
+      setRegeneratingSummary(false);
+    }
+  }, [summarySlug, loadOverview]);
+
   if (loading) return <p className="search-status">Loading admin overview...</p>;
   if (error) return <div className="search-error">{error}</div>;
   if (!overview) return null;
@@ -160,6 +187,19 @@ export function Admin({ onNavigate }: Props) {
             {deleting ? "Deleting..." : "Delete article"}
           </button>
         </div>
+        <div className="all-entries-toolbar admin-action-row">
+          <input
+            type="text"
+            className="all-entries-search"
+            placeholder="Slug or /wiki/ link for summary"
+            value={summarySlug}
+            onChange={(e) => setSummarySlug(e.target.value)}
+          />
+          <button className="all-entries-more-btn" onClick={regenerateSummary} disabled={regeneratingSummary || !summarySlug.trim()}>
+            {regeneratingSummary ? "Regenerating..." : "Regenerate summary"}
+          </button>
+        </div>
+        {summaryResult ? <p className="admin-result-headline">{summaryResult}</p> : null}
       </div>
 
       <section className="search-section" style={{ marginTop: "1.5rem" }}>

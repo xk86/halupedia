@@ -2569,6 +2569,10 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-weight: 600;
 }
 
+.admin-action-row {
+  margin-top: 0.75rem;
+}
+
 @media (max-width: 600px) {
   .admin-ban-form {
     flex-direction: column;

@@ -57,6 +57,7 @@ describe("App", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it("renders the home route and fetches homepage data", async () => {
@@ -73,6 +74,96 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Halupedia" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/homepage");
     expect(document.title).toBe("Halupedia");
+  });
+
+  it("random nav asks the server for a random page and redirects to it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ path: "/wiki/Night_soil_tariff" }), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(pagePayload({
+          article: {
+            ...pagePayload().article,
+            slug: "night-soil-tariff",
+            canonicalSlug: "night-soil-tariff",
+            title: "Night soil tariff",
+            html: "<h1>Night soil tariff</h1><p>Random article body.</p>",
+            markdown: "# Night soil tariff\n\nRandom article body.",
+            plain_text: "Random article body.",
+          },
+        })), {
+          headers: { "content-type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    await userEvent.click(screen.getByRole("link", { name: "Random" }));
+
+    expect(await screen.findByRole("heading", { name: "Night soil tariff" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/wiki/Night_soil_tariff");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/random-page");
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/page/Night_soil_tariff");
+  });
+
+  it("admin can regenerate an article summary from a pasted wiki link", async () => {
+    const overview = {
+      articleCount: 1,
+      linkCount: 0,
+      aliasCount: 0,
+      latestArticles: [],
+      model: "test-model",
+      databasePath: "test.sqlite",
+      promptConfigPath: "config/prompts.toml",
+      ragMode: "full",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(overview), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          ok: true,
+          slug: "test-article",
+          article: { title: "Test Article" },
+        }), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(overview), {
+          headers: { "content-type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/admin");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Admin" });
+    await userEvent.type(screen.getByPlaceholderText("Slug or /wiki/ link for summary"), "https://host/wiki/Test_Article");
+    await userEvent.click(screen.getByRole("button", { name: "Regenerate summary" }));
+
+    expect(await screen.findByText("Summary regenerated for Test Article.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/admin/regenerate-summary", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ slug: "https://host/wiki/Test_Article" }),
+    });
   });
 
   it("shows the DYK section with an empty placeholder instead of hiding it", async () => {
@@ -136,6 +227,45 @@ describe("App", () => {
     expect(screen.getByText(/is filed under ceremonial ballast accounting\./)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/homepage");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refetches homepage when the cached payload expires", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          featured: null,
+          didYouKnow: [],
+          generatedAt: Date.now(),
+          expiresAt: Date.now() + 10,
+        }), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          featured: {
+            slug: "refreshed-page",
+            title: "Refreshed Page",
+            summaryMarkdown: "A refreshed homepage summary.",
+          },
+          didYouKnow: [],
+          generatedAt: Date.now() + 10,
+          expiresAt: Date.now() + 3600010,
+        }), {
+          headers: { "content-type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    expect(await screen.findByText("No articles yet. Search for a topic to generate your first entry.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("link", { name: "Refreshed Page" })).toBeInTheDocument();
   });
 
   it("loads and renders a cached article route", async () => {

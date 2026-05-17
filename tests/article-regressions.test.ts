@@ -52,6 +52,33 @@ class QueueLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
+class CapturingChatLlmClient implements LlmClient {
+  public calls: Array<{ system?: string; user?: string }> = [];
+
+  constructor(private readonly responses: string[]) {}
+
+  async chat(system?: string, user?: string): Promise<string> {
+    this.calls.push({ system, user });
+    return this.responses.shift() ?? JSON.stringify({ items: [] });
+  }
+
+  async streamChat(
+    _system: string,
+    _user: string,
+    onChunk: (delta: string, accumulated: string) => void
+  ): Promise<{ content: string; finishReason: string }> {
+    const content = "# Placeholder\n\nPlaceholder body.";
+    onChunk(content, content);
+    return { content, finishReason: "stop" };
+  }
+
+  async embed(input: string[]): Promise<number[][]> {
+    return input.map(() => []);
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
 function createTempDbPath() {
   const root = mkdtempSync(join(tmpdir(), "halupedia-regression-"));
   return { root, databasePath: join(root, TEST_CONFIG.database_path) };
@@ -105,6 +132,100 @@ test("inline TeX renders as math markup", () => {
   assert.match(html, /class="[^"]*katex/);
   assert.match(html, /class="[^"]*math-inline/);
   assert.doesNotMatch(html, /<img/i);
+});
+
+test("admin summary regeneration accepts pasted wiki links and updates stored summary", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "coal-futures-markets",
+    title: "Coal futures markets",
+    markdown: [
+      "# Coal futures markets",
+      "",
+      "**Coal futures markets** are regulated ledgers for ceremonial fuel delivery.",
+      "",
+      "Their clearing houses track ash obligations and delayed industrial omens.",
+    ].join("\n"),
+  });
+
+  const llm = new CapturingChatLlmClient([
+    "A regenerated summary covers the market's ledgers, clearing houses, and ash obligations.",
+  ]);
+  const server = await createServer(databasePath, llm);
+  const res = await server.request("/api/admin/regenerate-summary", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      slug: "https://anything.invalid/prefix/wiki/Coal_futures_markets?old=1",
+    }),
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.equal(body.article.slug, "coal-futures-markets");
+  assert.equal(
+    body.article.summaryMarkdown,
+    "A regenerated summary covers the market's ledgers, clearing houses, and ash obligations.",
+  );
+  assert.match(llm.calls[0]?.system ?? "", /concise summary/);
+  assert.match(llm.calls[0]?.user ?? "", /Coal futures markets/);
+
+  const db = openDatabase(databasePath);
+  const stored = getArticle(db, "coal-futures-markets");
+  db.close();
+  assert.equal(
+    stored?.summaryMarkdown,
+    "A regenerated summary covers the market's ledgers, clearing houses, and ash obligations.",
+  );
+});
+
+test("admin summary regeneration accepts bare wiki paths", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "corvid-scouts-of-armenia",
+    title: "Corvid scouts of Armenia",
+    markdown: [
+      "# Corvid scouts of Armenia",
+      "",
+      "**Corvid scouts of Armenia** are field observers for contested mountain postal routes.",
+    ].join("\n"),
+  });
+
+  const llm = new CapturingChatLlmClient([
+    "A regenerated summary covers Armenian corvid scouts and their postal-route observations.",
+  ]);
+  const server = await createServer(databasePath, llm);
+  const res = await server.request("/api/admin/regenerate-summary", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ slug: "wiki/Corvid_scouts_of_Armenia" }),
+  });
+
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.equal(body.article.slug, "corvid-scouts-of-armenia");
+  assert.equal(
+    body.article.summaryMarkdown,
+    "A regenerated summary covers Armenian corvid scouts and their postal-route observations.",
+  );
+});
+
+test("random page endpoint asks the model for one wiki path and normalizes redirects", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new CapturingChatLlmClient(["wiki/night soil tariff"]);
+  const server = await createServer(databasePath, llm);
+  const res = await server.request("/api/random-page");
+
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.equal(body.path, "/wiki/Night_soil_tariff");
+  assert.match(llm.calls[0]?.system ?? "", /single random Halupedia article URL/);
 });
 
 test("retrieveContext works with joined article lookups when RAG is enabled", async (t) => {

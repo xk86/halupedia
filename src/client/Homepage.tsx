@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { renderSummaryHtml } from "./summaryHtml";
 import { toWikiSegment } from "./wikiPath";
 
@@ -30,22 +30,39 @@ export function Homepage({ onNavigate }: Props) {
   const [error, setError] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/homepage")
+  const loadHomepage = useCallback(async (cancelled: () => boolean) => {
+    return fetch("/api/homepage")
       .then((r) => r.json())
       .then((d) => {
-        if (cancelled) return;
+        if (cancelled()) return;
         setError(false);
         setData(d as HomepageData);
       })
       .catch(() => {
-        if (!cancelled) setError(true);
+        if (!cancelled()) setError(true);
       });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadHomepage(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadHomepage]);
+
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    const delay = Math.max(0, data.expiresAt - Date.now());
+    const timeout = setTimeout(() => {
+      void loadHomepage(() => cancelled);
+    }, delay);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [data?.expiresAt, loadHomepage]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);

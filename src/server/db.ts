@@ -308,6 +308,59 @@ export function updateArticleInPlace(
   }
 }
 
+export function updateArticleSummary(
+  db: DatabaseSync,
+  slug: string,
+  summaryMarkdown: string,
+  revision: {
+    operation?: string;
+    instructions?: string;
+  } = {},
+) {
+  const article = getArticle(db, slug);
+  if (!article) return null;
+  const now = Date.now();
+  db.exec("BEGIN");
+  try {
+    db.prepare(
+      `UPDATE articles SET summary_markdown = ?, generated_at = ? WHERE slug = ?`,
+    ).run(summaryMarkdown, now, slug);
+    db.prepare(`
+      INSERT INTO article_revisions (
+        article_slug,
+        title,
+        markdown,
+        html,
+        summary_markdown,
+        plain_text,
+        generated_at,
+        created_at,
+        operation,
+        instructions,
+        reverted_from_revision_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      article.slug,
+      article.title,
+      article.markdown,
+      article.html,
+      summaryMarkdown,
+      article.plain_text,
+      now,
+      now,
+      revision.operation ?? "summary-regenerate",
+      revision.instructions ?? "",
+      null,
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return getArticle(db, slug);
+}
+
 export function renameArticleSlug(db: DatabaseSync, currentSlug: string, nextSlug: string) {
   if (!currentSlug || !nextSlug || currentSlug === nextSlug) return false;
   const existing = db.prepare(`SELECT slug FROM articles WHERE slug = ?`).get(nextSlug) as { slug: string } | undefined;

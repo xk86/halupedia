@@ -50,15 +50,15 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       temperature: llm.chat?.temperature ?? 0.8,
       max_tokens: llm.chat?.max_tokens ?? 2400,
     },
-    summary: {
+    light: {
       base_url:
-        llm.summary?.base_url ??
+        llm.light?.base_url ??
         llm.chat?.base_url ??
         "http://127.0.0.1:11434/v1",
-      api_key: llm.summary?.api_key ?? llm.chat?.api_key ?? "local",
-      model: llm.summary?.model ?? llm.chat?.model ?? "local-model",
-      temperature: llm.summary?.temperature ?? llm.chat?.temperature ?? 0.8,
-      max_tokens: llm.summary?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
+      api_key: llm.light?.api_key ?? llm.chat?.api_key ?? "local",
+      model: llm.light?.model ?? llm.chat?.model ?? "local-model",
+      temperature: llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
+      max_tokens: llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
     },
     embeddings: {
       enabled: llm.embeddings?.enabled ?? false,

@@ -58,7 +58,7 @@ export interface EmbeddingsConfig {
 
 export interface LlmConfig {
   chat: ChatConfig;
-  summary: ChatConfig;
+  light: ChatConfig;
   embeddings: EmbeddingsConfig;
 }
 

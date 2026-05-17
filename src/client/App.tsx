@@ -12,6 +12,7 @@ type Route =
   | { kind: "search"; query: string }
   | { kind: "index" }
   | { kind: "admin" }
+  | { kind: "random" }
   | { kind: "article"; slug: string }
   | { kind: "history"; slug: string }
   | { kind: "disambiguation"; slug: string };
@@ -102,6 +103,7 @@ function initialThemeMode(): ThemeMode {
 function parseRoute(): Route {
   const { pathname, search } = window.location;
   if (pathname === "/") return { kind: "home" };
+  if (pathname === "/Random" || pathname === "/random") return { kind: "random" };
   if (pathname === "/all-entries") return { kind: "index" };
   if (pathname === "/admin") return { kind: "admin" };
   if (pathname === "/search") {
@@ -184,6 +186,34 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (route.kind === "random") {
+      let cancelled = false;
+      setPage(null);
+      setLoading(true);
+      setError(null);
+      document.title = "Random - Halupedia";
+      (async () => {
+        try {
+          const res = await fetch("/api/random-page");
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+          const path = String(payload.path ?? "");
+          if (!path.startsWith("/wiki/")) throw new Error("random page endpoint returned an invalid path");
+          if (cancelled) return;
+          window.history.replaceState({}, "", path);
+          setRoute({ kind: "article", slug: path.slice("/wiki/".length) });
+        } catch (err: any) {
+          if (cancelled) return;
+          console.error("[app] random_page_failed", err);
+          setError(err?.message || "Could not choose a random page.");
+          setLoading(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (route.kind !== "article" && route.kind !== "history" && route.kind !== "disambiguation") {
       setPage(null);
       setLoading(false);
@@ -394,6 +424,12 @@ export function App() {
     window.history.pushState({}, "", "/all-entries");
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     setRoute({ kind: "index" });
+  }, []);
+
+  const navigateToRandom = useCallback(() => {
+    window.history.pushState({}, "", "/Random");
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "random" });
   }, []);
 
   const navigateToAdmin = useCallback(() => {
@@ -698,6 +734,16 @@ export function App() {
       return <Admin onNavigate={navigateToArticle} />;
     }
 
+    if (route.kind === "random") {
+      if (error) return <div className="error">{error}</div>;
+      return (
+        <div className="status">
+          <span className="dot" />
+          <span>Choosing a random article...</span>
+        </div>
+      );
+    }
+
     if (route.kind === "search") {
       return <SearchResults q={route.query} onNavigate={navigateToArticle} onSearch={navigateToSearch} />;
     }
@@ -999,6 +1045,15 @@ export function App() {
             }}
           >
             All entries
+          </a>
+          <a
+            href="/Random"
+            onClick={(e) => {
+              e.preventDefault();
+              navigateToRandom();
+            }}
+          >
+            Random
           </a>
           <a
             href="/search"

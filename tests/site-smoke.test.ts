@@ -320,6 +320,22 @@ async function createServerForDatabase(
   };
 }
 
+async function waitForHomepage(
+  server: { request: (path: string, init?: RequestInit) => Promise<Response> },
+  predicate: (body: any) => boolean,
+  timeoutMs = 1000
+) {
+  const deadline = Date.now() + timeoutMs;
+  let lastBody: any = null;
+  while (Date.now() < deadline) {
+    const res = await server.request("/api/homepage");
+    lastBody = await res.json();
+    if (predicate(lastBody)) return lastBody;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.fail(`homepage cache was not ready before timeout: ${JSON.stringify(lastBody)}`);
+}
+
 function parseNdjson<T>(payload: string): T[] {
   return payload
     .trim()
@@ -408,6 +424,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       assert.match(res.headers.get("content-type") ?? "", /text\/html/);
       const html = await res.text();
       assert.match(html, /<div id="root"><\/div>/);
+      assert.doesNotMatch(html, /googletagmanager|gtag|google-analytics/i);
     }
 
     const redirectRes = await server.request("/test-article", { redirect: "manual" });
@@ -885,7 +902,7 @@ test("second request during post-processing gets cache hit, not cache miss", asy
   postProcessGate.resolve();
 });
 
-test("homepage prepares DB-backed content at startup and serves requests without LLM work", async (t) => {
+test("homepage prepares DB-backed content in background and serves cached requests without LLM work", async (t) => {
   let chatCalls = 0;
   const llm: LlmClient = {
     async chat(_system, user) {
@@ -906,21 +923,24 @@ test("homepage prepares DB-backed content at startup and serves requests without
   t.after(() => {
     rmSync(server.root, { recursive: true, force: true });
   });
-  const startupChatCalls = chatCalls;
-  assert.equal(startupChatCalls, 2, "seed database has two live articles, so startup should ask once per article");
+  await waitForHomepage(
+    server,
+    (payload) => payload.didYouKnow?.length === 2,
+  );
+  assert.equal(chatCalls, 2, "seed database has two live articles, so background prep should ask once per article");
 
   const res = await server.request("/api/homepage");
   assert.equal(res.status, 200);
-  const body = await res.json();
+  const cachedBody = await res.json();
 
-  assert.ok(body.featured, "should always have a featured article when articles exist");
-  assert.ok(body.featured.title, "featured article should have a title");
-  assert.ok(body.featured.slug, "featured article should have a slug");
-  assert.ok(body.featured.summaryMarkdown !== undefined, "featured article should have summaryMarkdown");
-  assert.ok(Array.isArray(body.didYouKnow), "didYouKnow should be an array");
-  assert.equal(body.didYouKnow.length, 2, "DYK facts should be ready in the cached response");
-  assert.equal(chatCalls, startupChatCalls, "homepage request must not call the LLM");
-  assert.ok(!("didYouKnowPending" in body), "homepage no longer exposes request-time generation state");
+  assert.ok(cachedBody.featured, "should always have a featured article when articles exist");
+  assert.ok(cachedBody.featured.title, "featured article should have a title");
+  assert.ok(cachedBody.featured.slug, "featured article should have a slug");
+  assert.ok(cachedBody.featured.summaryMarkdown !== undefined, "featured article should have summaryMarkdown");
+  assert.ok(Array.isArray(cachedBody.didYouKnow), "didYouKnow should be an array");
+  assert.equal(cachedBody.didYouKnow.length, 2, "DYK facts should be ready in the cached response");
+  assert.equal(chatCalls, 2, "cached homepage request must not call the LLM");
+  assert.ok(!("didYouKnowPending" in cachedBody), "homepage no longer exposes request-time generation state");
 });
 
 test("homepage returns empty state when no articles exist", async (t) => {
@@ -986,9 +1006,10 @@ test("homepage featured article uses the literal first paragraph", async (t) => 
     rmSync(root, { recursive: true, force: true });
   });
 
-  const res = await server.request("/api/homepage");
-  assert.equal(res.status, 200);
-  const body = await res.json();
+  const body = await waitForHomepage(
+    server,
+    (payload) => payload.featured?.title === "Goldfish",
+  );
   assert.equal(body.featured.title, "Goldfish");
   assert.equal(
     body.featured.summaryMarkdown,
@@ -1041,9 +1062,10 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
     rmSync(root, { recursive: true, force: true });
   });
 
-  const res = await server.request("/api/homepage");
-  assert.equal(res.status, 200);
-  const body = await res.json();
+  const body = await waitForHomepage(
+    server,
+    (payload) => payload.didYouKnow?.length === 1,
+  );
   assert.equal(body.featured.title, "Goldfish");
   assert.equal(body.didYouKnow.length, 1);
   assert.equal(body.didYouKnow[0].slug, "goldfish");
@@ -1070,9 +1092,10 @@ test("homepage handles DYK generation failure gracefully", async (t) => {
     rmSync(server.root, { recursive: true, force: true });
   });
 
-  const res = await server.request("/api/homepage");
-  assert.equal(res.status, 200);
-  const body = await res.json();
+  const body = await waitForHomepage(
+    server,
+    (payload) => payload.featured && Array.isArray(payload.didYouKnow),
+  );
   assert.ok(body.featured, "featured article should still be present even when DYK fails");
   assert.deepEqual(body.didYouKnow, [], "DYK should be empty array on failure, not error");
 });
@@ -1115,4 +1138,78 @@ test("homepage uses a current DB cache without regenerating at startup", async (
   assert.equal(chatCalled, false, "current homepage cache should prevent startup generation");
   assert.equal(body.featured.title, "Cached");
   assert.equal(body.didYouKnow[0].fact, "... [Cached](halu:cached \"Cached\") already knows.");
+});
+
+test("homepage request regenerates expired cache and logs refresh lifecycle", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const oldGeneratedAt = Date.now() - 24 * 60 * 60 * 1000;
+  const markdown = [
+    "# Fresh Featured",
+    "",
+    "Fresh Featured is a newly selected article for the homepage.",
+  ].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "fresh-featured",
+      canonicalSlug: "fresh-featured",
+      title: "Fresh Featured",
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: Date.now(),
+    },
+    [],
+    ["fresh-featured"]
+  );
+  saveHomepageCache(db, {
+    featured: { slug: "stale", title: "Stale", summaryMarkdown: "Old summary." },
+    didYouKnow: [{ slug: "stale", title: "Stale", fact: "... stale fact." }],
+    generatedAt: oldGeneratedAt,
+    expiresAt: oldGeneratedAt + 1000,
+  });
+  db.close();
+
+  let chatCalls = 0;
+  const llm: LlmClient = {
+    async chat() {
+      chatCalls += 1;
+      return "... [Fresh Featured](halu:fresh-featured \"Fresh Featured\") replaces the stale homepage cache.";
+    },
+    async streamChat(_s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+  const logEntries: CapturedLogEntry[] = [];
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    logger: createMemoryLogger(logEntries),
+    homepagePrepare: true,
+  });
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const body = await waitForHomepage(
+    server,
+    (payload) => payload.featured?.title === "Fresh Featured",
+  );
+
+  assert.equal(body.featured.title, "Fresh Featured");
+  assert.equal(body.didYouKnow.length, 1);
+  assert.equal(chatCalls, 1);
+  assert.ok(
+    logEntries.some((entry) => entry.event === "homepage.refresh_start" && entry.fields?.reason === "expired"),
+    "expired homepage refresh should log a standalone start event"
+  );
+  assert.ok(
+    logEntries.some((entry) => entry.event === "homepage.refresh_done" && entry.fields?.featured === "fresh-featured"),
+    "expired homepage refresh should log a standalone done event"
+  );
 });

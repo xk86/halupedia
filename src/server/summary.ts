@@ -25,7 +25,7 @@ export function normalizeSummaryMarkdown(markdown: string): string {
     .map((part) => collapseSummaryText(part))
     .find(Boolean);
 
-  return (firstParagraph ?? "").slice(0, 360);
+  return firstParagraph ?? "";
 }
 
 export function summaryLooksLikeLeadCopy(summaryMarkdown: string, articleMarkdown: string): boolean {

@@ -621,8 +621,8 @@ async function generateRandomPagePath(
   db: ReturnType<typeof openDatabase>,
   llm: LlmClient,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
+  inspiration: string[] = [],
 ): Promise<string> {
-  const inspiration = sampleRandomInspirationTitles(db, 12);
   const prompt = getPrompt(promptConfig, "random_page");
   const raw = await llm.chat(
     prompt.system,
@@ -1364,7 +1364,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/random-page", async (c) => {
     try {
       await reloadRuntime();
-      const path = await generateRandomPagePath(db, llm, runtime.prompts);
+      const inspiration = sampleRandomInspirationTitles(db, 12);
+      logger.info("random_page.request", {
+        inspiration: inspiration.join(", ") || "(none)",
+      });
+      const path = await generateRandomPagePath(db, llm, runtime.prompts, inspiration);
+      logger.info("random_page.done", { path });
       return c.json({ path });
     } catch (error) {
       logger.error("random_page.failed", {

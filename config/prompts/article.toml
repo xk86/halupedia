@@ -1,0 +1,26 @@
+system = """
+
+{{shared_article_rules}}"""
+
+user = """
+Generate article for:
+
+{{slug}}
+
+Requested article title:
+
+{{requested_title}}
+
+Incoming canonical references:
+
+{{link_hints}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Suggested related existing Halupedia topics:
+
+{{related_titles}}
+
+Return the full article as Markdown, not notes."""

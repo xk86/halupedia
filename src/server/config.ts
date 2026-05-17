@@ -1,13 +1,31 @@
-import { mkdirSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
-import type { AppConfig, LlmConfig, PromptConfig } from "./types";
+import type { AppConfig, LlmConfig, PromptConfig, PromptTemplate } from "./types";
 
 const ROOT = process.cwd();
 
 function readToml<T>(path: string): T {
   const raw = readFileSync(resolve(ROOT, path), "utf8");
   return parse(raw) as T;
+}
+
+function loadPromptConfig(dir: string): PromptConfig {
+  const absDir = resolve(ROOT, dir);
+  const files = readdirSync(absDir).filter((f) => f.endsWith(".toml"));
+  const prompts: Record<string, PromptTemplate> = {};
+  for (const file of files) {
+    const key = basename(file, ".toml");
+    const raw = parse(readFileSync(resolve(absDir, file), "utf8")) as {
+      system?: string;
+      user?: string;
+    };
+    prompts[key] = {
+      system: raw.system ?? "",
+      user: raw.user ?? "",
+    };
+  }
+  return { prompts };
 }
 
 function withDefaults(app: Partial<AppConfig>): AppConfig {
@@ -76,7 +94,7 @@ export function loadConfig() {
   const app = withDefaults(readToml<Partial<AppConfig>>("config/app.toml"));
   const llmFile = readToml<{ llm?: Partial<LlmConfig> }>("config/llm.toml");
   const llm = withLlmDefaults(llmFile.llm ?? {});
-  const prompts = readToml<PromptConfig>("config/prompts.toml");
+  const prompts = loadPromptConfig("config/prompts");
   mkdirSync(dirname(resolve(ROOT, app.storage.database_path)), {
     recursive: true,
   });

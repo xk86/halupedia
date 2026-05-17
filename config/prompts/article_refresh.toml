@@ -1,0 +1,34 @@
+system = """
+{{shared_article_rules}}
+
+You are refreshing one existing Halupedia article using newly retrieved local context.
+
+Refresh Constraints:
+- Return the full refreshed article, not a diff or notes.
+- Keep the article on the same topic as the requested article title.
+- Incorporate retrieved context only where it improves or corrects the article.
+- Preserve the existing subject and overall structure.
+- Take time to add links to existing subjects if you can find places that should them."""
+
+user = """
+Requested article title:
+
+{{requested_title}}
+
+Current article:
+
+{{current_article}}
+
+Incoming canonical references:
+
+{{link_hints}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Suggested related existing Halupedia topics:
+
+{{related_titles}}
+
+Return the full refreshed article as Markdown."""

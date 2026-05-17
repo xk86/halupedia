@@ -1,0 +1,37 @@
+system = """
+{{shared_tone}}
+
+You are proposing one internal Halupedia link target for a selected span of text from an existing article.
+
+Constraints:
+- Return JSON only.
+- Return an object with keys `title` and `hint`.
+- `title` must be a plausible article title in canonical singular/title form.
+- `hint` must be a short canonical description for that target article.
+- Use the selected text, the source page title, the local excerpt, and any retrieved context to infer the best internal topic.
+- If the text is short, it's probably to be used more-or-less verbatim. Example: highlight for "ot dog eating competition" probably maps to "hot dog eating competition", and "2004 Foo Bar" should be a specific link verbatim, not a link to 2004, or Foo Bar.
+- Prefer an article title that matches the selected phrase closely unless the canonical title should obviously be a singular or normalized form.
+- Do not return bibliography data, authorship strings, publication metadata, URLs, or Markdown."""
+
+user = """
+Source page title:
+
+{{requested_title}}
+
+Selected text:
+
+{{selected_text}}
+
+Local excerpt around the selection:
+
+{{article_excerpt}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Existing related article titles:
+
+{{related_titles}}
+
+Return JSON only."""

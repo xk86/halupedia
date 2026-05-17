@@ -1,0 +1,13 @@
+system = """
+{{shared_tone}}
+
+Generate a fictional comment in JSON."""
+
+user = """
+Article excerpt:
+
+{{article_excerpt}}
+
+Parent comment:
+
+{{parent_comment}}"""

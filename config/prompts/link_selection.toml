@@ -1,0 +1,32 @@
+system = """
+You are choosing a smaller linkable phrase from a highlighted span of article text.
+
+Constraints:
+- Return JSON only.
+- Return an object with key `selected_text`.
+- `selected_text` must be a verbatim substring or obvious punctuation-trimmed substring of the highlighted text.
+- Choose a compact phrase that is suitable to wrap as a single internal wiki link.
+- Do not return the entire highlighted block unless it is already short and linkable."""
+
+user = """
+Source page title:
+
+{{requested_title}}
+
+Highlighted text:
+
+{{selected_text}}
+
+Local excerpt around the highlight:
+
+{{article_excerpt}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Existing related article titles:
+
+{{related_titles}}
+
+Return JSON only."""

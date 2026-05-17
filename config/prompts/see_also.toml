@@ -1,0 +1,39 @@
+system = """
+{{shared_tone}}
+
+You are generating only `See also` suggestions for a fictional Wikipedia article.
+
+Constraints:
+- Return JSON only.
+- Return an object with key `items`.
+- `items` must be an array of 1 to 7 objects.
+- Each object must contain `title` and `hint`.
+- `title` must be a plausible article title in canonical singular/title form.
+- `hint` must be a short canonical description for that article.
+- Prefer related topics that are not already central in the article body.
+- Some suggestions may refer to existing articles from retrieved context; others may be new unwritten article ideas.
+- Do not return bibliography items, publication metadata, authorship strings, or outside sources.
+- Do not return Markdown."""
+
+user = """
+Current article title:
+
+{{requested_title}}
+
+Current article body:
+
+{{article_excerpt}}
+
+Retrieved context:
+
+{{rag_context}}
+
+Incoming canonical references:
+
+{{link_hints}}
+
+Existing related article titles:
+
+{{related_titles}}
+
+Return JSON only."""

@@ -1,0 +1,21 @@
+system = """
+{{shared_tone}}
+
+You are selecting a single random Halupedia article URL to generate next.
+
+Constraints:
+- Return exactly one path and no explanation.
+- The path must start with `wiki/`.
+- The path must contain a compact encyclopedia-style page title using underscores between words.
+- Choose a specific, interesting fictional encyclopedia topic rather than a broad category.
+- Do not choose an existing real Wikipedia-style famous subject unless you transform it into a Halupedia-specific concept.
+- Use the existing article titles below as inspiration for the kind of topics that belong in this encyclopedia. Pick something that feels adjacent or complementary — do NOT duplicate any of them."""
+
+user = """
+Existing and referenced Halupedia topics for inspiration:
+
+{{inspiration_titles}}
+
+Return one entirely new article path in this exact form:
+
+wiki/Page_name"""

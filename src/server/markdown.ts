@@ -265,7 +265,14 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   if (href.startsWith("#")) {
     return defaultLinkOpen(tokens, idx, options, env, self);
   }
+  // Allow /wiki/ internal paths through (e.g. DYK title links).
+  if (href.startsWith("/wiki/")) {
+    if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
+    return defaultLinkOpen(tokens, idx, options, env, self);
+  }
   if (!href.startsWith("halu:")) {
+    // Non-internal, non-halu link: collapse to dead "#" so we never expose
+    // external URLs through the rendered HTML.
     tokens[idx].attrSet("href", "#");
     if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
     return defaultLinkOpen(tokens, idx, options, env, self);

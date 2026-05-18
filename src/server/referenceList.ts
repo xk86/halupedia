@@ -51,8 +51,18 @@ export interface BuildReferenceListInput {
   ragSources: RetrievedSourceArticle[];
   /** Previously-persisted reference list (carried over unless pruned). */
   priorReferences?: ReferenceList;
-  /** References the user pinned or added via the editor (always survive). */
+  /**
+   * References the user explicitly selected in the editor UI. These are
+   * treated as non-prunable for this generation (rank above everything
+   * except permanently-pinned entries). They count toward max_references.
+   */
   userAdditions?: ReferenceList;
+  /**
+   * Slugs the user explicitly removed from the reference list. These are
+   * excluded from the result regardless of RAG score. Does NOT affect
+   * permanently-pinned entries (none exist yet in the UI).
+   */
+  blacklistSlugs?: string[];
   /** Revision id this build is associated with (sentinel for in-progress). */
   revisionId: ReferenceRevisionId;
   /** Reference-list-specific tuning from app config. */
@@ -97,12 +107,19 @@ export function buildReferenceList(
     ragSources,
     priorReferences = [],
     userAdditions = [],
+    blacklistSlugs = [],
     revisionId,
     config,
   } = input;
 
+  // Slugs that are always excluded regardless of source. Self-referencing
+  // entries and user-blacklisted ones are rejected before anything else.
+  const blacklist = new Set<string>([
+    slugify(articleSlug),
+    ...blacklistSlugs.map((s) => slugify(s)).filter(Boolean),
+  ]);
   // Track which slugs we've already accepted so each appears once.
-  const seen = new Set<string>([slugify(articleSlug)]);
+  const seen = new Set<string>(blacklist);
   const candidates: InternalCandidate[] = [];
 
   /**
@@ -235,6 +252,7 @@ export function buildReferenceList(
     prior_count: priorReferences.length,
     user_added_count: userAdditions.length,
     pinned_count: pinnedCount,
+    blacklist_count: blacklistSlugs.length,
     candidates: candidates.length,
     kept: kept.length,
     dropped: candidates.length - kept.length,
@@ -291,11 +309,50 @@ export function loadPriorReferenceList(
 /**
  * Pure helper: return true when the given top-level section title belongs
  * to algorithmically-rendered metadata that link repair MUST skip.
- *
- * Centralising this list ensures every consumer (link repair, refresh
- * scanning, body extraction) agrees on what counts as metadata.
  */
 export function isMetadataSection(heading: string): boolean {
   const normalized = heading.replace(/\s+/g, " ").trim().toLowerCase();
   return normalized === "references" || normalized === "see also";
+}
+
+/**
+ * Format a reference list as a numbered prompt string so the LLM can use
+ * `[text](ref:N)` link shorthand in the generated body.
+ *
+ * Returns "(none)" when the list is empty.
+ */
+export function formatReferencesForPrompt(refs: ReferenceList): string {
+  if (refs.length === 0) return "(none)";
+  return refs.map((r, i) => `${i + 1}. ${r.title} (${r.slug})`).join("\n");
+}
+
+// Matches [text](ref:n) or [](ref:n) where n is a number or slug.
+const REF_LINK_RE = /\[([^\]]*)\]\(ref:([^)]+)\)/g;
+
+/**
+ * Resolve `ref:N` link shorthand in article body markdown.
+ *
+ * The LLM may emit `[text](ref:1)` (by index) or `[](ref:some-slug)`.
+ * At parse time we also tolerate slugs in the N position for robustness.
+ * Result is a well-formed `halu:slug` link using the resolved reference.
+ *
+ * Must run on body-only markdown BEFORE the References section is appended.
+ * Unknown/out-of-range ref targets are left as-is so they surface during QA.
+ */
+export function resolveRefLinks(body: string, refs: ReferenceList): string {
+  if (refs.length === 0 || !body.includes("ref:")) return body;
+  return body.replace(REF_LINK_RE, (match, visibleText: string, target: string) => {
+    let ref: ReferenceListEntry | undefined;
+    const num = parseInt(target, 10);
+    if (!isNaN(num) && num >= 1 && num <= refs.length) {
+      ref = refs[num - 1];
+    } else {
+      // Tolerate slug in the N position.
+      const normalized = target.replace(/\s+/g, "-").toLowerCase();
+      ref = refs.find((r) => r.slug === normalized);
+    }
+    if (!ref) return match;
+    const label = visibleText.trim() || ref.title;
+    return `[${label}](halu:${ref.slug} "${ref.title}")`;
+  });
 }

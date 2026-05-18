@@ -154,6 +154,10 @@ export function App() {
   const [editRefsEnabled, setEditRefsEnabled] = useState(false);
   const [editRefs, setEditRefs] = useState<Array<{ slug: string; title: string; summaryMarkdown: string }>>([]);
   const [editAddRefsOpen, setEditAddRefsOpen] = useState(false);
+  // Slugs the user has explicitly removed from the reference list.
+  const [editBlacklist, setEditBlacklist] = useState<string[]>([]);
+  const [editBlacklistOpen, setEditBlacklistOpen] = useState(false);
+  const [editBlacklistInput, setEditBlacklistInput] = useState("");
   const [editFuzzyQuery, setEditFuzzyQuery] = useState("");
   const [editRagSearchQuery, setEditRagSearchQuery] = useState("");
   const [editRefResults, setEditRefResults] = useState<Array<{ slug: string; title: string; summaryMarkdown: string }>>([]);
@@ -252,6 +256,9 @@ export function App() {
       setEditRefsEnabled(false);
       setEditRefs([]);
       setEditAddRefsOpen(false);
+      setEditBlacklist([]);
+      setEditBlacklistOpen(false);
+      setEditBlacklistInput("");
       setEditFuzzyQuery("");
       setEditRagSearchQuery("");
       setEditRefResults([]);
@@ -690,11 +697,10 @@ export function App() {
           ...(editSectionId === "__selection__"
             ? { selectedText: editSelectedText }
             : { sectionId: editSectionId || undefined }),
-          // Send explicit reference slugs when the user has a non-empty list;
-          // otherwise fall back to server-side RAG (legacy path, ragEnabled=false means no refs).
           ...(editRefsEnabled && editRefs.length > 0
             ? { referenceSlugs: editRefs.map((r) => r.slug) }
             : {}),
+          ...(editBlacklist.length > 0 ? { blacklistSlugs: editBlacklist } : {}),
           rewriteMode: editRewriteMode,
         }),
       });
@@ -765,6 +771,9 @@ export function App() {
       setEditRefsEnabled(false);
       setEditRefs([]);
       setEditAddRefsOpen(false);
+      setEditBlacklist([]);
+      setEditBlacklistOpen(false);
+      setEditBlacklistInput("");
       setEditFuzzyQuery("");
       setEditRagSearchQuery("");
       setEditRefResults([]);
@@ -1339,6 +1348,61 @@ export function App() {
                     ))}
                   </ul>
                 )}
+              </div>
+            )}
+
+            {/* Blacklist: articles to exclude from RAG/references for this rewrite */}
+            <div className="edit-blacklist-row">
+              <button
+                type="button"
+                className="edit-blacklist-toggle"
+                onClick={() => setEditBlacklistOpen((o) => !o)}
+                disabled={editBusy}
+              >
+                {editBlacklistOpen ? "▾" : "▸"} Excluded references
+                {editBlacklist.length > 0 && <span className="edit-blacklist-count"> ({editBlacklist.length})</span>}
+              </button>
+            </div>
+            {editBlacklistOpen && (
+              <div className="edit-blacklist-panel">
+                {editBlacklist.length > 0 && (
+                  <div className="edit-blacklist-tags">
+                    {editBlacklist.map((slug) => (
+                      <span key={slug} className="edit-blacklist-tag">
+                        <span className="edit-blacklist-tag-slug">{slug}</span>
+                        <button
+                          type="button"
+                          className="edit-blacklist-tag-remove"
+                          onClick={() => setEditBlacklist((bl) => bl.filter((s) => s !== slug))}
+                          disabled={editBusy}
+                          aria-label={`Remove ${slug} from exclusions`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="edit-blacklist-add-row">
+                  <input
+                    type="text"
+                    className="edit-blacklist-input"
+                    value={editBlacklistInput}
+                    onChange={(e) => setEditBlacklistInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const s = editBlacklistInput.trim().toLowerCase().replace(/\s+/g, "-");
+                        if (s && !editBlacklist.includes(s)) {
+                          setEditBlacklist((bl) => [...bl, s]);
+                        }
+                        setEditBlacklistInput("");
+                      }
+                    }}
+                    placeholder="Slug to exclude (Enter to add)"
+                    disabled={editBusy}
+                  />
+                </div>
               </div>
             )}
 

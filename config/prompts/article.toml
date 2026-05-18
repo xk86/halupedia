@@ -17,6 +17,10 @@ Requested article title:
 
 {{requested_title}}
 
+Available references (link back with [text](ref:N) — N is the number, [] uses the article title):
+
+{{references_list}}
+
 Retrieved context:
 
 {{rag_context}}

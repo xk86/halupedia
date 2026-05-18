@@ -91,8 +91,10 @@ import type {
 } from "./types";
 import {
   buildReferenceList,
+  formatReferencesForPrompt,
   loadPriorReferenceList,
   renderReferencesSection,
+  resolveRefLinks,
 } from "./referenceList";
 import {
   loadArticle,
@@ -1467,6 +1469,24 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   await reloadRuntime();
 
+  // Resolve a list of slugs to ReferenceListEntry objects for userAdditions.
+  function slugsToUserAdditions(slugs: string[]): ReferenceList {
+    const result: ReferenceList = [];
+    for (const s of slugs) {
+      const a = getArticleByLookup(db, s);
+      if (!a) continue;
+      result.push({
+        slug: a.slug,
+        title: a.title,
+        content: a.summaryMarkdown ?? "",
+        kind: "summary",
+        pinned: false,
+        revisionId: "current",
+      });
+    }
+    return result;
+  }
+
   function canonicalPathForArticle(article: {
     canonicalSlug: string;
     title: string;
@@ -1666,6 +1686,8 @@ export async function createApp(options: CreateAppOptions = {}) {
    * defensively, because metadata is owned by `buildReferenceList` /
    * `renderReferencesSection`, not the body.
    */
+  // userAdditions: slugs that survive pruning for this save (user-selected).
+  // blacklistSlugs: slugs explicitly removed by the user; never included.
   async function saveArticleImmediately(
     slug: string,
     requestedTitle: string,
@@ -1675,6 +1697,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       operation?: string;
       instructions?: string;
       revertedFromRevisionId?: number | null;
+    } = {},
+    { userAdditionSlugs = [], blacklistSlugs = [] }: {
+      userAdditionSlugs?: string[];
+      blacklistSlugs?: string[];
     } = {},
   ) {
     const { canonicalTitle, canonicalSlug, displayTitle } =
@@ -1692,13 +1718,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     );
 
     // (b) Build the canonical reference list from validated sources.
+    const userAdditions = slugsToUserAdditions(
+      userAdditionSlugs.map((s) => slugify(s)).filter(Boolean),
+    );
+
     const referenceList = buildReferenceList(
       db,
       {
         articleSlug: canonicalSlug,
         ragSources: retrieved.sourceArticles,
         priorReferences: loadPriorReferenceList(db, canonicalSlug),
-        userAdditions: [],
+        userAdditions,
+        blacklistSlugs,
         revisionId: "current",
         config: runtime.app.rag,
       },
@@ -1767,6 +1798,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     retrieved: Awaited<ReturnType<typeof retrieveContext>>,
     hints: IncomingHint[],
     expectedGeneratedAt?: number,
+    { blacklistSlugs = [] }: { blacklistSlugs?: string[] } = {},
   ) {
     const normalizedSlug = slugify(slug);
     logger.debug("post_process.start", { slug: normalizedSlug });
@@ -1835,6 +1867,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           ragSources: retrieved.sourceArticles,
           priorReferences: loadPriorReferenceList(db, normalizedSlug),
           userAdditions: [],
+          blacklistSlugs,
           revisionId: "current",
           config: runtime.app.rag,
         },
@@ -1989,12 +2022,27 @@ export async function createApp(options: CreateAppOptions = {}) {
       context_length: retrieved.context?.length ?? 0,
     });
 
+    // Build a preliminary reference list so the prompt can expose ref:N
+    // shorthand and the LLM can link back to sources without knowing slugs.
+    const preliminaryRefs = buildReferenceList(
+      db,
+      {
+        articleSlug: slug,
+        ragSources: retrieved.sourceArticles,
+        priorReferences: loadPriorReferenceList(db, slug),
+        revisionId: "current",
+        config: runtime.app.rag,
+      },
+      logger,
+    );
+
     const prompt = getPrompt(runtime.prompts, "article");
     const selectedLlm = prompt.model === "light" ? lightLlm : llm;
     const renderedUserPrompt = renderTemplate(prompt.user, {
       slug,
       requested_title: requestedTitle,
       link_hints: formatIncomingHintsForPrompt(hints, slug),
+      references_list: formatReferencesForPrompt(preliminaryRefs),
       rag_context: retrieved.context || "(none)",
       related_titles: retrieved.relatedTitles.length
         ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
@@ -2026,7 +2074,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     logger.debug("build.article_body_generated", { slug, body_length: rawMarkdown.length });
 
+    // Resolve ref:N shorthand links the LLM may have emitted before any
+    // further processing; must run before stripTopLevelSections in saveArticleImmediately.
     let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
+    markdown = resolveRefLinks(markdown, preliminaryRefs);
+    const refLinksResolved = extractInternalLinks(markdown).length;
+    logger.debug("build.article_ref_links_resolved", { slug, halu_links: refLinksResolved });
     const resolvedTitle = extractTitle(markdown, requestedTitle);
     const uniqueLinkCount = extractInternalLinks(markdown).length;
     const titleOk = articleSubjectMatchesRequested(
@@ -2591,9 +2644,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       ragEnabled?: boolean;
       ragQuery?: string;
       rewriteMode?: string;
-      // Explicit list of article slugs to use as references (from the new UI).
-      // When provided, overrides the automatic RAG flow.
+      // Slugs the user has selected in the editor UI. These survive pruning.
       referenceSlugs?: string[];
+      // Slugs the user has explicitly removed. Excluded from the result even
+      // if they would otherwise score well enough to be included.
+      blacklistSlugs?: string[];
     };
     const instructions = (body.instructions ?? "")
       .replace(/\s+/g, " ")
@@ -2629,8 +2684,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 500);
-    // Explicit reference slugs from the new UI take priority over automatic RAG.
+    // Explicit reference slugs from the new UI — survive pruning for this build.
     const explicitSlugs = (body.referenceSlugs ?? [])
+      .map((s) => slugify(s))
+      .filter(Boolean);
+    // Slugs the user removed — excluded even if RAG would otherwise pick them.
+    const blacklistSlugs = (body.blacklistSlugs ?? [])
       .map((s) => slugify(s))
       .filter(Boolean);
 
@@ -2754,6 +2813,21 @@ export async function createApp(options: CreateAppOptions = {}) {
       ? `SELECTION EDIT: The user selected specific text from the article and wants it rewritten. The "Current article" field below contains ONLY the selected text. Return ONLY the replacement text — do not return the full article, do not add headings, do not add surrounding context. Your response replaces the selection verbatim.\n\nUser instructions: ${instructions}`
       : instructions;
 
+    // Build preliminary refs for the prompt so the LLM can use ref:N links.
+    const rewritePromptRefs = buildReferenceList(
+      db,
+      {
+        articleSlug: article.slug,
+        ragSources: retrieved.sourceArticles,
+        priorReferences: loadPriorReferenceList(db, article.slug),
+        userAdditions: slugsToUserAdditions(explicitSlugs),
+        blacklistSlugs,
+        revisionId: "current",
+        config: runtime.app.rag,
+      },
+      logger,
+    );
+
     const renderedRewritePrompt = renderTemplate(prompt.user, {
       slug: article.slug,
       requested_title: article.title,
@@ -2761,6 +2835,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       current_article: selectedSection,
       full_article: selectionRange ? article.markdown : article.markdown,
       link_hints: formatIncomingHintsForPrompt(hints, article.slug),
+      references_list: formatReferencesForPrompt(rewritePromptRefs),
       rag_context: retrieved.context || "(none)",
       related_titles: retrieved.relatedTitles.length
         ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
@@ -2798,9 +2873,22 @@ export async function createApp(options: CreateAppOptions = {}) {
             ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
             : rewrittenBody;
         }
-        // Strip out any References or See also sections that might be in the rewritten markdown
-        // so we don't create duplicates when assembleArticleMarkdown adds them
         nextMarkdown = stripTopLevelSections(nextMarkdown, ["References", "See also"]);
+        // Resolve any ref:N shorthand the LLM used against the current ref list.
+        const rewriteRefs = buildReferenceList(
+          db,
+          {
+            articleSlug: article.slug,
+            ragSources: retrieved.sourceArticles,
+            priorReferences: loadPriorReferenceList(db, article.slug),
+            userAdditions: slugsToUserAdditions(explicitSlugs),
+            blacklistSlugs,
+            revisionId: "current",
+            config: runtime.app.rag,
+          },
+          logger,
+        );
+        nextMarkdown = resolveRefLinks(nextMarkdown, rewriteRefs);
         logger.debug("rewrite.body_prepared", { slug: article.slug, body_length: nextMarkdown.length });
         const {
           article: updatedArticle,
@@ -2813,6 +2901,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           nextMarkdown,
           retrieved,
           { operation: operationName, instructions },
+          { userAdditionSlugs: explicitSlugs, blacklistSlugs },
         );
         trackGeneration(
           postProcessArticle(
@@ -2822,10 +2911,9 @@ export async function createApp(options: CreateAppOptions = {}) {
             retrieved,
             hints,
             updatedArticle.generated_at,
+            { blacklistSlugs },
           ).catch(() => {}),
         );
-        // Article body + refs changed; drop any stale render cache so the
-        // next read pays the (one-time) render cost and serves fresh HTML.
         invalidateArticleHtml(updatedArticle.slug);
         const response = buildArticleResponseFor(updatedArticle.slug);
         if (!response) {

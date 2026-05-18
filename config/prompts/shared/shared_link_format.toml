@@ -8,10 +8,18 @@ Halu Link Helper:
 - Link the first mention of proper nouns and significant concepts.
 - The current article's own subject (including alternate names and abbreviations) must be bolded, never linked.
 
+Reference Link Shorthand:
+- To link to one of the numbered reference articles listed in "Available references", use: `[Visible Text](ref:N)` where N is the 1-based index number.
+- If visible text is left empty as `[](ref:N)`, the reference article's title will fill in automatically.
+- Reference links are preferred when the article body cites or expands on a known reference source.
+- Example: if reference #3 is "Mold Media", then `[recent studies on mold media](ref:3)` creates a link to that article.
+
 Examples (Do not reference):
 - `[San Francisco](halu:san-francisco "fog registry district on the western seaboard")`
 - `[Robert Bobbert](halu:robert-bobbert "Chief Registrar of the Dover Ash Bureau, 1903–1941")`
-- `[*Principia Mathematica*](halu:principia-mathematica "foundational text on gravitational pastry theory")`"""
+- `[*Principia Mathematica*](halu:principia-mathematica "foundational text on gravitational pastry theory")`
+- `[](ref:2)` — replaced at render time with the title of reference #2
+- `[further reading on decay rates](ref:1)` — links to reference #1 with custom text"""
 
 user = """
 """

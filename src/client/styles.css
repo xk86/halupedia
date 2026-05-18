@@ -2558,6 +2558,31 @@ button.admin-danger-btn:hover:not(:disabled) {
   min-height: 2.6rem;
 }
 
+.article a.ref-link {
+  color: inherit;
+  border-bottom: 0;
+  text-decoration: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.14em;
+}
+
+.article a.ref-link:hover {
+  color: inherit;
+  background: transparent;
+}
+
+.article a.ref-num {
+  margin-left: 0.12em;
+  border-bottom: 0;
+  font-family: var(--sans);
+  font-size: 0.82em;
+  text-decoration: none;
+}
+
+.article-references ol {
+  padding-left: 1.5rem;
+}
+
 .article-vote {
   position: absolute;
   top: 0.15rem;

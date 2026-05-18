@@ -46,6 +46,11 @@ interface PageData {
     existing: BacklinkItem[];
     unwritten: BacklinkItem[];
   };
+  referenceStatus?: {
+    missing: Array<{ slug: string; title: string }>;
+    unformatted?: Array<{ slug: string; title: string }>;
+    hasReferencesSection?: boolean;
+  };
   refreshChanged?: boolean;
   statusMessage?: string;
 }
@@ -1132,6 +1137,13 @@ export function App() {
         {hasZeroLinks ? (
           <div className="linkless-notice">
             This article has no links. Expand it by highlighting text.
+          </div>
+        ) : null}
+        {(page.referenceStatus?.missing?.length ||
+          page.referenceStatus?.unformatted?.length ||
+          page.referenceStatus?.hasReferencesSection) ? (
+          <div className="linkless-notice">
+            This article seems to cite references that are not listed or not in the current reference format. Run the refresh references button to update it.
           </div>
         ) : null}
         {refreshMessage ? <div className="status">{refreshMessage}</div> : null}

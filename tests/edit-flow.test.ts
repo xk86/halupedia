@@ -611,57 +611,41 @@ test("selection edit creates a revision entry", async (t) => {
   await server.shutdown();
 });
 
-test("generated references use plain wiki links, not halu links", async (t) => {
+test("refresh-context converts existing article links into footnote references", async (t) => {
   const { root, databasePath } = createTestDb();
-  const sourceBody = '**Source Article** has content with [Some Link](halu:some-link "a hint") embedded.';
-  seedArticle(databasePath, "source-article", "Source Article", sourceBody);
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
-  const articleMarkdown = [
-    "# Generated Article",
-    "",
-    '**Generated Article** links to [Alpha](halu:alpha "hint"), [Beta](halu:beta "hint"), [Gamma](halu:gamma "hint"), [Delta](halu:delta "hint"), and [Epsilon](halu:epsilon "hint").',
-  ].join("\n");
+  seedArticle(databasePath, "source-article", "Source Article", "Reference source content.");
+  seedArticle(
+    databasePath,
+    "generated-article",
+    "Generated Article",
+    'Generated body cites [Source Article](halu:source-article "source context").',
+  );
 
-  const llm: LlmClient = {
-    async chat(): Promise<string> {
-      return JSON.stringify({ items: [{ title: "See This", hint: "related topic" }] });
-    },
-    async streamChat(
-      _s: string,
-      _u: string,
-      onChunk: (delta: string, accumulated: string) => void,
-    ): Promise<{ content: string; finishReason: string }> {
-      onChunk(articleMarkdown, articleMarkdown);
-      return { content: articleMarkdown, finishReason: "stop" };
-    },
-    async embed(): Promise<number[][]> { return []; },
-    async probeConnections(): Promise<void> {},
-  };
-
+  const llm = new RewriteLlmClient("should not be used");
   const server = await createTestServer({ databasePath, llmClient: llm });
 
-  const res = await server.request("/api/page/Generated_Article");
+  const res = await server.request("/api/article/generated-article/refresh-context", {
+    method: "POST",
+  });
   assert.equal(res.status, 200);
-  const packets = parseNdjson<Record<string, unknown>>(await res.text());
-  const done = packets.find((p) => p.type === "done") as any;
-  assert.ok(done, "should get a done event");
-
-  await new Promise((r) => setTimeout(r, 300));
+  const body = await res.json() as any;
+  assert.match(body.article.body, /\[Source Article\]\(ref:source-article\)/);
+  assert.match(body.article.html, /class="ref-link"/);
+  assert.match(body.article.html, /class="ref-num"/);
+  assert.match(body.article.html, /<section class="article-references">/);
+  assert.match(body.article.html, /<ol>/);
+  assert.doesNotMatch(body.article.html, /<h2>References<\/h2><ul>/);
+  assert.deepEqual(body.referenceStatus.missing, []);
+  assert.deepEqual(body.referenceStatus.unformatted, []);
 
   const db = openDatabase(databasePath);
   const saved = getArticleByLookup(db, "generated-article");
   db.close();
   assert.ok(saved, "article should exist in DB");
-
-  const referencesMatch = saved.markdown.match(/## References\n\n([\s\S]*?)(?:\n\n##|$)/);
-  if (referencesMatch) {
-    const referencesSection = referencesMatch[1];
-    assert.doesNotMatch(referencesSection, /\(halu:/,
-      "references should use plain wiki links, not halu links");
-    assert.match(referencesSection, /\[Source Article\]\(\/wiki\//,
-      "references should link to wiki paths");
-  }
+  assert.match(saved.markdown, /\[Source Article\]\(ref:source-article\)/);
+  assert.doesNotMatch(saved.markdown, /\(halu:source-article/);
   await server.shutdown();
 });
 

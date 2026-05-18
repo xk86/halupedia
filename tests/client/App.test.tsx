@@ -716,6 +716,25 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/article/test-article/refresh-context", { method: "POST" });
   });
 
+  it("shows a refresh notice when body references are missing from metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(pagePayload({
+        referenceStatus: {
+          missing: [{ slug: "source-article", title: "Source Article" }],
+        },
+      })), {
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+
+    expect(await screen.findByText(/This article seems to cite references that are not listed/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh with retrieved context" })).toBeInTheDocument();
+  });
+
   it("rolls back streamed rewrite progress when the server rejects a body subject change", async () => {
     const original = pagePayload({
       article: {

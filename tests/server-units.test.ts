@@ -15,6 +15,7 @@ import {
   normalizeMarkdown,
   summaryMarkdownFromArticle,
   stripSelfLinks,
+  stripTopLevelSections,
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
 import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
@@ -35,6 +36,19 @@ import {
   summaryLooksLikeLeadCopy,
 } from "../src/server/summary";
 import { summarizeRetrievedSource } from "../src/server/index";
+import {
+  buildRefSlugIndex,
+  convertExistingArticleLinksToRefs,
+  findExistingArticleLinkReferences,
+  renderReferencesHtml,
+  resolveRefLinks,
+} from "../src/server/referenceList";
+import {
+  assembleArticleMarkdownForRender,
+  renderArticleDisplayHtml,
+} from "../src/server/articleRender";
+import type { Article } from "../src/server/article";
+import type { ReferenceList } from "../src/server/types";
 
 const TEST_CONFIG = loadConfig().app.tests;
 
@@ -878,4 +892,131 @@ test("halu links with unicode visible text render correct wiki paths", () => {
   );
   assert.match(html, /href="\/wiki\/Β-Carotene"/);
   assert.doesNotMatch(html, /orange pigment/);
+});
+
+test("reference links render footnotes without converting halu links", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "source-entry",
+      title: "Source Entry",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const body = resolveRefLinks(
+    '[cited passage](ref:1) and [new topic](halu:new-topic "seed hint").',
+    refs,
+  );
+
+  assert.equal(
+    body,
+    '[cited passage](ref:source-entry) and [new topic](halu:new-topic "seed hint").',
+  );
+  const html = renderMarkdown(body, { refSlugToIndex: buildRefSlugIndex(refs) });
+  assert.match(html, /class="ref-link"/);
+  assert.match(html, /href="#ref-1" class="ref-num"/);
+  assert.match(html, /href="\/wiki\/New_topic"/);
+});
+
+test("existing halu links are scraped and converted to reference links", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-ref-scrape-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const markdown = "# Source Entry\n\nKnown source.";
+  saveArticle(
+    db,
+    {
+      slug: "source-entry",
+      canonicalSlug: "source-entry",
+      title: "Source Entry",
+      markdown,
+      html: renderMarkdown(markdown),
+      summaryMarkdown: "Known source.",
+      plain_text: markdownToPlainText(markdown),
+      generated_at: 1,
+    },
+    [],
+    ["source-entry"],
+  );
+
+  const body =
+    '[known material](halu:source-entry "known source") and [unknown material](halu:missing-entry "missing source").';
+  const refs = findExistingArticleLinkReferences(db, body, "current-entry");
+  assert.deepEqual(refs.map((r) => r.slug), ["source-entry"]);
+  assert.equal(
+    convertExistingArticleLinksToRefs(db, body, "current-entry"),
+    '[known material](ref:source-entry) and [unknown material](halu:missing-entry "missing source").',
+  );
+});
+
+test("stripTopLevelSections removes model-emitted metadata headings at any level", () => {
+  const markdown = [
+    "# Article",
+    "",
+    "Body stays.",
+    "",
+    "### See also",
+    "",
+    "- Spurious related entry",
+    "",
+    "## References:",
+    "",
+    "- Spurious source",
+  ].join("\n");
+
+  assert.equal(stripTopLevelSections(markdown, ["References", "See also"]), "# Article\n\nBody stays.");
+});
+
+test("references render as ordered footnote targets, not markdown bullets", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "source-entry",
+      title: "Source Entry",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const html = renderReferencesHtml(refs);
+  assert.match(html, /<section class="article-references">/);
+  assert.match(html, /<ol>/);
+  assert.match(html, /<li id="ref-1">/);
+  assert.doesNotMatch(html, /<ul>/);
+});
+
+test("see-also metadata renders for display but is not baked into article markdown", () => {
+  const article: Article = {
+    slug: "current-entry",
+    canonicalSlug: "current-entry",
+    title: "Current Entry",
+    path: "/wiki/Current_Entry",
+    body: "# Current Entry\n\nCurrent body.",
+    summary: "Current body.",
+    plainText: "Current body.",
+    generatedAt: 1,
+    isDisambiguation: false,
+    metadata: {
+      references: [],
+      seeAlso: [
+        {
+          slug: "related-entry",
+          title: "Related Entry",
+          hint: "related context",
+        },
+      ],
+    },
+  };
+
+  const markdown = assembleArticleMarkdownForRender(article);
+  assert.doesNotMatch(markdown, /## See also/);
+  assert.doesNotMatch(markdown, /related-entry/);
+
+  const html = renderArticleDisplayHtml(article);
+  assert.match(html, /<h2>See also<\/h2>/);
+  assert.match(html, /Related Entry/);
 });

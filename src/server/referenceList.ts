@@ -10,17 +10,12 @@
  *      cached in the database, RAG-retrieved chunks, user-pinned entries, and
  *      entries carried over from the prior save.
  *   3. Every entry's slug is validated against the database before inclusion.
- *      Because the markdown link is built by wrapping that validated slug
- *      (e.g. `[Title](halu:slug)`), the result is always well-formed and is
- *      exempt from the LLM link-repair pass.
  *   4. Pinned entries always survive ranking/pruning, and DO NOT count toward
  *      `max_references`.
- *   5. The reference list rendered into the article is just
- *        `entries.map(e => `* [${e.title}](halu:${e.slug})`).join("\n")`
- *      — there is no other code path that emits references.
+ *   5. References are stored as sidecar metadata and rendered for display as
+ *      ordered footnote targets.
  *
- * The module also exports `renderReferencesSection`, the algorithmic renderer
- * called by all article-assembly code. There is no other supported renderer.
+ * The module also exports display/prompt helpers used by article assembly.
  */
 
 import type { DatabaseSync } from "node:sqlite";
@@ -276,21 +271,37 @@ export function buildReferenceList(
   return kept.map((c) => c.entry);
 }
 
+// Import here rather than at top-level to avoid circular dep
+// (referenceList ← index.ts ← markdown.ts would be circular).
+import { buildHaluLink, LINK_RE, normalizeHaluLinks } from "./markdown";
+import { titleToWikiSegment } from "./slug";
+
 /**
- * Render the reference list into a markdown "References" section.
- *
- * This is the ONLY supported way to render references into an article body.
- * The output is generated deterministically from the entry slugs — no LLM
- * is ever involved. Because each link is built from a known-valid slug
- * (`[Title](halu:slug)`), the produced section is guaranteed well-formed
- * and the link-repair pass should skip it entirely.
+ * Build a slug → 1-based-index map so `renderMarkdown` can inject footnote
+ * superscripts next to explicit `ref:` links.
  */
-export function renderReferencesSection(refs: ReferenceList): string {
+export function buildRefSlugIndex(refs: ReferenceList): ReadonlyMap<string, number> {
+  const map = new Map<string, number>();
+  refs.forEach((entry, i) => map.set(entry.slug, i + 1));
+  return map;
+}
+
+/**
+ * Render the reference list as an HTML `<section>` with numbered items and
+ * anchor IDs so the `[N]` footnote superscripts in the body can link here.
+ *
+ * Returns empty string when the list is empty.
+ */
+export function renderReferencesHtml(refs: ReferenceList): string {
   if (refs.length === 0) return "";
-  const lines = refs.map(
-    (entry) => `* [${entry.title}](halu:${entry.slug})`,
-  );
-  return `## References\n\n${lines.join("\n")}`;
+  const items = refs
+    .map((entry, i) => {
+      const n = i + 1;
+      const wikiPath = `/wiki/${titleToWikiSegment(entry.title)}`;
+      return `<li id="ref-${n}"><a href="${wikiPath}">${entry.title}</a></li>`;
+    })
+    .join("");
+  return `<section class="article-references"><h2>References</h2><ol>${items}</ol></section>`;
 }
 
 /**
@@ -330,29 +341,138 @@ export function formatReferencesForPrompt(refs: ReferenceList): string {
 const REF_LINK_RE = /\[([^\]]*)\]\(ref:([^)]+)\)/g;
 
 /**
- * Resolve `ref:N` link shorthand in article body markdown.
+ * Resolve `ref:N` link shorthand in article body markdown into durable
+ * slug-addressed reference links.
  *
  * The LLM may emit `[text](ref:1)` (by index) or `[](ref:some-slug)`.
  * At parse time we also tolerate slugs in the N position for robustness.
- * Result is a well-formed `halu:slug` link using the resolved reference.
+ * Result is a well-formed `ref:slug` link using the resolved reference.
  *
- * Must run on body-only markdown BEFORE the References section is appended.
+ * Must run on body-only markdown before sidecar references are rendered.
  * Unknown/out-of-range ref targets are left as-is so they surface during QA.
  */
 export function resolveRefLinks(body: string, refs: ReferenceList): string {
   if (refs.length === 0 || !body.includes("ref:")) return body;
   return body.replace(REF_LINK_RE, (match, visibleText: string, target: string) => {
-    let ref: ReferenceListEntry | undefined;
-    const num = parseInt(target, 10);
-    if (!isNaN(num) && num >= 1 && num <= refs.length) {
-      ref = refs[num - 1];
-    } else {
-      // Tolerate slug in the N position.
-      const normalized = target.replace(/\s+/g, "-").toLowerCase();
-      ref = refs.find((r) => r.slug === normalized);
-    }
+    const ref = resolveReferenceTarget(target, refs);
     if (!ref) return match;
     const label = visibleText.trim() || ref.title;
-    return `[${label}](halu:${ref.slug} "${ref.title}")`;
+    return `[${label}](ref:${ref.slug})`;
   });
+}
+
+export function resolveReferenceTarget(
+  target: string,
+  refs: ReferenceList,
+): ReferenceListEntry | undefined {
+  const trimmed = target.trim();
+  const num = parseInt(trimmed, 10);
+  if (!Number.isNaN(num) && String(num) === trimmed && num >= 1 && num <= refs.length) {
+    return refs[num - 1];
+  }
+  const normalized = slugify(trimmed);
+  return refs.find((r) => r.slug === normalized);
+}
+
+/**
+ * Scan body markdown for syntactically valid halu links whose target already
+ * exists. Those links are references, not new hallucinated links, so save
+ * flows add them to the reference sidecar and convert the body link to
+ * `ref:slug`.
+ */
+export function findExistingArticleLinkReferences(
+  db: DatabaseSync,
+  body: string,
+  selfSlug: string,
+): ReferenceList {
+  const normalizedSelf = slugify(selfSlug);
+  const seen = new Set<string>();
+  const refs: ReferenceList = [];
+  const normalizedBody = normalizeHaluLinks(body);
+  const pattern = new RegExp(LINK_RE.source, LINK_RE.flags);
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(normalizedBody)) !== null) {
+    const slug = slugify(match[2]);
+    if (!slug || slug === normalizedSelf || seen.has(slug)) continue;
+    const article = getArticleByLookup(db, slug);
+    if (!article) continue;
+    seen.add(article.slug);
+    refs.push({
+      slug: article.slug,
+      title: article.title,
+      content: article.summaryMarkdown ?? "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    });
+  }
+  return refs;
+}
+
+function articleToReferenceEntry(
+  article: ReturnType<typeof getArticleByLookup>,
+): ReferenceListEntry | null {
+  if (!article) return null;
+  return {
+    slug: article.slug,
+    title: article.title,
+    content: article.summaryMarkdown ?? "",
+    kind: "summary",
+    pinned: false,
+    revisionId: "current",
+  };
+}
+
+/**
+ * Find all article references that are actually used by body markdown:
+ * durable `ref:slug` links plus `halu:` links that already point at stored
+ * articles. This is read-only and does not invoke retrieval or an LLM.
+ */
+export function findBodyReferencedArticles(
+  db: DatabaseSync,
+  body: string,
+  selfSlug: string,
+): ReferenceList {
+  const normalizedSelf = slugify(selfSlug);
+  const bySlug = new Map<string, ReferenceListEntry>();
+
+  for (const ref of findExistingArticleLinkReferences(db, body, selfSlug)) {
+    bySlug.set(ref.slug, ref);
+  }
+
+  if (body.includes("ref:")) {
+    let match: RegExpExecArray | null;
+    const pattern = new RegExp(REF_LINK_RE.source, REF_LINK_RE.flags);
+    while ((match = pattern.exec(body)) !== null) {
+      const slug = slugify(match[2]);
+      if (!slug || slug === normalizedSelf || bySlug.has(slug)) continue;
+      const ref = articleToReferenceEntry(getArticleByLookup(db, slug));
+      if (ref) bySlug.set(ref.slug, ref);
+    }
+  }
+
+  return Array.from(bySlug.values());
+}
+
+/**
+ * Convert valid halu links to existing database articles into durable
+ * reference links. Non-existing halu targets remain halu links so they can
+ * continue to act as new article seeds.
+ */
+export function convertExistingArticleLinksToRefs(
+  db: DatabaseSync,
+  body: string,
+  selfSlug: string,
+): string {
+  const normalizedSelf = slugify(selfSlug);
+  return normalizeHaluLinks(body).replace(
+    LINK_RE,
+    (match, visibleLabel: string, rawSlug: string, hint: string) => {
+      const slug = slugify(rawSlug);
+      if (!slug || slug === normalizedSelf) return match;
+      const article = getArticleByLookup(db, slug);
+      if (!article) return buildHaluLink(visibleLabel, slug, hint ?? "");
+      return `[${visibleLabel.trim() || article.title}](ref:${article.slug})`;
+    },
+  );
 }

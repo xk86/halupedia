@@ -129,7 +129,7 @@ export function assertBodyHasNoMetadata(
   body: string,
   context: { slug?: string } = {},
 ): void {
-  if (/^##\s+(references|see also)\s*$/im.test(body)) {
+  if (/^#{2,6}\s+(references|see also):?\s*#*\s*$/im.test(body)) {
     const where = context.slug ? ` (slug=${context.slug})` : "";
     throw new Error(
       `Article body${where} contains a References or See also section. ` +
@@ -203,8 +203,8 @@ export function stripBodyMetadataSections(markdown: string): string {
  * between body and metadata is obvious in the wire format.
  */
 // Wire shape. `body` is metadata-free markdown; `html` is the server-rendered
-// combined view (body + algorithmic References + algorithmic See also) and is
-// what the client displays directly. `metadata.*` is the structured sidecar
+// combined view (body + sidecar-rendered References + sidecar-rendered See
+// also) and is what the client displays directly. `metadata.*` is the structured sidecar
 // the editor consumes (refs list with pin toggle, etc.). Clients MUST NOT
 // parse references back out of `body` or `html`.
 export interface ReferenceResponseEntry {
@@ -212,6 +212,17 @@ export interface ReferenceResponseEntry {
   title: string;
   kind: ReferenceListEntry["kind"];
   pinned: boolean;
+}
+
+export interface ReferenceStatusEntry {
+  slug: string;
+  title: string;
+}
+
+export interface ReferenceStatus {
+  missing: ReferenceStatusEntry[];
+  unformatted: ReferenceStatusEntry[];
+  hasReferencesSection: boolean;
 }
 
 export interface ArticleResponse {
@@ -244,9 +255,9 @@ export interface ArticleResponse {
   generated_at: number;
 }
 
-// Caller supplies pre-rendered HTML and the legacy full-markdown form
-// (body + metadata sections) so deprecated aliases can ship alongside the
-// typed fields without leaking the renderer into this module.
+// Caller supplies pre-rendered HTML and the legacy markdown projection so
+// deprecated aliases can ship alongside the typed fields without leaking the
+// renderer into this module.
 export function articleToResponse(
   article: Article,
   html: string,

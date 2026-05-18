@@ -257,6 +257,20 @@ const defaultLinkOpen =
   ((tokens, idx, options, _env, self) =>
     self.renderToken(tokens, idx, options));
 
+const defaultLinkClose =
+  md.renderer.rules.link_close ??
+  ((tokens, idx, options, _env, self) =>
+    self.renderToken(tokens, idx, options));
+
+// Typed env structure used by renderMarkdown. Using interface merging via any
+// at call sites is fine because markdown-it types env as unknown.
+interface RenderEnv {
+  /** slug → 1-based reference index. Set by renderMarkdown callers. */
+  refSlugToIndex?: ReadonlyMap<string, number>;
+  /** Tracks ref index for the currently-open ref link; cleared on link_close. */
+  _currentRefN?: number | null;
+}
+
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const hrefIndex = tokens[idx].attrIndex("href");
   const titleIndex = tokens[idx].attrIndex("title");
@@ -265,14 +279,27 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   if (href.startsWith("#")) {
     return defaultLinkOpen(tokens, idx, options, env, self);
   }
-  // Allow /wiki/ internal paths through (e.g. DYK title links).
   if (href.startsWith("/wiki/")) {
     if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
     return defaultLinkOpen(tokens, idx, options, env, self);
   }
   if (!href.startsWith("halu:")) {
-    // Non-internal, non-halu link: collapse to dead "#" so we never expose
-    // external URLs through the rendered HTML.
+    if (href.startsWith("ref:")) {
+      const rawTarget = href.slice("ref:".length);
+      const refSlug = slugify(rawTarget);
+      const renv = env as RenderEnv | undefined;
+      const refN = renv?.refSlugToIndex?.get(refSlug);
+      if (refN == null) {
+        tokens[idx].attrSet("href", "#");
+        if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
+        return defaultLinkOpen(tokens, idx, options, env, self);
+      }
+      tokens[idx].attrSet("href", `/wiki/${titleToWikiSegment(slugToTitle(refSlug))}`);
+      tokens[idx].attrSet("class", "ref-link");
+      if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
+      if (renv) renv._currentRefN = refN;
+      return defaultLinkOpen(tokens, idx, options, env, self);
+    }
     tokens[idx].attrSet("href", "#");
     if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
     return defaultLinkOpen(tokens, idx, options, env, self);
@@ -288,12 +315,30 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
       visibleText += tokens[i].content;
     }
   }
+
+  // Extract slug from "halu:slug" or "halu:slug hint" form.
+  const rawSlug = href.slice("halu:".length).split(/["' ]/)[0];
+  const resolvedSlug = slugify(rawSlug);
+
   const wikiPath = visibleText.trim()
     ? `/wiki/${titleToWikiSegment(visibleText.trim())}`
-    : `/wiki/${titleToWikiSegment(slugToTitle(slugify(href.slice("halu:".length))))}`;
+    : `/wiki/${titleToWikiSegment(slugToTitle(resolvedSlug))}`;
   tokens[idx].attrSet("href", wikiPath);
   if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
+
   return defaultLinkOpen(tokens, idx, options, env, self);
+};
+
+// Appends "[N]" footnote superscript after the closing </a> for explicit ref links.
+md.renderer.rules.link_close = (tokens, idx, options, env, self) => {
+  const renv = env as RenderEnv | undefined;
+  const n = renv?._currentRefN ?? null;
+  if (renv) renv._currentRefN = null;
+  const closing = defaultLinkClose(tokens, idx, options, env, self);
+  if (n != null) {
+    return `${closing}<a href="#ref-${n}" class="ref-num"><sup>[${n}]</sup></a>`;
+  }
+  return closing;
 };
 
 export function normalizeMarkdown(input: string): string {
@@ -357,7 +402,7 @@ export function extractInternalLinks(markdown: string): ParsedInternalLink[] {
 }
 
 function normalizeHeadingLabel(heading: string): string {
-  return heading.trim().toLowerCase();
+  return heading.replace(/:+\s*$/, "").trim().toLowerCase();
 }
 
 export function stripTopLevelSections(
@@ -370,7 +415,7 @@ export function stripTopLevelSections(
   let skipping = false;
 
   for (const line of lines) {
-    const headingMatch = line.match(/^##\s+(.+?)\s*$/);
+    const headingMatch = line.match(/^#{2,6}\s+(.+?)\s*#*\s*$/);
     if (headingMatch) {
       const heading = normalizeHeadingLabel(headingMatch[1]);
       if (targetHeadings.has(heading)) {
@@ -409,8 +454,15 @@ export function sectionSlice(markdown: string, heading: string): string {
   return (nextHeading ? rest.slice(0, nextHeading.index) : rest).trim();
 }
 
-export function renderMarkdown(markdown: string): string {
-  return md.render(normalizeHaluLinks(markdown));
+export function renderMarkdown(
+  markdown: string,
+  opts?: { refSlugToIndex?: ReadonlyMap<string, number> },
+): string {
+  const env: RenderEnv = {
+    refSlugToIndex: opts?.refSlugToIndex,
+    _currentRefN: null,
+  };
+  return md.render(normalizeHaluLinks(markdown), env);
 }
 
 export function summaryMarkdownFromArticle(markdown: string): string {

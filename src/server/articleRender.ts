@@ -1,12 +1,14 @@
-// In-memory cache of rendered article HTML (body + algorithmic metadata).
-//
-// Rendering happens at the call site (needs access to rewriteArticleHtml,
-// which is tied to the running app's DB). This module just stores the
-// result keyed by slug+generatedAt so we can serve repeats without
-// re-rendering. Never persisted; cleared on server restart.
+// In-memory render cache keyed by slug+generatedAt.
+// Rendering is split: body renders with ref-footnote awareness, refs render
+// as HTML (not markdown) to get anchor IDs, see-also renders from sidecar metadata.
 
 import type { Article } from "./article";
-import { renderReferencesSection } from "./referenceList";
+import { renderMarkdown } from "./markdown";
+import {
+  buildRefSlugIndex,
+  renderReferencesHtml,
+  resolveRefLinks,
+} from "./referenceList";
 import type { SeeAlsoList } from "./article";
 
 interface CacheEntry {
@@ -15,8 +17,8 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 
-// Algorithmic see-also section — same contract as references: deterministic
-// markdown links built from validated slugs only, no LLM.
+// Algorithmic see-also section (markdown). Same contract as references:
+// deterministic halu links, never LLM-generated.
 export function renderSeeAlsoSection(seeAlso: SeeAlsoList): string {
   if (seeAlso.length === 0) return "";
   const lines = seeAlso.map((entry) => {
@@ -26,33 +28,46 @@ export function renderSeeAlsoSection(seeAlso: SeeAlsoList): string {
   return `## See also\n\n${lines.join("\n")}`;
 }
 
-// Combine body + refs + see-also into a single markdown string. Body MUST
-// already be metadata-free (Article.body contract).
+/**
+ * Assemble the legacy markdown projection. Metadata stays sidecar-only and is
+ * rendered for display from Article.metadata.
+ */
 export function assembleArticleMarkdownForRender(article: Article): string {
-  const refs = renderReferencesSection(article.metadata.references);
-  const seeAlso = renderSeeAlsoSection(article.metadata.seeAlso);
-  return [article.body.trim(), refs, seeAlso].filter(Boolean).join("\n\n");
+  return resolveRefLinks(article.body, article.metadata.references).trim();
 }
 
-// Look up cached HTML for this slug/generatedAt pair; miss => undefined so
-// the caller can render and call rememberArticleHtml.
-export function getCachedArticleHtml(
-  slug: string,
-  generatedAt: number,
-): string | undefined {
+/**
+ * Render display HTML for an article.
+ *
+ * Three-part output, each rendered differently:
+ *   1. Body: markdown rendered with refSlugToIndex so explicit ref links get
+ *      Wikipedia-style footnote superscripts.
+ *   2. References: HTML <ol> with #ref-N anchor IDs (not markdown, because
+ *      markdown can't express id attributes).
+ *   3. See also: sidecar metadata rendered as markdown.
+ *
+ * Returns combined HTML string; not HTML-escaped (safe because renderMarkdown
+ * is trusted and references/see-also come from validated-slug lists).
+ */
+export function renderArticleDisplayHtml(article: Article): string {
+  const refSlugToIndex = buildRefSlugIndex(article.metadata.references);
+  const body = resolveRefLinks(article.body, article.metadata.references);
+  const bodyHtml = renderMarkdown(body, { refSlugToIndex });
+  const refsHtml = renderReferencesHtml(article.metadata.references);
+  const seeAlsoMd = renderSeeAlsoSection(article.metadata.seeAlso);
+  const seeAlsoHtml = seeAlsoMd ? renderMarkdown(seeAlsoMd) : "";
+  return [bodyHtml, refsHtml, seeAlsoHtml].filter(Boolean).join("\n");
+}
+
+export function getCachedArticleHtml(slug: string, generatedAt: number): string | undefined {
   const entry = cache.get(slug);
   return entry && entry.generatedAt === generatedAt ? entry.html : undefined;
 }
 
-export function rememberArticleHtml(
-  slug: string,
-  generatedAt: number,
-  html: string,
-): void {
+export function rememberArticleHtml(slug: string, generatedAt: number, html: string): void {
   cache.set(slug, { html, generatedAt });
 }
 
-// Drop cached render for this slug. Call on every write to body/refs/see-also.
 export function invalidateArticleHtml(slug: string): void {
   cache.delete(slug);
 }

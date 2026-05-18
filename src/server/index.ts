@@ -91,18 +91,22 @@ import type {
 } from "./types";
 import {
   buildReferenceList,
+  convertExistingArticleLinksToRefs,
+  findBodyReferencedArticles,
+  findExistingArticleLinkReferences,
   formatReferencesForPrompt,
   loadPriorReferenceList,
-  renderReferencesSection,
   resolveRefLinks,
 } from "./referenceList";
 import {
   loadArticle,
   articleToResponse,
   type ArticleResponse,
+  type ReferenceStatus,
 } from "./article";
 import {
   assembleArticleMarkdownForRender,
+  renderArticleDisplayHtml,
   getCachedArticleHtml,
   rememberArticleHtml,
   invalidateArticleHtml,
@@ -270,14 +274,6 @@ export function summarizeRetrievedSource(article: {
   content: string;
 }): string {
   return normalizeArticleSnippet(article.content);
-}
-
-function buildReferenceLine(candidate: InternalArticleCandidate): string {
-  return `- ${buildHaluLink(candidate.title, candidate.slug, candidate.hiddenHint)}`;
-}
-
-function buildSeeAlsoLine(candidate: InternalArticleCandidate): string {
-  return `- ${buildHaluLink(candidate.title, candidate.slug, candidate.hiddenHint)}`;
 }
 
 function hintsToSearchStrings(hints: IncomingHint[]): string[] {
@@ -700,25 +696,6 @@ function extractSelectionExcerpt(
   return source.slice(start, end).trim();
 }
 
-function assembleArticleMarkdown(
-  bodyMarkdown: string,
-  references: InternalArticleCandidate[],
-  seeAlso: InternalArticleCandidate[],
-): string {
-  const sections = [bodyMarkdown.trim()];
-  if (references.length) {
-    sections.push(
-      `## References\n\n${references.map(buildReferenceLine).join("\n")}`,
-    );
-  }
-  if (seeAlso.length) {
-    sections.push(
-      `## See also\n\n${seeAlso.map(buildSeeAlsoLine).join("\n")}`,
-    );
-  }
-  return sections.filter(Boolean).join("\n\n").trim();
-}
-
 function replaceTopLevelTomlValue(
   source: string,
   key: "model" | "thinking",
@@ -860,10 +837,7 @@ async function recheckArticleLinks(
  *
  * **Contract**: the caller MUST pass body-only markdown — i.e. a string that
  * does NOT contain the algorithmically-rendered "References" or "See also"
- * sections. Those sections are constructed from validated slugs by
- * `renderReferencesSection` / `buildSeeAlsoLine` and are guaranteed
- * well-formed; passing them through here would let the LLM rewrite link
- * labels that are known-correct (see referenceList.ts).
+ * sections. References and see-also live only in sidecar metadata.
  *
  * If a References or See also heading is detected anywhere in the input,
  * this function logs an error and returns the input unchanged rather than
@@ -881,7 +855,7 @@ async function repairMalformedHaluLinks(
   // Hard guard: this function is body-only. Refuse to operate on input that
   // still contains metadata sections — they are algorithmically generated
   // from validated slugs and must never be rewritten by the LLM.
-  if (/^##\s+(references|see also)\s*$/im.test(markdown)) {
+  if (/^#{2,6}\s+(references|see also):?\s*#*\s*$/im.test(markdown)) {
     logger.error("link_repair.refused_metadata_in_input", {
       slug: contextSlug ?? "(unknown)",
       reason:
@@ -989,7 +963,7 @@ async function generateArticleSummary(
         parent_comment: "",
         selected_text: "",
         edit_instructions: "",
-        full_article: articleMarkdown.slice(0, 12000),
+        full_article: currentArticle,
       }),
       { thinking: prompt.thinking },
     );
@@ -1606,9 +1580,11 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   // Build the canonical ArticleResponse for a slug. Hydrates sidecar metadata
-  // (references + see-also), renders combined HTML (body + algorithmic refs +
-  // algorithmic see-also), caches the render. Returns null on unknown slug.
+  // (references + see-also), renders combined HTML (body + sidecar refs +
+  // sidecar see-also), caches the render. Returns null on unknown slug.
   function buildArticleResponseFor(slug: string): ArticleResponse | null {
+    const record = getArticleByLookup(db, slug);
+    if (!record) return null;
     const article = loadArticle(db, slug);
     if (!article) return null;
     const combined = assembleArticleMarkdownForRender(article);
@@ -1617,13 +1593,42 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (cached) {
       html = cached;
     } else {
-      const rendered = renderMarkdown(combined);
+      const rendered = renderArticleDisplayHtml(article);
       const links = extractInternalLinks(combined);
       html = rewriteArticleHtml(rendered, links);
       rememberArticleHtml(article.slug, article.generatedAt, html);
     }
-    // `combined` is the legacy full-markdown shape (body + refs + see-also).
+    // `combined` is the legacy markdown projection: body with ref links
+    // resolved, while references and see-also stay in sidecar metadata.
     return articleToResponse(article, html, combined);
+  }
+
+  function buildReferenceStatus(
+    response: ArticleResponse,
+    rawMarkdown: string,
+  ): ReferenceStatus {
+    const listed = new Set(
+      response.metadata.references.map((ref) => slugify(ref.slug)),
+    );
+    const bodyRefs = findBodyReferencedArticles(
+      db,
+      response.body,
+      response.slug,
+    );
+    const legacyHaluRefs = findExistingArticleLinkReferences(
+      db,
+      response.body,
+      response.slug,
+    );
+    return {
+      missing: bodyRefs
+        .filter((ref) => !listed.has(ref.slug))
+        .map((ref) => ({ slug: ref.slug, title: ref.title })),
+      unformatted: legacyHaluRefs
+        .filter((ref) => listed.has(ref.slug))
+        .map((ref) => ({ slug: ref.slug, title: ref.title })),
+      hasReferencesSection: sectionSlice(rawMarkdown, "References") != null,
+    };
   }
 
   // Build the full /api/page-style payload around an ArticleResponse.
@@ -1639,8 +1644,13 @@ export async function createApp(options: CreateAppOptions = {}) {
       refreshChanged?: boolean;
     },
   ) {
+    const rawRecord = getArticleByLookup(db, response.slug);
     return {
       cached: opts.cached,
+      referenceStatus: buildReferenceStatus(
+        response,
+        rawRecord?.markdown ?? response.body,
+      ),
       redirectedFrom:
         opts.canonicalPath && opts.requestedPath &&
         opts.canonicalPath !== opts.requestedPath
@@ -1679,12 +1689,11 @@ export async function createApp(options: CreateAppOptions = {}) {
    * Save an article + its reference list immediately, without LLM calls.
    *
    * The reference list is constructed via `buildReferenceList` from validated
-   * slugs only — never produced or modified by an LLM. The "References"
-   * section in the saved markdown is rendered algorithmically.
+   * slugs only — never produced or modified by an LLM. References are stored
+   * as sidecar metadata and rendered only for display.
    *
    * Any References/See-also sections present in the LLM body are stripped
-   * defensively, because metadata is owned by `buildReferenceList` /
-   * `renderReferencesSection`, not the body.
+   * defensively, because metadata is owned by sidecar tables, not the body.
    */
   // userAdditions: slugs that survive pruning for this save (user-selected).
   // blacklistSlugs: slugs explicitly removed by the user; never included.
@@ -1698,29 +1707,42 @@ export async function createApp(options: CreateAppOptions = {}) {
       instructions?: string;
       revertedFromRevisionId?: number | null;
     } = {},
-    { userAdditionSlugs = [], blacklistSlugs = [] }: {
+    { userAdditionSlugs = [], blacklistSlugs = [], scrapeExistingBodyLinks = true }: {
       userAdditionSlugs?: string[];
       blacklistSlugs?: string[];
+      scrapeExistingBodyLinks?: boolean;
     } = {},
   ) {
     const { canonicalTitle, canonicalSlug, displayTitle } =
       deriveArticleIdentity(bodyMarkdown, requestedTitle, slug);
 
     // (a) Strip any References/See-also the LLM produced; those are metadata,
-    //     not body, and are owned by buildReferenceList/renderReferencesSection.
+    //     not body, and are owned by sidecar tables.
     const sanitizedBody = stripTopLevelSections(bodyMarkdown, [
       "References",
       "See also",
     ]);
-    const normalizedBodyMarkdown = rewriteArticleTitleHeading(
+    let normalizedBodyMarkdown = rewriteArticleTitleHeading(
       sanitizedBody,
       canonicalTitle,
     );
 
     // (b) Build the canonical reference list from validated sources.
-    const userAdditions = slugsToUserAdditions(
+    const existingBodyReferences = scrapeExistingBodyLinks
+      ? findExistingArticleLinkReferences(
+          db,
+          normalizedBodyMarkdown,
+          canonicalSlug,
+        )
+      : [];
+    const explicitUserAdditions = slugsToUserAdditions(
       userAdditionSlugs.map((s) => slugify(s)).filter(Boolean),
     );
+    const userAdditionsBySlug = new Map<string, ReferenceListEntry>();
+    for (const ref of [...explicitUserAdditions, ...existingBodyReferences]) {
+      userAdditionsBySlug.set(ref.slug, ref);
+    }
+    const userAdditions = Array.from(userAdditionsBySlug.values());
 
     const referenceList = buildReferenceList(
       db,
@@ -1736,12 +1758,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
     );
 
-    // (c) Render references algorithmically — no LLM involvement here.
-    const referencesSection = renderReferencesSection(referenceList);
-    const assembled = referencesSection
-      ? `${normalizedBodyMarkdown.trim()}\n\n${referencesSection}`
-      : normalizedBodyMarkdown.trim();
-    const markdown = stripSelfLinks(assembled, canonicalSlug);
+    normalizedBodyMarkdown = resolveRefLinks(
+      normalizedBodyMarkdown,
+      referenceList,
+    );
+    if (scrapeExistingBodyLinks) {
+      normalizedBodyMarkdown = convertExistingArticleLinksToRefs(
+        db,
+        normalizedBodyMarkdown,
+        canonicalSlug,
+      );
+    }
+
+    const markdown = stripSelfLinks(normalizedBodyMarkdown.trim(), canonicalSlug);
 
     const article = {
       slug: canonicalSlug,
@@ -1860,13 +1889,18 @@ export async function createApp(options: CreateAppOptions = {}) {
       // Re-resolve the reference list from the now-persisted state so the
       // post-processed body uses the same list (and any user pins) as the
       // initial save. References are algorithmically rendered — no LLM.
+      const existingBodyReferences = findExistingArticleLinkReferences(
+        db,
+        repairedBodyMarkdown,
+        normalizedSlug,
+      );
       const referenceList = buildReferenceList(
         db,
         {
           articleSlug: normalizedSlug,
           ragSources: retrieved.sourceArticles,
           priorReferences: loadPriorReferenceList(db, normalizedSlug),
-          userAdditions: [],
+          userAdditions: existingBodyReferences,
           blacklistSlugs,
           revisionId: "current",
           config: runtime.app.rag,
@@ -1887,22 +1921,15 @@ export async function createApp(options: CreateAppOptions = {}) {
         see_also_count: seeAlso.length,
       });
 
-      // Assemble: body (repaired) + References (algorithmic) + See also (LLM).
-      // The body is fully sanitised at this point — repair pass refuses to
-      // touch metadata, and buildReferenceList only emits validated slugs.
-      const referencesSection = renderReferencesSection(referenceList);
-      const seeAlsoSection =
-        seeAlso.length > 0
-          ? `## See also\n\n${seeAlso.map(buildSeeAlsoLine).join("\n")}`
-          : "";
-      const assembled = [
-        repairedBodyMarkdown.trim(),
-        referencesSection,
-        seeAlsoSection,
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-      const markdown = stripSelfLinks(assembled, slug);
+      // Assemble body only. References and see-also stay sidecar-only metadata
+      // and are rendered from their sidecar tables, never baked into article
+      // markdown.
+      const bodyWithReferenceLinks = convertExistingArticleLinksToRefs(
+        db,
+        resolveRefLinks(repairedBodyMarkdown, referenceList),
+        normalizedSlug,
+      );
+      const markdown = stripSelfLinks(bodyWithReferenceLinks.trim(), slug);
       logger.debug("post_process.markdown_assembled", {
         slug: normalizedSlug,
         markdown_length: markdown.length,
@@ -1950,8 +1977,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
       // Persist see-also to its dedicated sidecar table. This makes see-also
       // accessible as structured metadata (Article.metadata.seeAlso) without
-      // needing to re-parse the body markdown. The baked-in section in
-      // `markdown` above is kept for transitional rendering only.
+      // needing to re-parse or mutate body markdown.
       saveArticleSeeAlso(
         db,
         normalizedSlug,
@@ -2673,11 +2699,15 @@ export async function createApp(options: CreateAppOptions = {}) {
     const sectionId = (body.sectionId ?? "").trim();
     // Send the actual markdown slice (not the client plain text) so the LLM
     // sees proper markdown syntax and can return well-formed replacement markdown.
+    const articleBodyOnly = stripTopLevelSections(article.markdown, [
+      "References",
+      "See also",
+    ]);
     const selectedSection = selectionRange
       ? article.markdown.slice(selectionRange.start, selectionRange.end)
       : sectionId
         ? articleSectionMarkdown(article.markdown, sectionId)
-        : article.markdown;
+        : articleBodyOnly;
 
     const ragEnabled = body.ragEnabled === true;
     const ragQuery = (body.ragQuery ?? "")
@@ -2833,7 +2863,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       requested_title: article.title,
       edit_instructions: selectionEditInstructions,
       current_article: selectedSection,
-      full_article: selectionRange ? article.markdown : article.markdown,
+      full_article: articleBodyOnly,
       link_hints: formatIncomingHintsForPrompt(hints, article.slug),
       references_list: formatReferencesForPrompt(rewritePromptRefs),
       rag_context: retrieved.context || "(none)",
@@ -2901,19 +2931,42 @@ export async function createApp(options: CreateAppOptions = {}) {
           nextMarkdown,
           retrieved,
           { operation: operationName, instructions },
-          { userAdditionSlugs: explicitSlugs, blacklistSlugs },
+          {
+            userAdditionSlugs: explicitSlugs,
+            blacklistSlugs,
+            scrapeExistingBodyLinks: !selectionRange && !sectionId,
+          },
         );
-        trackGeneration(
-          postProcessArticle(
-            updatedArticle.slug,
-            normalizedTitle,
-            normalizedBodyMarkdown,
-            retrieved,
-            hints,
-            updatedArticle.generated_at,
-            { blacklistSlugs },
-          ).catch(() => {}),
-        );
+        if (selectionRange || sectionId) {
+          trackGeneration(
+            indexArticleChunks(
+              db,
+              llm,
+              updatedArticle.slug,
+              updatedArticle.markdown,
+              runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
+              runtime.app.rag.chunk_size,
+              logger,
+            ).catch((error) => {
+              logger.warn("page.index_failed", {
+                slug: updatedArticle.slug,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }),
+          );
+        } else {
+          trackGeneration(
+            postProcessArticle(
+              updatedArticle.slug,
+              normalizedTitle,
+              normalizedBodyMarkdown,
+              retrieved,
+              hints,
+              updatedArticle.generated_at,
+              { blacklistSlugs },
+            ).catch(() => {}),
+          );
+        }
         invalidateArticleHtml(updatedArticle.slug);
         const response = buildArticleResponseFor(updatedArticle.slug);
         if (!response) {
@@ -3085,6 +3138,23 @@ export async function createApp(options: CreateAppOptions = {}) {
       "References",
       "See also",
     ]);
+    const currentArticleReferences = findExistingArticleLinkReferences(
+      db,
+      article.markdown,
+      article.slug,
+    );
+    const refreshPromptRefs = buildReferenceList(
+      db,
+      {
+        articleSlug: article.slug,
+        ragSources: retrieved.sourceArticles,
+        priorReferences: loadPriorReferenceList(db, article.slug),
+        userAdditions: currentArticleReferences,
+        revisionId: "current",
+        config: runtime.app.rag,
+      },
+      logger,
+    );
     let bodyMarkdown = currentBodyMarkdown;
     let operation = "refresh-context";
     let instructions = "Refreshed retrieved context and derived references.";
@@ -3103,6 +3173,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           requested_title: article.title,
           current_article: currentBodyMarkdown,
           link_hints: formatIncomingHintsForPrompt(hints, article.slug),
+          references_list: formatReferencesForPrompt(refreshPromptRefs),
           rag_context: retrieved.context || "(none)",
           related_titles: retrieved.relatedTitles.length
             ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
@@ -3129,6 +3200,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     // the body — this corrects whitespace, heading levels, and stray artifacts
     // from prior edits even on a context-only refresh.
     bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(bodyMarkdown));
+    bodyMarkdown = resolveRefLinks(bodyMarkdown, refreshPromptRefs);
     const {
       article: updatedArticle,
       normalizedTitle,
@@ -3139,6 +3211,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       bodyMarkdown,
       retrieved,
       { operation, instructions },
+      { userAdditionSlugs: refreshPromptRefs.map((ref) => ref.slug) },
     );
     trackGeneration(
       postProcessArticle(

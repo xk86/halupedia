@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle, saveHomepageCache } from "../src/server/db";
+import { openDatabase, saveArticle, saveArticleReferences, saveHomepageCache } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmClient } from "../src/server/llm";
@@ -413,6 +413,177 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.cached, true);
+    assert.equal(llm.chatCalls, 0);
+    assert.equal(llm.streamCalls, 0);
+    assert.equal(llm.embedCalls, 0);
+  });
+
+  await t.test("cached article reports body references missing from metadata without LLM work", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-ref-status-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const databasePath = join(root, TEST_CONFIG.database_path);
+    const db = openDatabase(databasePath);
+    const sourceMarkdown = "# Source Article\n\nA stored source article.";
+    saveArticle(
+      db,
+      {
+        slug: "source-article",
+        canonicalSlug: "source-article",
+        title: "Source Article",
+        markdown: sourceMarkdown,
+        html: renderMarkdown(sourceMarkdown),
+        plain_text: markdownToPlainText(sourceMarkdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["source-article"],
+    );
+    const articleMarkdown = "# Target Article\n\nBody cites [source material](ref:source-article).";
+    saveArticle(
+      db,
+      {
+        slug: "target-article",
+        canonicalSlug: "target-article",
+        title: "Target Article",
+        markdown: articleMarkdown,
+        html: renderMarkdown(articleMarkdown),
+        plain_text: markdownToPlainText(articleMarkdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["target-article"],
+    );
+    db.close();
+
+    const llm = new CountingLlmClient();
+    const cachedServer = await createServerForDatabase(root, databasePath, { llmClient: llm });
+
+    const res = await cachedServer.request("/api/page/Target_Article");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(
+      body.referenceStatus.missing.map((entry: { slug: string }) => entry.slug),
+      ["source-article"],
+    );
+    assert.equal(llm.chatCalls, 0);
+    assert.equal(llm.streamCalls, 0);
+    assert.equal(llm.embedCalls, 0);
+  });
+
+  await t.test("cached article reports listed references that still use legacy halu links", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-ref-format-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const databasePath = join(root, TEST_CONFIG.database_path);
+    const db = openDatabase(databasePath);
+    const now = Date.now();
+    const sourceMarkdown = "# Source Article\n\nA stored source article.";
+    saveArticle(
+      db,
+      {
+        slug: "source-article",
+        canonicalSlug: "source-article",
+        title: "Source Article",
+        markdown: sourceMarkdown,
+        html: renderMarkdown(sourceMarkdown),
+        plain_text: markdownToPlainText(sourceMarkdown),
+        generated_at: now,
+      },
+      [],
+      ["source-article"],
+    );
+    const articleMarkdown = '# Target Article\n\nBody cites [Source Article](halu:source-article "source").';
+    saveArticle(
+      db,
+      {
+        slug: "target-article",
+        canonicalSlug: "target-article",
+        title: "Target Article",
+        markdown: articleMarkdown,
+        html: renderMarkdown(articleMarkdown),
+        plain_text: markdownToPlainText(articleMarkdown),
+        generated_at: now + 1,
+      },
+      [{ targetSlug: "source-article", visibleLabel: "Source Article", hiddenHint: "source" }],
+      ["target-article"],
+    );
+    saveArticleReferences(db, "target-article", now + 1, [
+      {
+        slug: "source-article",
+        title: "Source Article",
+        content: "",
+        kind: "summary",
+        pinned: false,
+        revisionId: "current",
+      },
+    ]);
+    db.close();
+
+    const llm = new CountingLlmClient();
+    const cachedServer = await createServerForDatabase(root, databasePath, { llmClient: llm });
+
+    const res = await cachedServer.request("/api/page/Target_Article");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(
+      body.referenceStatus.unformatted.map((entry: { slug: string }) => entry.slug),
+      ["source-article"],
+    );
+    assert.equal(llm.chatCalls, 0);
+    assert.equal(llm.streamCalls, 0);
+  });
+
+  await t.test("cached article reports an inline References section as refreshable without LLM work", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-ref-section-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const databasePath = join(root, TEST_CONFIG.database_path);
+    const db = openDatabase(databasePath);
+    const sourceMarkdown = "# Source Article\n\nA stored source article.";
+    saveArticle(
+      db,
+      {
+        slug: "source-article",
+        canonicalSlug: "source-article",
+        title: "Source Article",
+        markdown: sourceMarkdown,
+        html: renderMarkdown(sourceMarkdown),
+        plain_text: markdownToPlainText(sourceMarkdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["source-article"],
+    );
+    const articleMarkdown = [
+      "# Target Article",
+      "",
+      "Body has old-style metadata.",
+      "",
+      "## References",
+      "",
+      "* [Source Article](halu:source-article)",
+    ].join("\n");
+    saveArticle(
+      db,
+      {
+        slug: "target-article",
+        canonicalSlug: "target-article",
+        title: "Target Article",
+        markdown: articleMarkdown,
+        html: renderMarkdown(articleMarkdown),
+        plain_text: markdownToPlainText(articleMarkdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["target-article"],
+    );
+    db.close();
+
+    const llm = new CountingLlmClient();
+    const cachedServer = await createServerForDatabase(root, databasePath, { llmClient: llm });
+
+    const res = await cachedServer.request("/api/page/Target_Article");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.referenceStatus.hasReferencesSection, true);
     assert.equal(llm.chatCalls, 0);
     assert.equal(llm.streamCalls, 0);
     assert.equal(llm.embedCalls, 0);

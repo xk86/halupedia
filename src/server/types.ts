@@ -201,6 +201,11 @@ export interface PagePayload {
     existing: BacklinkItem[];
     unwritten: BacklinkItem[];
   };
+  referenceStatus?: {
+    missing: Array<{ slug: string; title: string }>;
+    unformatted: Array<{ slug: string; title: string }>;
+    hasReferencesSection: boolean;
+  };
 }
 
 export interface ParsedInternalLink {

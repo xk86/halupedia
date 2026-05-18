@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listArticles, openDatabase, saveArticle } from "../src/server/db";
+import {
+  listArticles,
+  openDatabase,
+  saveArticle,
+  saveArticleReferences,
+  getLatestArticleReferences,
+  deleteArticleBySlug,
+  getArticleByLookup,
+  isSlugDeleted,
+} from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import {
   extractDisplayTitle,
@@ -37,9 +46,12 @@ import {
 } from "../src/server/summary";
 import { summarizeRetrievedSource } from "../src/server/index";
 import {
+  buildReferenceList,
   convertExistingArticleLinksToRefs,
   findExistingArticleLinkReferences,
+  findTitleMentionedArticles,
   formatReferencesForPrompt,
+  linkMentionedReferencesInBody,
   renderReferencesHtml,
   resolveRefLinks,
 } from "../src/server/referenceList";
@@ -960,6 +972,48 @@ test("existing halu links are scraped and converted to reference links", (t) => 
   );
 });
 
+test("exact title mentions are scraped as body references without fuzzy matching", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-title-ref-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const saveRefArticle = (slug: string, title: string) => {
+    const markdown = `# ${title}\n\nKnown source.`;
+    saveArticle(
+      db,
+      {
+        slug,
+        canonicalSlug: slug,
+        title,
+        markdown,
+        html: renderMarkdown(markdown),
+        summaryMarkdown: "Known source.",
+        plain_text: markdownToPlainText(markdown),
+        generated_at: 1,
+      },
+      [],
+      [slug],
+    );
+  };
+
+  saveRefArticle("regional-study", "Regional Study: A Field Guide");
+  saveRefArticle("regional-study-archive", "Regional Study Archive");
+
+  const body = [
+    "# Current Entry",
+    "",
+    "The article discusses Regional Study A Field Guide in passing.",
+    "It does not cite the archive title.",
+  ].join("\n");
+
+  assert.deepEqual(
+    findTitleMentionedArticles(db, body, "current-entry").map((ref) => ref.slug),
+    ["regional-study"],
+  );
+});
+
 test("stripTopLevelSections removes model-emitted metadata headings at any level", () => {
   const markdown = [
     "# Article",
@@ -994,6 +1048,267 @@ test("references render as ordered footnote targets, not markdown bullets", () =
   assert.match(html, /<ol>/);
   assert.match(html, /<li id="ref-1">/);
   assert.doesNotMatch(html, /<ul>/);
+});
+
+test("buildReferenceList preserves carried refs before applying RAG cap", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-ref-cap-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const saveRefArticle = (slug: string, title: string) => {
+    const markdown = `# ${title}\n\nReference body.`;
+    saveArticle(
+      db,
+      {
+        slug,
+        canonicalSlug: slug,
+        title,
+        markdown,
+        html: renderMarkdown(markdown),
+        summaryMarkdown: `${title} summary.`,
+        plain_text: markdownToPlainText(markdown),
+        generated_at: 1,
+      },
+      [],
+      [slug],
+    );
+  };
+
+  for (const [slug, title] of [
+    ["body-ref-a", "Body Ref A"],
+    ["body-ref-b", "Body Ref B"],
+    ["prior-ref-a", "Prior Ref A"],
+    ["prior-ref-b", "Prior Ref B"],
+    ["rag-ref-a", "Rag Ref A"],
+    ["rag-ref-b", "Rag Ref B"],
+    ["rag-ref-c", "Rag Ref C"],
+  ] as const) {
+    saveRefArticle(slug, title);
+  }
+
+  const logger = new CaptureLogger();
+  const refs = buildReferenceList(
+    db,
+    {
+      articleSlug: "current-entry",
+      userAdditions: [
+        {
+          slug: "body-ref-a",
+          title: "Body Ref A",
+          content: "",
+          kind: "summary",
+          pinned: false,
+          revisionId: "current",
+          source: "body",
+        },
+        {
+          slug: "body-ref-b",
+          title: "Body Ref B",
+          content: "",
+          kind: "summary",
+          pinned: false,
+          revisionId: "current",
+          source: "body",
+        },
+      ],
+      priorReferences: [
+        {
+          slug: "prior-ref-a",
+          title: "Prior Ref A",
+          content: "",
+          kind: "summary",
+          pinned: false,
+          revisionId: "initial",
+        },
+        {
+          slug: "prior-ref-b",
+          title: "Prior Ref B",
+          content: "",
+          kind: "summary",
+          pinned: false,
+          revisionId: "initial",
+        },
+      ],
+      ragSources: [
+        { slug: "rag-ref-a", title: "Rag Ref A", content: "", score: 0.99 },
+        { slug: "rag-ref-b", title: "Rag Ref B", content: "", score: 0.98 },
+        { slug: "rag-ref-c", title: "Rag Ref C", content: "", score: 0.97 },
+      ],
+      revisionId: "current",
+      config: {
+        reference_max_results: 2,
+        reference_min_score: 0.4,
+        max_references: 10,
+        reference_recursive_depth: 0,
+        reference_recursive_max_per_article: 3,
+      },
+    },
+    logger,
+  );
+
+  assert.deepEqual(
+    refs.map((ref) => ref.slug),
+    [
+      "body-ref-a",
+      "body-ref-b",
+      "prior-ref-a",
+      "prior-ref-b",
+      "rag-ref-a",
+      "rag-ref-b",
+    ],
+  );
+  assert.deepEqual(
+    refs.map((ref) => ref.source),
+    ["body", "body", "prior", "prior", "rag", "rag"],
+  );
+  const built = logger.entries.find((entry) => entry.event === "references.built");
+  assert.equal(built?.fields.body_reference_count, 2);
+  assert.equal(built?.fields.user_added_count, 0);
+  const detail = logger.entries.find((entry) => entry.event === "references.built_detail");
+  assert.match(String(detail?.fields.entries ?? ""), /"source":"body"/);
+});
+
+test("buildReferenceList adds recursive sidecar refs within configured depth", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-recursive-ref-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const saveRefArticle = (slug: string, title: string, generatedAt: number) => {
+    const markdown = `# ${title}\n\nReference body.`;
+    saveArticle(
+      db,
+      {
+        slug,
+        canonicalSlug: slug,
+        title,
+        markdown,
+        html: renderMarkdown(markdown),
+        summaryMarkdown: `${title} summary.`,
+        plain_text: markdownToPlainText(markdown),
+        generated_at: generatedAt,
+      },
+      [],
+      [slug],
+    );
+  };
+
+  saveRefArticle("root-ref", "Root Reference", 1);
+  saveRefArticle("child-ref-a", "Child Reference A", 2);
+  saveRefArticle("child-ref-b", "Child Reference B", 3);
+  saveRefArticle("grandchild-ref", "Grandchild Reference", 4);
+  saveArticleReferences(db, "root-ref", 1, [
+    {
+      slug: "child-ref-a",
+      title: "Child Reference A",
+      content: "Child A summary.",
+      kind: "summary",
+      pinned: false,
+      revisionId: "initial",
+    },
+    {
+      slug: "child-ref-b",
+      title: "Child Reference B",
+      content: "Child B summary.",
+      kind: "summary",
+      pinned: false,
+      revisionId: "initial",
+    },
+  ]);
+  saveArticleReferences(db, "child-ref-a", 2, [
+    {
+      slug: "grandchild-ref",
+      title: "Grandchild Reference",
+      content: "Grandchild summary.",
+      kind: "summary",
+      pinned: false,
+      revisionId: "initial",
+    },
+  ]);
+
+  const logger = new CaptureLogger();
+  const refs = buildReferenceList(
+    db,
+    {
+      articleSlug: "current-entry",
+      userAdditions: [
+        {
+          slug: "root-ref",
+          title: "Root Reference",
+          content: "",
+          kind: "summary",
+          pinned: false,
+          revisionId: "current",
+          source: "body",
+        },
+      ],
+      priorReferences: [],
+      ragSources: [],
+      revisionId: "current",
+      config: {
+        reference_max_results: 8,
+        reference_min_score: 0.4,
+        max_references: 10,
+        reference_recursive_depth: 2,
+        reference_recursive_max_per_article: 1,
+      },
+    },
+    logger,
+  );
+
+  assert.deepEqual(
+    refs.map((ref) => ref.slug),
+    ["root-ref", "child-ref-a", "grandchild-ref"],
+  );
+  assert.deepEqual(
+    refs.map((ref) => ref.source),
+    ["body", "recursive", "recursive"],
+  );
+  const built = logger.entries.find((entry) => entry.event === "references.built");
+  assert.equal(built?.fields.recursive_candidate_count, 2);
+  assert.equal(built?.fields.recursive_max_per_article, 1);
+});
+
+test("linkMentionedReferencesInBody wraps exact unlinked reference title mentions", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "source-entry",
+      title: "Source Entry",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+    {
+      slug: "already-linked",
+      title: "Already Linked",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const body = [
+    "# Current Entry",
+    "",
+    "source entry is mentioned plainly.",
+    "[Already Linked](ref:already-linked) is already linked.",
+    "Do not alter `Source Entry` inside code.",
+  ].join("\n");
+
+  assert.equal(
+    linkMentionedReferencesInBody(body, refs),
+    [
+      "# Current Entry",
+      "",
+      "[source entry](ref:source-entry) is mentioned plainly.",
+      "[Already Linked](ref:already-linked) is already linked.",
+      "Do not alter `Source Entry` inside code.",
+    ].join("\n"),
+  );
 });
 
 test("see-also metadata renders for display but is not baked into article markdown", () => {
@@ -1217,4 +1532,110 @@ test("stripBodyMetadataSections removes References and See also headings and the
   assert.doesNotMatch(stripped, /## References/);
   assert.doesNotMatch(stripped, /## See also/);
   assert.match(stripped, /is a thing/);
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   Deleted-article tombstone tests
+   ───────────────────────────────────────────────────────────────── */
+
+function makeTempDb() {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-del-"));
+  const databasePath = join(root, "test.sqlite");
+  const db = openDatabase(databasePath);
+  return { root, db, databasePath };
+}
+
+function seedDbArticle(
+  db: ReturnType<typeof openDatabase>,
+  slug: string,
+  title: string,
+) {
+  const md = `# ${title}\n\n**${title}** is a test article.`;
+  saveArticle(
+    db,
+    {
+      slug,
+      canonicalSlug: slug,
+      title,
+      markdown: md,
+      html: `<h1>${title}</h1>`,
+      plain_text: `${title} is a test article.`,
+      generated_at: Date.now(),
+    },
+    [],
+    [slug],
+  );
+}
+
+test("deleteArticleBySlug: slug is tombstoned in deleted_articles table", (t) => {
+  const { root, db } = makeTempDb();
+  t.after(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+
+  seedDbArticle(db, "alpha-article", "Alpha Article");
+  assert.ok(!isSlugDeleted(db, "alpha-article"), "should not be deleted before delete");
+
+  const deleted = deleteArticleBySlug(db, "alpha-article");
+  assert.ok(deleted, "deleteArticleBySlug should return true");
+  assert.ok(isSlugDeleted(db, "alpha-article"), "slug must be in deleted_articles after deletion");
+});
+
+test("deleteArticleBySlug: article is no longer findable via getArticleByLookup", (t) => {
+  const { root, db } = makeTempDb();
+  t.after(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+
+  seedDbArticle(db, "beta-article", "Beta Article");
+  assert.ok(getArticleByLookup(db, "beta-article"), "should exist before deletion");
+
+  deleteArticleBySlug(db, "beta-article");
+  assert.equal(
+    getArticleByLookup(db, "beta-article"),
+    null,
+    "deleted article must not be findable by lookup",
+  );
+});
+
+test("deleteArticleBySlug: removes referenced_slug from other articles' reference lists", (t) => {
+  const { root, db } = makeTempDb();
+  t.after(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+
+  seedDbArticle(db, "source-article", "Source Article");
+  seedDbArticle(db, "target-article", "Target Article");
+
+  const now = Date.now();
+  saveArticleReferences(db, "source-article", now, [
+    { slug: "target-article", title: "Target Article", summaryMarkdown: "A target." },
+  ]);
+
+  // Verify reference exists before deletion
+  const before = getLatestArticleReferences(db, "source-article");
+  assert.ok(
+    before.some((r) => r.slug === "target-article"),
+    "reference to target-article should exist before deletion",
+  );
+
+  deleteArticleBySlug(db, "target-article");
+
+  const after = getLatestArticleReferences(db, "source-article");
+  assert.ok(
+    !after.some((r) => r.slug === "target-article"),
+    "reference to deleted article must be removed from other articles' ref lists",
+  );
+});
+
+test("isSlugDeleted: returns false for articles that were never deleted", (t) => {
+  const { root, db } = makeTempDb();
+  t.after(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+
+  seedDbArticle(db, "gamma-article", "Gamma Article");
+  assert.ok(!isSlugDeleted(db, "gamma-article"), "live article should not be marked deleted");
+  assert.ok(!isSlugDeleted(db, "nonexistent-slug"), "nonexistent slug should not be marked deleted");
+});
+
+test("deleteArticleBySlug: returns false and leaves no tombstone for unknown slug", (t) => {
+  const { root, db } = makeTempDb();
+  t.after(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
+
+  const result = deleteArticleBySlug(db, "totally-unknown-slug");
+  assert.ok(!result, "should return false for unknown slug");
+  assert.ok(!isSlugDeleted(db, "totally-unknown-slug"), "no tombstone for unknown slug");
 });

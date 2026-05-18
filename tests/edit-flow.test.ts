@@ -219,7 +219,7 @@ test("rewrite passes correct mode prompt to LLM", async (t) => {
   const streamCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
   assert.ok(streamCall, "LLM should receive a system prompt with Rewrite Mode");
   assert.match(streamCall.system, /Preserve the existing tone/, "subtle mode prompt should be injected");
-  assert.doesNotMatch(streamCall.system, /full creative license/, "aggressive mode should not leak into subtle");
+  assert.doesNotMatch(streamCall.system, /expanded.*creative license/i, "aggressive mode should not leak into subtle");
 
   llm.chatCalls.length = 0;
   await server.request("/api/article/mode-test/rewrite", {
@@ -230,7 +230,7 @@ test("rewrite passes correct mode prompt to LLM", async (t) => {
 
   const aggressiveCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
   assert.ok(aggressiveCall);
-  assert.match(aggressiveCall.system, /full creative license/, "aggressive mode prompt should be injected");
+  assert.match(aggressiveCall.system, /expanded.*creative license|restructure sections/i, "aggressive mode prompt should be injected");
   await server.shutdown();
 });
 
@@ -250,7 +250,58 @@ test("rewrite defaults to aggressive mode when no mode specified", async (t) => 
 
   const call = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
   assert.ok(call);
-  assert.match(call.system, /full creative license/, "default mode should be aggressive");
+  assert.match(call.system, /expanded.*creative license|restructure sections/i, "default mode should be aggressive");
+  await server.shutdown();
+});
+
+test("rewrite can include the last two edit prompts with timestamps", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(
+    databasePath,
+    "history-context",
+    "History Context",
+    "Lead paragraph.\n\n## Notes\n\nOriginal notes.",
+  );
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("## Notes\n\nUpdated notes.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  for (const instructions of ["first edit prompt", "second edit prompt"]) {
+    const res = await server.request("/api/article/history-context/rewrite", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ sectionId: "notes", instructions }),
+    });
+    assert.equal(res.status, 200);
+    await res.json();
+  }
+
+  const res = await server.request("/api/article/history-context/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      sectionId: "notes",
+      instructions: "third edit prompt",
+      includeRecentEditHistory: true,
+    }),
+  });
+  assert.equal(res.status, 200);
+  await res.json();
+
+  const rewritePrompt = llm.chatCalls
+    .map((call) => call.user)
+    .reverse()
+    .find((user) => user.includes("third edit prompt"));
+  assert.ok(rewritePrompt);
+  assert.match(rewritePrompt, /Recent edit history, oldest to newest:/);
+  assert.match(rewritePrompt, /\d{4}-\d{2}-\d{2}T.*\(section-rewrite\): first edit prompt/);
+  assert.match(rewritePrompt, /\d{4}-\d{2}-\d{2}T.*\(section-rewrite\): second edit prompt/);
+  assert.ok(
+    rewritePrompt.indexOf("first edit prompt") < rewritePrompt.indexOf("second edit prompt"),
+    "recent edit prompts should be chronological",
+  );
+  assert.doesNotMatch(rewritePrompt, /Initial history snapshot/);
   await server.shutdown();
 });
 

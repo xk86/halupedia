@@ -86,6 +86,22 @@ class FixedArticleLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
+class FailingGenerationLlmClient implements LlmClient {
+  async chat(): Promise<string> {
+    return JSON.stringify({ items: [] });
+  }
+
+  async streamChat(): Promise<{ content: string; finishReason: string }> {
+    throw new Error("generation should not run for an equivalent cached slug");
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
 class SlowLlmClient implements LlmClient {
   readonly generationStarted = Promise.withResolvers<void>();
   readonly generationDone = Promise.withResolvers<void>();
@@ -819,6 +835,64 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const aliasBody = await aliasRes.json();
     assert.equal(aliasBody.article.slug, "café-β-registry");
     assert.equal(aliasBody.redirectedFrom, "/wiki/Fish");
+  });
+
+  await t.test("cached articles resolve unique compact-equivalent slugs without regeneration", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+    const databasePath = join(root, TEST_CONFIG.database_path);
+    const db = openDatabase(databasePath);
+    const markdown = [
+      "# R/GoneWild: The Movie starring Mitch McConnell",
+      "",
+      "An existing article whose canonical title contains punctuation.",
+    ].join("\n");
+
+    saveArticle(
+      db,
+      {
+        slug: "r-gonewild-the-movie-starring-mitch-mcconnell",
+        canonicalSlug: "r-gonewild-the-movie-starring-mitch-mcconnell",
+        title: "R/GoneWild: The Movie starring Mitch McConnell",
+        markdown,
+        html: renderMarkdown(markdown),
+        plain_text: markdownToPlainText(markdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["r-gonewild-the-movie-starring-mitch-mcconnell"],
+    );
+    db.close();
+
+    const entries: CapturedLogEntry[] = [];
+    const server = await createServerForDatabase(root, databasePath, {
+      logger: createMemoryLogger(entries),
+      llmClient: new FailingGenerationLlmClient(),
+    });
+    t.after(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    const res = await server.request("/api/page/rgonewild-the-movie-starring-mitch-mcconnell");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.cached, true);
+    assert.equal(body.article.slug, "r-gonewild-the-movie-starring-mitch-mcconnell");
+    assert.equal(body.article.title, "R/GoneWild: The Movie starring Mitch McConnell");
+    assert.equal(body.redirectedFrom, "/wiki/rgonewild-the-movie-starring-mitch-mcconnell");
+    assert.equal(body.canonicalPath, "/wiki/RGoneWild_The_Movie_starring_Mitch_McConnell");
+    assert.ok(
+      entries.some(
+        (entry) =>
+          entry.event === "page.equivalent_hit" &&
+          entry.fields?.slug === "rgonewild-the-movie-starring-mitch-mcconnell" &&
+          entry.fields?.canonical_slug === "r-gonewild-the-movie-starring-mitch-mcconnell",
+      ),
+    );
+    assert.equal(
+      entries.some((entry) => entry.event === "page.miss"),
+      false,
+      "equivalent cached lookup must not fall through to generation",
+    );
   });
 
   await t.test("unmatched paths emit not-found logs", async (t) => {

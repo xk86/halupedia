@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getArticle, openDatabase, saveArticle, saveArticleReferences } from "../src/server/db";
+import { getArticle, getLatestArticleReferences, openDatabase, saveArticle, saveArticleReferences } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import { OpenAICompatClient, type LlmClient } from "../src/server/llm";
@@ -627,7 +627,6 @@ test("add-link refines oversized selections before wrapping markdown", async (t)
   });
 
   const llm = new QueueLlmClient("", [
-    JSON.stringify({ selected_text: "Cultural Dissipation Factor" }),
     JSON.stringify({
       slug: "cultural-dissipation-factor",
       description: "measure of stable energetic exchange in recorded belief systems",
@@ -700,14 +699,14 @@ test("add-link wraps highlighted plain text in a new halu link at that position"
   assert.match(body.article.markdown, /\) to prevent atmospheric degradation\./);
 });
 
-test("add-link wraps unicode text with parentheses as a new halu link", async (t) => {
+test("add-link wraps unicode text with parentheses and rejects self-link suggestions", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const markdown = [
     "# Metamorphic Systems",
     "",
-    "Conceptual Agents (概念剂) are self-organizing units that drive emergent behavior in complex adaptive systems.",
+    "Signal Units (信号体) are self-organizing units that drive emergent behavior in complex adaptive systems.",
   ].join("\n");
   saveMarkdownArticle(databasePath, {
     slug: "metamorphic-systems",
@@ -717,7 +716,7 @@ test("add-link wraps unicode text with parentheses as a new halu link", async (t
 
   const llm = new QueueLlmClient("", [
     JSON.stringify({
-      slug: "conceptual-agents",
+      slug: "metamorphic-systems",
       description: "self-organizing units that drive emergent behavior",
     }),
   ]);
@@ -726,20 +725,61 @@ test("add-link wraps unicode text with parentheses as a new halu link", async (t
   const res = await server.request("/api/article/Metamorphic_Systems/add-link", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ selectedText: "Conceptual Agents (概念剂)" }),
+    body: JSON.stringify({ selectedText: "Signal Units (信号体)" }),
   });
   assert.equal(res.status, 200);
   const body = await res.json();
 
   assert.match(
     body.article.markdown,
-    /\[Conceptual Agents \(概念剂\)\]\(halu:conceptual-agents "[^"]+"\)/,
+    /\[Signal Units \(信号体\)\]\(halu:signal-units-信号体 "[^"]+"\)/,
     "unicode text with parentheses should be wrapped as a halu link",
   );
   assert.match(
     body.article.markdown,
-    /\[Conceptual Agents \(概念剂\)\]\(halu:conceptual-agents "[^"]+"\) are self-organizing/,
+    /\[Signal Units \(信号体\)\]\(halu:signal-units-信号体 "[^"]+"\) are self-organizing/,
     "surrounding text should remain intact",
+  );
+  assert.doesNotMatch(
+    body.article.markdown,
+    /\(halu:metamorphic-systems /,
+    "self-link suggestions should fall back to the selected text slug",
+  );
+});
+
+test("add-link rejects link suggestion with missing description or slug fields", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const markdown = [
+    "# Test Article",
+    "",
+    "This mentions some topic that we want to link.",
+  ].join("\n");
+  saveMarkdownArticle(databasePath, {
+    slug: "test-article",
+    title: "Test Article",
+    markdown,
+  });
+
+  const llm = new QueueLlmClient("", [
+    JSON.stringify({
+      slug: "some-topic",
+      // Missing 'description' field — should cause error
+    }),
+  ]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/article/Test_Article/add-link", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ selectedText: "some topic" }),
+  });
+  assert.equal(res.status, 500);
+  const body = await res.json();
+  assert.ok(
+    body.error.includes("link suggestion"),
+    "error should mention link suggestion failure",
   );
 });
 
@@ -1131,6 +1171,79 @@ test("section rewrite streams only the selected section and records revertable h
   assert.match(reverted.article.markdown, /brass ladders/);
 });
 
+test("section rewrite preserves existing references even when the UI omits them", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "archive-index",
+    title: "Archive Index",
+    markdown: "# Archive Index\n\nArchive source summary.",
+    generated_at: 10,
+  });
+  saveMarkdownArticle(databasePath, {
+    slug: "field-report",
+    title: "Field Report",
+    markdown: "# Field Report\n\nField source summary.",
+    generated_at: 11,
+  });
+  saveMarkdownArticle(databasePath, {
+    slug: "survey-page",
+    title: "Survey Page",
+    markdown: [
+      "# Survey Page",
+      "",
+      "Survey Page has an intro.",
+      "",
+      "## Notes",
+      "",
+      "The notes cite older field work.",
+    ].join("\n"),
+    generated_at: 12,
+  });
+
+  const db = openDatabase(databasePath);
+  saveArticleReferences(db, "survey-page", 12, [
+    {
+      slug: "archive-index",
+      title: "Archive Index",
+      content: "Archive source summary.",
+      kind: "summary",
+      pinned: false,
+      revisionId: "initial",
+    },
+    {
+      slug: "field-report",
+      title: "Field Report",
+      content: "Field source summary.",
+      kind: "summary",
+      pinned: false,
+      revisionId: "initial",
+    },
+  ]);
+  db.close();
+
+  const llm = new QueueLlmClient("## Notes\n\nThe notes cite older field work with one clarified sentence.");
+  const server = await createServer(databasePath, llm);
+  const res = await server.request("/api/article/Survey_Page/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      sectionId: "notes",
+      instructions: "Clarify the notes section.",
+      blacklistSlugs: ["archive-index"],
+    }),
+  });
+
+  assert.equal(res.status, 200);
+  const savedDb = openDatabase(databasePath);
+  t.after(() => savedDb.close());
+  assert.deepEqual(
+    getLatestArticleReferences(savedDb, "survey-page").map((ref) => ref.slug),
+    ["archive-index", "field-report"],
+  );
+});
+
 test("refresh-context reports when references are already current", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -1442,7 +1555,7 @@ test("missing refs notice fires for explicit ref:slug links not in sidecar", asy
    Real LLM integration: ref link format validation
    ───────────────────────────────────────────────────────────────── */
 
-test("generated article uses [](ref:N) style ref links when references are available", async (t) => {
+test("generated article uses ref:slug links when references are available", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -1505,6 +1618,10 @@ test("generated article uses [](ref:N) style ref links when references are avail
     if (line.trim()) lines.push(line);
   }
   const last = JSON.parse(lines[lines.length - 1]);
+  if (last.type === "error" && String(last.message ?? "").includes("fetch failed")) {
+    t.skip("LLM generation failed after probe — skipping real LLM generation test");
+    return;
+  }
   const markdown = last.article?.body ?? last.article?.markdown ?? "";
 
   // Body should not contain long cited text in ref links
@@ -1516,7 +1633,7 @@ test("generated article uses [](ref:N) style ref links when references are avail
     `ref link visible text should be short or empty, got: ${longRefTextMatch?.[1]}`,
   );
 
-  // ref: links should have been resolved (ref:slug not ref:N)
+  // ref: links should be durable slug links, not numeric shorthand.
   assert.doesNotMatch(markdown, /\]\(ref:\d+\)/, "ref:N (numeric) should be resolved to ref:slug before saving");
 
   // referenceStatus should not show false positives

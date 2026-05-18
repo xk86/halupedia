@@ -653,7 +653,12 @@ export function App() {
       .then((r) => r.json())
       .then((body: { references?: Array<{ slug: string; title: string; summaryMarkdown: string }> }) => {
         if (cancelled) return;
-        const refs = body.references ?? [];
+        const seen = new Set<string>();
+        const refs = (body.references ?? []).filter((r) => {
+          if (seen.has(r.slug)) return false;
+          seen.add(r.slug);
+          return true;
+        });
         setEditRefs(refs);
         setEditInitialRefSlugs(refs.map((ref) => ref.slug));
         setEditRefsEnabled(refs.length > 0);

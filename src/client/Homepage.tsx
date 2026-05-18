@@ -103,10 +103,18 @@ export function Homepage({ onNavigate }: Props) {
     const target = (e.target as HTMLElement).closest("a");
     if (!target) return;
     const href = target.getAttribute("href");
-    if (!href?.startsWith("/wiki/")) return;
+    if (!href) return;
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e as any).button === 1) return;
-    e.preventDefault();
-    onNavigate(href.slice("/wiki/".length));
+    // Swallow dead "#" hrefs produced by the markdown renderer for any
+    // non-halu link. Without this the browser appends "#" to the URL bar.
+    if (href === "#" || href.startsWith("#")) {
+      e.preventDefault();
+      return;
+    }
+    if (href.startsWith("/wiki/")) {
+      e.preventDefault();
+      onNavigate(href.slice("/wiki/".length));
+    }
   };
 
   const secondsRemaining = data ? Math.max(0, Math.ceil((data.expiresAt - now) / 1000)) : null;

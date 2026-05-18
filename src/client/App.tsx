@@ -567,10 +567,19 @@ export function App() {
       const target = (e.target as HTMLElement).closest("a");
       if (!target) return;
       const href = target.getAttribute("href");
-      if (!href?.startsWith("/wiki/")) return;
+      if (!href) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e as any).button === 1) return;
-      e.preventDefault();
-      navigateToArticle(href.slice("/wiki/".length));
+      // Swallow dead "#" hrefs emitted by the markdown renderer for any
+      // non-halu link (server markdown.ts rewrites them to "#"). Without
+      // this the browser appends "#" to the URL bar with no navigation.
+      if (href === "#" || href.startsWith("#")) {
+        e.preventDefault();
+        return;
+      }
+      if (href.startsWith("/wiki/")) {
+        e.preventDefault();
+        navigateToArticle(href.slice("/wiki/".length));
+      }
     },
     [navigateToArticle]
   );

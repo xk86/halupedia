@@ -8,7 +8,7 @@ Halu Link Helper:
 - Link the first mention of proper nouns and significant concepts.
 - The current article's own subject (including alternate names and abbreviations) must be bolded, never linked.
 
-Examples:
+Examples (Do not reference):
 - `[San Francisco](halu:san-francisco "fog registry district on the western seaboard")`
 - `[Robert Bobbert](halu:robert-bobbert "Chief Registrar of the Dover Ash Bureau, 1903–1941")`
 - `[*Principia Mathematica*](halu:principia-mathematica "foundational text on gravitational pastry theory")`"""

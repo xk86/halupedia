@@ -94,6 +94,17 @@ import {
   loadPriorReferenceList,
   renderReferencesSection,
 } from "./referenceList";
+import {
+  loadArticle,
+  articleToResponse,
+  type ArticleResponse,
+} from "./article";
+import {
+  assembleArticleMarkdownForRender,
+  getCachedArticleHtml,
+  rememberArticleHtml,
+  invalidateArticleHtml,
+} from "./articleRender";
 
 const RESERVED_PATHS = new Set([
   "",
@@ -1574,6 +1585,59 @@ export async function createApp(options: CreateAppOptions = {}) {
     return getArticleByLookup(db, repairedArticle.slug) ?? repairedArticle;
   }
 
+  // Build the canonical ArticleResponse for a slug. Hydrates sidecar metadata
+  // (references + see-also), renders combined HTML (body + algorithmic refs +
+  // algorithmic see-also), caches the render. Returns null on unknown slug.
+  function buildArticleResponseFor(slug: string): ArticleResponse | null {
+    const article = loadArticle(db, slug);
+    if (!article) return null;
+    const combined = assembleArticleMarkdownForRender(article);
+    const cached = getCachedArticleHtml(article.slug, article.generatedAt);
+    let html: string;
+    if (cached) {
+      html = cached;
+    } else {
+      const rendered = renderMarkdown(combined);
+      const links = extractInternalLinks(combined);
+      html = rewriteArticleHtml(rendered, links);
+      rememberArticleHtml(article.slug, article.generatedAt, html);
+    }
+    // `combined` is the legacy full-markdown shape (body + refs + see-also).
+    return articleToResponse(article, html, combined);
+  }
+
+  // Build the full /api/page-style payload around an ArticleResponse.
+  // Centralises the sections + backlinks fields so every article-returning
+  // endpoint produces the same envelope.
+  function buildPageResponse(
+    response: ArticleResponse,
+    opts: {
+      cached: boolean;
+      requestedPath?: string;
+      canonicalPath?: string;
+      statusMessage?: string;
+      refreshChanged?: boolean;
+    },
+  ) {
+    return {
+      cached: opts.cached,
+      redirectedFrom:
+        opts.canonicalPath && opts.requestedPath &&
+        opts.canonicalPath !== opts.requestedPath
+          ? opts.requestedPath
+          : undefined,
+      canonicalPath: opts.canonicalPath,
+      article: response,
+      // Sections list is derived from the rendered body, not metadata.
+      sections: listArticleSections(response.body),
+      backlinks: listBacklinks(db, response.slug),
+      ...(opts.statusMessage ? { statusMessage: opts.statusMessage } : {}),
+      ...(opts.refreshChanged !== undefined
+        ? { refreshChanged: opts.refreshChanged }
+        : {}),
+    };
+  }
+
   function rewriteArticleHtml(
     articleHtml: string,
     links: Array<{ targetSlug: string }>,
@@ -2146,41 +2210,34 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger.info("page.in_flight_edit", { slug: lookupSlug });
     }
 
-    let article = getArticleByLookup(db, lookupSlug);
-    if (!article) {
+    // Resolve the canonical record (slug lookup, then title fallback, then
+    // any cache repair needed). All article shaping happens in
+    // buildArticleResponseFor/buildPageResponse so the wire format stays
+    // single-sourced.
+    let record = getArticleByLookup(db, lookupSlug);
+    if (!record) {
       const titleMatch = getArticleByTitle(db, requestedTitle);
-      if (titleMatch) {
-        article = repairStoredArticleIdentity(titleMatch, lookupSlug);
-      }
+      if (titleMatch) record = repairStoredArticleIdentity(titleMatch, lookupSlug);
     }
-    if (article) {
-      article = repairStoredArticleIdentity(article, lookupSlug);
-      if (!cachedArticleNeedsRepair(article.markdown)) {
-        const canonicalPath = canonicalPathForArticle(article);
-        logger.info("page.hit", { slug: lookupSlug, in_flight_edit: hasInFlightEdit });
-        return c.json({
-          cached: true,
-          redirectedFrom:
-            canonicalPath !== requestedPath ? requestedPath : undefined,
-          canonicalPath,
-          article,
-          sections: listArticleSections(article.markdown),
-          backlinks: listBacklinks(db, article.slug),
-        });
+    if (record) {
+      record = repairStoredArticleIdentity(record, lookupSlug);
+      if (cachedArticleNeedsRepair(record.markdown)) {
+        logger.warn("page.cache_repair", { slug: record.slug, in_flight_edit: hasInFlightEdit });
+        record = repairCachedArticle(record);
+        invalidateArticleHtml(record.slug);
       }
-      logger.warn("page.cache_repair", { slug: article.slug, in_flight_edit: hasInFlightEdit });
-      article = repairCachedArticle(article);
-      const canonicalPath = canonicalPathForArticle(article);
-      logger.info("page.hit", { slug: lookupSlug, in_flight_edit: hasInFlightEdit });
-      return c.json({
-        cached: true,
-        redirectedFrom:
-          canonicalPath !== requestedPath ? requestedPath : undefined,
-        canonicalPath,
-        article,
-        sections: listArticleSections(article.markdown),
-        backlinks: listBacklinks(db, article.slug),
-      });
+      const response = buildArticleResponseFor(record.slug);
+      if (response) {
+        const canonicalPath = canonicalPathForArticle(record);
+        logger.info("page.hit", { slug: lookupSlug, in_flight_edit: hasInFlightEdit });
+        return c.json(
+          buildPageResponse(response, {
+            cached: true,
+            requestedPath,
+            canonicalPath,
+          }),
+        );
+      }
     }
     logger.info("page.miss", { slug: lookupSlug });
 
@@ -2276,19 +2333,21 @@ export async function createApp(options: CreateAppOptions = {}) {
 
         generation
           .then((result) => {
-            article = result;
-            const canonicalPath = canonicalPathForArticle(article);
+            const canonicalPath = canonicalPathForArticle(result);
             logger.info("page.stream_done", { slug: lookupSlug, seq });
-            send({
-              type: "done",
-              cached: false,
-              redirectedFrom:
-                canonicalPath !== requestedPath ? requestedPath : undefined,
-              canonicalPath,
-              article,
-              sections: listArticleSections(article.markdown),
-              backlinks: listBacklinks(db, article.slug),
-            });
+            // Re-hydrate via buildArticleResponseFor so the streamed payload
+            // ships the same shape as cache hits (body+metadata sidecar).
+            const response = buildArticleResponseFor(result.slug);
+            if (response) {
+              send({
+                type: "done",
+                ...buildPageResponse(response, {
+                  cached: false,
+                  requestedPath,
+                  canonicalPath,
+                }),
+              });
+            }
             close();
             releaseWaiter();
             return result;
@@ -2510,13 +2569,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
     );
 
-    return c.json({
-      cached: true,
-      canonicalPath: canonicalPathForArticle(nextArticle),
-      article: nextArticle,
-      sections: listArticleSections(nextArticle.markdown),
-      backlinks: listBacklinks(db, nextArticle.slug),
-    });
+    invalidateArticleHtml(nextArticle.slug);
+    const response = buildArticleResponseFor(nextArticle.slug);
+    if (!response) return c.json({ error: "failed to hydrate response" }, 500);
+    return c.json(
+      buildPageResponse(response, {
+        cached: true,
+        canonicalPath: canonicalPathForArticle(nextArticle),
+      }),
+    );
   });
 
   app.post("/api/article/:slug/rewrite", async (c) => {
@@ -2763,13 +2824,17 @@ export async function createApp(options: CreateAppOptions = {}) {
             updatedArticle.generated_at,
           ).catch(() => {}),
         );
-        return {
+        // Article body + refs changed; drop any stale render cache so the
+        // next read pays the (one-time) render cost and serves fresh HTML.
+        invalidateArticleHtml(updatedArticle.slug);
+        const response = buildArticleResponseFor(updatedArticle.slug);
+        if (!response) {
+          throw new Error(`failed to hydrate response for ${updatedArticle.slug}`);
+        }
+        return buildPageResponse(response, {
           cached: true,
           canonicalPath: canonicalPathForArticle(updatedArticle),
-          article: updatedArticle,
-          sections: listArticleSections(updatedArticle.markdown),
-          backlinks: listBacklinks(db, updatedArticle.slug),
-        };
+        });
       } finally {
         inFlightEdits.delete(article.slug);
         logger.debug("rewrite.edit_complete", { slug: article.slug, in_flight_edits: inFlightEdits.size });
@@ -2999,14 +3064,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     );
     const refreshChanged = updatedArticle.markdown !== article.markdown;
     logger.info("page.refresh", { slug: updatedArticle.slug, changed: refreshChanged });
-    return c.json({
-      cached: true,
-      canonicalPath: canonicalPathForArticle(updatedArticle),
-      article: updatedArticle,
-      sections: listArticleSections(updatedArticle.markdown),
-      backlinks: listBacklinks(db, updatedArticle.slug),
-      refreshChanged,
-    });
+    invalidateArticleHtml(updatedArticle.slug);
+    const response = buildArticleResponseFor(updatedArticle.slug);
+    if (!response) return c.json({ error: "failed to hydrate response" }, 500);
+    return c.json(
+      buildPageResponse(response, {
+        cached: true,
+        canonicalPath: canonicalPathForArticle(updatedArticle),
+        refreshChanged,
+      }),
+    );
   });
 
   app.get("/api/article/:slug/history", (c) => {
@@ -3065,13 +3132,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.app.rag.chunk_size,
       logger,
     );
-    return c.json({
-      cached: true,
-      canonicalPath: canonicalPathForArticle(nextArticle),
-      article: nextArticle,
-      sections: listArticleSections(nextArticle.markdown),
-      backlinks: listBacklinks(db, nextArticle.slug),
-    });
+    invalidateArticleHtml(nextArticle.slug);
+    const response = buildArticleResponseFor(nextArticle.slug);
+    if (!response) return c.json({ error: "failed to hydrate response" }, 500);
+    return c.json(
+      buildPageResponse(response, {
+        cached: true,
+        canonicalPath: canonicalPathForArticle(nextArticle),
+      }),
+    );
   });
 
   app.get("/api/index", (c) => {
@@ -3277,13 +3346,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       instructions: `Created disambiguation page for ${normalizedTitle}.`,
     });
 
-    return c.json({
-      cached: true,
-      canonicalPath: canonicalPathForArticle(article),
-      article,
-      sections: listArticleSections(article.markdown),
-      backlinks: listBacklinks(db, article.slug),
-    });
+    invalidateArticleHtml(article.slug);
+    const dabResponse = buildArticleResponseFor(article.slug);
+    if (!dabResponse) return c.json({ error: "failed to hydrate response" }, 500);
+    return c.json(
+      buildPageResponse(dabResponse, {
+        cached: true,
+        canonicalPath: canonicalPathForArticle(article),
+      }),
+    );
   });
 
   app.get("/api/disambiguation/:slug", (c) => {
@@ -3292,13 +3363,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     const article = getArticleByLookup(db, lookupSlug);
     if (!article || !article.isDisambiguation)
       return c.json({ error: "not a disambiguation page" }, 404);
-    return c.json({
-      cached: true,
-      canonicalPath: canonicalPathForArticle(article),
-      article,
-      sections: listArticleSections(article.markdown),
-      backlinks: listBacklinks(db, article.slug),
-    });
+    const response = buildArticleResponseFor(article.slug);
+    if (!response) return c.json({ error: "failed to hydrate response" }, 500);
+    return c.json(
+      buildPageResponse(response, {
+        cached: true,
+        canonicalPath: canonicalPathForArticle(article),
+      }),
+    );
   });
 
   app.get("/api/search", (c) => {

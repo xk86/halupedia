@@ -151,11 +151,18 @@ export function articleRecordToArticle(
   metadata: ArticleMetadata,
 ): Article {
   const body = stripBodyMetadataSections(record.markdown);
+  // The articles table COALESCEs empty display_title back to title at read
+  // time. Treat "displayTitle === title" as "no override" so the API shape
+  // matches what callers wrote (undefined when no custom display title).
+  const displayTitle =
+    record.displayTitle && record.displayTitle !== record.title
+      ? record.displayTitle
+      : undefined;
   return {
     slug: record.slug,
     canonicalSlug: record.canonicalSlug,
     title: record.title,
-    displayTitle: record.displayTitle,
+    displayTitle,
     path: toWikiPath(record.title),
     body,
     summary: record.summaryMarkdown ?? "",
@@ -195,6 +202,18 @@ export function stripBodyMetadataSections(markdown: string): string {
  * sidecar `metadata` field is preserved as an object so the boundary
  * between body and metadata is obvious in the wire format.
  */
+// Wire shape. `body` is metadata-free markdown; `html` is the server-rendered
+// combined view (body + algorithmic References + algorithmic See also) and is
+// what the client displays directly. `metadata.*` is the structured sidecar
+// the editor consumes (refs list with pin toggle, etc.). Clients MUST NOT
+// parse references back out of `body` or `html`.
+export interface ReferenceResponseEntry {
+  slug: string;
+  title: string;
+  kind: ReferenceListEntry["kind"];
+  pinned: boolean;
+}
+
 export interface ArticleResponse {
   slug: string;
   canonicalSlug: string;
@@ -202,22 +221,37 @@ export interface ArticleResponse {
   displayTitle?: string;
   path: string;
   body: string;
+  html: string;
   summary: string;
   plainText: string;
   generatedAt: number;
   isDisambiguation?: boolean;
   metadata: {
-    references: Array<{
-      slug: string;
-      title: string;
-      kind: ReferenceListEntry["kind"];
-      pinned: boolean;
-    }>;
+    references: ReferenceResponseEntry[];
     seeAlso: SeeAlsoList;
   };
+  // Legacy field aliases. Retained so existing clients/tests continue to
+  // work during the migration to the typed Article shape. New code MUST
+  // use `body`/`summary`/`plainText`/`generatedAt`/`metadata.*` — these
+  // duplicates will be removed once all readers have migrated.
+  /** @deprecated use `body` + `metadata.references` + `metadata.seeAlso` */
+  markdown: string;
+  /** @deprecated use `summary` */
+  summaryMarkdown?: string;
+  /** @deprecated use `plainText` */
+  plain_text: string;
+  /** @deprecated use `generatedAt` */
+  generated_at: number;
 }
 
-export function articleToResponse(article: Article): ArticleResponse {
+// Caller supplies pre-rendered HTML and the legacy full-markdown form
+// (body + metadata sections) so deprecated aliases can ship alongside the
+// typed fields without leaking the renderer into this module.
+export function articleToResponse(
+  article: Article,
+  html: string,
+  legacyMarkdown: string,
+): ArticleResponse {
   return {
     slug: article.slug,
     canonicalSlug: article.canonicalSlug,
@@ -225,14 +259,12 @@ export function articleToResponse(article: Article): ArticleResponse {
     displayTitle: article.displayTitle,
     path: article.path as string,
     body: article.body,
+    html,
     summary: article.summary,
     plainText: article.plainText,
     generatedAt: article.generatedAt,
     isDisambiguation: article.isDisambiguation,
     metadata: {
-      // Project to a minimal client-safe view: clients don't need raw chunk
-      // content, but they need slug/title/kind/pinned for rendering and the
-      // pin toggle.
       references: article.metadata.references.map((r) => ({
         slug: r.slug,
         title: r.title,
@@ -241,6 +273,10 @@ export function articleToResponse(article: Article): ArticleResponse {
       })),
       seeAlso: article.metadata.seeAlso,
     },
+    markdown: legacyMarkdown,
+    summaryMarkdown: article.summary,
+    plain_text: article.plainText,
+    generated_at: article.generatedAt,
   };
 }
 

@@ -155,9 +155,11 @@ export function App() {
   const [editOpen, setEditOpen] = useState(false);
   const [editDraft, setEditDraft] = useState("");
   const [editSectionId, setEditSectionId] = useState("");
+  const [editIncludeRecentPrompts, setEditIncludeRecentPrompts] = useState(false);
   // References panel state
   const [editRefsEnabled, setEditRefsEnabled] = useState(false);
   const [editRefs, setEditRefs] = useState<Array<{ slug: string; title: string; summaryMarkdown: string }>>([]);
+  const [editInitialRefSlugs, setEditInitialRefSlugs] = useState<string[]>([]);
   const [editAddRefsOpen, setEditAddRefsOpen] = useState(false);
   // Slugs the user has explicitly removed from the reference list.
   const [editBlacklist, setEditBlacklist] = useState<string[]>([]);
@@ -187,6 +189,12 @@ export function App() {
   const articleRef = useRef<HTMLElement | null>(null);
   const editTrayRef = useRef<HTMLElement | null>(null);
   const inFlightSlugRef = useRef<string | null>(null);
+  const editIsPartial = editSectionId === "__selection__" || Boolean(editSectionId);
+  const editInitialRefSlugSet = useMemo(
+    () => new Set(editInitialRefSlugs),
+    [editInitialRefSlugs],
+  );
+  const editRefsToggleLocked = editIsPartial && editInitialRefSlugs.length > 0;
 
   useEffect(() => {
     if (themeMode === "dark") {
@@ -258,8 +266,10 @@ export function App() {
       setEditDraft("");
       setEditSectionId("");
       setEditSelectedText("");
+      setEditIncludeRecentPrompts(false);
       setEditRefsEnabled(false);
       setEditRefs([]);
+      setEditInitialRefSlugs([]);
       setEditAddRefsOpen(false);
       setEditBlacklist([]);
       setEditBlacklistOpen(false);
@@ -289,10 +299,10 @@ export function App() {
             ? `Search: ${route.query} - Halupedia`
             : "Search - Halupedia"
           : route.kind === "admin"
-          ? "Admin - Halupedia"
-          : route.kind === "index"
-          ? "All entries - Halupedia"
-          : "Halupedia";
+            ? "Admin - Halupedia"
+            : route.kind === "index"
+              ? "All entries - Halupedia"
+              : "Halupedia";
       return;
     }
 
@@ -311,8 +321,12 @@ export function App() {
     setEditDraft("");
     setEditSectionId("");
     setEditSelectedText("");
+    setEditIncludeRecentPrompts(false);
     setEditBusy(false);
     setEditError(null);
+    setEditRefsEnabled(false);
+    setEditRefs([]);
+    setEditInitialRefSlugs([]);
     setHistoryOpen(false);
     setHistoryLoading(false);
     setHistoryLoaded(false);
@@ -419,14 +433,14 @@ export function App() {
               | { type: "status"; message: string }
               | { type: "progress"; html: string; markdown?: string }
               | {
-                  type: "done";
-                  cached: boolean;
-                  redirectedFrom?: string;
-                  article: PageData["article"];
-                  sections?: ArticleSection[];
-                  backlinks: PageData["backlinks"];
-                  canonicalPath?: string;
-                }
+                type: "done";
+                cached: boolean;
+                redirectedFrom?: string;
+                article: PageData["article"];
+                sections?: ArticleSection[];
+                backlinks: PageData["backlinks"];
+                canonicalPath?: string;
+              }
               | { type: "error"; message: string };
             if (cancelled) return;
             if (event.type === "start") {
@@ -470,13 +484,13 @@ export function App() {
               setPage((current) =>
                 current
                   ? {
-                      ...current,
-                      article: {
-                        ...current.article,
-                        html: streamedHtml,
-                        markdown: event.markdown ?? current.article.markdown,
-                      },
-                    }
+                    ...current,
+                    article: {
+                      ...current.article,
+                      html: streamedHtml,
+                      markdown: event.markdown ?? current.article.markdown,
+                    },
+                  }
                   : current
               );
               setLoading(false);
@@ -640,15 +654,14 @@ export function App() {
       .then((body: { references?: Array<{ slug: string; title: string; summaryMarkdown: string }> }) => {
         if (cancelled) return;
         const refs = body.references ?? [];
-        if (refs.length > 0) {
-          setEditRefs(refs);
-          setEditRefsEnabled(true);
-        }
+        setEditRefs(refs);
+        setEditInitialRefSlugs(refs.map((ref) => ref.slug));
+        setEditRefsEnabled(refs.length > 0);
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => { cancelled = true; };
-  // Only run when the tray first opens for a given article, not on every ref change
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Only run when the tray first opens for a given article, not on every ref change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editOpen, page?.article.slug]);
 
   // Search for references: runs both fuzzy and RAG queries against find-references endpoint
@@ -684,8 +697,9 @@ export function App() {
   }, []);
 
   const removeEditRef = useCallback((slug: string) => {
+    if (editIsPartial && editInitialRefSlugSet.has(slug)) return;
     setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
-  }, []);
+  }, [editIsPartial, editInitialRefSlugSet]);
 
   const rewriteArticle = useCallback(async () => {
     if (!page?.article.slug || !editDraft.trim() || editBusy) return;
@@ -706,6 +720,7 @@ export function App() {
             ? { referenceSlugs: editRefs.map((r) => r.slug) }
             : {}),
           ...(editBlacklist.length > 0 ? { blacklistSlugs: editBlacklist } : {}),
+          ...(editIncludeRecentPrompts ? { includeRecentEditHistory: true } : {}),
           rewriteMode: editRewriteMode,
         }),
       });
@@ -743,14 +758,14 @@ export function App() {
             setPage((current) =>
               current
                 ? {
-                    ...current,
-                    cached: false,
-                    article: {
-                      ...current.article,
-                      html: streamedHtml,
-                      markdown: event.markdown ?? current.article.markdown,
-                    },
-                  }
+                  ...current,
+                  cached: false,
+                  article: {
+                    ...current.article,
+                    html: streamedHtml,
+                    markdown: event.markdown ?? current.article.markdown,
+                  },
+                }
                 : current
             );
           } else if (event.type === "done") {
@@ -773,8 +788,10 @@ export function App() {
       setEditDraft("");
       setEditSectionId("");
       setEditSelectedText("");
+      setEditIncludeRecentPrompts(false);
       setEditRefsEnabled(false);
       setEditRefs([]);
+      setEditInitialRefSlugs([]);
       setEditAddRefsOpen(false);
       setEditBlacklist([]);
       setEditBlacklistOpen(false);
@@ -793,7 +810,7 @@ export function App() {
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
     }
-  }, [page, editDraft, editSectionId, editSelectedText, editRefsEnabled, editRefs, editRewriteMode, editBusy]);
+  }, [page, editDraft, editSectionId, editSelectedText, editRefsEnabled, editRefs, editBlacklist, editIncludeRecentPrompts, editRewriteMode, editBusy]);
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
@@ -1140,7 +1157,8 @@ export function App() {
           </div>
         ) : null}
         {(page.referenceStatus?.missing?.length ||
-          page.referenceStatus?.unformatted?.length) ? (
+          page.referenceStatus?.unformatted?.length ||
+          page.referenceStatus?.hasReferencesSection) ? (
           <div className="linkless-notice">
             This article seems to cite references that are not listed or not in the current reference format. Run the refresh references button to update it.
           </div>
@@ -1234,14 +1252,30 @@ export function App() {
               rows={4}
               disabled={editBusy}
             />
+            <button
+              type="button"
+              className="edit-refs-add-btn"
+              aria-pressed={editIncludeRecentPrompts}
+              onClick={() => setEditIncludeRecentPrompts((enabled) => !enabled)}
+              disabled={editBusy}
+            >
+              {editIncludeRecentPrompts ? "Using last 2 edit prompts" : "Use last 2 edit prompts"}
+            </button>
             {/* References panel */}
             <div className="edit-refs-row">
               <label className="edit-modal-rag-toggle">
                 <input
                   type="checkbox"
                   checked={editRefsEnabled}
-                  onChange={(e) => { setEditRefsEnabled(e.target.checked); if (!e.target.checked) { setEditAddRefsOpen(false); setEditRefResults([]); } }}
-                  disabled={editBusy}
+                  onChange={(e) => {
+                    if (editRefsToggleLocked) return;
+                    setEditRefsEnabled(e.target.checked);
+                    if (!e.target.checked) {
+                      setEditAddRefsOpen(false);
+                      setEditRefResults([]);
+                    }
+                  }}
+                  disabled={editBusy || editRefsToggleLocked}
                 />
                 Reference other articles
               </label>
@@ -1275,7 +1309,7 @@ export function App() {
                       type="button"
                       className="edit-ref-tag-remove"
                       onClick={() => removeEditRef(ref.slug)}
-                      disabled={editBusy}
+                      disabled={editBusy || (editIsPartial && editInitialRefSlugSet.has(ref.slug))}
                       aria-label={`Remove ${ref.title}`}
                     >
                       ×
@@ -1466,7 +1500,7 @@ export function App() {
         </article>
       </>
     );
-  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, rewriteArticle, editRefsEnabled, editRefs, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, searchEditRefs, addEditRef, removeEditRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage]);
+  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, searchEditRefs, addEditRef, removeEditRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage]);
 
   return (
     <div className="site">

@@ -735,6 +735,106 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Refresh with retrieved context" })).toBeInTheDocument();
   });
 
+  it("shows a refresh notice when legacy references are embedded in the article body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(pagePayload({
+        referenceStatus: {
+          missing: [],
+          unformatted: [],
+          hasReferencesSection: true,
+        },
+      })), {
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+
+    expect(await screen.findByText(/current reference format/)).toBeInTheDocument();
+  });
+
+  it("locks existing references during section edits", async () => {
+    const payload = pagePayload({
+      sections: [{ id: "notes", title: "Notes" }],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(payload), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            references: [
+              {
+                slug: "source-entry",
+                title: "Source Entry",
+                summaryMarkdown: "Source summary.",
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Test Article" });
+    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+
+    const refsCheckbox = await screen.findByRole("checkbox", { name: "Reference other articles" });
+    await waitFor(() => expect(refsCheckbox).toBeChecked());
+    expect(refsCheckbox).not.toBeDisabled();
+
+    await userEvent.selectOptions(screen.getByLabelText("Section"), "notes");
+
+    expect(refsCheckbox).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove Source Entry" })).toBeDisabled();
+  });
+
+  it("can include recent edit prompts in a rewrite request", async () => {
+    const payload = pagePayload();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(payload), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ references: [] }), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        ndjsonResponse([{ type: "done", ...payload }])
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Test Article" });
+    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+    await userEvent.type(screen.getByPlaceholderText("Describe your changes."), "tighten the ending");
+    await userEvent.click(screen.getByRole("button", { name: "Use last 2 edit prompts" }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const rewriteInit = fetchMock.mock.calls[2][1] as RequestInit;
+    expect(JSON.parse(String(rewriteInit.body))).toMatchObject({
+      instructions: "tighten the ending",
+      includeRecentEditHistory: true,
+      rewriteMode: "aggressive",
+    });
+  });
+
   it("rolls back streamed rewrite progress when the server rejects a body subject change", async () => {
     const original = pagePayload({
       article: {

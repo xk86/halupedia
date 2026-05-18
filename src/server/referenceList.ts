@@ -25,12 +25,13 @@ import type {
   ReferenceList,
   ReferenceListEntry,
   ReferenceRevisionId,
+  ReferenceSource,
   RagConfig,
   ParsedInternalLink,
 } from "./types";
 import type { RetrievedSourceArticle } from "./retrieval";
 import { getArticleByLookup, getLatestArticleReferences } from "./db";
-import { slugify } from "./slug";
+import { slugify, slugToTitle } from "./slug";
 
 /**
  * Inputs for `buildReferenceList`.
@@ -64,17 +65,39 @@ export interface BuildReferenceListInput {
   /** Reference-list-specific tuning from app config. */
   config: Pick<
     RagConfig,
-    "reference_max_results" | "reference_min_score" | "max_references"
+    | "reference_max_results"
+    | "reference_min_score"
+    | "max_references"
+    | "reference_recursive_depth"
+    | "reference_recursive_max_per_article"
   >;
 }
 
 interface InternalCandidate {
   entry: ReferenceListEntry;
+  source: ReferenceSource;
   /**
    * Composite ranking score. Pinned entries get +Infinity so they sort first
    * and survive the pruning cut unconditionally.
    */
   rankScore: number;
+}
+
+interface RecursiveSeed {
+  slug: string;
+  score: number;
+}
+
+function addRecursiveSeed(
+  seeds: RecursiveSeed[],
+  seedSeen: Set<string>,
+  slug: string,
+  score: number,
+) {
+  const normalized = slugify(slug);
+  if (!normalized || seedSeen.has(normalized)) return;
+  seedSeen.add(normalized);
+  seeds.push({ slug: normalized, score });
 }
 
 /**
@@ -117,6 +140,8 @@ export function buildReferenceList(
   // Track which slugs we've already accepted so each appears once.
   const seen = new Set<string>(blacklist);
   const candidates: InternalCandidate[] = [];
+  const recursiveSeeds: RecursiveSeed[] = [];
+  const recursiveSeedSeen = new Set<string>(blacklist);
 
   /**
    * Attempt to add a candidate. Skips if the slug self-references, is
@@ -128,6 +153,7 @@ export function buildReferenceList(
       explicitRevisionId?: ReferenceRevisionId;
     },
     rankScore: number,
+    source: InternalCandidate["source"],
   ) => {
     const normalized = slugify(candidate.slug);
     if (!normalized || seen.has(normalized)) return;
@@ -150,7 +176,9 @@ export function buildReferenceList(
         pinned: candidate.pinned,
         revisionId: candidate.explicitRevisionId ?? revisionId,
         score: candidate.score,
+        source: candidate.pinned ? "pinned" : source,
       },
+      source: candidate.pinned ? "pinned" : source,
       rankScore: candidate.pinned ? Number.POSITIVE_INFINITY : rankScore,
     });
   };
@@ -167,16 +195,20 @@ export function buildReferenceList(
           kind: ref.kind,
           pinned: true,
           score: ref.score,
+          source: ref.source,
           explicitRevisionId: ref.revisionId,
         },
         Number.POSITIVE_INFINITY,
+        "pinned",
       );
       pinnedCount += 1;
+      addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, ref.slug, Number.POSITIVE_INFINITY);
     }
   }
 
-  // (2) non-pinned user-added entries — always survive ranking pruning but
+  // (2) non-pinned user-added entries — always survive RAG pruning but
   // they DO count toward max_references.
+  // TODO: ensure these do not get pruned by ref_max_results... as discussed below
   for (const ref of userAdditions) {
     if (!ref.pinned) {
       add(
@@ -187,16 +219,20 @@ export function buildReferenceList(
           kind: ref.kind,
           pinned: false,
           score: ref.score,
+          source: ref.source,
           explicitRevisionId: ref.revisionId,
         },
         Number.POSITIVE_INFINITY,
+        ref.source === "body" ? "body" : "user",
       );
+      addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, ref.slug, Number.POSITIVE_INFINITY);
     }
   }
 
-  // (3) prior-save carry-over — preserve unless displaced by the cap.
-  // We score them slightly above the relevancy threshold so they outrank
-  // weak RAG matches but lose to strong new ones.
+  // (3) prior-save carry-over — preserve before adding new RAG references.
+  // Existing references are part of the article's sidecar state; they should
+  // not be displaced just because a refresh found more than reference_max_results
+  // new chunks.
   for (const ref of priorReferences) {
     add(
       {
@@ -206,10 +242,13 @@ export function buildReferenceList(
         kind: ref.kind,
         pinned: ref.pinned,
         score: ref.score,
+        source: ref.source,
         explicitRevisionId: ref.revisionId,
       },
-      ref.pinned ? Number.POSITIVE_INFINITY : config.reference_min_score + 0.01,
+      ref.pinned ? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY,
+      ref.pinned ? "pinned" : "prior",
     );
+    addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, ref.slug, Number.POSITIVE_INFINITY);
   }
 
   // (4) new RAG sources — apply the reference-specific score floor.
@@ -226,27 +265,87 @@ export function buildReferenceList(
         score,
       },
       score,
+      "rag",
     );
+    addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, src.slug, score);
   }
 
-  // Stable sort by rankScore desc. Pinned entries (+Infinity) come first.
-  candidates.sort((a, b) => b.rankScore - a.rankScore);
+  // TODO: logging of traversal. just dump slugs, depth and the source request
+  let recursiveCandidateCount = 0;
+  let recursiveTraversalCount = 0;
+  const recursiveDepth = Math.max(0, Math.floor(config.reference_recursive_depth));
+  const recursivePerArticle = Math.max(0, Math.floor(config.reference_recursive_max_per_article));
+  let frontier = recursiveSeeds;
+  const visitedRecursive = new Set<string>(blacklist);
+  for (let depth = 1; depth <= recursiveDepth && recursivePerArticle > 0 && frontier.length > 0; depth += 1) {
+    const nextFrontier: RecursiveSeed[] = [];
+    for (const seed of frontier) {
+      if (visitedRecursive.has(seed.slug)) continue;
+      visitedRecursive.add(seed.slug);
+      recursiveTraversalCount += 1;
+      const sidecarRefs = getLatestArticleReferences(db, seed.slug).slice(0, recursivePerArticle);
+      if (sidecarRefs.length === 0) {
+        addRecursiveSeed(nextFrontier, recursiveSeedSeen, seed.slug, seed.score);
+        continue;
+      }
+      for (const ref of sidecarRefs) {
+        if (blacklist.has(ref.slug)) continue;
+        recursiveCandidateCount += 1;
+        add(
+          {
+            slug: ref.slug,
+            title: ref.title,
+            content: ref.content,
+            kind: ref.kind,
+            pinned: false,
+            score: Number.isFinite(seed.score) ? seed.score : ref.score,
+            source: "recursive",
+            explicitRevisionId: ref.revisionId,
+          },
+          Number.isFinite(seed.score) ? seed.score : config.reference_min_score,
+          "recursive",
+        );
+        addRecursiveSeed(
+          nextFrontier,
+          recursiveSeedSeen,
+          ref.slug,
+          Number.isFinite(seed.score) ? seed.score : config.reference_min_score,
+        );
+      }
+    }
+    frontier = nextFrontier;
+  }
 
-  // Apply caps: pinned entries are FREE (don't count toward cap); the rest
-  // of the list is clamped to reference_max_results AND max_references.
+  // Apply caps:
+  //   - pinned entries are FREE (never count toward any cap).
+  //   - carried entries (user-added, body-linked, prior-save, recursive) are
+  //     capped only by max_references — they are never squeezed out by the
+  //     RAG budget.
+  //   - rag entries are capped first by reference_max_results (the per-build
+  //     budget for newly-discovered vector-search results), then by whatever
+  //     remains of max_references after carried entries are placed.
+  //
+  // reference_max_results strictly limits direct RAG additions only.
   const pinned = candidates.filter((c) => c.entry.pinned);
-  const nonPinned = candidates.filter((c) => !c.entry.pinned);
-  const nonPinnedCap = Math.min(
+  const carried = candidates.filter((c) => !c.entry.pinned && c.source !== "rag");
+  const rag = candidates
+    .filter((c) => !c.entry.pinned && c.source === "rag")
+    .sort((a, b) => b.rankScore - a.rankScore);
+  const keptCarried = carried.slice(0, Math.max(0, config.max_references));
+  const ragBudget = Math.min(
     config.reference_max_results,
-    Math.max(0, config.max_references - pinned.length),
+    Math.max(0, config.max_references - keptCarried.length),
   );
-  const kept = [...pinned, ...nonPinned.slice(0, nonPinnedCap)];
+  const kept = [...pinned, ...keptCarried, ...rag.slice(0, ragBudget)];
 
   logger?.info("references.built", {
     article: articleSlug,
     rag_input_count: ragSources.length,
     prior_count: priorReferences.length,
-    user_added_count: userAdditions.length,
+    body_reference_count: userAdditions.filter((ref) => ref.source === "body").length,
+    user_added_count: userAdditions.filter((ref) => ref.source !== "body").length,
+    recursive_candidate_count: recursiveCandidateCount,
+    recursive_traversed_articles: recursiveTraversalCount,
     pinned_count: pinnedCount,
     blacklist_count: blacklistSlugs.length,
     candidates: candidates.length,
@@ -255,18 +354,13 @@ export function buildReferenceList(
     score_floor: config.reference_min_score,
     cap_total: config.max_references,
     cap_per_build: config.reference_max_results,
-  });
-  logger?.debug("references.built_detail", {
-    article: articleSlug,
-    entries: JSON.stringify(
-      kept.map((c) => ({
-        slug: c.entry.slug,
-        kind: c.entry.kind,
-        pinned: c.entry.pinned,
-        score: c.entry.score,
-        revision: c.entry.revisionId,
-      })),
-    ),
+    // slug[kind/source:score] for every kept entry — shows what data type fed refs
+    sources: kept
+      .map((c) => {
+        const score = typeof c.entry.score === "number" ? `:${c.entry.score.toFixed(3)}` : "";
+        return `${c.entry.slug}[${c.entry.kind}/${c.source}${score}]`;
+      })
+      .join(", ") || "(none)",
   });
 
   return kept.map((c) => c.entry);
@@ -341,22 +435,31 @@ const REF_LINK_RE = /\[([^\]]*)\]\(ref:([^)]+)\)/g;
  * Resolve `ref:N` link shorthand in article body markdown into durable
  * slug-addressed reference links.
  *
- * The LLM may emit `[text](ref:1)` (by index) or `[](ref:some-slug)`.
- * At parse time we also tolerate slugs in the N position for robustness.
- * Result is a well-formed `ref:slug` link using the resolved reference.
- *
- * Must run on body-only markdown before sidecar references are rendered.
- * Unknown/out-of-range ref targets are left as-is so they surface during QA.
+ * The LLM may emit `[text](ref:1)`, `[text](ref:some-slug)`, or the empty
+ * bracket form `[](ref:some-slug)`. All three are handled:
+ *   - If the target resolves to a sidecar ref, use the ref title for empty brackets.
+ *   - If the target does NOT resolve (sidecar list empty or slug not in list),
+ *     empty brackets are still filled with the slug-derived title so `[]` never
+ *     appears in rendered output.
+ *   - Duplicate occurrences of the same slug collapse to plain text.
  */
 export function resolveRefLinks(body: string, refs: ReferenceList): string {
-  if (refs.length === 0 || !body.includes("ref:")) return body;
+  if (!body.includes("ref:")) return body;
   const seen = new Set<string>();
   return body.replace(REF_LINK_RE, (match, _visibleText: string, target: string) => {
+    const visibleText = _visibleText.trim();
     const ref = resolveReferenceTarget(target, refs);
-    if (!ref) return match;
-    const label = _visibleText.trim() || ref.title;
-    // First occurrence: link with the bracket text (or title if empty).
-    // Subsequent occurrences: plain text only — no duplicate links per article.
+    if (!ref) {
+      // Ref not in sidecar list. Fill empty brackets with a slug-derived title
+      // so the link is never rendered as a bare [].
+      if (!visibleText) {
+        const derivedTitle = slugToTitle(slugify(target.trim()));
+        return `[${derivedTitle}](ref:${target.trim()})`;
+      }
+      return match;
+    }
+    const label = visibleText || ref.title;
+    // First occurrence: anchor link. Subsequent occurrences: plain text only.
     if (seen.has(ref.slug)) return label;
     seen.add(ref.slug);
     return `[${label}](ref:${ref.slug})`;
@@ -374,6 +477,76 @@ export function resolveReferenceTarget(
   }
   const normalized = slugify(trimmed);
   return refs.find((r) => r.slug === normalized);
+}
+
+export function collectReferenceLinkSlugs(body: string): Set<string> {
+  const slugs = new Set<string>();
+  if (!body.includes("ref:")) return slugs;
+  const pattern = new RegExp(REF_LINK_RE.source, REF_LINK_RE.flags);
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(body)) !== null) {
+    const slug = slugify(match[2]);
+    if (slug) slugs.add(slug);
+  }
+  return slugs;
+}
+
+function markdownProtectedRanges(body: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const linkPattern = /\[[^\]]*]\([^)]+\)/g;
+  const codePattern = /`[^`]*`/g;
+  for (const pattern of [linkPattern, codePattern]) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(body)) !== null) {
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  return ranges;
+}
+
+function isInsideRange(index: number, ranges: Array<{ start: number; end: number }>) {
+  return ranges.some((range) => index >= range.start && index < range.end);
+}
+
+function titleMentionPattern(title: string): RegExp | null {
+  const tokens = title.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+  const escaped = tokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped.join("\\s+")}(?![\\p{L}\\p{N}])`, "giu");
+}
+
+/**
+ * Ensure every reference that is visibly mentioned by exact title text has an
+ * inline ref:slug link. This is deliberately bounded deterministic repair:
+ * no fuzzy matching, no LLM, no edits inside existing markdown links/code.
+ */
+export function linkMentionedReferencesInBody(
+  body: string,
+  refs: ReferenceList,
+): string {
+  if (refs.length === 0) return body;
+  let nextBody = body;
+  let linked = collectReferenceLinkSlugs(nextBody);
+
+  for (const ref of refs) {
+    if (linked.has(ref.slug)) continue;
+    const pattern = titleMentionPattern(ref.title);
+    if (!pattern) continue;
+    const protectedRanges = markdownProtectedRanges(nextBody);
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(nextBody)) !== null) {
+      if (isInsideRange(match.index, protectedRanges)) continue;
+      const visible = match[0];
+      nextBody =
+        nextBody.slice(0, match.index) +
+        `[${visible}](ref:${ref.slug})` +
+        nextBody.slice(match.index + visible.length);
+      linked = collectReferenceLinkSlugs(nextBody);
+      break;
+    }
+  }
+
+  return nextBody;
 }
 
 /**
@@ -406,6 +579,7 @@ export function findExistingArticleLinkReferences(
       kind: "summary",
       pinned: false,
       revisionId: "current",
+      source: "body",
     });
   }
   return refs;
@@ -422,13 +596,75 @@ function articleToReferenceEntry(
     kind: "summary",
     pinned: false,
     revisionId: "current",
+    source: "body",
   };
+}
+
+function normalizeMentionText(value: string): string {
+  return value
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function mentionTitleIsSpecific(title: string): boolean {
+  const normalized = normalizeMentionText(title);
+  return normalized.length >= 12 && normalized.split(" ").length >= 2;
+}
+
+/**
+ * Find existing articles whose exact title is mentioned as plain body text.
+ * This is deliberately not fuzzy: punctuation and whitespace may differ, but
+ * the normalized title token sequence must appear in full.
+ */
+export function findTitleMentionedArticles(
+  db: DatabaseSync,
+  body: string,
+  selfSlug: string,
+): ReferenceList {
+  const normalizedSelf = slugify(selfSlug);
+  const normalizedBody = ` ${normalizeMentionText(body)} `;
+  if (!normalizedBody.trim()) return [];
+
+  const rows = db
+    .prepare(
+      `SELECT slug,
+              title,
+              summary_markdown AS summaryMarkdown
+       FROM articles
+       WHERE is_disambiguation = 0`
+    )
+    .all() as Array<{ slug: string; title: string; summaryMarkdown: string }>;
+
+  const refs: ReferenceList = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const slug = slugify(row.slug);
+    if (!slug || slug === normalizedSelf || seen.has(slug)) continue;
+    if (!mentionTitleIsSpecific(row.title)) continue;
+    const normalizedTitle = normalizeMentionText(row.title);
+    if (!normalizedTitle || !normalizedBody.includes(` ${normalizedTitle} `)) continue;
+    seen.add(slug);
+    refs.push({
+      slug,
+      title: row.title,
+      content: row.summaryMarkdown ?? "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+      source: "body",
+    });
+  }
+  return refs;
 }
 
 /**
  * Find all article references that are actually used by body markdown:
  * durable `ref:slug` links plus `halu:` links that already point at stored
- * articles. This is read-only and does not invoke retrieval or an LLM.
+ * articles, plus exact title mentions. This is read-only and does not invoke
+ * retrieval or an LLM.
  */
 export function findBodyReferencedArticles(
   db: DatabaseSync,
@@ -439,6 +675,10 @@ export function findBodyReferencedArticles(
   const bySlug = new Map<string, ReferenceListEntry>();
 
   for (const ref of findExistingArticleLinkReferences(db, body, selfSlug)) {
+    bySlug.set(ref.slug, ref);
+  }
+
+  for (const ref of findTitleMentionedArticles(db, body, selfSlug)) {
     bySlug.set(ref.slug, ref);
   }
 

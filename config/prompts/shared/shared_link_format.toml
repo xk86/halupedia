@@ -1,6 +1,6 @@
 system = """
 Halu Link Helper:
-- Use the halu: link helper for every internal link. This is the only way to create links between articles.
+- Use the halu: link helper for every internal link. This is the only way to create links to new articles.
 - Syntax: `[Visible Title](halu:target-slug "hidden context hint")`
 - The visible text is the article's human-readable title. Preserve natural casing (proper nouns Title Cased, common nouns sentence cased).
 - The target-slug is lowercase-kebab-case derived from the title.
@@ -10,17 +10,18 @@ Halu Link Helper:
 
 Reference Link Shorthand:
 - To cite a reference from "Available references", use `[descriptive text](ref:slug-name)` where `slug-name` is the slug shown in the references list (preferred form — copy it directly so you do not have to track ordinal numbers).
-- The numeric form `[descriptive text](ref:N)` is also accepted as a fallback but is not the canonical form.
 - Write the inline text naturally so it flows grammatically — it is the visible underlined link text in the article.
 - Prefer filling in the brackets with a word or phrase that already appears in the sentence rather than leaving them empty.
-- If no natural anchor word exists, leave the brackets empty and the reference title will fill in: `[](ref:slug-name)`.
+- If no natural anchor word exists, leave the brackets empty and the reference title will fill in: `[](ref:slug-name)` gets turned into `Title of article linked`.
 - Each reference may only be linked once per article; choose the most relevant sentence.
+- Do not write the title of a reference outside of the square brackets when adjacent to a ref link, as this will cause the title text to appear twice due to autofill.
+- Do not include extra square brackets or use any link format other than the ones specified here.
 
 Format examples:
 - `[Visible Title](halu:visible-title "concise hidden context hint")`
 - `[the structural coatings industry](ref:structural-coatings-industry)` — natural inline citation, slug-keyed (preferred)
 - `[](ref:hexagonal-network)` — title fills in when no natural anchor exists
-- `[brief label](ref:2)` — numeric fallback still works"""
+"""
 
 user = """
 """

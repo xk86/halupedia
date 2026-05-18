@@ -30,6 +30,7 @@ Formatting Constraints:
 - Do not output a `## References` section.
 - Do not output a `## See also` section.
 - Do not output a citations section either.
+- Do not write conclusions or finishing statements/remarks.
 - Do not leak link syntax into the article (all links must be valid MD links with/without halu/ref formatting, depending on the sort of link).
 - A list article is an article primarily composed of grouped or ordered entries rather than continuous prose, usually organized around a shared category, chronology, or classification.
 - If an article starts with "List of...", it is most certainly a list article.
@@ -44,7 +45,8 @@ Formatting Constraints:
 - The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.
 - Produce exactly one article. Stop after the article body ends. Do not write a second version, alternate take, or continuation.
-- Do not emit meta-commentary, checklists, self-evaluation, link counts, confidence checks, or any text addressed to yourself or a reviewer."""
+- Do not emit meta-commentary, checklists, self-evaluation, link counts, confidence checks, or any text addressed to yourself or a reviewer.
+"""
 
 user = """
 """

@@ -58,8 +58,8 @@ Every prompt currently shipped in this directory. Each entry says *what* the pro
 
 | File | Invoked at | Purpose |
 |---|---|---|
-| `link_selection.toml` | `index.ts` — `generateLinkSelection` (called from `/api/article/:slug/add-link`) | When the user highlights a long passage, the model refines the selection down to a noun phrase suitable for wrapping in a halu link. Only runs when `shouldRefineSelection` decides the raw selection is too long. |
-| `link_suggestion.toml` | `index.ts` — `generateLinkSuggestion` (called from `/api/article/:slug/add-link`) | Given a refined selection + surrounding excerpt, returns `{title, hint}` JSON used to build the `[label](halu:slug "hint")` wrap. |
+| `link_selection.toml` | deprecated / unused | Selection refinement is bounded code in `/api/article/:slug/add-link`; do not call an LLM to choose anchor text. |
+| `link_suggestion.toml` | `index.ts` — `generateLinkSuggestion` (called from `/api/article/:slug/add-link`) | Given a bounded selection + surrounding excerpt, returns `{slug, description}` JSON used to build the `[label](halu:slug "hint")` wrap. |
 
 ### Homepage / discovery (`light` model)
 

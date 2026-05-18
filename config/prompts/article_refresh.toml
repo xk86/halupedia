@@ -14,10 +14,11 @@ Rewrite Mode:
 
 Refresh Constraints:
 - Return the full refreshed article, not a diff or notes.
+- Be sure to link, use, and include all available references.
 - Keep the article on the same topic as the requested article title.
 - Incorporate retrieved context only where it improves or adds to the article.
-- Fix halu or ref link syntax, including errors like unmatched quotes, or lone [Square Brackets]; Refer to the link syntax for guidance.
-- For ref: citations, prefer the canonical slug form: `[brief label](ref:slug-name)` or `[](ref:slug-name)`. The slug is shown alongside each entry in "Available references". Numeric `ref:N` is accepted but not preferred.
+- Fix halu or ref link syntax, including errors like unmatched quotes, or lone square brackets; refer to the link syntax for guidance.
+- For ref: citations, use `[anchor text](ref:slug-name)` where the anchor is a word or phrase already in the sentence. The slug is shown alongside each entry in "Available references".
 
 """
 
@@ -30,7 +31,7 @@ Current article:
 
 {{current_article}}
 
-Available references (link back with [text](ref:slug-name) — slug is shown for each entry below):
+Available references (link back with [anchor text](ref:slug-name) — slug is shown for each entry below):
 
 {{references_list}}
 

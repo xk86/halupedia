@@ -20,6 +20,7 @@ Additional Link Rules:
 - If the visible text differs from the linked article's actual article title, say so in the hidden context hint by noting the canonical name or alternate name explicitly.
 - Do not invent extra entities just to satisfy a quota; let links arise naturally from the article's actual subject matter and context.
 - Italic formatting in titles is allowed for works, species names, or foreign terms: e.g. `# *De Rerum Natura*` or `[*Principia Mathematica*](halu:principia-mathematica "dumb book for nerds")`.
+- Be sure to make use and include all available references.
 
 Formatting Constraints:
 - Output restricted Markdown only.
@@ -32,6 +33,7 @@ Formatting Constraints:
 - Do not output a citations section either.
 - Do not write conclusions or finishing statements/remarks.
 - Do not leak link syntax into the article (all links must be valid MD links with/without halu/ref formatting, depending on the sort of link).
+- Feel free to write a long article if you have a lot of references- be sure to break it up into sections!.
 - A list article is an article primarily composed of grouped or ordered entries rather than continuous prose, usually organized around a shared category, chronology, or classification.
 - If an article starts with "List of...", it is most certainly a list article.
 - List articles start very plainly: "This is a list of...", followed by a very brief explanation of what the list is and basic membership criteria.
@@ -41,7 +43,7 @@ Formatting Constraints:
 - When writing lists, each item is a link to a potentially new page.
 - When writing lists, you generally do not describe the items in great detail (except as the halu: hint...)
 - If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.
-- Prefer linking the first mention of notable entities in the prose body before repeating them unlinked later.
+- Every link is embedded inside a sentence as the anchor text of a word or phrase — links are part of the flowing prose, not appended after sentences or placed as standalone items outside the sentence structure.
 - The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.
 - Produce exactly one article. Stop after the article body ends. Do not write a second version, alternate take, or continuation.

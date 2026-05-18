@@ -1,3 +1,5 @@
+// TODO: split api and shit out because jesus christ this file is way too long
+// TODO: make sure that formatting text isn't being added into link replacement/strips.
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
@@ -11,6 +13,7 @@ import {
   getAdminOverview,
   getArticleByLookup,
   getArticleByTitle,
+  getArticleByEquivalentLookup,
   getArticleRevision,
   getCanonicalSlugForTarget,
   getHomepageCache,
@@ -83,7 +86,6 @@ import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
 import type {
   ArticleRecord,
   HomepagePayload,
-  LinkSelectionSuggestion,
   LinkSuggestion,
   ReferenceList,
   ReferenceListEntry,
@@ -96,6 +98,7 @@ import {
   findBodyReferencedArticles,
   findExistingArticleLinkReferences,
   formatReferencesForPrompt,
+  linkMentionedReferencesInBody,
   loadPriorReferenceList,
   resolveRefLinks,
 } from "./referenceList";
@@ -113,6 +116,23 @@ import {
   rememberArticleHtml,
   invalidateArticleHtml,
 } from "./articleRender";
+import {
+  normalizeSelectionText,
+  findSelectionRangeInMarkdown,
+  shouldRefineSelection,
+  escapeRegExp,
+  collectExistingLinkRanges,
+  overlapsExistingLink,
+  findWrapRange,
+  extractSelectionExcerpt,
+} from "./selectionUtils";
+export { findSelectionRangeInMarkdown } from "./selectionUtils";
+import {
+  ensureDykHasSourceLink,
+  normalizeHomepageFact,
+  generateDidYouKnowFact,
+} from "./dyk";
+export { ensureDykHasSourceLink } from "./dyk";
 
 const RESERVED_PATHS = new Set([
   "",
@@ -124,8 +144,6 @@ const RESERVED_PATHS = new Set([
   "api",
   "assets",
 ]);
-const LARGE_SELECTION_CHAR_THRESHOLD = 120;
-const LARGE_SELECTION_WORD_THRESHOLD = 18;
 const HOMEPAGE_MAINTENANCE_TASK = "homepage.refresh";
 const HOMEPAGE_PENDING_RETRY_MS = 1_000;
 const HOMEPAGE_REFRESH_GRACE_MS = 250;
@@ -389,317 +407,6 @@ function deriveArticleIdentity(
   return { canonicalTitle, canonicalSlug, displayTitle };
 }
 
-function normalizeSelectionText(text: string): string {
-  return text.replace(/\s+/g, " ").trim().slice(0, 220);
-}
-
-/**
- * Strip inline markdown formatting (bold, italic, links) while building a
- * map from each plain-text character index → its position in the raw markdown.
- * Used so we can locate a rendered-text selection inside the raw markdown source.
- *
- * Limitations: block-level constructs (headings, bullets) are passed through
- * as-is since selections come from rendered inline content.
- */
-function stripInlineMarkdownWithPositions(
-  md: string,
-): { plain: string; posMap: number[] } {
-  const posMap: number[] = [];
-  let plain = "";
-  let i = 0;
-
-  while (i < md.length) {
-    // Bold: **...** — skip opening/closing markers, include inner text
-    if (md[i] === "*" && md[i + 1] === "*") {
-      i += 2;
-      continue;
-    }
-
-    // Bold: __...__ — same treatment
-    if (md[i] === "_" && md[i + 1] === "_") {
-      i += 2;
-      continue;
-    }
-
-    // Link or halu-link: [label](url "hint") — include only the label chars,
-    // skip the [, ](url) parts so the visible label is mapped to label positions.
-    if (md[i] === "[") {
-      const labelEnd = md.indexOf("]", i + 1);
-      if (labelEnd >= 0 && md[labelEnd + 1] === "(") {
-        const parenClose = md.indexOf(")", labelEnd + 2);
-        if (parenClose >= 0) {
-          for (let j = i + 1; j < labelEnd; j++) {
-            plain += md[j];
-            posMap.push(j);
-          }
-          i = parenClose + 1;
-          continue;
-        }
-      }
-    }
-
-    // Italic: * or _ (single) — skip the marker character
-    if (
-      (md[i] === "*" || md[i] === "_") &&
-      md[i + 1] !== "*" &&
-      md[i + 1] !== "_"
-    ) {
-      i++;
-      continue;
-    }
-
-    // Inline code: `code` — include content, skip backticks
-    if (md[i] === "`") {
-      const closeBacktick = md.indexOf("`", i + 1);
-      if (closeBacktick >= 0) {
-        for (let j = i + 1; j < closeBacktick; j++) {
-          plain += md[j];
-          posMap.push(j);
-        }
-        i = closeBacktick + 1;
-        continue;
-      }
-    }
-
-    plain += md[i];
-    posMap.push(i);
-    i++;
-  }
-
-  return { plain, posMap };
-}
-
-/**
- * Extend a markdown range outward to include any enclosing formatting markers
- * (bold **, italic *, link [label](url)) that straddle the current boundaries.
- * This ensures replacement splices don't leave dangling markers.
- */
-function extendRangeToFormattingBoundaries(
-  md: string,
-  start: number,
-  end: number,
-): { start: number; end: number } {
-  let s = start;
-  let e = end;
-
-  // Extend backward: absorb consecutive * or _ markers, and the [ of a link label
-  while (s > 0) {
-    const ch = md[s - 1];
-    if (ch === "*" || ch === "_") {
-      s--;
-    } else if (ch === "[") {
-      // We are at the start of a link label — include the opening [
-      s--;
-      break;
-    } else {
-      break;
-    }
-  }
-
-  // Extend forward: absorb closing * or _ markers, and the ](url) of a link
-  while (e < md.length) {
-    const ch = md[e];
-    if (ch === "*" || ch === "_") {
-      e++;
-    } else if (ch === "]" && md[e + 1] === "(") {
-      // End of link label — include the closing ](url) part
-      const parenClose = md.indexOf(")", e + 2);
-      if (parenClose >= 0) e = parenClose + 1;
-      break;
-    } else {
-      break;
-    }
-  }
-
-  return { start: s, end: e };
-}
-
-/**
- * Find the markdown character range that corresponds to a plain-text selection
- * made in the rendered article HTML.
- *
- * Falls back from a fast exact indexOf to a position-mapped search that
- * accounts for inline formatting markers (bold, italic, links) between words.
- * The returned range is extended to include any enclosing formatting markers
- * so that splicing in a replacement doesn't leave dangling syntax.
- *
- * Returns null if the selection cannot be located.
- */
-export function findSelectionRangeInMarkdown(
-  markdown: string,
-  plainTextSelection: string,
-): { start: number; end: number } | null {
-  const normalized = normalizeSelectionText(plainTextSelection);
-  if (!normalized) return null;
-
-  // Fast path: the plain text is already a verbatim substring of the markdown.
-  // Still extend to formatting boundaries so callers get a well-formed splice range.
-  const exactIdx = markdown.indexOf(normalized);
-  if (exactIdx >= 0) {
-    return extendRangeToFormattingBoundaries(
-      markdown,
-      exactIdx,
-      exactIdx + normalized.length,
-    );
-  }
-
-  // Slow path: strip inline formatting, find the selection in the plain text,
-  // then map back to the markdown positions.
-  const { plain, posMap } = stripInlineMarkdownWithPositions(markdown);
-  const plainNorm = plain.replace(/\s+/g, " ");
-  const searchLower = normalized.toLowerCase();
-  const ptIdx = plainNorm.toLowerCase().indexOf(searchLower);
-  if (ptIdx < 0) return null;
-
-  const ptEnd = ptIdx + normalized.length - 1;
-  const mdStart = posMap[ptIdx];
-  const mdEnd = posMap[ptEnd];
-  if (mdStart === undefined || mdEnd === undefined) return null;
-
-  return extendRangeToFormattingBoundaries(markdown, mdStart, mdEnd + 1);
-}
-
-/**
- * Ensure a DYK fact string contains a link to the source article.
- *
- * If the fact already has a halu link pointing at `slug`, it is returned
- * unchanged.  If the article title appears as plain text, the first occurrence
- * is replaced with an inline halu link.  Otherwise a link is prepended to the
- * fact so readers always have a way to navigate to the source.
- */
-export function ensureDykHasSourceLink(
-  fact: string,
-  slug: string,
-  title: string,
-): string {
-  // DYK facts use standard wiki-path links ([Title](/wiki/Page)), not halu links.
-  // Halu links are for seeding article generation; DYK is read-only display content.
-  const wikiPath = `/wiki/${titleToWikiSegment(title)}`;
-  const titleLink = `[${title}](${wikiPath})`;
-
-  // Already contains a wiki-path link to this article → nothing to do
-  const wikiPattern = new RegExp(
-    `\\(${escapeRegExp(wikiPath)}\\)`,
-    "i",
-  );
-  if (wikiPattern.test(fact)) return fact;
-
-  // Bug guard: never insert a halu link either (shouldn't happen, but be safe)
-  const haluPattern = new RegExp(`\\(halu:${escapeRegExp(slug)}[\\s"')/]`, "i");
-  if (haluPattern.test(fact)) {
-    // Strip the halu link and replace with a wiki link — halu in DYK is wrong
-    return fact.replace(
-      new RegExp(`\\[([^\\]]+)\\]\\(halu:${escapeRegExp(slug)}[^)]*\\)`, "gi"),
-      `[$1](${wikiPath})`,
-    );
-  }
-
-  // Title appears as plain text → linkify the first occurrence
-  const titlePattern = new RegExp(
-    `(?<![\\[(/])${escapeRegExp(title)}(?![\\]])`,
-    "i",
-  );
-  const match = titlePattern.exec(fact);
-  if (match) {
-    return (
-      fact.slice(0, match.index) +
-      titleLink +
-      fact.slice(match.index + match[0].length)
-    );
-  }
-
-  // Title not present → prepend a link attribution
-  if (fact.startsWith("... ")) {
-    return `... ${titleLink}: ${fact.slice("... ".length)}`;
-  }
-  return `${titleLink} — ${fact}`;
-}
-
-function shouldRefineSelection(text: string): boolean {
-  const normalized = normalizeSelectionText(text);
-  return (
-    normalized.length > LARGE_SELECTION_CHAR_THRESHOLD ||
-    normalized.split(/\s+/).filter(Boolean).length >
-      LARGE_SELECTION_WORD_THRESHOLD
-  );
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function isWordChar(char: string | undefined): boolean {
-  return !!char && /[\p{L}\p{N}]/u.test(char);
-}
-
-function collectExistingLinkRanges(
-  markdown: string,
-): Array<{ start: number; end: number }> {
-  const ranges: Array<{ start: number; end: number }> = [];
-  // Match ANY markdown link [text](dest) — halu:, ref:, wiki paths, urls.
-  // The previous halu-only LINK_RE missed ref:slug links, so selections
-  // landing inside a ref link would get wrapped and corrupt the link.
-  const pattern = /\[([^\]]*)\]\([^)]*\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(markdown)) !== null) {
-    ranges.push({ start: match.index, end: match.index + match[0].length });
-  }
-  return ranges;
-}
-
-function overlapsExistingLink(
-  index: number,
-  ranges: Array<{ start: number; end: number }>,
-): boolean {
-  return ranges.some((range) => index >= range.start && index < range.end);
-}
-
-function findWrapRange(
-  markdown: string,
-  selectedText: string,
-): { start: number; end: number; visibleLabel: string } | null {
-  const normalizedSelection = normalizeSelectionText(selectedText);
-  if (!normalizedSelection) return null;
-  const linkRanges = collectExistingLinkRanges(markdown);
-  const exact = new RegExp(escapeRegExp(normalizedSelection), "giu");
-  let match: RegExpExecArray | null;
-
-  while ((match = exact.exec(markdown)) !== null) {
-    let start = match.index;
-    let end = match.index + match[0].length;
-    if (overlapsExistingLink(start, linkRanges)) continue;
-    while (isWordChar(markdown[start - 1])) start -= 1;
-    while (isWordChar(markdown[end])) end += 1;
-    const visibleLabel = markdown.slice(start, end).trim();
-    if (visibleLabel) return { start, end, visibleLabel };
-  }
-
-  const words = normalizedSelection.split(/\s+/).filter(Boolean);
-  if (words.length > 1) {
-    for (let size = words.length - 1; size >= 1; size--) {
-      for (let offset = 0; offset + size <= words.length; offset++) {
-        const phrase = words.slice(offset, offset + size).join(" ");
-        const found = findWrapRange(markdown, phrase);
-        if (found) return found;
-      }
-    }
-  }
-
-  return null;
-}
-
-function extractSelectionExcerpt(
-  markdown: string,
-  selectedText: string,
-): string {
-  const normalizedSelection = normalizeSelectionText(selectedText);
-  const source = markdownToPlainText(markdown);
-  const index = source.toLowerCase().indexOf(normalizedSelection.toLowerCase());
-  if (index < 0) return source.slice(0, 400);
-  const start = Math.max(0, index - 180);
-  const end = Math.min(source.length, index + normalizedSelection.length + 180);
-  return source.slice(start, end).trim();
-}
 
 function replaceTopLevelTomlValue(
   source: string,
@@ -730,6 +437,32 @@ function updateRunnablePromptConfig(
   next = replaceTopLevelTomlValue(next, "model", `"${model}"`);
   next = replaceTopLevelTomlValue(next, "thinking", thinking ? "true" : "false");
   writeFileSync(promptPath, next);
+}
+
+function formatRecentEditHistoryForPrompt(
+  revisions: ReturnType<typeof listArticleRevisions>,
+): string {
+  const editableOperations = new Set([
+    "rewrite",
+    "section-rewrite",
+    "selection-edit",
+  ]);
+  const recent = revisions
+    .filter((revision) =>
+      editableOperations.has(revision.operation) &&
+      revision.instructions.trim().length > 0
+    )
+    .slice(0, 2)
+    .reverse();
+  return recent
+    .map((revision, index) => {
+      const timestamp = Number.isFinite(revision.createdAt)
+        ? new Date(revision.createdAt).toISOString()
+        : String(revision.createdAt);
+      const instructions = revision.instructions.replace(/\s+/g, " ").trim();
+      return `${index + 1}. ${timestamp} (${revision.operation}): ${instructions}`;
+    })
+    .join("\n");
 }
 
 async function generateSeeAlsoCandidates(
@@ -777,9 +510,10 @@ async function recheckArticleLinks(
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   bodyMarkdown: string,
+  references: ReferenceList = [],
 ): Promise<string> {
   const links = extractInternalLinks(bodyMarkdown);
-  if (links.length === 0) return bodyMarkdown;
+  if (links.length === 0 && !bodyMarkdown.includes("ref:")) return bodyMarkdown;
 
   const prompt = getPrompt(promptConfig, "link_recheck");
   const selectedLlm = prompt.model === "light" ? lightLlm : llm;
@@ -788,6 +522,7 @@ async function recheckArticleLinks(
     renderTemplate(prompt.user, {
       requested_title: requestedTitle,
       article_body: bodyMarkdown.slice(0, 12000),
+      references_list: formatReferencesForPrompt(references),
       slug: slugify(requestedTitle),
       article_excerpt: "",
       rag_context: "",
@@ -984,54 +719,6 @@ async function generateArticleSummary(
   return summaryMarkdownFromArticle(articleMarkdown);
 }
 
-function normalizeHomepageFact(raw: string): string {
-  let fact = stripJsonFences(raw)
-    .replace(/^["']|["']$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  fact = fact.replace(/^did you know(?:\.\.\.|\s+that|\s*)/i, "");
-  fact = fact.replace(/^[.?!\s]+/, "");
-  fact = fact.replace(/[.?!\s]+$/, "");
-  return fact ? `... ${fact}.` : "";
-}
-
-async function generateDidYouKnowFact(
-  llm: LlmClient,
-  lightLlm: LlmClient,
-  promptConfig: ReturnType<typeof loadConfig>["prompts"],
-  article: ReturnType<typeof getRandomArticles>[number],
-): Promise<string> {
-  const prompt = getPrompt(promptConfig, "did_you_know");
-  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
-  // DYK facts use plain wiki-path links, not halu links.
-  // Halu links are for seeding new-article generation; DYK facts are read-only display.
-  const articleTitleMarkdown = `[${article.title}](/wiki/${titleToWikiSegment(article.title)})`;
-  const raw = await selectedLlm.chat(
-    prompt.system,
-    renderTemplate(prompt.user, {
-      article_title: articleTitleMarkdown,
-      article_excerpt: stripTopLevelSections(article.markdown, [
-        "References",
-        "See also",
-      ]).slice(0, 6000),
-      slug: article.slug,
-      requested_title: article.title,
-      current_article: article.markdown.slice(0, 12000),
-      previous_summary: "",
-      summary_feedback: "",
-      rag_context: "",
-      link_hints: "",
-      related_titles: "",
-      parent_comment: "",
-      selected_text: "",
-      edit_instructions: "",
-      full_article: article.markdown.slice(0, 12000),
-      dyk_articles: "",
-    }),
-    { thinking: prompt.thinking },
-  );
-  return normalizeHomepageFact(raw);
-}
 
 function normalizeRandomPageChoice(raw: string): { title: string; slug: string } {
   const cleaned = stripJsonFences(raw).trim();
@@ -1193,44 +880,65 @@ function buildLinkedPromptSystem(
   return `${guide.system.trim()}\n\n${prompt.system.trim()}`;
 }
 
-async function generateLinkSelection(
-  llm: LlmClient,
-  lightLlm: LlmClient,
-  promptConfig: ReturnType<typeof loadConfig>["prompts"],
-  requestedTitle: string,
+function stripSelectionDecorators(text: string): string {
+  return normalizeSelectionText(text)
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s*\[[^\]]*\]\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function linkableSelectionCandidates(selectedText: string): string[] {
+  const normalized = normalizeSelectionText(selectedText);
+  if (!normalized) return [];
+
+  const candidates = [
+    normalized,
+    stripSelectionDecorators(normalized),
+    stripSelectionDecorators(normalized.split(/[:.;!?]/u)[0] ?? ""),
+    normalized.split(/[:.;!?]/u)[0] ?? "",
+    normalized.split(/\s[-–—]\s/u)[0] ?? "",
+  ]
+    .map(normalizeSelectionText)
+    .filter(Boolean);
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const key = candidate.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(candidate);
+  }
+  return deduped;
+}
+
+function findBestWrapRange(
+  markdown: string,
   selectedText: string,
-  articleExcerpt: string,
-  ragContext: string,
-  relatedTitles: string[],
-): Promise<string> {
-  const prompt = getPrompt(promptConfig, "link_selection");
-  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
-  const raw = await selectedLlm.chat(
-    buildLinkedPromptSystem(promptConfig, "link_selection"),
-    renderTemplate(prompt.user, {
-      slug: slugify(requestedTitle),
-      requested_title: requestedTitle,
-      selected_text: selectedText,
-      article_excerpt: articleExcerpt,
-      rag_context: ragContext || "(none)",
-      related_titles: relatedTitles.length
-        ? relatedTitles.map((title) => `- ${title}`).join("\n")
-        : "(none)",
-      link_hints: "",
-      parent_comment: "",
-    }),
-    { thinking: prompt.thinking },
-  );
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) {
-    throw new Error("link selection returned invalid JSON");
+): { start: number; end: number; visibleLabel: string } | null {
+  const candidates = linkableSelectionCandidates(selectedText);
+  for (const candidate of candidates) {
+    if (shouldRefineSelection(candidate)) continue;
+    const range = findWrapRange(markdown, candidate);
+    if (range) return range;
   }
-  const parsed = JSON.parse(match[0]) as Partial<LinkSelectionSuggestion>;
-  const refined = normalizeSelectionText(parsed.selected_text ?? "");
-  if (!refined) {
-    throw new Error("link selection returned empty text");
+  for (const candidate of candidates) {
+    const range = findWrapRange(markdown, candidate);
+    if (range && !shouldRefineSelection(range.visibleLabel)) return range;
   }
-  return refined;
+  return findWrapRange(markdown, selectedText);
+}
+
+function normalizeSuggestedTargetSlug(
+  suggestedSlug: string,
+  sourceSlug: string,
+  visibleLabel: string,
+): string {
+  const normalized = slugify(suggestedSlug);
+  const fallback = slugify(visibleLabel);
+  if (!normalized || normalized === sourceSlug) return fallback;
+  return normalized;
 }
 
 async function generateLinkSuggestion(
@@ -1263,13 +971,18 @@ async function generateLinkSuggestion(
   );
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) {
-    throw new Error("link suggestion returned invalid JSON");
+    throw new Error(`link suggestion returned invalid JSON. Raw response: "${raw.slice(0, 500)}"`);
   }
-  const parsed = JSON.parse(match[0]) as Partial<LinkSuggestion>;
+  let parsed: Partial<LinkSuggestion>;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch (jsonErr) {
+    throw new Error(`link suggestion JSON parsing failed: ${jsonErr instanceof Error ? jsonErr.message : String(jsonErr)}. JSON: "${match[0]}"`);
+  }
   const description = (parsed.description ?? "").replace(/\s+/g, " ").trim();
-  const slug = (parsed.slug ?? "").replace(/\s+/g, "-").trim();
+  const slug = slugify(parsed.slug ?? "");
   if (!description || !slug) {
-    throw new Error("link suggestion returned empty fields");
+    throw new Error(`link suggestion returned empty fields. Got: ${JSON.stringify(parsed)}. Need: { description: string; slug: string }`);
   }
   return { description, slug };
 }
@@ -1387,6 +1100,44 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
 
+  /**
+   * Lightweight post-save hook: re-index RAG chunks and regenerate the summary.
+   * Called after any operation that mutates an article without going through
+   * the full postProcessArticle pipeline (e.g. add-link, revert).
+   * Non-blocking — fires via trackGeneration and logs failures.
+   */
+  function afterArticleSaved(slug: string, title: string, markdown: string): void {
+    trackGeneration(
+      (async () => {
+        await indexArticleChunks(
+          db,
+          llm,
+          slug,
+          markdown,
+          runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
+          runtime.app.rag.chunk_size,
+          logger,
+        );
+        const summaryMarkdown = await generateArticleSummary(
+          llm,
+          lightLlm,
+          runtime.prompts,
+          title,
+          markdown,
+        ).catch(() => summaryMarkdownFromArticle(markdown));
+        updateArticleSummary(db, slug, summaryMarkdown, {
+          operation: "summary-regenerate",
+          instructions: "Post-save summary refresh.",
+        });
+      })().catch((error) => {
+        logger.warn("article.post_save_hook_failed", {
+          slug,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }),
+    );
+  }
+
   async function shutdown() {
     await maintenance.shutdown();
     if (inFlightGenerations.size > 0) {
@@ -1461,6 +1212,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         kind: "summary",
         pinned: false,
         revisionId: "current",
+        source: "user",
       });
     }
     return result;
@@ -1865,6 +1617,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       normalizedBodyMarkdown,
       referenceList,
     );
+    const linkedBodyMarkdown = linkMentionedReferencesInBody(
+      normalizedBodyMarkdown,
+      referenceList,
+    );
+    if (linkedBodyMarkdown !== normalizedBodyMarkdown) {
+      logger.debug("save.article_immediate.linked_reference_mentions", {
+        slug: canonicalSlug,
+      });
+      normalizedBodyMarkdown = linkedBodyMarkdown;
+    }
     if (scrapeExistingBodyLinks) {
       normalizedBodyMarkdown = convertExistingArticleLinksToRefs(
         db,
@@ -1909,6 +1671,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           slug: r.slug,
           title: r.title,
           kind: r.kind,
+          source: r.source,
           pinned: r.pinned,
           revision: r.revisionId,
         })),
@@ -1992,7 +1755,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       // Re-resolve the reference list from the now-persisted state so the
       // post-processed body uses the same list (and any user pins) as the
       // initial save. References are algorithmically rendered — no LLM.
-      const existingBodyReferences = findExistingArticleLinkReferences(
+      const existingBodyReferences = findBodyReferencedArticles(
         db,
         repairedBodyMarkdown,
         normalizedSlug,
@@ -2091,6 +1854,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           hint: entry.hiddenHint ?? "",
         })),
       );
+      saveArticleReferences(db, normalizedSlug, updated.generated_at, referenceList);
       logger.info("page.post_process_done", {
         slug: normalizedSlug,
         see_also_count: seeAlso.length,
@@ -2406,6 +2170,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       const titleMatch = getArticleByTitle(db, requestedTitle);
       if (titleMatch) record = repairStoredArticleIdentity(titleMatch, lookupSlug);
     }
+    if (!record) {
+      const equivalentMatch = getArticleByEquivalentLookup(db, lookupSlug);
+      if (equivalentMatch) {
+        logger.info("page.equivalent_hit", {
+          slug: lookupSlug,
+          canonical_slug: equivalentMatch.slug,
+        });
+        record = equivalentMatch;
+      }
+    }
     if (record) {
       record = repairStoredArticleIdentity(record, lookupSlug);
       if (cachedArticleNeedsRepair(record.markdown)) {
@@ -2673,32 +2447,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
     );
     const excerpt = extractSelectionExcerpt(article.markdown, selectedText);
-    const needsRefinement = shouldRefineSelection(selectedText);
-    if (needsRefinement) {
-      logger.debug("add_link.dispatching_llm", {
-        slug: article.slug,
-        prompt: "link_selection",
-        reason: "refine oversized selection",
-        selected_text_length: selectedText.length,
-      });
-    }
-    const selectedPhrase = needsRefinement
-      ? await generateLinkSelection(
-          llm,
-          lightLlm,
-          runtime.prompts,
-          article.title,
-          selectedText,
-          excerpt,
-          retrieved.context,
-          retrieved.relatedTitles,
-        ).catch(() => selectedText)
-      : selectedText;
-    const wrapRange = findWrapRange(article.markdown, selectedPhrase);
+    const wrapRange = findBestWrapRange(article.markdown, selectedText);
     if (!wrapRange) {
       logger.debug("add_link.wrap_range_not_found", {
         slug: article.slug,
-        selected_phrase: selectedPhrase,
+        selected_phrase: selectedText,
       });
       return c.json(
         {
@@ -2714,18 +2467,40 @@ export async function createApp(options: CreateAppOptions = {}) {
       reason: "generate link target for selected text",
       visible_label: wrapRange.visibleLabel,
     });
-    const suggestion = await generateLinkSuggestion(
-      llm,
-      lightLlm,
-      runtime.prompts,
-      article.title,
-      wrapRange.visibleLabel,
-      excerpt,
-      retrieved.context,
-      retrieved.relatedTitles,
-    );
+    let suggestion: LinkSuggestion;
+    try {
+      suggestion = await generateLinkSuggestion(
+        llm,
+        lightLlm,
+        runtime.prompts,
+        article.title,
+        wrapRange.visibleLabel,
+        excerpt,
+        retrieved.context,
+        retrieved.relatedTitles,
+      );
+      logger.debug("add_link.suggestion_received", {
+        slug: article.slug,
+        target_slug: suggestion.slug,
+        description_length: suggestion.description.length,
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.warn("add_link.suggestion_failed", {
+        slug: article.slug,
+        error: errorMsg,
+      });
+      return c.json(
+        { error: `link suggestion failed: ${errorMsg}` },
+        500,
+      );
+    }
 
-    const targetSlug = suggestion.slug;
+    const targetSlug = normalizeSuggestedTargetSlug(
+      suggestion.slug,
+      article.slug,
+      wrapRange.visibleLabel,
+    );
     if (!targetSlug)
       return c.json(
         { error: "link suggestion produced an invalid target" },
@@ -2765,14 +2540,23 @@ export async function createApp(options: CreateAppOptions = {}) {
         instructions: `Linked selected text: ${selectedText}`,
       },
     );
-    await indexArticleChunks(
-      db,
-      llm,
-      nextArticle.slug,
-      nextMarkdown,
-      runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
-      runtime.app.rag.chunk_size,
-      logger,
+    // add-link only annotates existing text — content doesn't change so
+    // summary doesn't need re-generating; only re-index RAG chunks.
+    trackGeneration(
+      indexArticleChunks(
+        db,
+        llm,
+        nextArticle.slug,
+        nextMarkdown,
+        runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
+        runtime.app.rag.chunk_size,
+        logger,
+      ).catch((error) => {
+        logger.warn("article.reindex_failed", {
+          slug: nextArticle.slug,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }),
     );
 
     invalidateArticleHtml(nextArticle.slug);
@@ -2802,6 +2586,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       // Slugs the user has explicitly removed. Excluded from the result even
       // if they would otherwise score well enough to be included.
       blacklistSlugs?: string[];
+      includeRecentEditHistory?: boolean;
     };
     const instructions = (body.instructions ?? "")
       .replace(/\s+/g, " ")
@@ -2849,13 +2634,25 @@ export async function createApp(options: CreateAppOptions = {}) {
     const blacklistSlugs = (body.blacklistSlugs ?? [])
       .map((s) => slugify(s))
       .filter(Boolean);
+    const partialEdit = Boolean(selectionRange || sectionId);
+    const priorReferenceList = loadPriorReferenceList(db, article.slug) ?? [];
+    const priorReferenceSlugs = priorReferenceList.map((ref) => ref.slug);
+    const priorReferenceSlugSet = new Set(priorReferenceSlugs);
+    const newExplicitSlugs = explicitSlugs.filter((slug) => !priorReferenceSlugSet.has(slug));
+    const effectiveExplicitSlugs = partialEdit
+      ? Array.from(new Set([...priorReferenceSlugs, ...newExplicitSlugs]))
+      : explicitSlugs;
+    const effectiveUserAdditionSlugs = partialEdit ? newExplicitSlugs : explicitSlugs;
+    const effectiveBlacklistSlugs = partialEdit ? [] : blacklistSlugs;
 
     const rewriteReason = selectionRange ? "selection_edit" : sectionId ? "section_edit" : "full_rewrite";
     logger.debug("rewrite.starting", {
       slug: lookupSlug,
       reason: rewriteReason,
-      references_mode: explicitSlugs.length > 0 ? "explicit" : ragEnabled ? "rag_query" : "automatic",
-      explicit_refs: explicitSlugs.length,
+      references_mode: effectiveExplicitSlugs.length > 0 ? "explicit" : ragEnabled ? "rag_query" : "automatic",
+      explicit_refs: effectiveExplicitSlugs.length,
+      new_explicit_refs: newExplicitSlugs.length,
+      preserved_prior_refs: partialEdit ? priorReferenceSlugs.length : 0,
       rag_query_length: ragQuery.length,
       instructions_length: instructions.length,
     });
@@ -2863,12 +2660,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     const hints = listIncomingHints(db, article.slug);
     let retrieved: Awaited<ReturnType<typeof retrieveContext>>;
 
-    if (explicitSlugs.length > 0) {
+    // todo: make prints prettier instead of json
+    if (effectiveExplicitSlugs.length > 0) {
       // User explicitly selected references — use them directly, skip automatic RAG.
       // Also include saved prior-session references for continuity.
-      logger.debug("rewrite.using_explicit_references", { slug: lookupSlug, count: explicitSlugs.length });
-      const savedRefSlugs = getLatestArticleReferences(db, article.slug).map((r) => r.slug);
-      const allDirectSlugs = Array.from(new Set([...explicitSlugs, ...savedRefSlugs]));
+      logger.debug("rewrite.using_explicit_references", { slug: lookupSlug, count: effectiveExplicitSlugs.length });
+      const savedRefSlugs = priorReferenceSlugs;
+      const allDirectSlugs = Array.from(new Set([...effectiveExplicitSlugs, ...savedRefSlugs]));
       const direct = retrieveDirectArticleContext(
         db,
         article.slug,
@@ -2879,15 +2677,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       );
       logger.info("rag.explicit_references", {
         slug: article.slug,
-        explicit_count: explicitSlugs.length,
-        explicit: explicitSlugs.join(", "),
-        saved_extra: savedRefSlugs.filter((s) => !explicitSlugs.includes(s)).join(", ") || "(none)",
+        explicit_count: effectiveExplicitSlugs.length,
+        explicit: effectiveExplicitSlugs.join(", "),
+        saved_extra: savedRefSlugs.filter((s) => !effectiveExplicitSlugs.includes(s)).join(", ") || "(none)",
         total_direct_slugs: allDirectSlugs.length,
         all_direct: allDirectSlugs.join(", "),
       });
       logger.debug("rag.explicit_references_detail", {
         slug: article.slug,
-        explicit_slugs: JSON.stringify(explicitSlugs),
+        explicit_slugs: JSON.stringify(effectiveExplicitSlugs),
         all_direct_slugs: JSON.stringify(allDirectSlugs),
         direct_context_sources: JSON.stringify(
           direct.sourceArticles.map((a) => ({ slug: a.slug, title: a.title })),
@@ -2922,7 +2720,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.app.rag.max_results,
         editReferences.articles.map((a) => a.slug),
       );
-      const savedRefSlugs = getLatestArticleReferences(db, article.slug).map((r) => r.slug);
+      const savedRefSlugs = priorReferenceSlugs;
       const allDirectSlugs = Array.from(
         new Set([
           ...savedRefSlugs,
@@ -2966,9 +2764,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       rewrite_mode: modePrompt,
       link_hints: formatIncomingHintsForPrompt(hints, article.slug),
     });
-    const selectionEditInstructions = selectionRange
-      ? `SELECTION EDIT: The user selected specific text from the article and wants it rewritten. The "Current article" field below contains ONLY the selected text. Return ONLY the replacement text — do not return the full article, do not add headings, do not add surrounding context. Your response replaces the selection verbatim.\n\nUser instructions: ${instructions}`
+    // TODO: factor prompts out into configurable file
+    const recentEditHistory = body.includeRecentEditHistory === true
+      ? formatRecentEditHistoryForPrompt(listArticleRevisions(db, article.slug))
+      : "";
+    const promptEditInstructions = recentEditHistory
+      ? `Recent edit history, oldest to newest:\n${recentEditHistory}\n\nCurrent user instructions:\n${instructions}`
       : instructions;
+    const selectionEditInstructions = selectionRange
+      ? `SELECTION EDIT: The user selected specific text from the article and wants it rewritten. The "Current article" field below contains ONLY the selected text. Return ONLY the replacement text — do not return the full article, do not add headings, do not add surrounding context. Your response replaces the selection verbatim.\n\nUser instructions: ${promptEditInstructions}`
+      : promptEditInstructions;
 
     // Build preliminary refs for the prompt so the LLM can use ref:N links.
     const rewritePromptRefs = buildReferenceList(
@@ -2976,9 +2781,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       {
         articleSlug: article.slug,
         ragSources: retrieved.sourceArticles,
-        priorReferences: loadPriorReferenceList(db, article.slug),
-        userAdditions: slugsToUserAdditions(explicitSlugs),
-        blacklistSlugs,
+        priorReferences: priorReferenceList,
+        userAdditions: slugsToUserAdditions(effectiveUserAdditionSlugs),
+        blacklistSlugs: effectiveBlacklistSlugs,
         revisionId: "current",
         config: runtime.app.rag,
       },
@@ -3035,9 +2840,9 @@ export async function createApp(options: CreateAppOptions = {}) {
           {
             articleSlug: article.slug,
             ragSources: retrieved.sourceArticles,
-            priorReferences: loadPriorReferenceList(db, article.slug),
-            userAdditions: slugsToUserAdditions(explicitSlugs),
-            blacklistSlugs,
+            priorReferences: priorReferenceList,
+            userAdditions: slugsToUserAdditions(effectiveUserAdditionSlugs),
+            blacklistSlugs: effectiveBlacklistSlugs,
             revisionId: "current",
             config: runtime.app.rag,
           },
@@ -3057,8 +2862,8 @@ export async function createApp(options: CreateAppOptions = {}) {
           retrieved,
           { operation: operationName, instructions },
           {
-            userAdditionSlugs: explicitSlugs,
-            blacklistSlugs,
+            userAdditionSlugs: effectiveUserAdditionSlugs,
+            blacklistSlugs: effectiveBlacklistSlugs,
             scrapeExistingBodyLinks: !selectionRange && !sectionId,
           },
         );
@@ -3088,7 +2893,7 @@ export async function createApp(options: CreateAppOptions = {}) {
               retrieved,
               hints,
               updatedArticle.generated_at,
-              { blacklistSlugs },
+              { blacklistSlugs: effectiveBlacklistSlugs },
             ).catch(() => {}),
           );
         }
@@ -3263,7 +3068,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       "References",
       "See also",
     ]);
-    const currentArticleReferences = findExistingArticleLinkReferences(
+    const currentArticleReferences = findBodyReferencedArticles(
       db,
       article.markdown,
       article.slug,
@@ -3315,6 +3120,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.prompts,
         article.title,
         bodyMarkdown,
+        refreshPromptRefs,
       );
       operation = "refresh-context-rewrite";
       instructions = "Refreshed article body from retrieved context.";
@@ -3407,15 +3213,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         revertedFromRevisionId: revision.id,
       },
     );
-    await indexArticleChunks(
-      db,
-      llm,
-      nextArticle.slug,
-      nextArticle.markdown,
-      runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
-      runtime.app.rag.chunk_size,
-      logger,
-    );
+    afterArticleSaved(nextArticle.slug, nextArticle.title, nextArticle.markdown);
     invalidateArticleHtml(nextArticle.slug);
     const response = buildArticleResponseFor(nextArticle.slug);
     if (!response) return c.json({ error: "failed to hydrate response" }, 500);
@@ -3758,6 +3556,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     } catch {
       return c.notFound();
     }
+  });
+
+  app.post("/api/maintenance/trigger", async (c) => {
+    const { taskName, reason } = await c.req.json().catch(() => ({}));
+    if (!taskName || typeof taskName !== "string") {
+      return c.json({ error: "taskName is required and must be a string" }, 400);
+    }
+    const reasonText = typeof reason === "string" ? reason : "Manual trigger via API";
+    maintenance.trigger(taskName, reasonText);
+    return c.json({ status: "triggered", taskName, reason: reasonText });
   });
 
   app.notFound((c) => {

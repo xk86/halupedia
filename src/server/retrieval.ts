@@ -190,7 +190,7 @@ export function retrieveDirectArticleContext(
     slug: currentSlug,
     requested: referencedSlugs.length,
     picked: picked.length,
-    matched_articles: picked.map((row) => row.slug).join(", ") || "(none)",
+    sources: picked.map((row) => `${row.slug}[chunk]`).join(", ") || "(none)",
   });
 
   return {
@@ -280,9 +280,6 @@ export async function retrieveContext(
   }
 
   const picked = ranked.slice(0, maxResults);
-  const matchedArticles = picked
-    .map((row) => `${row.slug} (${row.score.toFixed(3)})`)
-    .join(", ");
   logger?.info("rag.retrieve_complete", {
     slug,
     hints: hints.length,
@@ -290,7 +287,8 @@ export async function retrieveContext(
     corpus_chunks: rows.length,
     ranked_chunks: ranked.length,
     picked: picked.length,
-    matched_articles: matchedArticles || "(none)",
+    // Each entry shows slug, data type, and score so it's clear what fed the LLM context
+    sources: picked.map((row) => `${row.slug}[chunk:${row.score.toFixed(3)}]`).join(", ") || "(none)",
     min_score: minScore,
     top_score: ranked[0]?.score ?? 0,
   });

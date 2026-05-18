@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { ArticleRecord, ArticleRevision, BacklinkItem, DisambiguationEntry, HomepagePayload, ParsedInternalLink } from "./types";
 import { summaryMarkdownFromArticle } from "./markdown";
+import { slugify } from "./slug";
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -158,6 +159,15 @@ export function openDatabase(databasePath: string): DatabaseSync {
 
     CREATE INDEX IF NOT EXISTS idx_article_see_also_slug
       ON article_see_also(article_slug, saved_at DESC);
+
+    -- Tombstone table for deleted articles. The slug is preserved here so
+    -- deleted content can never be surfaced via lookup or reference lists,
+    -- even if the row is gone from the articles table.
+    CREATE TABLE IF NOT EXISTS deleted_articles (
+      slug TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      deleted_at INTEGER NOT NULL
+    );
   `);
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {
@@ -220,6 +230,41 @@ export function getArticleByLookup(db: DatabaseSync, lookupSlug: string): Articl
     .get(lookupSlug) as { article_slug: string } | undefined;
   if (!alias) return null;
   return getArticle(db, alias.article_slug);
+}
+
+function compactLookupKey(value: string): string {
+  return slugify(value).replace(/-/g, "");
+}
+
+export function getArticleByEquivalentLookup(db: DatabaseSync, lookupSlug: string): ArticleRecord | null {
+  const requestedKey = compactLookupKey(lookupSlug);
+  if (!requestedKey) return null;
+
+  const rows = db
+    .prepare(
+      `SELECT slug, title
+       FROM articles
+       UNION
+       SELECT alias_slug AS slug, '' AS title
+       FROM article_aliases`
+    )
+    .all() as Array<{ slug: string; title: string }>;
+
+  const matchedSlugs = new Set<string>();
+  for (const row of rows) {
+    if (compactLookupKey(row.slug) === requestedKey) {
+      const article = getArticleByLookup(db, row.slug);
+      if (article) matchedSlugs.add(article.slug);
+      continue;
+    }
+    if (row.title && compactLookupKey(row.title) === requestedKey) {
+      const article = getArticleByLookup(db, row.slug);
+      if (article) matchedSlugs.add(article.slug);
+    }
+  }
+
+  if (matchedSlugs.size !== 1) return null;
+  return getArticle(db, Array.from(matchedSlugs)[0]) ?? null;
 }
 
 export function getArticleByTitle(db: DatabaseSync, title: string): ArticleRecord | null {
@@ -923,16 +968,46 @@ export function deleteArticleBySlug(db: DatabaseSync, lookupSlug: string) {
   if (!article) return false;
   db.exec("BEGIN");
   try {
+    // Tombstone the slug so it can never be re-surfaced even after the content
+    // rows are gone. Aliases that pointed at this article are also tombstoned.
+    const now = Date.now();
+    const upsertTombstone = db.prepare(
+      `INSERT OR REPLACE INTO deleted_articles (slug, title, deleted_at) VALUES (?, ?, ?)`,
+    );
+    upsertTombstone.run(article.slug, article.title, now);
+    // Tombstone all alias slugs too so redirects don't resurface deleted content.
+    const aliasRows = db
+      .prepare(`SELECT alias_slug FROM article_aliases WHERE article_slug = ?`)
+      .all(article.slug) as Array<{ alias_slug: string }>;
+    for (const { alias_slug } of aliasRows) {
+      upsertTombstone.run(alias_slug, article.title, now);
+    }
+
+    // Remove this article from every other article's reference list so deleted
+    // content stops appearing in References sections across the wiki.
+    db.prepare(`DELETE FROM article_references WHERE referenced_slug = ?`).run(article.slug);
+    db.prepare(`DELETE FROM article_see_also WHERE target_slug = ?`).run(article.slug);
+
+    // Remove the article's own content and index entries.
     db.prepare(`DELETE FROM article_chunks WHERE slug = ?`).run(article.slug);
     db.prepare(`DELETE FROM article_links WHERE source_slug = ? OR target_slug = ?`).run(article.slug, article.slug);
     db.prepare(`DELETE FROM article_aliases WHERE article_slug = ? OR alias_slug = ?`).run(article.slug, lookupSlug);
     db.prepare(`DELETE FROM articles WHERE slug = ?`).run(article.slug);
+    // article_revisions is intentionally preserved for audit purposes.
     db.exec("COMMIT");
     return true;
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+/** Returns true if the slug (or any of its aliases) has been deleted. */
+export function isSlugDeleted(db: DatabaseSync, slug: string): boolean {
+  const row = db
+    .prepare(`SELECT slug FROM deleted_articles WHERE slug = ? LIMIT 1`)
+    .get(slug) as { slug: string } | undefined;
+  return !!row;
 }
 
 export function listArticleRevisions(db: DatabaseSync, lookupSlug: string): ArticleRevision[] {

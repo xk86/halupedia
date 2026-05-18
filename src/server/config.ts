@@ -82,6 +82,8 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       reference_max_results: app.rag?.reference_max_results ?? 8,
       reference_min_score: app.rag?.reference_min_score ?? 0.4,
       max_references: app.rag?.max_references ?? 50,
+      reference_recursive_depth: app.rag?.reference_recursive_depth ?? 2,
+      reference_recursive_max_per_article: app.rag?.reference_recursive_max_per_article ?? 3,
     },
     homepage: {
       rotation_hours: app.homepage?.rotation_hours ?? 4,

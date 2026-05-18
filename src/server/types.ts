@@ -36,6 +36,10 @@ export interface RagConfig {
    * always survive regardless of this cap. Default 50.
    */
   max_references: number;
+  /** How far to traverse persisted reference sidecars from candidate refs. */
+  reference_recursive_depth: number;
+  /** Maximum sidecar refs to pull from each traversed article per depth step. */
+  reference_recursive_max_per_article: number;
 }
 
 /**
@@ -47,6 +51,20 @@ export interface RagConfig {
  * we never round-trip reference content through an LLM.
  */
 export type ReferenceKind = "summary" | "chunk";
+
+/**
+ * Where an in-memory reference candidate came from.
+ *
+ * This is intentionally debug/provenance metadata. The durable invariant is
+ * still the validated slug in the sidecar reference list.
+ */
+export type ReferenceSource =
+  | "body"
+  | "user"
+  | "prior"
+  | "rag"
+  | "recursive"
+  | "pinned";
 
 /**
  * Sentinel revision identifiers used in-memory only. These MUST NEVER be
@@ -90,6 +108,8 @@ export interface ReferenceListEntry {
   revisionId: ReferenceRevisionId;
   /** Ranking score (debug only). */
   score?: number;
+  /** Candidate provenance (debug/UI only; older persisted rows may omit it). */
+  source?: ReferenceSource;
 }
 
 /** Type alias to make pipeline intent obvious at call sites. */
@@ -167,10 +187,6 @@ export interface SeeAlsoCandidate {
 export interface LinkSuggestion {
   description: string;
   slug: string;
-}
-
-export interface LinkSelectionSuggestion {
-  selected_text: string;
 }
 
 export interface ArticleRecord {

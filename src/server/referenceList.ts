@@ -346,6 +346,8 @@ export function buildReferenceList(
     user_added_count: userAdditions.filter((ref) => ref.source !== "body").length,
     recursive_candidate_count: recursiveCandidateCount,
     recursive_traversed_articles: recursiveTraversalCount,
+    recursive_depth: recursiveDepth,
+    recursive_max_per_article: recursivePerArticle,
     pinned_count: pinnedCount,
     blacklist_count: blacklistSlugs.length,
     candidates: candidates.length,
@@ -361,6 +363,19 @@ export function buildReferenceList(
         return `${c.entry.slug}[${c.entry.kind}/${c.source}${score}]`;
       })
       .join(", ") || "(none)",
+  });
+  logger?.debug("references.built_detail", {
+    article: articleSlug,
+    entries: JSON.stringify(
+      kept.map((c) => ({
+        slug: c.entry.slug,
+        kind: c.entry.kind,
+        source: c.source,
+        pinned: c.entry.pinned,
+        score: c.entry.score,
+        revision: c.entry.revisionId,
+      })),
+    ),
   });
 
   return kept.map((c) => c.entry);
@@ -424,7 +439,7 @@ export function isMetadataSection(heading: string): boolean {
 export function formatReferencesForPrompt(refs: ReferenceList): string {
   if (refs.length === 0) return "(none)";
   return refs
-    .map((r, i) => `- ref:${r.slug} → ${r.title}  (also reachable as ref:${i + 1})`)
+    .map((r) => `- ref:${r.slug} → ${r.title}`)
     .join("\n");
 }
 
@@ -459,8 +474,10 @@ export function resolveRefLinks(body: string, refs: ReferenceList): string {
       return match;
     }
     const label = visibleText || ref.title;
-    // First occurrence: anchor link. Subsequent occurrences: plain text only.
-    if (seen.has(ref.slug)) return label;
+    // First occurrence: anchor link. Subsequent occurrences: plain text only,
+    // with inline formatting stripped so bold/italic from the link label doesn't
+    // bleed into plain-text repetitions.
+    if (seen.has(ref.slug)) return label.replace(/\*\*?|__?|~~|`/g, "");
     seen.add(ref.slug);
     return `[${label}](ref:${ref.slug})`;
   });

@@ -28,6 +28,9 @@ function isBareBracketLinkLabel(label: string): boolean {
     trimmed.length <= 120 &&
     !trimmed.startsWith("^") &&
     !trimmed.includes("|") &&
+    // Reject labels that contain a double-quote — these are `slug "hint"` fragments
+    // the LLM wrote outside proper link syntax. Article titles never have raw `"`.
+    !trimmed.includes('"') &&
     !/^https?:\/\//i.test(trimmed) &&
     /[\p{L}\p{N}]/u.test(trimmed)
   );

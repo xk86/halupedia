@@ -2344,7 +2344,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
-    const references = getLatestArticleReferences(db, article.slug);
+    const seen = new Set<string>();
+    const references = getLatestArticleReferences(db, article.slug).filter((r) => {
+      if (seen.has(r.slug)) return false;
+      seen.add(r.slug);
+      return true;
+    });
     return c.json({ references });
   });
 

@@ -20,6 +20,7 @@ import {
   extractTitle,
   leadBoldsTitle,
   markdownToPlainText,
+  normalizeHaluLinks,
   renderMarkdown,
   normalizeMarkdown,
   summaryMarkdownFromArticle,
@@ -1407,7 +1408,7 @@ test("resolveRefLinks: ref:slug input is canonical and ref:N still resolves", ()
   );
 });
 
-test("formatReferencesForPrompt advertises slug as canonical with index as fallback", () => {
+test("formatReferencesForPrompt lists slug and title for each ref", () => {
   const refs: ReferenceList = [
     {
       slug: "glow-fruit",
@@ -1427,12 +1428,8 @@ test("formatReferencesForPrompt advertises slug as canonical with index as fallb
     },
   ];
   const rendered = formatReferencesForPrompt(refs);
-  // Slug appears as the primary citation form so the LLM copies it directly.
   assert.match(rendered, /- ref:glow-fruit → Glow Fruit/);
   assert.match(rendered, /- ref:night-bloom → Night Bloom/);
-  // 1-based numeric fallback is preserved for backwards compatibility.
-  assert.match(rendered, /also reachable as ref:1/);
-  assert.match(rendered, /also reachable as ref:2/);
 });
 
 test("formatReferencesForPrompt returns (none) when the list is empty", () => {
@@ -1638,4 +1635,58 @@ test("deleteArticleBySlug: returns false and leaves no tombstone for unknown slu
   const result = deleteArticleBySlug(db, "totally-unknown-slug");
   assert.ok(!result, "should return false for unknown slug");
   assert.ok(!isSlugDeleted(db, "totally-unknown-slug"), "no tombstone for unknown slug");
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   resolveRefLinks: bolded duplicate collapse
+   ───────────────────────────────────────────────────────────────── */
+
+test("resolveRefLinks: bold markers stripped from collapsed duplicate ref", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "glow-fruit",
+      title: "Glow Fruit",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const body = "The [**Glow Fruit**](ref:glow-fruit) is notable. Later, [**Glow Fruit**](ref:glow-fruit) reappears.";
+  const resolved = resolveRefLinks(body, refs);
+  // First occurrence kept as-is (bold inside the link is fine).
+  assert.match(resolved, /\[\*\*Glow Fruit\*\*\]\(ref:glow-fruit\)/);
+  // Second occurrence must NOT carry bold markers.
+  assert.doesNotMatch(resolved, /Later.*\*\*Glow Fruit\*\*/);
+  assert.match(resolved, /Later, Glow Fruit reappears/);
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   normalizeHaluLinks: slug+hint bare brackets stripped cleanly
+   ───────────────────────────────────────────────────────────────── */
+
+test('normalizeHaluLinks: bare [slug "hint"] with double-quote is not converted to halu link', () => {
+  // Labels with " are rejected by isBareBracketLinkLabel to avoid garbled links.
+  // The [ is emitted literally and the content follows as text.
+  const input = `the memoir The Smooth Passage [obama-method-of-drainage "hint"].`;
+  const result = normalizeHaluLinks(input);
+  // Must NOT produce a halu link that uses the slug+hint string as visible text
+  assert.doesNotMatch(result, /\(halu:obama-method-of-drainage.*obama-method-of-drainage/);
+  // The Smooth Passage plain text must survive
+  assert.match(result, /The Smooth Passage/);
+});
+
+test("normalizeHaluLinks: bare [Title without quotes] still becomes a halu link", () => {
+  const input = `cemented his standing [Some Article].`;
+  const result = normalizeHaluLinks(input);
+  assert.match(result, /\(halu:some-article/);
+  assert.match(result, /Some Article/);
+  assert.match(result, /cemented his standing/);
+});
+
+test("normalizeHaluLinks: title with apostrophe like [Obama's Method] becomes a halu link", () => {
+  const input = `discussed in [Obama's Method].`;
+  const result = normalizeHaluLinks(input);
+  // Apostrophe in title is fine — only double-quote is rejected
+  assert.match(result, /halu:obama-s-method/);
 });

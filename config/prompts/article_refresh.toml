@@ -3,7 +3,7 @@ thinking = false
 system = """
 {{shared_article_rules}}
 
-You are refreshing one existing Halupedia article using newly retrieved local context.
+You are refreshing one existing document using newly retrieved local context.
 
 Incoming canonical references that may link back to this article:
 
@@ -16,8 +16,10 @@ Refresh Constraints:
 - Return the full refreshed article, not a diff or notes.
 - Keep the article on the same topic as the requested article title.
 - Incorporate retrieved context only where it improves or adds to the article.
-- Fix halu link syntax, including errors like unmatched quotes, or lone [Square Brackets]; Refer to the link hints for guidance.
-- Take time to add links to existing subjects if you can find places that should have them."""
+- Fix halu or ref link syntax, including errors like unmatched quotes, or lone [Square Brackets]; Refer to the link syntax for guidance.
+- Ensure that reference text (the text in square brackets for ref:N links) [is the underlined text that ]
+
+"""
 
 user = """
 Requested article title:
@@ -28,11 +30,15 @@ Current article:
 
 {{current_article}}
 
+Available references (link back with [text](ref:N) — N is the number, [] uses the article title):
+
+{{references_list}}
+
 Retrieved context:
 
 {{rag_context}}
 
-Suggested related existing Halupedia topics:
+Suggested related existing topics:
 
 {{related_titles}}
 

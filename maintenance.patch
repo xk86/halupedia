@@ -1,0 +1,19 @@
+--- src/server/index.ts
++++ src/server/index.ts
+@@ -383,6 +383,16 @@
+     }
+   });
+ 
++  app.post("/api/maintenance/trigger", async (c) => {
++    const { taskName, reason } = await c.req.json().catch(() => ({}));
++    if (!taskName || typeof taskName !== "string") {
++      return c.json({ error: "taskName is required and must be a string" }, 400);
++    }
++    const reasonText = typeof reason === "string" ? reason : "Manual trigger via API";
++    maintenance.trigger(taskName, reasonText);
++    return c.json({ status: "triggered", taskName, reason: reasonText });
++  });
++
+   app.notFound((c) => {
+     logger.warn("http.not_found", {
+       method: c.req.method,

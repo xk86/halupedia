@@ -17,7 +17,7 @@ Refresh Constraints:
 - Keep the article on the same topic as the requested article title.
 - Incorporate retrieved context only where it improves or adds to the article.
 - Fix halu or ref link syntax, including errors like unmatched quotes, or lone [Square Brackets]; Refer to the link syntax for guidance.
-- Ensure that reference text (the text in square brackets for ref:N links) [is the underlined text that ]
+- For ref: citations, prefer the canonical slug form: `[brief label](ref:slug-name)` or `[](ref:slug-name)`. The slug is shown alongside each entry in "Available references". Numeric `ref:N` is accepted but not preferred.
 
 """
 
@@ -30,7 +30,7 @@ Current article:
 
 {{current_article}}
 
-Available references (link back with [text](ref:N) — N is the number, [] uses the article title):
+Available references (link back with [text](ref:slug-name) — slug is shown for each entry below; [] uses the article title; ref:N still works as a fallback):
 
 {{references_list}}
 

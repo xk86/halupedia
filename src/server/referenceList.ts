@@ -26,6 +26,7 @@ import type {
   ReferenceListEntry,
   ReferenceRevisionId,
   RagConfig,
+  ParsedInternalLink,
 } from "./types";
 import type { RetrievedSourceArticle } from "./retrieval";
 import { getArticleByLookup, getLatestArticleReferences } from "./db";
@@ -277,18 +278,8 @@ import { buildHaluLink, LINK_RE, normalizeHaluLinks } from "./markdown";
 import { titleToWikiSegment } from "./slug";
 
 /**
- * Build a slug → 1-based-index map so `renderMarkdown` can inject footnote
- * superscripts next to explicit `ref:` links.
- */
-export function buildRefSlugIndex(refs: ReferenceList): ReadonlyMap<string, number> {
-  const map = new Map<string, number>();
-  refs.forEach((entry, i) => map.set(entry.slug, i + 1));
-  return map;
-}
-
-/**
  * Render the reference list as an HTML `<section>` with numbered items and
- * anchor IDs so the `[N]` footnote superscripts in the body can link here.
+ * anchor IDs for in-page navigation.
  *
  * Returns empty string when the list is empty.
  */
@@ -327,14 +318,20 @@ export function isMetadataSection(heading: string): boolean {
 }
 
 /**
- * Format a reference list as a numbered prompt string so the LLM can use
- * `[text](ref:N)` link shorthand in the generated body.
+ * Format a reference list for prompts. The canonical citation form is
+ * `ref:slug` — the slug is shown first so the model can copy it directly
+ * into `[text](ref:slug)` without having to track ordinal numbers.
+ * A 1-based index is kept in parentheses for backwards compatibility:
+ * `ref:N` still resolves (see `resolveReferenceTarget`) but is no longer
+ * the recommended form.
  *
  * Returns "(none)" when the list is empty.
  */
 export function formatReferencesForPrompt(refs: ReferenceList): string {
   if (refs.length === 0) return "(none)";
-  return refs.map((r, i) => `${i + 1}. ${r.title} (${r.slug})`).join("\n");
+  return refs
+    .map((r, i) => `- ref:${r.slug} → ${r.title}  (also reachable as ref:${i + 1})`)
+    .join("\n");
 }
 
 // Matches [text](ref:n) or [](ref:n) where n is a number or slug.
@@ -353,10 +350,15 @@ const REF_LINK_RE = /\[([^\]]*)\]\(ref:([^)]+)\)/g;
  */
 export function resolveRefLinks(body: string, refs: ReferenceList): string {
   if (refs.length === 0 || !body.includes("ref:")) return body;
-  return body.replace(REF_LINK_RE, (match, visibleText: string, target: string) => {
+  const seen = new Set<string>();
+  return body.replace(REF_LINK_RE, (match, _visibleText: string, target: string) => {
     const ref = resolveReferenceTarget(target, refs);
     if (!ref) return match;
-    const label = visibleText.trim() || ref.title;
+    const label = _visibleText.trim() || ref.title;
+    // First occurrence: link with the bracket text (or title if empty).
+    // Subsequent occurrences: plain text only — no duplicate links per article.
+    if (seen.has(ref.slug)) return label;
+    seen.add(ref.slug);
     return `[${label}](ref:${ref.slug})`;
   });
 }
@@ -452,6 +454,45 @@ export function findBodyReferencedArticles(
   }
 
   return Array.from(bySlug.values());
+}
+
+/**
+ * Extract ref:slug links from body markdown as ParsedInternalLink entries.
+ *
+ * After convertExistingArticleLinksToRefs runs, halu links to existing
+ * articles become ref: links. extractInternalLinks (halu-only) would miss
+ * them, so callers that write to article_links for backlink tracking must
+ * also call this function and combine the results.
+ *
+ * visible_label = the link's bracket text (or the article's title if empty)
+ * hidden_hint   = the target article's summary_markdown, used as RAG context
+ *                 by listIncomingHints when generating articles that are
+ *                 linked-to by this article.
+ */
+export function extractRefLinksAsInternalLinks(
+  db: DatabaseSync,
+  body: string,
+  selfSlug: string,
+): ParsedInternalLink[] {
+  if (!body.includes("ref:")) return [];
+  const normalizedSelf = slugify(selfSlug);
+  const seen = new Set<string>();
+  const links: ParsedInternalLink[] = [];
+  const pattern = new RegExp(REF_LINK_RE.source, REF_LINK_RE.flags);
+  let m: RegExpExecArray | null;
+  while ((m = pattern.exec(body)) !== null) {
+    const slug = slugify(m[2]);
+    if (!slug || slug === normalizedSelf || seen.has(slug)) continue;
+    seen.add(slug);
+    const article = getArticleByLookup(db, slug);
+    if (!article) continue;
+    links.push({
+      targetSlug: article.slug,
+      visibleLabel: m[1].trim() || article.title,
+      hiddenHint: article.summaryMarkdown ?? "",
+    });
+  }
+  return links;
 }
 
 /**

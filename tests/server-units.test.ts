@@ -37,9 +37,9 @@ import {
 } from "../src/server/summary";
 import { summarizeRetrievedSource } from "../src/server/index";
 import {
-  buildRefSlugIndex,
   convertExistingArticleLinksToRefs,
   findExistingArticleLinkReferences,
+  formatReferencesForPrompt,
   renderReferencesHtml,
   resolveRefLinks,
 } from "../src/server/referenceList";
@@ -47,7 +47,12 @@ import {
   assembleArticleMarkdownForRender,
   renderArticleDisplayHtml,
 } from "../src/server/articleRender";
-import type { Article } from "../src/server/article";
+import {
+  stripBodyMetadataSections,
+  articleRecordToArticle,
+} from "../src/server/article";
+import type { Article, ArticleMetadata } from "../src/server/article";
+import type { ArticleRecord } from "../src/server/types";
 import type { ReferenceList } from "../src/server/types";
 
 const TEST_CONFIG = loadConfig().app.tests;
@@ -894,7 +899,7 @@ test("halu links with unicode visible text render correct wiki paths", () => {
   assert.doesNotMatch(html, /orange pigment/);
 });
 
-test("reference links render footnotes without converting halu links", () => {
+test("reference links render as plain wiki links, not footnotes", () => {
   const refs: ReferenceList = [
     {
       slug: "source-entry",
@@ -914,9 +919,11 @@ test("reference links render footnotes without converting halu links", () => {
     body,
     '[cited passage](ref:source-entry) and [new topic](halu:new-topic "seed hint").',
   );
-  const html = renderMarkdown(body, { refSlugToIndex: buildRefSlugIndex(refs) });
-  assert.match(html, /class="ref-link"/);
-  assert.match(html, /href="#ref-1" class="ref-num"/);
+  const html = renderMarkdown(body);
+  // ref: links render as normal wiki links — no special class, no [N] superscript
+  assert.doesNotMatch(html, /class="ref-link"/);
+  assert.doesNotMatch(html, /class="ref-num"/);
+  assert.match(html, /href="\/wiki\/Source_entry"/);
   assert.match(html, /href="\/wiki\/New_topic"/);
 });
 
@@ -1019,4 +1026,195 @@ test("see-also metadata renders for display but is not baked into article markdo
   const html = renderArticleDisplayHtml(article);
   assert.match(html, /<h2>See also<\/h2>/);
   assert.match(html, /Related Entry/);
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   ref: link rendering
+   ───────────────────────────────────────────────────────────────── */
+
+test("resolveRefLinks: [](ref:N) fills in article title on first occurrence", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "glow-fruit",
+      title: "Glow Fruit",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const body = "See [](ref:1) for details.";
+  const resolved = resolveRefLinks(body, refs);
+  assert.equal(resolved, "See [Glow Fruit](ref:glow-fruit) for details.");
+});
+
+test("resolveRefLinks: second occurrence of same ref becomes plain text", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "glow-fruit",
+      title: "Glow Fruit",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const body = "See [the grove](ref:1) here and [](ref:1) there.";
+  const resolved = resolveRefLinks(body, refs);
+  // First: linked with bracket text. Second: plain title, no link.
+  assert.equal(resolved, "See [the grove](ref:glow-fruit) here and Glow Fruit there.");
+});
+
+test("resolveRefLinks: ref:slug input is canonical and ref:N still resolves", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "glow-fruit",
+      title: "Glow Fruit",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+    {
+      slug: "night-bloom",
+      title: "Night Bloom",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  // Mixed input: numeric and slug forms both reach the same canonical output
+  const body = "First [a](ref:glow-fruit) then [b](ref:2).";
+  assert.equal(
+    resolveRefLinks(body, refs),
+    "First [a](ref:glow-fruit) then [b](ref:night-bloom).",
+  );
+});
+
+test("formatReferencesForPrompt advertises slug as canonical with index as fallback", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "glow-fruit",
+      title: "Glow Fruit",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+    {
+      slug: "night-bloom",
+      title: "Night Bloom",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const rendered = formatReferencesForPrompt(refs);
+  // Slug appears as the primary citation form so the LLM copies it directly.
+  assert.match(rendered, /- ref:glow-fruit → Glow Fruit/);
+  assert.match(rendered, /- ref:night-bloom → Night Bloom/);
+  // 1-based numeric fallback is preserved for backwards compatibility.
+  assert.match(rendered, /also reachable as ref:1/);
+  assert.match(rendered, /also reachable as ref:2/);
+});
+
+test("formatReferencesForPrompt returns (none) when the list is empty", () => {
+  assert.equal(formatReferencesForPrompt([]), "(none)");
+});
+
+test("resolveRefLinks: [brief label](ref:N) keeps provided label", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "glow-fruit",
+      title: "Glow Fruit",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const body = "As noted by [the grove](ref:1), this is relevant.";
+  const resolved = resolveRefLinks(body, refs);
+  assert.equal(resolved, "As noted by [the grove](ref:glow-fruit), this is relevant.");
+});
+
+test("renderMarkdown: ref:slug link renders as plain wiki link", () => {
+  const html = renderMarkdown("[Glow Fruit](ref:glow-fruit)");
+  // Renders as a normal wiki link — no special class, no footnote
+  assert.match(html, /href="\/wiki\/Glow_fruit"/);
+  assert.doesNotMatch(html, /class="ref-link"/);
+  assert.doesNotMatch(html, /class="ref-num"/);
+});
+
+test("renderMarkdown: [](ref:slug) with empty label renders article title as link", () => {
+  const refs: ReferenceList = [
+    {
+      slug: "night-bloom",
+      title: "Night Bloom",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const body = resolveRefLinks("[](ref:1)", refs);
+  assert.equal(body, "[Night Bloom](ref:night-bloom)");
+  const html = renderMarkdown(body);
+  assert.match(html, /Night Bloom/);
+  assert.match(html, /href="\/wiki\/Night_bloom"/);
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   articleRecordToArticle does not strip DB records
+   ───────────────────────────────────────────────────────────────── */
+
+test("articleRecordToArticle preserves baked-in See also section from old DB records", () => {
+  const markdown = [
+    "# Old Article",
+    "",
+    "**Old Article** is a legacy entry.",
+    "",
+    "## See also",
+    "",
+    "- [Related Thing](halu:related-thing \"related context\")",
+  ].join("\n");
+
+  const emptyMetadata: ArticleMetadata = { references: [], seeAlso: [] };
+  const record: ArticleRecord = {
+    slug: "old-article",
+    canonicalSlug: "old-article",
+    title: "Old Article",
+    markdown,
+    html: "",
+    plain_text: "",
+    generated_at: Date.now(),
+  };
+  const article = articleRecordToArticle(record, emptyMetadata);
+
+  // Body should include the baked-in See also (not stripped)
+  assert.match(article.body, /## See also/);
+  assert.match(article.body, /related-thing/);
+});
+
+test("stripBodyMetadataSections removes References and See also headings and their content", () => {
+  const markdown = [
+    "# Article",
+    "",
+    "**Article** is a thing.",
+    "",
+    "## References",
+    "",
+    "- Something",
+    "",
+    "## See also",
+    "",
+    "- Other thing",
+  ].join("\n");
+
+  const stripped = stripBodyMetadataSections(markdown);
+  assert.doesNotMatch(stripped, /## References/);
+  assert.doesNotMatch(stripped, /## See also/);
+  assert.match(stripped, /is a thing/);
 });

@@ -632,8 +632,8 @@ test("refresh-context converts existing article links into footnote references",
   assert.equal(res.status, 200);
   const body = await res.json() as any;
   assert.match(body.article.body, /\[Source Article\]\(ref:source-article\)/);
-  assert.match(body.article.html, /class="ref-link"/);
-  assert.match(body.article.html, /class="ref-num"/);
+  assert.doesNotMatch(body.article.html, /class="ref-link"/);
+  assert.doesNotMatch(body.article.html, /class="ref-num"/);
   assert.match(body.article.html, /<section class="article-references">/);
   assert.match(body.article.html, /<ol>/);
   assert.doesNotMatch(body.article.html, /<h2>References<\/h2><ul>/);

@@ -7,12 +7,12 @@ You are proposing one internal link target for a selected span of text from an e
 
 Constraints:
 - Return JSON only.
-- Return an object with keys `title` and `hint`.
-- `title` must be a plausible article title in canonical singular/title form.
-- `hint` must be a short canonical description for that target article.
+- Return an object with keys `slug` and `description`.
+- `slug` must be a kebab-case URL slug for the target article (lowercase, words separated by hyphens, no spaces or special characters).
+- `description` must be a short canonical description of the target article (one sentence, no Markdown).
 - Use the selected text, the source page title, the local excerpt, and any retrieved context to infer the best internal topic.
-- If the text is short, it's probably to be used more-or-less verbatim. Example: highlight for "ot dog eating competition" probably maps to "hot dog eating competition", and "2004 Foo Bar" should be a specific link verbatim, not a link to 2004, or Foo Bar.
-- Prefer an article title that matches the selected phrase closely unless the canonical title should obviously be a singular or normalized form.
+- If the text is short, it's probably to be used more-or-less verbatim. Example: highlight for "ot dog eating competition" probably maps to "hot-dog-eating-competition", and "2004 Foo Bar" should be a specific link verbatim, not a link to 2004 or Foo Bar.
+- Prefer a slug that matches the selected phrase closely unless the canonical form should obviously be singular or normalized.
 - Do not return bibliography data, authorship strings, publication metadata, URLs, or Markdown."""
 
 user = """

@@ -1,6 +1,6 @@
 system = """
 Shared linking rules:
-- All returned text must be suitable for an internal Halupedia link.
+- All returned text must be a description for a new entry.
 - Prefer concrete entities, named theories, institutions, works, events, places, or compact recurring concepts.
 - Avoid returning whole clauses, sentences, or oversized descriptive spans.
 - Prefer 1 to 6 words when possible.

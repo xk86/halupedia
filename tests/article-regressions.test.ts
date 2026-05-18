@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getArticle, openDatabase, saveArticle } from "../src/server/db";
+import { getArticle, openDatabase, saveArticle, saveArticleReferences } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
-import type { LlmClient } from "../src/server/llm";
+import { OpenAICompatClient, type LlmClient } from "../src/server/llm";
 import {
   extractInternalLinks,
   markdownToPlainText,
@@ -629,8 +629,8 @@ test("add-link refines oversized selections before wrapping markdown", async (t)
   const llm = new QueueLlmClient("", [
     JSON.stringify({ selected_text: "Cultural Dissipation Factor" }),
     JSON.stringify({
-      title: "Cultural Dissipation Factor",
-      hint: "measure of stable energetic exchange in recorded belief systems",
+      slug: "cultural-dissipation-factor",
+      description: "measure of stable energetic exchange in recorded belief systems",
     }),
   ]);
   const server = await createServer(databasePath, llm);
@@ -653,6 +653,93 @@ test("add-link refines oversized selections before wrapping markdown", async (t)
   assert.doesNotMatch(
     body.article.markdown,
     /\[Cultural Dissipation Factor \(\$\\delta\$\): This is perhaps the most abstract measurement/,
+  );
+});
+
+test("add-link wraps highlighted plain text in a new halu link at that position", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Plain-text article — no existing links anywhere
+  const markdown = [
+    "# Stabilizing Agent 7",
+    "",
+    "**Stabilizing Agent 7** is a chemical additive used in the structural coatings industry to prevent atmospheric degradation.",
+  ].join("\n");
+  saveMarkdownArticle(databasePath, {
+    slug: "stabilizing-agent-7",
+    title: "Stabilizing Agent 7",
+    markdown,
+  });
+
+  // LLM returns the target article identity for the suggestion call
+  const llm = new QueueLlmClient("", [
+    JSON.stringify({
+      slug: "structural-coatings-industry",
+      description: "industrial sector applying protective surface films",
+    }),
+  ]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/article/Stabilizing_Agent_7/add-link", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ selectedText: "structural coatings industry" }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  // The exact selected phrase must now be a halu link in the saved markdown
+  assert.match(
+    body.article.markdown,
+    /\[structural coatings industry\]\(halu:structural-coatings-industry "[^"]+"\)/,
+    "highlighted plain text should be wrapped in a halu: link at the selection position",
+  );
+  // And the surrounding sentence must still be intact
+  assert.match(body.article.markdown, /used in the \[structural coatings industry\]/);
+  assert.match(body.article.markdown, /\) to prevent atmospheric degradation\./);
+});
+
+test("add-link wraps unicode text with parentheses as a new halu link", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const markdown = [
+    "# Metamorphic Systems",
+    "",
+    "Conceptual Agents (概念剂) are self-organizing units that drive emergent behavior in complex adaptive systems.",
+  ].join("\n");
+  saveMarkdownArticle(databasePath, {
+    slug: "metamorphic-systems",
+    title: "Metamorphic Systems",
+    markdown,
+  });
+
+  const llm = new QueueLlmClient("", [
+    JSON.stringify({
+      slug: "conceptual-agents",
+      description: "self-organizing units that drive emergent behavior",
+    }),
+  ]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/article/Metamorphic_Systems/add-link", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ selectedText: "Conceptual Agents (概念剂)" }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  assert.match(
+    body.article.markdown,
+    /\[Conceptual Agents \(概念剂\)\]\(halu:conceptual-agents "[^"]+"\)/,
+    "unicode text with parentheses should be wrapped as a halu link",
+  );
+  assert.match(
+    body.article.markdown,
+    /\[Conceptual Agents \(概念剂\)\]\(halu:conceptual-agents "[^"]+"\) are self-organizing/,
+    "surrounding text should remain intact",
   );
 });
 
@@ -1234,4 +1321,221 @@ test("disambiguation API rejects fewer than 2 entries", async (t) => {
   assert.equal(res.status, 400);
   const body = await res.json();
   assert.equal(body.error, "at least 2 entries required");
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   Reference status: notice should not fire for old-style articles
+   ───────────────────────────────────────────────────────────────── */
+
+test("old-style article with halu links and empty sidecar does not trigger missing-refs notice", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Seed the linked article so it exists in DB
+  saveMarkdownArticle(databasePath, {
+    slug: "resonance-transmitter",
+    title: "Resonance Transmitter",
+    markdown: "# Resonance Transmitter\n\n**Resonance Transmitter** is a device.",
+  });
+  // Old-style article: halu link to existing article, no sidecar refs
+  saveMarkdownArticle(databasePath, {
+    slug: "legacy-article",
+    title: "Legacy Article",
+    markdown: [
+      "# Legacy Article",
+      "",
+      '**Legacy Article** uses the [Resonance Transmitter](halu:resonance-transmitter "a device").',
+    ].join("\n"),
+  });
+
+  const server = await createServer(databasePath, new QueueLlmClient(""));
+  const res = await server.request("/api/page/Legacy_Article");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  // Halu links to existing articles do NOT count as "missing" — only explicit ref: links do
+  assert.deepEqual(body.referenceStatus.missing, []);
+  // unformatted is empty because the sidecar has no refs (nothing to flag as wrongly formatted)
+  assert.deepEqual(body.referenceStatus.unformatted, []);
+});
+
+test("hasReferencesSection is false for articles without a baked-in References heading", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "clean-article",
+    title: "Clean Article",
+    markdown: "# Clean Article\n\n**Clean Article** has no baked-in sections.",
+  });
+
+  const server = await createServer(databasePath, new QueueLlmClient(""));
+  const res = await server.request("/api/page/Clean_Article");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  // The hasReferencesSection check should correctly return false (not always-true)
+  assert.equal(body.referenceStatus.hasReferencesSection, false);
+});
+
+test("old-style article with baked-in See also section renders it in page HTML", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "linked-topic",
+    title: "Linked Topic",
+    markdown: "# Linked Topic\n\n**Linked Topic** is a topic.",
+  });
+  saveMarkdownArticle(databasePath, {
+    slug: "old-with-see-also",
+    title: "Old With See Also",
+    markdown: [
+      "# Old With See Also",
+      "",
+      "**Old With See Also** is a legacy article.",
+      "",
+      "## See also",
+      "",
+      '- [Linked Topic](halu:linked-topic "related concept")',
+    ].join("\n"),
+  });
+
+  const server = await createServer(databasePath, new QueueLlmClient(""));
+  const res = await server.request("/api/page/Old_With_See_Also");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  // The baked-in See also section should appear in the rendered HTML
+  assert.match(body.article.html, /See also/);
+  assert.match(body.article.html, /Linked Topic/);
+});
+
+test("missing refs notice fires for explicit ref:slug links not in sidecar", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Seed the referenced article
+  saveMarkdownArticle(databasePath, {
+    slug: "cited-article",
+    title: "Cited Article",
+    markdown: "# Cited Article\n\n**Cited Article** is well-known.",
+  });
+  // Article that uses ref:slug syntax but has no sidecar refs
+  saveMarkdownArticle(databasePath, {
+    slug: "citing-article",
+    title: "Citing Article",
+    markdown: "# Citing Article\n\n**Citing Article** cites [Cited Article](ref:cited-article).",
+  });
+
+  const server = await createServer(databasePath, new QueueLlmClient(""));
+  const res = await server.request("/api/page/Citing_Article");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  // Explicit ref: links NOT in sidecar appear as missing
+  assert.equal(body.referenceStatus.missing.length, 1);
+  assert.equal(body.referenceStatus.missing[0].slug, "cited-article");
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   Real LLM integration: ref link format validation
+   ───────────────────────────────────────────────────────────────── */
+
+test("generated article uses [](ref:N) style ref links when references are available", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const config = loadConfig();
+  const testCfg = config.app.tests;
+
+  const chatConfig = {
+    base_url: testCfg.llm_base_url,
+    api_key: testCfg.llm_api_key,
+    model: testCfg.llm_model,
+    temperature: 1,
+    max_tokens: 4000,
+  };
+  const embeddingsConfig = {
+    enabled: false,
+    base_url: testCfg.llm_base_url,
+    api_key: testCfg.llm_api_key,
+    model: "nomic",
+  };
+
+  let llmClient: LlmClient;
+  try {
+    const client = new OpenAICompatClient(chatConfig, embeddingsConfig, {
+      debug() {},
+      info() {},
+      warn() {},
+      error() {},
+    }, "heavy");
+    await client.probeConnections();
+    llmClient = client;
+  } catch {
+    t.skip("LLM not reachable at test URL — skipping real LLM generation test");
+    return;
+  }
+
+  // Seed a reference article so there's something in the ref list
+  saveMarkdownArticle(databasePath, {
+    slug: "hexagonal-network",
+    title: "Hexagonal Network",
+    markdown: "# Hexagonal Network\n\n**Hexagonal Network** is a topology used in flat-earth grid systems.",
+  });
+
+  const { app, shutdown } = await createApp({
+    databasePath,
+    skipLlmProbe: true,
+    skipHomepagePrepare: true,
+    llmClient,
+  });
+  t.after(shutdown);
+
+  const request = (path: string, init?: RequestInit) =>
+    app.fetch(new Request(`http://halupedia.test${path}`, init));
+
+  // Stream a generation
+  const lines: string[] = [];
+  const res = await request("/api/page/Discord_software?stream=1");
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  for (const line of text.trim().split("\n")) {
+    if (line.trim()) lines.push(line);
+  }
+  const last = JSON.parse(lines[lines.length - 1]);
+  const markdown = last.article?.body ?? last.article?.markdown ?? "";
+
+  // Body should not contain long cited text in ref links
+  // (i.e., no [very long sentence here](ref:N))
+  const longRefTextMatch = /\[([^\]]{40,})\]\(ref:/g.exec(markdown);
+  assert.equal(
+    longRefTextMatch,
+    null,
+    `ref link visible text should be short or empty, got: ${longRefTextMatch?.[1]}`,
+  );
+
+  // ref: links should have been resolved (ref:slug not ref:N)
+  assert.doesNotMatch(markdown, /\]\(ref:\d+\)/, "ref:N (numeric) should be resolved to ref:slug before saving");
+
+  // referenceStatus should not show false positives
+  const pageRes = await request("/api/page/Discord_software");
+  assert.equal(pageRes.status, 200);
+  const page = await pageRes.json();
+  assert.equal(page.referenceStatus.hasReferencesSection, false);
+
+  // The sidecar reference list must be non-empty — a generated article with
+  // no references at the bottom is a failure, not a pass.
+  assert.ok(
+    page.article.metadata.references.length > 0,
+    `generated article has no sidecar references — the rendered page would show no reference list. Got ${page.article.metadata.references.length} refs.`,
+  );
+
+  // The rendered HTML must include the references section
+  assert.match(
+    page.article.html,
+    /class="article-references"/,
+    "rendered HTML is missing the references section",
+  );
 });

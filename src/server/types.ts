@@ -165,8 +165,8 @@ export interface SeeAlsoCandidate {
 }
 
 export interface LinkSuggestion {
-  title: string;
-  hint: string;
+  description: string;
+  slug: string;
 }
 
 export interface LinkSelectionSuggestion {

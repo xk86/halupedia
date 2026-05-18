@@ -185,8 +185,8 @@ class CountingLlmClient implements LlmClient {
   async chat(): Promise<string> {
     this.chatCalls += 1;
     return JSON.stringify({
-      title: "Glow Fruit",
-      hint: "A fruit referenced from the source article",
+      slug: "glow-fruit",
+      description: "A fruit referenced from the source article",
       items: [],
     });
   }

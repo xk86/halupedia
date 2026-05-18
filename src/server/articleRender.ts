@@ -1,11 +1,8 @@
 // In-memory render cache keyed by slug+generatedAt.
-// Rendering is split: body renders with ref-footnote awareness, refs render
-// as HTML (not markdown) to get anchor IDs, see-also renders from sidecar metadata.
 
 import type { Article } from "./article";
 import { renderMarkdown } from "./markdown";
 import {
-  buildRefSlugIndex,
   renderReferencesHtml,
   resolveRefLinks,
 } from "./referenceList";
@@ -39,20 +36,14 @@ export function assembleArticleMarkdownForRender(article: Article): string {
 /**
  * Render display HTML for an article.
  *
- * Three-part output, each rendered differently:
- *   1. Body: markdown rendered with refSlugToIndex so explicit ref links get
- *      Wikipedia-style footnote superscripts.
- *   2. References: HTML <ol> with #ref-N anchor IDs (not markdown, because
- *      markdown can't express id attributes).
+ * Three-part output:
+ *   1. Body: markdown with ref: links resolved to wiki paths (same style as halu: links).
+ *   2. References: HTML <ol> with #ref-N anchor IDs.
  *   3. See also: sidecar metadata rendered as markdown.
- *
- * Returns combined HTML string; not HTML-escaped (safe because renderMarkdown
- * is trusted and references/see-also come from validated-slug lists).
  */
 export function renderArticleDisplayHtml(article: Article): string {
-  const refSlugToIndex = buildRefSlugIndex(article.metadata.references);
   const body = resolveRefLinks(article.body, article.metadata.references);
-  const bodyHtml = renderMarkdown(body, { refSlugToIndex });
+  const bodyHtml = renderMarkdown(body);
   const refsHtml = renderReferencesHtml(article.metadata.references);
   const seeAlsoMd = renderSeeAlsoSection(article.metadata.seeAlso);
   const seeAlsoHtml = seeAlsoMd ? renderMarkdown(seeAlsoMd) : "";

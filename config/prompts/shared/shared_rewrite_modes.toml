@@ -8,7 +8,7 @@ user = """
 
 [modes.aggressive]
 label = "Aggressive"
-prompt = "You have full creative license. You may restructure sections, change tone, reinterpret the subject, add or remove content freely, and rewrite from scratch if needed. The existing text is raw material, not a constraint. Prioritize the rewrite instructions over everything already written."
+prompt = "You have full creative license. You may restructure sections, change tone, reinterpret the subject, add or remove content freely, and rewrite from scratch if needed. The existing text is raw material, not strictly a constraint. Prioritize the rewrite instructions over everything already written."
 
 [modes.subtle]
 label = "Subtle"

@@ -629,7 +629,7 @@ function escapeRegExp(value: string): string {
 }
 
 function isWordChar(char: string | undefined): boolean {
-  return !!char && /[A-Za-z0-9]/.test(char);
+  return !!char && /[\p{L}\p{N}]/u.test(char);
 }
 
 function collectExistingLinkRanges(
@@ -661,7 +661,7 @@ function findWrapRange(
   const normalizedSelection = normalizeSelectionText(selectedText);
   if (!normalizedSelection) return null;
   const linkRanges = collectExistingLinkRanges(markdown);
-  const exact = new RegExp(escapeRegExp(normalizedSelection), "gi");
+  const exact = new RegExp(escapeRegExp(normalizedSelection), "giu");
   let match: RegExpExecArray | null;
 
   while ((match = exact.exec(markdown)) !== null) {
@@ -1266,12 +1266,12 @@ async function generateLinkSuggestion(
     throw new Error("link suggestion returned invalid JSON");
   }
   const parsed = JSON.parse(match[0]) as Partial<LinkSuggestion>;
-  const title = (parsed.title ?? "").replace(/\s+/g, " ").trim();
-  const hint = (parsed.hint ?? "").replace(/\s+/g, " ").trim();
-  if (!title || !hint) {
+  const description = (parsed.description ?? "").replace(/\s+/g, " ").trim();
+  const slug = (parsed.slug ?? "").replace(/\s+/g, "-").trim();
+  if (!description || !slug) {
     throw new Error("link suggestion returned empty fields");
   }
-  return { title, hint };
+  return { description, slug };
 }
 
 export async function createApp(options: CreateAppOptions = {}) {
@@ -2673,7 +2673,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
     );
     const excerpt = extractSelectionExcerpt(article.markdown, selectedText);
-    const selectedPhrase = shouldRefineSelection(selectedText)
+    const needsRefinement = shouldRefineSelection(selectedText);
+    if (needsRefinement) {
+      logger.debug("add_link.dispatching_llm", {
+        slug: article.slug,
+        prompt: "link_selection",
+        reason: "refine oversized selection",
+        selected_text_length: selectedText.length,
+      });
+    }
+    const selectedPhrase = needsRefinement
       ? await generateLinkSelection(
           llm,
           lightLlm,
@@ -2687,6 +2696,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       : selectedText;
     const wrapRange = findWrapRange(article.markdown, selectedPhrase);
     if (!wrapRange) {
+      logger.debug("add_link.wrap_range_not_found", {
+        slug: article.slug,
+        selected_phrase: selectedPhrase,
+      });
       return c.json(
         {
           error:
@@ -2695,6 +2708,12 @@ export async function createApp(options: CreateAppOptions = {}) {
         422,
       );
     }
+    logger.debug("add_link.dispatching_llm", {
+      slug: article.slug,
+      prompt: "link_suggestion",
+      reason: "generate link target for selected text",
+      visible_label: wrapRange.visibleLabel,
+    });
     const suggestion = await generateLinkSuggestion(
       llm,
       lightLlm,
@@ -2706,7 +2725,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       retrieved.relatedTitles,
     );
 
-    const targetSlug = slugify(suggestion.title);
+    const targetSlug = suggestion.slug;
     if (!targetSlug)
       return c.json(
         { error: "link suggestion produced an invalid target" },
@@ -2716,7 +2735,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const wrapped = buildHaluLink(
       wrapRange.visibleLabel,
       targetSlug,
-      suggestion.hint,
+      suggestion.description,
     );
     const nextMarkdown = stripSelfLinks(
       article.markdown.slice(0, wrapRange.start) +

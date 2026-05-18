@@ -485,10 +485,45 @@ export function listBacklinks(db: DatabaseSync, slug: string) {
     )
     .all(slug) as unknown as Array<BacklinkItem & { existsFlag: number }>;
 
-  return {
-    existing: rows.filter((row) => row.existsFlag === 1),
-    unwritten: rows.filter((row) => row.existsFlag === 0),
-  };
+  const existing: BacklinkItem[] = rows.filter((row) => row.existsFlag === 1);
+  const unwritten: BacklinkItem[] = rows.filter((row) => row.existsFlag === 0);
+
+  // Live scan: find articles that reference this slug via ref: or halu: links but
+  // whose entry in article_links is stale (saved before backlink tracking was fixed,
+  // or not yet re-saved after a link change). The patterns match the closing syntax
+  // so they don't false-positive on slug prefixes.
+  const knownSlugs = new Set(rows.map((r) => r.slug));
+  const liveRows = db
+    .prepare(
+      `SELECT slug, title, COALESCE(summary_markdown, '') AS summaryMarkdown, generated_at AS createdAt
+       FROM articles
+       WHERE slug != ?
+         AND is_disambiguation = 0
+         AND (
+           markdown LIKE ? OR markdown LIKE ? OR markdown LIKE ?
+         )`,
+    )
+    .all(
+      slug,
+      `%ref:${slug})%`,
+      `%halu:${slug} %`,
+      `%halu:${slug})%`,
+    ) as unknown as Array<{ slug: string; title: string; summaryMarkdown: string; createdAt: number }>;
+
+  for (const row of liveRows) {
+    if (knownSlugs.has(row.slug)) continue;
+    knownSlugs.add(row.slug);
+    existing.push({
+      slug: row.slug,
+      title: row.title,
+      visibleLabel: row.title,
+      hiddenHint: "",
+      summaryMarkdown: row.summaryMarkdown,
+      createdAt: row.createdAt,
+    });
+  }
+
+  return { existing, unwritten };
 }
 
 export function getRandomArticles(db: DatabaseSync, count: number) {

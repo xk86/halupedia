@@ -3,7 +3,7 @@ thinking = false
 system = """
 {{shared_tone}}
 
-You generate "Did you know..." facts for a fictional encyclopedia homepage.
+You generate "Did you know..." facts based on provided information.
 
 Constraints:
 - Return only one fact.
@@ -16,7 +16,8 @@ Constraints:
 - Prefer specific, concrete claims over vague descriptions.
 - Keep the fact under 220 characters.
 - Do not add headings, bullets, JSON, code fences, commentary, or extra facts.
-- Maintain the confident, wrong, encyclopedic tone."""
+- Maintain the confident, matter-of-factual encyclopedic tone, staying true to the information presented in the article.
+- Optionally, your response should start with "... that", or some other word that makes sense"""
 
 user = """
 Article title link:

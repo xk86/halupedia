@@ -92,6 +92,7 @@ import type {
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
+  extractRefLinksAsInternalLinks,
   findBodyReferencedArticles,
   findExistingArticleLinkReferences,
   formatReferencesForPrompt,
@@ -103,6 +104,7 @@ import {
   articleToResponse,
   type ArticleResponse,
   type ReferenceStatus,
+  type ReferenceStatusEntry,
 } from "./article";
 import {
   assembleArticleMarkdownForRender,
@@ -634,7 +636,10 @@ function collectExistingLinkRanges(
   markdown: string,
 ): Array<{ start: number; end: number }> {
   const ranges: Array<{ start: number; end: number }> = [];
-  const pattern = new RegExp(LINK_RE.source, LINK_RE.flags);
+  // Match ANY markdown link [text](dest) — halu:, ref:, wiki paths, urls.
+  // The previous halu-only LINK_RE missed ref:slug links, so selections
+  // landing inside a ref link would get wrapped and corrupt the link.
+  const pattern = /\[([^\]]*)\]\([^)]*\)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(markdown)) !== null) {
     ranges.push({ start: match.index, end: match.index + match[0].length });
@@ -1491,7 +1496,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     )
       return article;
 
-    const links = extractInternalLinks(normalizedMarkdown);
+    const links = extractAllBodyLinks(normalizedMarkdown, article.slug);
     const repairedArticle = {
       ...article,
       title: normalizedTitle,
@@ -1553,7 +1558,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     );
     const bodyMarkdown = sanitizeGeneratedBody(article.markdown);
     const markdown = rewriteArticleTitleHeading(bodyMarkdown, normalizedTitle);
-    const links = extractInternalLinks(markdown);
+    const links = extractAllBodyLinks(markdown, article.slug);
     const repairedArticle: ArticleRecord = {
       ...article,
       title: normalizedTitle,
@@ -1610,24 +1615,44 @@ export async function createApp(options: CreateAppOptions = {}) {
     const listed = new Set(
       response.metadata.references.map((ref) => slugify(ref.slug)),
     );
-    const bodyRefs = findBodyReferencedArticles(
-      db,
-      response.body,
-      response.slug,
-    );
+    // Strip baked-in metadata sections before scanning so old-style articles
+    // with embedded References/See also don't produce spurious status flags.
+    const bodyForScan = stripTopLevelSections(response.body, [
+      "References",
+      "See also",
+    ]);
+    // missing: only explicit ref:slug links in body that aren't in sidecar.
+    // Plain halu links to existing articles are NOT counted — they are just
+    // internal wiki links, not explicit citations.
+    const missing: ReferenceStatusEntry[] = [];
+    if (bodyForScan.includes("ref:")) {
+      const seen = new Set<string>();
+      const selfSlug = slugify(response.slug);
+      const refPattern = /\[([^\]]*)\]\(ref:([^)]+)\)/g;
+      let m: RegExpExecArray | null;
+      while ((m = refPattern.exec(bodyForScan)) !== null) {
+        const slug = slugify(m[2]);
+        if (!slug || slug === selfSlug || seen.has(slug)) continue;
+        seen.add(slug);
+        if (listed.has(slug)) continue;
+        const article = getArticleByLookup(db, slug);
+        if (article) missing.push({ slug: article.slug, title: article.title });
+      }
+    }
+    // unformatted: halu links to articles that ARE in sidecar — these should
+    // be converted to ref: links for proper footnote rendering.
     const legacyHaluRefs = findExistingArticleLinkReferences(
       db,
-      response.body,
+      bodyForScan,
       response.slug,
     );
     return {
-      missing: bodyRefs
-        .filter((ref) => !listed.has(ref.slug))
-        .map((ref) => ({ slug: ref.slug, title: ref.title })),
+      missing,
       unformatted: legacyHaluRefs
         .filter((ref) => listed.has(ref.slug))
         .map((ref) => ({ slug: ref.slug, title: ref.title })),
-      hasReferencesSection: sectionSlice(rawMarkdown, "References") != null,
+      // sectionSlice returns "" when not found, never null — use !== ""
+      hasReferencesSection: sectionSlice(rawMarkdown, "References") !== "",
     };
   }
 
@@ -1686,6 +1711,79 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   /**
+   * Extract all internal links from article body markdown for article_links storage.
+   *
+   * Combines halu: links (articles that may not exist yet, seeds for new pages)
+   * with ref:slug links (converted from halu links to existing articles).
+   * Both are stored in article_links so that:
+   *   - listBacklinks() shows all articles that link to a given target
+   *   - listIncomingHints() can provide RAG context during generation of the
+   *     target article (using the visible_label and hidden_hint columns)
+   *
+   * This matters because convertExistingArticleLinksToRefs() converts halu links
+   * to ref: links — without this combined extraction, ref-linked articles would
+   * silently disappear from the knowledge graph.
+   */
+  function extractAllBodyLinks(
+    markdown: string,
+    selfSlug: string,
+  ): import("./types").ParsedInternalLink[] {
+    const haluLinks = extractInternalLinks(markdown);
+    const haluSlugs = new Set(haluLinks.map((l) => l.targetSlug));
+    const refLinks = extractRefLinksAsInternalLinks(db, markdown, selfSlug).filter(
+      (l) => !haluSlugs.has(l.targetSlug),
+    );
+    return [...haluLinks, ...refLinks];
+  }
+
+  /**
+   * Build the `related_titles` block shown to the LLM in article-body prompts.
+   *
+   * Two distinct RAG signals are merged here, each clearly labeled so the model
+   * (and anyone reading prompt logs) can tell them apart:
+   *
+   *   1. RAG-retrieved chunks — from article_chunks via retrieveContext.
+   *      Titles of articles whose chunks scored above the relevancy threshold.
+   *   2. Backlinks — from article_links via listBacklinks. Titles of articles
+   *      that link TO the slug being generated. These are not topic-matched
+   *      by RAG but are graph-adjacent (someone already considered them related).
+   *
+   * Returns "(none)" when both sources are empty. Dedupes by title.
+   */
+  function formatRelatedTitlesForPrompt(
+    slug: string,
+    ragTitles: string[],
+  ): { rendered: string; ragCount: number; backlinkCount: number; uniqueTotal: number } {
+    const backlinks = listBacklinks(db, slug);
+    const backlinkTitles = backlinks.existing.map((b) => b.title);
+    const seen = new Set<string>();
+    const ragUnique = ragTitles.filter((t) => {
+      if (seen.has(t)) return false;
+      seen.add(t);
+      return true;
+    });
+    const backlinkUnique = backlinkTitles.filter((t) => {
+      if (seen.has(t)) return false;
+      seen.add(t);
+      return true;
+    });
+    const ragSection = ragUnique.length
+      ? `From RAG-retrieved chunks:\n${ragUnique.map((t) => `- ${t}`).join("\n")}`
+      : "";
+    const backlinkSection = backlinkUnique.length
+      ? `From articles linking here (backlinks):\n${backlinkUnique.map((t) => `- ${t}`).join("\n")}`
+      : "";
+    const rendered =
+      [ragSection, backlinkSection].filter(Boolean).join("\n\n") || "(none)";
+    return {
+      rendered,
+      ragCount: ragUnique.length,
+      backlinkCount: backlinkUnique.length,
+      uniqueTotal: ragUnique.length + backlinkUnique.length,
+    };
+  }
+
+  /**
    * Save an article + its reference list immediately, without LLM calls.
    *
    * The reference list is constructed via `buildReferenceList` from validated
@@ -1728,8 +1826,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     );
 
     // (b) Build the canonical reference list from validated sources.
+    // Use findBodyReferencedArticles (not findExistingArticleLinkReferences) so
+    // that ref:slug links already resolved from a preliminary ref list are
+    // included as user additions. Without this, body arrives with ref:slug from
+    // resolveRefLinks but those slugs never enter buildReferenceList and the
+    // sidecar ends up missing them, triggering the stale-refs notice.
     const existingBodyReferences = scrapeExistingBodyLinks
-      ? findExistingArticleLinkReferences(
+      ? findBodyReferencedArticles(
           db,
           normalizedBodyMarkdown,
           canonicalSlug,
@@ -1783,7 +1886,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       plain_text: markdownToPlainText(markdown),
       generated_at: Date.now(),
     };
-    const links = extractInternalLinks(markdown);
+    const links = extractAllBodyLinks(markdown, canonicalSlug);
     article.html = rewriteArticleHtml(renderMarkdown(markdown), links);
 
     logger.debug("save.article_immediate.starting", { slug: canonicalSlug });
@@ -1954,7 +2057,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         return;
       }
 
-      const links = extractInternalLinks(markdown);
+      const links = extractAllBodyLinks(markdown, normalizedSlug);
       const updated = {
         ...existing,
         markdown,
@@ -2041,10 +2144,17 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.llm.embeddings.enabled,
       logger,
     );
-    logger.debug("build.article_rag_retrieved", {
+    const relatedTitlesBlock = formatRelatedTitlesForPrompt(slug, retrieved.relatedTitles);
+    logger.info("build.article_rag_retrieved", {
       slug,
-      sources: retrieved.sourceArticles.length,
-      related_titles: retrieved.relatedTitles.length,
+      // Each source type called out explicitly so prompt-context provenance is
+      // never ambiguous in logs: chunks come from RAG, backlinks from
+      // article_links, link_hints (hidden_hint) ALSO from article_links.
+      rag_chunk_sources: retrieved.sourceArticles.length,
+      rag_chunk_titles: relatedTitlesBlock.ragCount,
+      backlink_titles: relatedTitlesBlock.backlinkCount,
+      incoming_link_hints: hints.length,
+      related_titles_total: relatedTitlesBlock.uniqueTotal,
       context_length: retrieved.context?.length ?? 0,
     });
 
@@ -2070,14 +2180,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       link_hints: formatIncomingHintsForPrompt(hints, slug),
       references_list: formatReferencesForPrompt(preliminaryRefs),
       rag_context: retrieved.context || "(none)",
-      related_titles: retrieved.relatedTitles.length
-        ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
-        : "(none)",
+      related_titles: relatedTitlesBlock.rendered,
       article_excerpt: "",
       parent_comment: "",
     });
 
-    logger.debug("build.article_generating_body", { slug, rag_sources: retrieved.sourceArticles.length, link_hints: hints.length });
+    logger.debug("build.article_generating_body", { slug, rag_sources: retrieved.sourceArticles.length, link_hints: hints.length, backlink_titles: relatedTitlesBlock.backlinkCount });
     onStatus?.("Writing...");
     let rawMarkdown = "";
     if (onProgress) {
@@ -2626,7 +2734,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       plain_text: markdownToPlainText(nextMarkdown),
       generated_at: Date.now(),
     };
-    const links = extractInternalLinks(nextMarkdown);
+    const links = extractAllBodyLinks(nextMarkdown, nextArticle.slug);
     nextArticle.html = rewriteArticleHtml(renderMarkdown(nextMarkdown), links);
     saveArticle(
       db,
@@ -2867,9 +2975,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       link_hints: formatIncomingHintsForPrompt(hints, article.slug),
       references_list: formatReferencesForPrompt(rewritePromptRefs),
       rag_context: retrieved.context || "(none)",
-      related_titles: retrieved.relatedTitles.length
-        ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
-        : "(none)",
+      related_titles: formatRelatedTitlesForPrompt(article.slug, retrieved.relatedTitles).rendered,
       article_excerpt: "",
       parent_comment: "",
       selected_text: "",
@@ -3175,9 +3281,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           link_hints: formatIncomingHintsForPrompt(hints, article.slug),
           references_list: formatReferencesForPrompt(refreshPromptRefs),
           rag_context: retrieved.context || "(none)",
-          related_titles: retrieved.relatedTitles.length
-            ? retrieved.relatedTitles.map((title) => `- ${title}`).join("\n")
-            : "(none)",
+          related_titles: formatRelatedTitlesForPrompt(article.slug, retrieved.relatedTitles).rendered,
           article_excerpt: "",
           parent_comment: "",
           selected_text: "",
@@ -3268,7 +3372,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       plain_text: revision.plain_text,
       generated_at: Date.now(),
     };
-    const links = extractInternalLinks(nextArticle.markdown);
+    const links = extractAllBodyLinks(nextArticle.markdown, nextArticle.slug);
     nextArticle.html = rewriteArticleHtml(
       renderMarkdown(nextArticle.markdown),
       links,
@@ -3490,7 +3594,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       );
     }
     const markdown = lines.join("\n");
-    const links = extractInternalLinks(markdown);
+    const links = extractAllBodyLinks(markdown, slug);
     const article: ArticleRecord = {
       slug,
       canonicalSlug: slug,

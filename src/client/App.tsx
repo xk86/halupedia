@@ -1140,8 +1140,7 @@ export function App() {
           </div>
         ) : null}
         {(page.referenceStatus?.missing?.length ||
-          page.referenceStatus?.unformatted?.length ||
-          page.referenceStatus?.hasReferencesSection) ? (
+          page.referenceStatus?.unformatted?.length) ? (
           <div className="linkless-notice">
             This article seems to cite references that are not listed or not in the current reference format. Run the refresh references button to update it.
           </div>

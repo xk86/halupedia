@@ -257,19 +257,6 @@ const defaultLinkOpen =
   ((tokens, idx, options, _env, self) =>
     self.renderToken(tokens, idx, options));
 
-const defaultLinkClose =
-  md.renderer.rules.link_close ??
-  ((tokens, idx, options, _env, self) =>
-    self.renderToken(tokens, idx, options));
-
-// Typed env structure used by renderMarkdown. Using interface merging via any
-// at call sites is fine because markdown-it types env as unknown.
-interface RenderEnv {
-  /** slug → 1-based reference index. Set by renderMarkdown callers. */
-  refSlugToIndex?: ReadonlyMap<string, number>;
-  /** Tracks ref index for the currently-open ref link; cleared on link_close. */
-  _currentRefN?: number | null;
-}
 
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const hrefIndex = tokens[idx].attrIndex("href");
@@ -287,17 +274,10 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     if (href.startsWith("ref:")) {
       const rawTarget = href.slice("ref:".length);
       const refSlug = slugify(rawTarget);
-      const renv = env as RenderEnv | undefined;
-      const refN = renv?.refSlugToIndex?.get(refSlug);
-      if (refN == null) {
-        tokens[idx].attrSet("href", "#");
-        if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
-        return defaultLinkOpen(tokens, idx, options, env, self);
-      }
-      tokens[idx].attrSet("href", `/wiki/${titleToWikiSegment(slugToTitle(refSlug))}`);
-      tokens[idx].attrSet("class", "ref-link");
+      // Resolve to wiki path just like a halu link — no special class or number.
+      const article = slugToTitle(refSlug);
+      tokens[idx].attrSet("href", `/wiki/${titleToWikiSegment(article)}`);
       if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
-      if (renv) renv._currentRefN = refN;
       return defaultLinkOpen(tokens, idx, options, env, self);
     }
     tokens[idx].attrSet("href", "#");
@@ -327,18 +307,6 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
 
   return defaultLinkOpen(tokens, idx, options, env, self);
-};
-
-// Appends "[N]" footnote superscript after the closing </a> for explicit ref links.
-md.renderer.rules.link_close = (tokens, idx, options, env, self) => {
-  const renv = env as RenderEnv | undefined;
-  const n = renv?._currentRefN ?? null;
-  if (renv) renv._currentRefN = null;
-  const closing = defaultLinkClose(tokens, idx, options, env, self);
-  if (n != null) {
-    return `${closing}<a href="#ref-${n}" class="ref-num"><sup>[${n}]</sup></a>`;
-  }
-  return closing;
 };
 
 export function normalizeMarkdown(input: string): string {
@@ -440,6 +408,11 @@ export function stripFootnoteArtifacts(markdown: string): string {
     .replace(/^\$\{\}\^\d+\$.*$/gm, "")
     .replace(/^\[\^[^\]]+\]:.*$/gm, "")
     .replace(/^[-*]{3,}\s*$/gm, "")
+    // Strip bare [N] citation numbers the LLM appends to links or inline text.
+    // These appear as [1], [3], etc. that are not part of a real markdown link.
+    // Safe because our rendering system uses [N] superscripts only in HTML output,
+    // never expects them in stored markdown source.
+    .replace(/\[(\d+)\](?!\()/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -454,15 +427,8 @@ export function sectionSlice(markdown: string, heading: string): string {
   return (nextHeading ? rest.slice(0, nextHeading.index) : rest).trim();
 }
 
-export function renderMarkdown(
-  markdown: string,
-  opts?: { refSlugToIndex?: ReadonlyMap<string, number> },
-): string {
-  const env: RenderEnv = {
-    refSlugToIndex: opts?.refSlugToIndex,
-    _currentRefN: null,
-  };
-  return md.render(normalizeHaluLinks(markdown), env);
+export function renderMarkdown(markdown: string): string {
+  return md.render(normalizeHaluLinks(markdown));
 }
 
 export function summaryMarkdownFromArticle(markdown: string): string {

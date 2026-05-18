@@ -150,7 +150,10 @@ export function articleRecordToArticle(
   record: ArticleRecord,
   metadata: ArticleMetadata,
 ): Article {
-  const body = stripBodyMetadataSections(record.markdown);
+  // Do NOT strip metadata sections here — old articles may have baked-in
+  // References/See also that should display as-is. Stripping only happens
+  // in the LLM save path (saveArticleImmediately → sanitizeGeneratedBody).
+  const body = record.markdown;
   // The articles table COALESCEs empty display_title back to title at read
   // time. Treat "displayTitle === title" as "no override" so the API shape
   // matches what callers wrote (undefined when no custom display title).

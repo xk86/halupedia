@@ -17,7 +17,7 @@ Requested article title:
 
 {{requested_title}}
 
-Available references (link back with [text](ref:N) — N is the number, [] uses the article title):
+Available references (link back with [text](ref:slug-name) — slug is shown for each entry below; [] uses the article title; ref:N still works as a fallback):
 
 {{references_list}}
 
@@ -25,7 +25,7 @@ Retrieved context:
 
 {{rag_context}}
 
-Suggested related existing Halupedia topics:
+Suggested related existing topics:
 
 {{related_titles}}
 

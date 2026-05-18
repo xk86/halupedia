@@ -30,7 +30,7 @@ Current article:
 
 {{current_article}}
 
-Available references (link back with [text](ref:slug-name) — slug is shown for each entry below; [] uses the article title; ref:N still works as a fallback):
+Available references (link back with [text](ref:slug-name) — slug is shown for each entry below):
 
 {{references_list}}
 

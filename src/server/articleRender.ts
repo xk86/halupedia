@@ -3,7 +3,6 @@
 import type { Article } from "./article";
 import { renderMarkdown } from "./markdown";
 import {
-  collectReferenceLinkSlugs,
   renderReferencesHtml,
   resolveRefLinks,
 } from "./referenceList";
@@ -45,13 +44,9 @@ export function assembleArticleMarkdownForRender(article: Article): string {
 export function renderArticleDisplayHtml(article: Article): string {
   const body = resolveRefLinks(article.body, article.metadata.references);
   const bodyHtml = renderMarkdown(body);
-  // Only include refs that are actually linked in the resolved body. Sidecar
-  // entries that aren't cited via ref:slug in the prose are dropped from the
-  // display list — they exist for context during generation but shouldn't
-  // appear as numbered references the reader can't trace back to anything.
-  const citedSlugs = collectReferenceLinkSlugs(body);
-  const citedRefs = article.metadata.references.filter((r) => citedSlugs.has(r.slug));
-  const refsHtml = renderReferencesHtml(citedRefs);
+  // Render the full live reflist. All sidecar entries appear — pinned and
+  // non-pinned alike — without any distinction visible to the reader.
+  const refsHtml = renderReferencesHtml(article.metadata.references);
   const seeAlsoMd = renderSeeAlsoSection(article.metadata.seeAlso);
   const seeAlsoHtml = seeAlsoMd ? renderMarkdown(seeAlsoMd) : "";
   return [bodyHtml, refsHtml, seeAlsoHtml].filter(Boolean).join("\n");

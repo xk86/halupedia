@@ -185,20 +185,20 @@ test("findSelectionRangeInMarkdown: selection within plain text section (no form
    2. ensureDykHasSourceLink unit tests
    ───────────────────────────────────────────────────────────────── */
 
-test("ensureDykHasSourceLink: fact with halu link → converts to plain slug link", () => {
-  // Halu links in DYK are wrong — the function should replace them with plain slug links
+test("ensureDykHasSourceLink: fact with halu link keeps canonical markdown source link", () => {
   const fact = `... [Glow Fruit](halu:glow-fruit "luminous orchard product") was discovered in the craters.`;
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.match(result, /\/glow-fruit\)/, "should replace halu link with plain slug link");
-  assert.doesNotMatch(result, /halu:/, "halu links must not remain in DYK facts");
-  assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
+  assert.match(result, /\(halu:glow-fruit "Glow Fruit"\)/);
   assert.match(result, /was discovered in the craters/, "content should be preserved");
 });
 
-test("ensureDykHasSourceLink: fact with an existing non-source link is unchanged", () => {
+test("ensureDykHasSourceLink: fact with an existing non-source link strips it and prepends source", () => {
   const fact = "... [Lantern Index](/lantern-index) describes the southern craters near Glow Fruit.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.equal(result, fact, "existing linked facts should not receive an additional source link");
+  assert.equal(
+    result,
+    '... [Glow Fruit](halu:glow-fruit "Glow Fruit"): Lantern Index describes the southern craters near Glow Fruit.',
+  );
 });
 
 test("ensureDykHasSourceLink: fact mentions title as plain text but has no link → source link prepended", () => {
@@ -206,27 +206,24 @@ test("ensureDykHasSourceLink: fact mentions title as plain text but has no link 
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
   assert.equal(
     result,
-    "... [Glow Fruit](/glow-fruit): Glow Fruit was discovered in the southern craters.",
+    '... [Glow Fruit](halu:glow-fruit "Glow Fruit"): Glow Fruit was discovered in the southern craters.',
     "should add one source fallback link without rewriting fact text",
   );
-  assert.doesNotMatch(result, /halu:/, "must not insert halu link");
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
 });
 
 test("ensureDykHasSourceLink: fact does not mention title → slug link prepended", () => {
   const fact = "... the craters glow at night due to bioluminescent fungi.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.match(result, /\/glow-fruit\)/, "should insert plain slug link when title absent");
+  assert.match(result, /\(halu:glow-fruit "Glow Fruit"\)/);
   assert.match(result, /\[Glow Fruit\]/, "should use title as link label");
-  assert.doesNotMatch(result, /halu:/, "must not insert a halu link");
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
 });
 
 test("ensureDykHasSourceLink: case-insensitive title match", () => {
   const fact = "... glow fruit was first catalogued in the old crater ledger.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.equal(result, "... [Glow Fruit](/glow-fruit): glow fruit was first catalogued in the old crater ledger.");
-  assert.doesNotMatch(result, /halu:/);
+  assert.equal(result, '... [Glow Fruit](halu:glow-fruit "Glow Fruit"): glow fruit was first catalogued in the old crater ledger.');
 });
 
 test("normalizeHomepageFact: preserves fact wording and ends as a question", () => {
@@ -402,14 +399,13 @@ test("GET /api/homepage/history reflects saved caches", async (t) => {
   assert.equal(body.history[1].featured?.slug, "entry-1");
 });
 
-test("DYK facts always contain a slug link to source article (not a halu or wiki-path link)", async (t) => {
+test("DYK facts always contain a canonical markdown link to source article", async (t) => {
   const { root, databasePath } = createTestDb();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const factWithoutLink = "... the bioluminescent properties were first documented in an old ledger.";
   const fixed = ensureDykHasSourceLink(factWithoutLink, "glow-fruit", "Glow Fruit");
-  assert.match(fixed, /\/glow-fruit\)/, "fixed fact should use plain slug link");
-  assert.doesNotMatch(fixed, /halu:/, "DYK facts must NOT use halu links");
+  assert.match(fixed, /\(halu:glow-fruit "Glow Fruit"\)/);
   assert.doesNotMatch(fixed, /\/wiki\//, "DYK facts must NOT use wiki-path links");
 });
 
@@ -417,17 +413,16 @@ test("DYK facts always contain a slug link to source article (not a halu or wiki
    5. DYK: already-has-slug-link is unchanged
    ───────────────────────────────────────────────────────────────── */
 
-test("ensureDykHasSourceLink: fact already has slug link to source → unchanged", () => {
+test("ensureDykHasSourceLink: fact already has slug link to source becomes canonical", () => {
   const fact = "... [Glow Fruit](/glow-fruit) was discovered in the craters.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.equal(result, fact, "fact with existing slug link should not be modified");
+  assert.equal(result, '... [Glow Fruit](halu:glow-fruit "Glow Fruit") was discovered in the craters.');
 });
 
 test("ensureDykHasSourceLink: title in plain text → source link is prepended", () => {
   const fact = "... Glow Fruit was discovered in the southern craters.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.equal(result, "... [Glow Fruit](/glow-fruit): Glow Fruit was discovered in the southern craters.");
-  assert.doesNotMatch(result, /halu:/, "must not insert a halu link");
+  assert.equal(result, '... [Glow Fruit](halu:glow-fruit "Glow Fruit"): Glow Fruit was discovered in the southern craters.');
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
   assert.match(result, /was discovered/, "rest of fact preserved");
 });

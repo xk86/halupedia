@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle, saveArticleReferences, saveHomepageCache } from "../src/server/db";
+import { openDatabase, saveArticle, saveArticleReferences, saveHomepageCache, listArticleRevisions } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmClient } from "../src/server/llm";
@@ -548,7 +548,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.equal(llm.streamCalls, 0);
   });
 
-  await t.test("cached article reports an inline References section as refreshable without LLM work", async (t) => {
+  await t.test("cached article cleans inline References section without LLM work", async (t) => {
     const root = mkdtempSync(join(tmpdir(), "halupedia-ref-section-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const databasePath = join(root, TEST_CONFIG.database_path);
@@ -599,7 +599,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const res = await cachedServer.request("/api/page/Target_Article");
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.referenceStatus.hasReferencesSection, true);
+    assert.equal(body.referenceStatus.hasReferencesSection, false);
     assert.equal(llm.chatCalls, 0);
     assert.equal(llm.streamCalls, 0);
     assert.equal(llm.embedCalls, 0);
@@ -660,6 +660,53 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     assert.equal(llm.chatCalls, 0);
     assert.equal(llm.streamCalls, 0);
     assert.equal(llm.embedCalls, 0);
+  });
+
+  await t.test("cached article diagnostics alone do not create repair revisions", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+    const databasePath = join(root, TEST_CONFIG.database_path);
+    const db = openDatabase(databasePath);
+    const markdown = [
+      "# Diagnostic Only",
+      "",
+      "Diagnostic Only keeps an intentionally unmatched [ bracket in prose.",
+    ].join("\n");
+    saveArticle(
+      db,
+      {
+        slug: "diagnostic-only",
+        canonicalSlug: "diagnostic-only",
+        title: "Diagnostic Only",
+        markdown,
+        html: renderMarkdown(markdown),
+        plain_text: markdownToPlainText(markdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["diagnostic-only"],
+    );
+    const beforeRevisions = listArticleRevisions(db, "diagnostic-only").length;
+    db.close();
+
+    const entries: CapturedLogEntry[] = [];
+    const cachedServer = await createServerForDatabase(root, databasePath, {
+      logger: createMemoryLogger(entries),
+      llmClient: new CountingLlmClient(),
+    });
+    t.after(() => {
+      rmSync(cachedServer.root, { recursive: true, force: true });
+    });
+
+    const first = await cachedServer.request("/api/page/Diagnostic_Only");
+    assert.equal(first.status, 200);
+    const second = await cachedServer.request("/api/page/Diagnostic_Only");
+    assert.equal(second.status, 200);
+
+    const checkDb = openDatabase(databasePath);
+    const afterRevisions = listArticleRevisions(checkDb, "diagnostic-only").length;
+    checkDb.close();
+    assert.equal(afterRevisions, beforeRevisions);
+    assert.equal(entries.some((entry) => entry.event === "page.cache_repair"), false);
   });
 
   await t.test("browser entry routes serve the SPA shell and bare slugs redirect", async () => {
@@ -1448,7 +1495,7 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
   assert.equal(body.featured.title, "Index Lamp");
   assert.equal(body.didYouKnow.length, 1);
   assert.equal(body.didYouKnow[0].slug, "index-lamp");
-  assert.equal(body.didYouKnow[0].fact, "... [Index Lamp](/index-lamp) secretly reconcile canal tax ledgers after dusk?");
+  assert.equal(body.didYouKnow[0].fact, '... [Index Lamp](halu:index-lamp "Index Lamp") secretly reconcile canal tax ledgers after dusk?');
   assert.equal(chatCalls, 1);
 });
 

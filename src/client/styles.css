@@ -1310,6 +1310,33 @@ button.admin-danger-btn:hover:not(:disabled) {
   background: var(--parchment-deep);
 }
 
+.edit-recent-prompts-btn {
+  margin-top: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--parchment);
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.edit-recent-prompts-btn:hover:not(:disabled) {
+  background: var(--parchment-deep);
+  color: var(--ink);
+}
+
+.edit-recent-prompts-btn--active {
+  border-color: var(--link);
+  color: var(--link);
+  background: color-mix(in srgb, var(--link) 8%, var(--parchment));
+}
+
+.edit-recent-prompts-btn--active:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--link) 14%, var(--parchment));
+}
+
 /* Rounded reference tags */
 .edit-refs-tags {
   display: flex;
@@ -1355,6 +1382,48 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .edit-ref-tag-remove:hover:not(:disabled) {
   color: var(--ink);
+}
+
+.edit-ref-tag-pin {
+  background: none;
+  border: none;
+  padding: 0 0.1rem;
+  cursor: pointer;
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.3;
+  flex-shrink: 0;
+  filter: grayscale(1);
+  transition: opacity 0.1s, filter 0.1s;
+}
+
+.edit-ref-tag-pin:hover:not(:disabled) {
+  opacity: 0.7;
+  filter: grayscale(0);
+}
+
+.edit-ref-tag-pin--active {
+  opacity: 1;
+  filter: grayscale(0);
+}
+
+.edit-ref-tag--pinned {
+  border-color: var(--link);
+  background: color-mix(in srgb, var(--link) 8%, var(--parchment-deep));
+}
+
+.edit-refs-pinned-section {
+  margin-top: 0.5rem;
+}
+
+.edit-refs-section-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-soft);
+  display: block;
+  margin-bottom: 0.25rem;
 }
 
 /* Add-references search panel */
@@ -1474,8 +1543,66 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .edit-modal-actions {
   display: flex;
+  align-items: center;
+  gap: 0.5rem;
   justify-content: flex-end;
   margin-top: 0.9rem;
+}
+
+.edit-raw-btn {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--rule);
+  background: var(--parchment);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.edit-raw-btn:hover:not(:disabled) {
+  background: var(--parchment-deep);
+  color: var(--ink);
+}
+
+/* Raw markdown editor panel */
+.raw-edit-panel {
+  padding: 1rem 1.2rem 1.2rem;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.raw-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.raw-edit-title {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.raw-edit-textarea {
+  width: 100%;
+  min-height: 28rem;
+  padding: 0.7rem;
+  border: 1px solid var(--rule);
+  background: var(--parchment-deep);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  resize: vertical;
+  box-sizing: border-box;
+  tab-size: 2;
 }
 
 /* Friendlier panel for moderator-removed entries — distinct from generic

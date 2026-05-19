@@ -10,6 +10,7 @@ Constraints:
 - Give one fun fact from the article that completes the sentence "Did you know...".
 - Do not include "Did you know" in your response.
 - Start your completion with "... ".
+- End the fact with a question mark.
 - Include the provided Markdown link naturally in the fact.
 - Preserve the Markdown link exactly as provided.
 - Facts should highlight a surprising, amusing, or absurd detail from the article.

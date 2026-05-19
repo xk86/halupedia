@@ -9,9 +9,13 @@ user = """
 [modes.aggressive]
 label = "Aggressive"
 prompt = """
-You have expanded, but not full creative license. You MAY (OPTIONALLY) restructure sections, change tone, reinterpret the subject, add or remove content, and potentially even rewrite from scratch, but only if requested by the user.
+You have expanded, but not full creative license. You MAY (OPTIONALLY, and ONLY WHEN ACCORDING TO EDIT INSTRUCTIONS) restructure sections, change tone, reinterpret the subject, add or remove content, and potentially even rewrite from scratch, but only if requested by the user.
 """
 
 [modes.subtle]
 label = "Subtle"
-prompt = "Preserve the existing tone, voice, structure, and style. Make targeted, surgical edits that address the rewrite instructions without changing the article's character. A reader familiar with the original should barely notice the difference aside from the specific requested changes."
+prompt = """
+Preserve the existing tone, voice, structure, and style. 
+Make targeted, surgical edits that address the rewrite instructions without changing the article's character. A reader familiar with the original should barely notice the difference aside from the specific requested changes. 
+Be sure to still include changes requested by the user - this is very important!
+"""

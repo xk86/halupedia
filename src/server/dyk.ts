@@ -9,6 +9,24 @@ import { slugify } from "./slug";
 import { escapeRegExp } from "./selectionUtils";
 import type { loadConfig } from "./config";
 
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
+
+function normalizeDykLinks(fact: string): string {
+  return fact.replace(MARKDOWN_LINK_RE, (match, label: string, target: string) => {
+    const trimmedTarget = target.trim();
+    if (!trimmedTarget.toLowerCase().startsWith("halu:")) return match;
+
+    const rawSlug = trimmedTarget.slice("halu:".length).split(/[\s"')/]/u)[0] ?? "";
+    const slug = slugify(rawSlug);
+    return slug ? `[${label}](/${slug})` : label;
+  });
+}
+
+function hasMarkdownLink(fact: string): boolean {
+  MARKDOWN_LINK_RE.lastIndex = 0;
+  return MARKDOWN_LINK_RE.test(fact);
+}
+
 /**
  * Ensure a DYK fact string contains a link back to the source article.
  *
@@ -18,41 +36,22 @@ import type { loadConfig } from "./config";
  * used in DYK — they exist for article seeding only.
  *
  * Priority:
- *   1. Fact already has a link to this slug → return unchanged.
- *   2. Halu link present → convert to a plain slug link.
- *   3. Title appears as plain text → linkify the first occurrence.
- *   4. No mention at all → prepend a link attribution.
+ *   1. Convert halu links to plain slug links.
+ *   2. If any Markdown link is already present, preserve the fact.
+ *   3. No link at all → prepend a source link attribution.
  */
 export function ensureDykHasSourceLink(
   fact: string,
   slug: string,
   title: string,
 ): string {
+  fact = normalizeDykLinks(fact);
+  if (hasMarkdownLink(fact)) return fact;
+
   const slugLink = `[${title}](/${slug})`;
   const slugPattern = new RegExp(`\\(/${escapeRegExp(slug)}\\)`, "i");
 
   if (slugPattern.test(fact)) return fact;
-
-  const haluPattern = new RegExp(`\\(halu:${escapeRegExp(slug)}[\\s"')/]`, "i");
-  if (haluPattern.test(fact)) {
-    return fact.replace(
-      new RegExp(`\\[([^\\]]+)\\]\\(halu:${escapeRegExp(slug)}[^)]*\\)`, "gi"),
-      `[$1](/${slug})`,
-    );
-  }
-
-  const titlePattern = new RegExp(
-    `(?<![\\[(/])${escapeRegExp(title)}(?![\\]])`,
-    "i",
-  );
-  const match = titlePattern.exec(fact);
-  if (match) {
-    return (
-      fact.slice(0, match.index) +
-      slugLink +
-      fact.slice(match.index + match[0].length)
-    );
-  }
 
   if (fact.startsWith("... ")) {
     return `... ${slugLink}: ${fact.slice("... ".length)}`;
@@ -68,7 +67,7 @@ export function normalizeHomepageFact(raw: string): string {
   fact = fact.replace(/^did you know(?:\.\.\.|\s+that|\s*)/i, "");
   fact = fact.replace(/^[.?!\s]+/, "");
   fact = fact.replace(/[.?!\s]+$/, "");
-  return fact ? `... ${fact}.` : "";
+  return fact ? `... ${fact}?` : "";
 }
 
 export async function generateDidYouKnowFact(

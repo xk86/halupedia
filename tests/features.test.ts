@@ -1,7 +1,7 @@
 /**
  * Tests for:
  *   1. findSelectionRangeInMarkdown – handles plain and formatted selections
- *   2. ensureDykHasSourceLink – DYK facts always link to the source article
+ *   2. ensureDykHasSourceLink – DYK facts preserve existing links and only add source fallback when unlinked
  *   3. Rewrite endpoint with formatted (markdown) selectedText
  *   4. Homepage history endpoint and accumulation
  *   5. Halu link parsing: spaces in slug, single-quote hints
@@ -23,6 +23,7 @@ import {
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp, findSelectionRangeInMarkdown, ensureDykHasSourceLink } from "../src/server/index";
+import { normalizeHomepageFact } from "../src/server/dyk";
 import type { LlmClient } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
 import {
@@ -194,13 +195,22 @@ test("ensureDykHasSourceLink: fact with halu link → converts to plain slug lin
   assert.match(result, /was discovered in the craters/, "content should be preserved");
 });
 
-test("ensureDykHasSourceLink: fact mentions title as plain text → first occurrence becomes slug link", () => {
+test("ensureDykHasSourceLink: fact with an existing non-source link is unchanged", () => {
+  const fact = "... [Lantern Index](/lantern-index) describes the southern craters near Glow Fruit.";
+  const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
+  assert.equal(result, fact, "existing linked facts should not receive an additional source link");
+});
+
+test("ensureDykHasSourceLink: fact mentions title as plain text but has no link → source link prepended", () => {
   const fact = "... Glow Fruit was discovered in the southern craters.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.match(result, /\[Glow Fruit\]\(\/glow-fruit\)/, "should linkify with plain slug link");
+  assert.equal(
+    result,
+    "... [Glow Fruit](/glow-fruit): Glow Fruit was discovered in the southern craters.",
+    "should add one source fallback link without rewriting fact text",
+  );
   assert.doesNotMatch(result, /halu:/, "must not insert halu link");
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
-  assert.match(result, /was discovered in the southern craters/, "rest of fact preserved");
 });
 
 test("ensureDykHasSourceLink: fact does not mention title → slug link prepended", () => {
@@ -215,8 +225,13 @@ test("ensureDykHasSourceLink: fact does not mention title → slug link prepende
 test("ensureDykHasSourceLink: case-insensitive title match", () => {
   const fact = "... glow fruit was first catalogued in the old crater ledger.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.match(result, /\/glow-fruit\)/);
+  assert.equal(result, "... [Glow Fruit](/glow-fruit): glow fruit was first catalogued in the old crater ledger.");
   assert.doesNotMatch(result, /halu:/);
+});
+
+test("normalizeHomepageFact: preserves fact wording and ends as a question", () => {
+  const result = normalizeHomepageFact("Did you know... [Glow Fruit](/glow-fruit) was catalogued at dusk.");
+  assert.equal(result, "... [Glow Fruit](/glow-fruit) was catalogued at dusk?");
 });
 
 /* ─────────────────────────────────────────────────────────────────
@@ -408,10 +423,10 @@ test("ensureDykHasSourceLink: fact already has slug link to source → unchanged
   assert.equal(result, fact, "fact with existing slug link should not be modified");
 });
 
-test("ensureDykHasSourceLink: title in plain text → replaced with slug link", () => {
+test("ensureDykHasSourceLink: title in plain text → source link is prepended", () => {
   const fact = "... Glow Fruit was discovered in the southern craters.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.match(result, /\[Glow Fruit\]\(\/glow-fruit\)/, "should linkify first occurrence with plain slug link");
+  assert.equal(result, "... [Glow Fruit](/glow-fruit): Glow Fruit was discovered in the southern craters.");
   assert.doesNotMatch(result, /halu:/, "must not insert a halu link");
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
   assert.match(result, /was discovered/, "rest of fact preserved");

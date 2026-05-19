@@ -1203,7 +1203,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   await reloadRuntime();
 
   // Resolve a list of slugs to ReferenceListEntry objects for userAdditions.
-  function slugsToUserAdditions(slugs: string[]): ReferenceList {
+  function slugsToUserAdditions(slugs: string[], pinnedSet: ReadonlySet<string> = new Set()): ReferenceList {
     const result: ReferenceList = [];
     for (const s of slugs) {
       const a = getArticleByLookup(db, s);
@@ -1213,7 +1213,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         title: a.title,
         content: a.summaryMarkdown ?? "",
         kind: "summary",
-        pinned: false,
+        pinned: pinnedSet.has(a.slug),
         revisionId: "current",
         source: "user",
       });
@@ -1579,8 +1579,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       instructions?: string;
       revertedFromRevisionId?: number | null;
     } = {},
-    { userAdditionSlugs = [], blacklistSlugs = [], scrapeExistingBodyLinks = true }: {
+    { userAdditionSlugs = [], pinnedSlugsSet = new Set<string>(), blacklistSlugs = [], scrapeExistingBodyLinks = true }: {
       userAdditionSlugs?: string[];
+      pinnedSlugsSet?: ReadonlySet<string>;
       blacklistSlugs?: string[];
       scrapeExistingBodyLinks?: boolean;
     } = {},
@@ -1634,6 +1635,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       : [];
     const explicitUserAdditions = slugsToUserAdditions(
       userAdditionSlugs.map((s) => slugify(s)).filter(Boolean),
+      pinnedSlugsSet,
     );
     const userAdditionsBySlug = new Map<string, ReferenceListEntry>();
     for (const ref of [...explicitUserAdditions, ...existingBodyReferences]) {
@@ -1759,7 +1761,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     retrieved: Awaited<ReturnType<typeof retrieveContext>>,
     hints: IncomingHint[],
     expectedGeneratedAt?: number,
-    { blacklistSlugs = [] }: { blacklistSlugs?: string[] } = {},
+    { blacklistSlugs = [], userAdditionSlugs = [] }: { blacklistSlugs?: string[]; userAdditionSlugs?: string[] } = {},
   ) {
     const normalizedSlug = slugify(slug);
     logger.debug("post_process.start", { slug: normalizedSlug });
@@ -1826,13 +1828,21 @@ export async function createApp(options: CreateAppOptions = {}) {
         repairedBodyMarkdown,
         normalizedSlug,
       );
+      // Explicit user additions (from the edit that triggered post-processing) come
+      // first so they survive the carried-entry cap even when there are many body refs.
+      const explicitPostProcessAdditions = slugsToUserAdditions(userAdditionSlugs);
+      const postProcessAdditionsBySlug = new Map<string, ReferenceListEntry>();
+      for (const ref of [...explicitPostProcessAdditions, ...existingBodyReferences]) {
+        postProcessAdditionsBySlug.set(ref.slug, ref);
+      }
+      const postProcessUserAdditions = Array.from(postProcessAdditionsBySlug.values());
       const referenceList = buildReferenceList(
         db,
         {
           articleSlug: normalizedSlug,
           ragSources: retrieved.sourceArticles,
           priorReferences: loadPriorReferenceList(db, normalizedSlug),
-          userAdditions: existingBodyReferences,
+          userAdditions: postProcessUserAdditions,
           blacklistSlugs,
           revisionId: "current",
           config: runtime.app.rag,
@@ -2420,6 +2430,81 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({ references });
   });
 
+  // Toggle the pinned flag on a saved reference without triggering a full rewrite.
+  app.post("/api/article/:slug/pin-reference", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { refSlug?: string; pinned?: boolean };
+    const refSlug = slugify(body.refSlug ?? "");
+    if (!refSlug) return c.json({ error: "missing refSlug" }, 400);
+    const pinned = Boolean(body.pinned);
+    const current = getLatestArticleReferences(db, article.slug);
+    if (!current.some((r) => r.slug === refSlug)) {
+      return c.json({ error: "reference not found in current list" }, 404);
+    }
+    const updated = current.map((r) => (r.slug === refSlug ? { ...r, pinned } : r));
+    saveArticleReferences(db, article.slug, Date.now(), updated);
+    logger.info("references.pin_toggled", { slug: article.slug, ref_slug: refSlug, pinned });
+    return c.json({ ok: true });
+  });
+
+  // Raw markdown save — no LLM, just versioned storage. The markdown is
+  // normalised and run through the standard link/reference pipeline but
+  // never passed to a language model.
+  app.post("/api/article/:slug/raw-save", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      markdown?: string;
+      referenceSlugs?: string[];
+      pinnedSlugs?: string[];
+    };
+
+    const rawMarkdown = (body.markdown ?? "").trim();
+    if (!rawMarkdown) return c.json({ error: "missing markdown" }, 400);
+
+    const userSlugs = (body.referenceSlugs ?? []).map((s) => slugify(s)).filter(Boolean);
+    const pinnedSet = new Set((body.pinnedSlugs ?? []).map((s) => slugify(s)).filter(Boolean));
+
+    // Empty retrieval — no RAG/LLM, just whatever the user provided.
+    const emptyRetrieved: Awaited<ReturnType<typeof retrieveContext>> = {
+      context: "",
+      sourceArticles: [],
+      relatedTitles: [],
+    };
+
+    try {
+      const { article: updatedArticle } = await saveArticleImmediately(
+        article.slug,
+        article.title,
+        rawMarkdown,
+        emptyRetrieved,
+        { operation: "raw-edit" },
+        {
+          userAdditionSlugs: userSlugs,
+          pinnedSlugsSet: pinnedSet,
+          scrapeExistingBodyLinks: true,
+        },
+      );
+      invalidateArticleHtml(updatedArticle.slug);
+      logger.info("raw_edit.saved", { slug: updatedArticle.slug });
+      const response = buildArticleResponseFor(updatedArticle.slug);
+      if (!response) return c.json({ error: "article not found after save" }, 500);
+      return c.json({ article: response });
+    } catch (err) {
+      logger.warn("raw_edit.failed", {
+        slug: lookupSlug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return c.json({ error: err instanceof Error ? err.message : "save failed" }, 500);
+    }
+  });
+
   /**
    * Find articles to use as references during editing.
    * Accepts two independent search modes:
@@ -2655,6 +2740,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       rewriteMode?: string;
       // Slugs the user has selected in the editor UI. These survive pruning.
       referenceSlugs?: string[];
+      // Subset of referenceSlugs that the user has pinned. Pinned refs are free
+      // (don't count toward max_references) and survive all future pruning.
+      pinnedSlugs?: string[];
       // Slugs the user has explicitly removed. Excluded from the result even
       // if they would otherwise score well enough to be included.
       blacklistSlugs?: string[];
@@ -2702,6 +2790,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     const explicitSlugs = (body.referenceSlugs ?? [])
       .map((s) => slugify(s))
       .filter(Boolean);
+    // Which of those refs the user has pinned — pinned refs don't count toward cap.
+    const pinnedSlugsSet = new Set(
+      (body.pinnedSlugs ?? []).map((s) => slugify(s)).filter(Boolean),
+    );
     // Slugs the user removed — excluded even if RAG would otherwise pick them.
     const blacklistSlugs = (body.blacklistSlugs ?? [])
       .map((s) => slugify(s))
@@ -2854,7 +2946,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         articleSlug: article.slug,
         ragSources: retrieved.sourceArticles,
         priorReferences: priorReferenceList,
-        userAdditions: slugsToUserAdditions(effectiveUserAdditionSlugs),
+        userAdditions: slugsToUserAdditions(effectiveUserAdditionSlugs, pinnedSlugsSet),
         blacklistSlugs: effectiveBlacklistSlugs,
         revisionId: "current",
         config: runtime.app.rag,
@@ -2913,7 +3005,7 @@ export async function createApp(options: CreateAppOptions = {}) {
             articleSlug: article.slug,
             ragSources: retrieved.sourceArticles,
             priorReferences: priorReferenceList,
-            userAdditions: slugsToUserAdditions(effectiveUserAdditionSlugs),
+            userAdditions: slugsToUserAdditions(effectiveUserAdditionSlugs, pinnedSlugsSet),
             blacklistSlugs: effectiveBlacklistSlugs,
             revisionId: "current",
             config: runtime.app.rag,
@@ -2935,6 +3027,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           { operation: operationName, instructions },
           {
             userAdditionSlugs: effectiveUserAdditionSlugs,
+            pinnedSlugsSet,
             blacklistSlugs: effectiveBlacklistSlugs,
             scrapeExistingBodyLinks: !selectionRange && !sectionId,
           },
@@ -2965,7 +3058,7 @@ export async function createApp(options: CreateAppOptions = {}) {
               retrieved,
               hints,
               updatedArticle.generated_at,
-              { blacklistSlugs: effectiveBlacklistSlugs },
+              { blacklistSlugs: effectiveBlacklistSlugs, userAdditionSlugs: effectiveUserAdditionSlugs },
             ).catch(() => {}),
           );
         }

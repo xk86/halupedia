@@ -9,7 +9,9 @@ user = """
 [modes.aggressive]
 label = "Aggressive"
 prompt = """
-You have expanded, but not full creative license. You MAY (OPTIONALLY, and ONLY WHEN ACCORDING TO EDIT INSTRUCTIONS) restructure sections, change tone, reinterpret the subject, add or remove content, and potentially even rewrite from scratch, but only if requested by the user.
+You have expanded, but not full creative license. 
+You MAY (OPTIONALLY, and ONLY WHEN ACCORDING TO EDIT INSTRUCTIONS) restructure sections, change tone, reinterpret the subject, add or remove content, and potentially even rewrite from scratch, but only if requested by the user.
+Do not reference prior versions: if you are making corrections that the user has instructed you to, simply do the instructions, and do not attempt to "lampshade" prior version(s) of the text.
 """
 
 [modes.subtle]

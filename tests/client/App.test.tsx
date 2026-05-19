@@ -707,13 +707,49 @@ describe("App", () => {
 
     expect(await screen.findByText("Refreshing with retrieved context...")).toBeInTheDocument();
     resolveRefresh(
-      new Response(JSON.stringify({ ...payload, refreshChanged: false }), {
-        headers: { "content-type": "application/json" },
+      new Response(`${JSON.stringify({ type: "done", ...payload, refreshChanged: false })}\n`, {
+        headers: { "content-type": "application/x-ndjson" },
       })
     );
     await clickPromise;
     expect(await screen.findByText("References already up to date.")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/article/test-article/refresh-context", { method: "POST" });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/article/test-article/refresh-context?stream=1", {
+      method: "POST",
+      headers: { accept: "application/x-ndjson" },
+    });
+  });
+
+  it("reports article refresh when streamed refresh changes body content", async () => {
+    const payload = pagePayload({
+      article: {
+        ...pagePayload().article,
+        markdown: "# Test Article\n\nChanged body.",
+        html: "<h1>Test Article</h1><p>Changed body.</p>",
+      },
+      refreshChanged: true,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(pagePayload()), {
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(`${JSON.stringify({ type: "done", ...payload })}\n`, {
+          headers: { "content-type": "application/x-ndjson" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Test Article" });
+    await userEvent.click(screen.getByRole("button", { name: "Refresh with retrieved context" }));
+
+    expect(await screen.findByText("Article refreshed.")).toBeInTheDocument();
+    expect(await screen.findByText("Changed body.")).toBeInTheDocument();
   });
 
   it("shows a refresh notice when body references are missing from metadata", async () => {

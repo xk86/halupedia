@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle, getArticleByLookup } from "../src/server/db";
+import { openDatabase, saveArticle, getArticleByLookup, listArticleRevisions } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmClient } from "../src/server/llm";
@@ -129,6 +129,11 @@ async function createTestServer(options: {
     request: (path: string, init?: RequestInit) =>
       app.fetch(new Request(`http://halupedia.test${path}`, init)),
   };
+}
+
+async function readNdjson(res: Response): Promise<any[]> {
+  const text = await res.text();
+  return text.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
 function parseNdjson<T>(payload: string): T[] {
@@ -662,6 +667,42 @@ test("selection edit creates a revision entry", async (t) => {
   await server.shutdown();
 });
 
+test("post-process body updates are folded into the active rewrite revision", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  seedArticle(databasePath, "ref-article", "Ref Article", "Reference source content.");
+  seedArticle(databasePath, "target-article", "Target Article", "Original target body.");
+
+  const rewrittenMarkdown = [
+    "# Target Article",
+    "",
+    'Target Article cites [Ref Article](halu:ref-article "reference context").',
+  ].join("\n");
+  const llm = new RewriteLlmClient(rewrittenMarkdown);
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/target-article/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "refresh the body" }),
+  });
+  assert.equal(res.status, 200);
+  await server.shutdown();
+
+  const db = openDatabase(databasePath);
+  const saved = getArticleByLookup(db, "target-article");
+  const revisions = listArticleRevisions(db, "target-article");
+  db.close();
+  assert.ok(saved, "article should exist in DB");
+  assert.match(saved.markdown, /\[Ref Article\]\(ref:ref-article\)/);
+  assert.match(revisions[0].markdown, /\[Ref Article\]\(ref:ref-article\)/);
+  assert.deepEqual(
+    revisions.map((revision) => revision.operation),
+    ["rewrite", "update"],
+  );
+});
+
 test("refresh-context converts existing article links into footnote references", async (t) => {
   const { root, databasePath } = createTestDb();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -697,6 +738,104 @@ test("refresh-context converts existing article links into footnote references",
   assert.ok(saved, "article should exist in DB");
   assert.match(saved.markdown, /\[Source Article\]\(ref:source-article\)/);
   assert.doesNotMatch(saved.markdown, /\(halu:source-article/);
+  await server.shutdown();
+});
+
+test("refresh-context streams and cleans dangling inline reference markers", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  seedArticle(databasePath, "individual-entropy", "Individual Entropy", "Reference source content.");
+  seedArticle(databasePath, "the-communist-manifesto", "The Communist Manifesto", "Reference source content.");
+  seedArticle(
+    databasePath,
+    "generated-article",
+    "Generated Article",
+    [
+      "Individual entropy rises quickly (ref:individual-entropy).",
+      'The handbook is *The Communist Manifesto*halu:the-communist-manifesto "a handbook entry".',
+    ].join("\n\n"),
+  );
+
+  const llm = new RewriteLlmClient("should not be used");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/generated-article/refresh-context?stream=1", {
+    method: "POST",
+    headers: { accept: "application/x-ndjson" },
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") ?? "", /application\/x-ndjson/);
+  const events = await readNdjson(res);
+  assert.equal(events[0].type, "start");
+  assert.ok(events.some((event) => event.type === "status"));
+  const done = events.find((event) => event.type === "done");
+  assert.ok(done, "stream should finish with done event");
+  assert.match(done.article.body, /\[Individual entropy\]\(ref:individual-entropy\) rises quickly\./);
+  assert.match(
+    done.article.body,
+    /\*\[The Communist Manifesto\]\(ref:the-communist-manifesto\)\*/,
+  );
+  assert.doesNotMatch(done.article.body, / \((?:ref|halu):individual-entropy\)/);
+  assert.doesNotMatch(done.article.body, /Manifesto\*halu:/);
+
+  const db = openDatabase(databasePath);
+  const saved = getArticleByLookup(db, "generated-article");
+  db.close();
+  assert.ok(saved, "article should exist in DB");
+  assert.match(saved.markdown, /\[Individual entropy\]\(ref:individual-entropy\)/);
+  assert.doesNotMatch(saved.markdown, /halu:the-communist-manifesto/);
+  await server.shutdown();
+});
+
+test("refresh-context streams exactly one persisted revision without post-process feedback", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  seedArticle(databasePath, "generated-article", "Generated Article", "Original body.");
+  const db = openDatabase(databasePath);
+  saveArticle(
+    db,
+    {
+      slug: "source-article",
+      canonicalSlug: "source-article",
+      title: "Source Article",
+      markdown: "# Source Article\n\nReference source content.",
+      html: renderMarkdown("# Source Article\n\nReference source content."),
+      plain_text: markdownToPlainText("# Source Article\n\nReference source content."),
+      generated_at: Date.now(),
+    },
+    [{ targetSlug: "generated-article", visibleLabel: "Generated Article", hiddenHint: "source context" }],
+    ["source-article"],
+  );
+  db.close();
+
+  const rewrittenMarkdown = [
+    "# Generated Article",
+    "",
+    'Generated Article now cites [Source Article](halu:source-article "source context").',
+  ].join("\n");
+  const llm = new RewriteLlmClient(rewrittenMarkdown);
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/generated-article/refresh-context?stream=1", {
+    method: "POST",
+    headers: { accept: "application/x-ndjson" },
+  });
+  assert.equal(res.status, 200);
+  const events = await readNdjson(res);
+  assert.ok(events.some((event) => event.type === "progress"), "refresh should stream progress");
+  const done = events.find((event) => event.type === "done");
+  assert.ok(done, "stream should finish with done event");
+
+  const checkDb = openDatabase(databasePath);
+  const revisions = listArticleRevisions(checkDb, "generated-article");
+  checkDb.close();
+  assert.deepEqual(
+    revisions.map((revision) => revision.operation),
+    ["refresh-context-rewrite", "update"],
+  );
+  assert.equal(llm.chatCalls.length, 1, "refresh should not invoke link recheck or post-process LLM passes");
   await server.shutdown();
 });
 

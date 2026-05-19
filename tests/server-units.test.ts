@@ -56,6 +56,8 @@ import {
   renderReferencesHtml,
   resolveRefLinks,
 } from "../src/server/referenceList";
+import { parseMarkdownLinks } from "../src/server/text/markdownLinkParser";
+import { normalizeMarkdownLinks } from "../src/server/text/linkNormalize";
 import {
   assembleArticleMarkdownForRender,
   renderArticleDisplayHtml,
@@ -344,6 +346,126 @@ test("renderMarkdown rewrites halu links to wiki paths using visible text", () =
   );
   assert.match(html, /href="\/wiki\/Glow_Fruit"/);
   assert.doesNotMatch(html, /hidden hint/);
+});
+
+test("parseMarkdownLinks classifies supported and fallback internal links in one pass", () => {
+  const parsed = parseMarkdownLinks(
+    [
+      '[Halu](halu:halu-target "hint")',
+      "[Ref](ref:ref-target)",
+      "[Wiki](/wiki/Wiki_Target)",
+      "[Slug](plain-slug-target)",
+      "[External](https://example.invalid)",
+    ].join(" "),
+  );
+
+  assert.deepEqual(
+    parsed.links.map((link) => [link.label, link.kind, link.slug]),
+    [
+      ["Halu", "halu", "halu-target"],
+      ["Ref", "ref", "ref-target"],
+      ["Wiki", "wiki", "wiki-target"],
+      ["Slug", "plain-slug", "plain-slug-target"],
+      ["External", "external", undefined],
+    ],
+  );
+  assert.ok(parsed.diagnostics.some((diag) => diag.code === "external-link"));
+});
+
+test("parseMarkdownLinks reports halu/ref markers outside valid markdown links without deleting text", () => {
+  const markdown = "Keep this emoticon :) and malformed halu:loose-target plus [open](ref:missing";
+  const parsed = parseMarkdownLinks(markdown);
+
+  assert.deepEqual(parsed.links, []);
+  assert.ok(parsed.looseInternalMarkers.some((marker) => marker.kind === "halu" && marker.slug === "loose-target"));
+  assert.ok(parsed.looseInternalMarkers.some((marker) => marker.kind === "ref" && marker.slug === "missing"));
+  assert.ok(parsed.diagnostics.some((diag) => diag.code === "loose-internal-marker"));
+  assert.ok(parsed.diagnostics.some((diag) => diag.code === "unclosed-target"));
+});
+
+test("normalizeMarkdownLinks rewrites wiki and plain-slug fallbacks while stripping external links", () => {
+  const normalized = normalizeMarkdownLinks(
+    "See [Wiki](/wiki/Wiki_Target), [Slug](plain-slug-target), and [Bad](https://example.invalid).",
+    "article",
+  );
+
+  assert.equal(
+    normalized.markdown,
+    'See [Wiki](halu:wiki-target "Wiki"), [Slug](halu:plain-slug-target "Slug"), and Bad.',
+  );
+  assert.equal(normalized.stats.wiki, 1);
+  assert.equal(normalized.stats.plainSlug, 1);
+  assert.equal(normalized.stats.external, 1);
+  assert.equal(normalized.stats.rewritten, 2);
+  assert.equal(normalized.stats.stripped, 1);
+});
+
+test("normalizeMarkdownLinks strips bare and loose ref artifacts without creating halu ref links", () => {
+  const normalized = normalizeMarkdownLinks(
+    "See *[Advertising streams](ref:advertising-streams)* [ref:advertising-streams] (ref:2).",
+    "article",
+  );
+
+  assert.equal(
+    normalized.markdown,
+    "See *[Advertising streams](ref:advertising-streams)*.",
+  );
+  assert.equal(normalized.stats.ref, 1);
+  assert.equal(normalized.stats.bareRef, 1);
+  assert.equal(normalized.stats.looseRef, 1);
+  assert.equal(normalized.stats.stripped, 2);
+  assert.doesNotMatch(normalized.markdown, /halu:ref-/);
+});
+
+test("normalizeMarkdownLinks strips parenthesized ref marker after an existing same-slug link", () => {
+  const normalized = normalizeMarkdownLinks(
+    "The theory is detailed in *[The Feelings Illegalization Act of 1993](ref:the-feelings-illegalization-act-of-1993)* (ref:the-feelings-illegalization-act-of-1993).",
+    "article",
+  );
+
+  assert.equal(
+    normalized.markdown,
+    "The theory is detailed in *[The Feelings Illegalization Act of 1993](ref:the-feelings-illegalization-act-of-1993)*.",
+  );
+  assert.equal(normalized.stats.ref, 1);
+  assert.equal(normalized.stats.looseRef, 1);
+  assert.equal(normalized.stats.stripped, 1);
+});
+
+test("normalizeMarkdownLinks attaches dangling ref and halu markers to nearby title text", () => {
+  const normalized = normalizeMarkdownLinks(
+    [
+      "Individual entropy rises quickly (ref:individual-entropy).",
+      'The handbook is *The Communist Manifesto*halu:the-communist-manifesto "a handbook entry".',
+    ].join("\n\n"),
+    "article",
+  );
+
+  assert.match(normalized.markdown, /\[Individual entropy\]\(ref:individual-entropy\) rises quickly\./);
+  assert.match(
+    normalized.markdown,
+    /\*\[The Communist Manifesto\]\(halu:the-communist-manifesto "a handbook entry"\)\*/,
+  );
+  assert.doesNotMatch(normalized.markdown, / \((?:ref|halu):individual-entropy\)/);
+  assert.doesNotMatch(normalized.markdown, /Manifesto\*halu:/);
+});
+
+test("parseMarkdownLinks reports bare and loose internal markers as structured artifacts", () => {
+  const parsed = parseMarkdownLinks("[ref:source-entry] and (ref:2) plus [Bare Topic]");
+
+  assert.deepEqual(
+    parsed.bareBrackets.map((token) => [token.label, token.kind, token.slug]),
+    [
+      ["ref:source-entry", "ref-marker", "source-entry"],
+      ["Bare Topic", "title-seed", "bare-topic"],
+    ],
+  );
+  assert.deepEqual(
+    parsed.looseInternalMarkers.map((token) => [token.kind, token.slug]),
+    [["ref", "2"]],
+  );
+  assert.ok(parsed.diagnostics.some((diag) => diag.code === "bare-internal-marker"));
+  assert.ok(parsed.diagnostics.some((diag) => diag.code === "loose-internal-marker"));
 });
 
 test("loadConfig populates a dedicated light LLM config section", () => {
@@ -1428,8 +1550,8 @@ test("formatReferencesForPrompt lists slug and title for each ref", () => {
     },
   ];
   const rendered = formatReferencesForPrompt(refs);
-  assert.match(rendered, /- ref:glow-fruit → Glow Fruit/);
-  assert.match(rendered, /- ref:night-bloom → Night Bloom/);
+  assert.match(rendered, /- \[Glow Fruit\]\(ref:glow-fruit\)/);
+  assert.match(rendered, /- \[Night Bloom\]\(ref:night-bloom\)/);
 });
 
 test("formatReferencesForPrompt returns (none) when the list is empty", () => {

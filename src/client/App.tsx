@@ -158,7 +158,7 @@ export function App() {
   const [editIncludeRecentPrompts, setEditIncludeRecentPrompts] = useState(false);
   // References panel state
   const [editRefsEnabled, setEditRefsEnabled] = useState(false);
-  const [editRefs, setEditRefs] = useState<Array<{ slug: string; title: string; summaryMarkdown: string }>>([]);
+  const [editRefs, setEditRefs] = useState<Array<{ slug: string; title: string; summaryMarkdown: string; pinned: boolean }>>([]);
   const [editInitialRefSlugs, setEditInitialRefSlugs] = useState<string[]>([]);
   const [editAddRefsOpen, setEditAddRefsOpen] = useState(false);
   // Slugs the user has explicitly removed from the reference list.
@@ -173,6 +173,8 @@ export function App() {
   const [editRewriteMode, setEditRewriteMode] = useState<"aggressive" | "subtle">("aggressive");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [rawEditOpen, setRawEditOpen] = useState(false);
+  const [rawEditMarkdown, setRawEditMarkdown] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -651,14 +653,14 @@ export function App() {
     let cancelled = false;
     fetch(`/api/article/${encodeURIComponent(page.article.slug)}/references`)
       .then((r) => r.json())
-      .then((body: { references?: Array<{ slug: string; title: string; summaryMarkdown: string }> }) => {
+      .then((body: { references?: Array<{ slug: string; title: string; summaryMarkdown: string; pinned?: boolean }> }) => {
         if (cancelled) return;
         const seen = new Set<string>();
         const refs = (body.references ?? []).filter((r) => {
           if (seen.has(r.slug)) return false;
           seen.add(r.slug);
           return true;
-        });
+        }).map((r) => ({ ...r, pinned: Boolean(r.pinned) }));
         setEditRefs(refs);
         setEditInitialRefSlugs(refs.map((ref) => ref.slug));
         setEditRefsEnabled(refs.length > 0);
@@ -697,7 +699,7 @@ export function App() {
   }, [page?.article.slug, editFuzzyQuery, editRagSearchQuery, editRefSearchBusy, editRefs]);
 
   const addEditRef = useCallback((ref: { slug: string; title: string; summaryMarkdown: string }) => {
-    setEditRefs((prev) => prev.some((r) => r.slug === ref.slug) ? prev : [...prev, ref]);
+    setEditRefs((prev) => prev.some((r) => r.slug === ref.slug) ? prev : [...prev, { ...ref, pinned: false }]);
     setEditRefResults((prev) => prev.filter((r) => r.slug !== ref.slug));
   }, []);
 
@@ -705,6 +707,71 @@ export function App() {
     if (editIsPartial && editInitialRefSlugSet.has(slug)) return;
     setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
   }, [editIsPartial, editInitialRefSlugSet]);
+
+  const togglePinRef = useCallback((slug: string) => {
+    if (!page?.article.slug) return;
+    const current = editRefs.find((r) => r.slug === slug);
+    if (!current) return;
+    const newPinned = !current.pinned;
+    setEditRefs((prev) => prev.map((r) => r.slug === slug ? { ...r, pinned: newPinned } : r));
+    fetch(`/api/article/${encodeURIComponent(page.article.slug)}/pin-reference`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ refSlug: slug, pinned: newPinned }),
+    }).catch(() => {
+      // Revert on failure
+      setEditRefs((prev) => prev.map((r) => r.slug === slug ? { ...r, pinned: !newPinned } : r));
+    });
+  }, [page?.article.slug, editRefs]);
+
+  const openRawEdit = useCallback(() => {
+    if (!page?.article.markdown) return;
+    setRawEditMarkdown(page.article.markdown);
+    setRawEditOpen(true);
+    setEditError(null);
+  }, [page?.article.markdown]);
+
+  const saveRawEdit = useCallback(async () => {
+    if (!page?.article.slug || !rawEditMarkdown.trim() || editBusy) return;
+    const previousPage = page;
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/raw-save`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          markdown: rawEditMarkdown,
+          ...(editRefsEnabled && editRefs.length > 0
+            ? {
+                referenceSlugs: editRefs.map((r) => r.slug),
+                ...(editRefs.some((r) => r.pinned)
+                  ? { pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug) }
+                  : {}),
+              }
+            : {}),
+        }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error((payload as { error?: string })?.error || `error ${res.status}`);
+      }
+      const payload = await res.json() as { article?: typeof page.article };
+      if (payload.article) {
+        setPage((current) => current ? { ...current, article: payload.article! } : current);
+      }
+      setRawEditOpen(false);
+      setRawEditMarkdown("");
+      setEditRefsEnabled(false);
+      setEditRefs([]);
+      setEditInitialRefSlugs([]);
+      setEditBusy(false);
+    } catch (err: any) {
+      setPage(previousPage);
+      setEditError(err?.message || "Could not save.");
+      setEditBusy(false);
+    }
+  }, [page, rawEditMarkdown, editBusy, editRefsEnabled, editRefs]);
 
   const rewriteArticle = useCallback(async () => {
     if (!page?.article.slug || !editDraft.trim() || editBusy) return;
@@ -722,7 +789,12 @@ export function App() {
             ? { selectedText: editSelectedText }
             : { sectionId: editSectionId || undefined }),
           ...(editRefsEnabled && editRefs.length > 0
-            ? { referenceSlugs: editRefs.map((r) => r.slug) }
+            ? {
+                referenceSlugs: editRefs.map((r) => r.slug),
+                ...(editRefs.some((r) => r.pinned)
+                  ? { pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug) }
+                  : {}),
+              }
             : {}),
           ...(editBlacklist.length > 0 ? { blacklistSlugs: editBlacklist } : {}),
           ...(editIncludeRecentPrompts ? { includeRecentEditHistory: true } : {}),
@@ -1315,12 +1387,12 @@ export function App() {
             />
             <button
               type="button"
-              className="edit-refs-add-btn"
+              className={`edit-recent-prompts-btn${editIncludeRecentPrompts ? " edit-recent-prompts-btn--active" : ""}`}
               aria-pressed={editIncludeRecentPrompts}
               onClick={() => setEditIncludeRecentPrompts((enabled) => !enabled)}
               disabled={editBusy}
             >
-              {editIncludeRecentPrompts ? "Using last 2 edit prompts" : "Use last 2 edit prompts"}
+              {editIncludeRecentPrompts ? "✓ Using last 2 edit prompts" : "Use last 2 edit prompts"}
             </button>
             {/* References panel */}
             <div className="edit-refs-row">
@@ -1354,10 +1426,58 @@ export function App() {
               )}
             </div>
 
-            {editRefsEnabled && editRefs.length > 0 && (
+            {editRefsEnabled && editRefs.some((r) => r.pinned) && (
+              <div className="edit-refs-pinned-section">
+                <span className="edit-refs-section-label">Pinned</span>
+                <div className="edit-refs-tags">
+                  {editRefs.filter((r) => r.pinned).map((ref) => (
+                    <span key={ref.slug} className="edit-ref-tag edit-ref-tag--pinned">
+                      <button
+                        type="button"
+                        className="edit-ref-tag-pin edit-ref-tag-pin--active"
+                        onClick={() => togglePinRef(ref.slug)}
+                        disabled={editBusy}
+                        aria-label={`Unpin ${ref.title}`}
+                        title="Unpin"
+                      >
+                        📌
+                      </button>
+                      <a
+                        href={`/wiki/${ref.slug}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="edit-ref-tag-link"
+                      >
+                        {ref.title}
+                      </a>
+                      <button
+                        type="button"
+                        className="edit-ref-tag-remove"
+                        onClick={() => removeEditRef(ref.slug)}
+                        disabled={editBusy || (editIsPartial && editInitialRefSlugSet.has(ref.slug))}
+                        aria-label={`Remove ${ref.title}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {editRefsEnabled && editRefs.some((r) => !r.pinned) && (
               <div className="edit-refs-tags">
-                {editRefs.map((ref) => (
+                {editRefs.filter((r) => !r.pinned).map((ref) => (
                   <span key={ref.slug} className="edit-ref-tag">
+                    <button
+                      type="button"
+                      className="edit-ref-tag-pin"
+                      onClick={() => togglePinRef(ref.slug)}
+                      disabled={editBusy}
+                      aria-label={`Pin ${ref.title}`}
+                      title="Pin to always include"
+                    >
+                      📌
+                    </button>
                     <a
                       href={`/wiki/${ref.slug}`}
                       target="_blank"
@@ -1517,6 +1637,107 @@ export function App() {
               <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || !editDraft.trim()}>
                 {editBusy ? "Rewriting..." : "Apply edit"}
               </button>
+              <button type="button" className="edit-raw-btn" onClick={openRawEdit} disabled={editBusy} title="Edit raw markdown directly">
+                Raw
+              </button>
+            </div>
+          </section>
+        ) : null}
+        {rawEditOpen ? (
+          <section className="raw-edit-panel" aria-label="Raw markdown editor">
+            <div className="raw-edit-header">
+              <span className="raw-edit-title">Raw edit</span>
+              <button type="button" className="edit-modal-close" onClick={() => { setRawEditOpen(false); setEditError(null); }} disabled={editBusy}>Close</button>
+            </div>
+            <textarea
+              className="raw-edit-textarea"
+              value={rawEditMarkdown}
+              onChange={(e) => setRawEditMarkdown(e.target.value)}
+              spellCheck={false}
+              disabled={editBusy}
+            />
+            {/* Refs panel reused in raw mode */}
+            <div className="edit-refs-row">
+              <label className="edit-modal-rag-toggle">
+                <input
+                  type="checkbox"
+                  checked={editRefsEnabled}
+                  onChange={(e) => {
+                    setEditRefsEnabled(e.target.checked);
+                    if (!e.target.checked) { setEditAddRefsOpen(false); setEditRefResults([]); }
+                  }}
+                  disabled={editBusy}
+                />
+                Reference other articles
+              </label>
+              {editRefsEnabled && (
+                <button type="button" className="edit-refs-add-btn" onClick={() => { setEditAddRefsOpen((o) => !o); setEditRefResults([]); }} disabled={editBusy} aria-label="Add references">
+                  {editAddRefsOpen ? "−" : "+"}
+                </button>
+              )}
+            </div>
+            {editRefsEnabled && editRefs.some((r) => r.pinned) && (
+              <div className="edit-refs-pinned-section">
+                <span className="edit-refs-section-label">Pinned</span>
+                <div className="edit-refs-tags">
+                  {editRefs.filter((r) => r.pinned).map((ref) => (
+                    <span key={ref.slug} className="edit-ref-tag edit-ref-tag--pinned">
+                      <button type="button" className="edit-ref-tag-pin edit-ref-tag-pin--active" onClick={() => togglePinRef(ref.slug)} disabled={editBusy} title="Unpin">📌</button>
+                      <a href={`/wiki/${ref.slug}`} target="_blank" rel="noreferrer" className="edit-ref-tag-link">{ref.title}</a>
+                      <button type="button" className="edit-ref-tag-remove" onClick={() => removeEditRef(ref.slug)} disabled={editBusy}>×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {editRefsEnabled && editRefs.some((r) => !r.pinned) && (
+              <div className="edit-refs-tags">
+                {editRefs.filter((r) => !r.pinned).map((ref) => (
+                  <span key={ref.slug} className="edit-ref-tag">
+                    <button type="button" className="edit-ref-tag-pin" onClick={() => togglePinRef(ref.slug)} disabled={editBusy} title="Pin to always include">📌</button>
+                    <a href={`/wiki/${ref.slug}`} target="_blank" rel="noreferrer" className="edit-ref-tag-link">{ref.title}</a>
+                    <button type="button" className="edit-ref-tag-remove" onClick={() => removeEditRef(ref.slug)} disabled={editBusy}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {editRefsEnabled && editAddRefsOpen && (
+              <div className="edit-refs-search-panel">
+                <div className="edit-refs-search-col">
+                  <label className="edit-refs-search-label">Titles / slugs (comma-separated)</label>
+                  <div className="edit-refs-search-row">
+                    <input type="text" className="edit-refs-search-input" value={editFuzzyQuery} onChange={(e) => setEditFuzzyQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchEditRefs("fuzzy"); } }} placeholder="Title, slug, or wiki/Path (CSV)" disabled={editBusy || editRefSearchBusy} />
+                    <button type="button" className="edit-refs-search-btn" onClick={() => void searchEditRefs("fuzzy")} disabled={editBusy || editRefSearchBusy || !editFuzzyQuery.trim()}>Find</button>
+                  </div>
+                </div>
+                <div className="edit-refs-search-col">
+                  <label className="edit-refs-search-label">Freeform search (RAG)</label>
+                  <div className="edit-refs-search-row">
+                    <input type="text" className="edit-refs-search-input" value={editRagSearchQuery} onChange={(e) => setEditRagSearchQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchEditRefs("rag"); } }} placeholder="Describe topic to find related articles..." disabled={editBusy || editRefSearchBusy} />
+                    <button type="button" className="edit-refs-search-btn" onClick={() => void searchEditRefs("rag")} disabled={editBusy || editRefSearchBusy || !editRagSearchQuery.trim()}>Search</button>
+                  </div>
+                </div>
+                {editRefSearchError && <p className="edit-refs-search-error">{editRefSearchError}</p>}
+                {editRefSearchBusy && <p className="edit-refs-search-status">Searching...</p>}
+                {editRefResults.length > 0 && (
+                  <ul className="edit-refs-results">
+                    {editRefResults.map((r) => (
+                      <li key={r.slug}>
+                        <button type="button" className="edit-refs-result-btn" onClick={() => addEditRef(r)} disabled={editBusy}>
+                          <span className="edit-refs-result-title">{r.title}</span>
+                          {r.summaryMarkdown && <span className="edit-refs-result-summary">{r.summaryMarkdown.slice(0, 100)}</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {editError ? <div className="edit-modal-error">{editError}</div> : null}
+            <div className="edit-modal-actions">
+              <button type="button" className="edit-modal-submit" onClick={saveRawEdit} disabled={editBusy || !rawEditMarkdown.trim()}>
+                {editBusy ? "Saving..." : "Save raw"}
+              </button>
             </div>
           </section>
         ) : null}
@@ -1561,7 +1782,7 @@ export function App() {
         </article>
       </>
     );
-  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, searchEditRefs, addEditRef, removeEditRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage]);
+  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, rawEditOpen, rawEditMarkdown, openRawEdit, saveRawEdit, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, searchEditRefs, addEditRef, removeEditRef, togglePinRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage]);
 
   return (
     <div className="site">

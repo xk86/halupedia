@@ -822,13 +822,69 @@ export function App() {
     setRefreshBusy(true);
     setRefreshMessage("Refreshing with retrieved context...");
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/refresh-context`, {
+      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/refresh-context?stream=1`, {
         method: "POST",
+        headers: { accept: "application/x-ndjson" },
       });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      setPage(payload as PageData);
-      setRefreshMessage(payload.refreshChanged ? "References refreshed." : "References already up to date.");
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload?.error || `error ${res.status}`);
+      }
+      if (!res.body) throw new Error("streaming response missing body");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalPayload: PageData | null = null;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIndex = buffer.indexOf("\n");
+        while (newlineIndex >= 0) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          newlineIndex = buffer.indexOf("\n");
+          if (!line) continue;
+          const event = JSON.parse(line) as
+            | { type: "start"; slug: string; cached: boolean }
+            | { type: "status"; message: string }
+            | { type: "progress"; html: string; markdown?: string }
+            | ({ type: "done" } & PageData)
+            | { type: "error"; message: string };
+          if (event.type === "status") {
+            setRefreshMessage(event.message);
+          } else if (event.type === "progress") {
+            setPage((current) =>
+              current
+                ? {
+                  ...current,
+                  cached: false,
+                  article: {
+                    ...current.article,
+                    html: event.html,
+                    markdown: event.markdown ?? current.article.markdown,
+                  },
+                }
+                : current
+            );
+          } else if (event.type === "done") {
+            finalPayload = event;
+            setPage({
+              cached: event.cached,
+              canonicalPath: event.canonicalPath,
+              redirectedFrom: event.redirectedFrom,
+              refreshChanged: event.refreshChanged,
+              article: event.article,
+              sections: event.sections,
+              backlinks: event.backlinks,
+              referenceStatus: event.referenceStatus,
+            });
+          } else if (event.type === "error") {
+            throw new Error(event.message);
+          }
+        }
+      }
+      setRefreshMessage(finalPayload?.refreshChanged ? "Article refreshed." : "References already up to date.");
       setHistoryOpen(false);
       setRevisions([]);
       setHistoryLoaded(false);

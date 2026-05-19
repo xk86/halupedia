@@ -2,146 +2,18 @@ import MarkdownIt from "markdown-it";
 import katex from "katex";
 import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
 import type { ArticleSection, ParsedInternalLink } from "./types";
+import { buildHaluLink, extractHaluLinks } from "./text/links/haluLinks";
+import { normalizeMarkdownLinks } from "./text/linkNormalize";
 
 // Matches already-normalised halu links produced by normalizeHaluLinks.
 // The slug has no spaces (slugify was applied), hints may use " or '.
 export const LINK_RE =
   /\[([^\]]+)\]\(halu:([^)"'\t\r\n ]+)-?\s*(?:["']([^"'\r\n)]*?)["']?\s*)?\)/g;
 
-export function buildHaluLink(
-  title: string,
-  slug: string,
-  hint: string,
-): string {
-  const safeHint = hint
-    .replace(/"/g, "'")
-    .replace(/[\[\]()]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return `[${title}](halu:${slug} "${safeHint}")`;
-}
-
-function isBareBracketLinkLabel(label: string): boolean {
-  const trimmed = label.trim();
-  return (
-    trimmed.length > 0 &&
-    trimmed.length <= 120 &&
-    !trimmed.startsWith("^") &&
-    !trimmed.includes("|") &&
-    // Reject labels that contain a double-quote — these are `slug "hint"` fragments
-    // the LLM wrote outside proper link syntax. Article titles never have raw `"`.
-    !trimmed.includes('"') &&
-    !/^https?:\/\//i.test(trimmed) &&
-    /[\p{L}\p{N}]/u.test(trimmed)
-  );
-}
+export { buildHaluLink };
 
 export function normalizeHaluLinks(markdown: string): string {
-  let output = "";
-  let cursor = 0;
-
-  while (cursor < markdown.length) {
-    const labelStart = markdown.indexOf("[", cursor);
-    if (labelStart < 0) {
-      output += markdown.slice(cursor);
-      break;
-    }
-
-    const labelEnd = markdown.indexOf("]", labelStart + 1);
-    if (labelEnd < 0) {
-      output += markdown.slice(cursor, labelStart + 1);
-      cursor = labelStart + 1;
-      continue;
-    }
-
-    const label = markdown.slice(labelStart + 1, labelEnd).trim();
-    const afterLabel = markdown[labelEnd + 1];
-    if (
-      markdown[labelStart - 1] !== "!" &&
-      afterLabel !== "(" &&
-      isBareBracketLinkLabel(label)
-    ) {
-      output += markdown.slice(cursor, labelStart);
-      output += buildHaluLink(label, slugify(label), label);
-      cursor = labelEnd + 1;
-      continue;
-    }
-
-    if (markdown.slice(labelEnd, labelEnd + 6) !== "](halu") {
-      output += markdown.slice(cursor, labelStart + 1);
-      cursor = labelStart + 1;
-      continue;
-    }
-
-    const destinationStart = labelEnd + 2;
-    if (markdown.slice(destinationStart, destinationStart + 5) !== "halu:") {
-      output += markdown.slice(cursor, labelStart + 1);
-      cursor = labelStart + 1;
-      continue;
-    }
-
-    const slugStart = destinationStart + 5;
-    let slugEnd = slugStart;
-    // Slug extends to the first quote character (single or double), closing paren,
-    // or newline — NOT to the first space. This allows slugs like
-    // "human-person- Junctional-Trauma-Mechanics" that the LLM sometimes emits.
-    while (
-      slugEnd < markdown.length &&
-      !/["'\t\r\n)]/. test(markdown[slugEnd])
-    ) {
-      slugEnd += 1;
-    }
-
-    // Strip trailing dashes and whitespace left from "slug- " patterns
-    const rawSlug = markdown.slice(slugStart, slugEnd).replace(/-+$/, "").trim();
-    const targetSlug = slugify(rawSlug);
-    if (!targetSlug) {
-      output += markdown.slice(cursor, labelStart + 1);
-      cursor = labelStart + 1;
-      continue;
-    }
-
-    let position = slugEnd;
-    while (markdown[position] === " " || markdown[position] === "\t")
-      position += 1;
-
-    let hint = "";
-    let linkEnd = -1;
-    // Accept both " and ' as hint delimiters
-    const quoteChar = markdown[position];
-    if (quoteChar === '"' || quoteChar === "'") {
-      const hintStart = position + 1;
-      const closingQuote = markdown.indexOf(quoteChar, hintStart);
-      const closingParen = markdown.indexOf(")", hintStart);
-      if (
-        closingParen >= 0 &&
-        (closingQuote < 0 || closingParen < closingQuote)
-      ) {
-        hint = markdown.slice(hintStart, closingParen);
-        linkEnd = closingParen + 1;
-      } else if (closingQuote >= 0) {
-        hint = markdown.slice(hintStart, closingQuote);
-        let afterQuote = closingQuote + 1;
-        while (markdown[afterQuote] === " " || markdown[afterQuote] === "\t")
-          afterQuote += 1;
-        if (markdown[afterQuote] === ")") linkEnd = afterQuote + 1;
-      }
-    } else if (markdown[position] === ")") {
-      linkEnd = position + 1;
-    }
-
-    if (linkEnd < 0) {
-      output += markdown.slice(cursor, labelStart + 1);
-      cursor = labelStart + 1;
-      continue;
-    }
-
-    output += markdown.slice(cursor, labelStart);
-    output += buildHaluLink(label, targetSlug, hint.trim());
-    cursor = linkEnd;
-  }
-
-  return output;
+  return normalizeMarkdownLinks(markdown, "article").markdown;
 }
 
 export function fixSlugVisibleText(markdown: string): string {
@@ -324,6 +196,7 @@ export function normalizeMarkdown(input: string): string {
   markdown = markdown.replace(/<\/?[a-z][^>]*>/gi, "");
   markdown = convertWikilinks(markdown);
   markdown = truncateAtDuplicateH1(markdown);
+  markdown = normalizeMarkdownLinks(markdown, "article").markdown;
   return markdown;
 }
 
@@ -352,24 +225,7 @@ function truncateAtDuplicateH1(markdown: string): string {
 }
 
 export function extractInternalLinks(markdown: string): ParsedInternalLink[] {
-  const links: ParsedInternalLink[] = [];
-  const seen = new Set<string>();
-  const pattern = new RegExp(LINK_RE.source, LINK_RE.flags);
-  let match: RegExpExecArray | null;
-  const normalizedMarkdown = normalizeHaluLinks(markdown);
-
-  while ((match = pattern.exec(normalizedMarkdown)) !== null) {
-    const visibleLabel = match[1].trim();
-    const targetSlug = slugify(match[2]);
-    const hiddenHint = (match[3] ?? "").trim().slice(0, 400);
-    if (!visibleLabel || !targetSlug || !hiddenHint) continue;
-    const key = targetSlug;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    links.push({ targetSlug, visibleLabel, hiddenHint });
-  }
-
-  return links;
+  return extractHaluLinks(normalizeHaluLinks(markdown));
 }
 
 function normalizeHeadingLabel(heading: string): string {

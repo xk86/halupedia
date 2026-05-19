@@ -383,8 +383,9 @@ export function buildReferenceList(
 
 // Import here rather than at top-level to avoid circular dep
 // (referenceList ← index.ts ← markdown.ts would be circular).
-import { buildHaluLink, LINK_RE, normalizeHaluLinks } from "./markdown";
+import { buildHaluLink, normalizeHaluLinks } from "./markdown";
 import { titleToWikiSegment } from "./slug";
+import { parseMarkdownLinks } from "./text/markdownLinkParser";
 
 /**
  * Render the reference list as an HTML `<section>` with numbered items and
@@ -439,12 +440,9 @@ export function isMetadataSection(heading: string): boolean {
 export function formatReferencesForPrompt(refs: ReferenceList): string {
   if (refs.length === 0) return "(none)";
   return refs
-    .map((r) => `- ref:${r.slug} → ${r.title}`)
+    .map((r) => `- [${r.title}](ref:${r.slug})`)
     .join("\n");
 }
-
-// Matches [text](ref:n) or [](ref:n) where n is a number or slug.
-const REF_LINK_RE = /\[([^\]]*)\]\(ref:([^)]+)\)/g;
 
 /**
  * Resolve `ref:N` link shorthand in article body markdown into durable
@@ -461,26 +459,38 @@ const REF_LINK_RE = /\[([^\]]*)\]\(ref:([^)]+)\)/g;
 export function resolveRefLinks(body: string, refs: ReferenceList): string {
   if (!body.includes("ref:")) return body;
   const seen = new Set<string>();
-  return body.replace(REF_LINK_RE, (match, _visibleText: string, target: string) => {
-    const visibleText = _visibleText.trim();
-    const ref = resolveReferenceTarget(target, refs);
+  const parsed = parseMarkdownLinks(body).links.filter((link) => link.kind === "ref");
+  if (parsed.length === 0) return body;
+  let output = "";
+  let cursor = 0;
+  for (const link of parsed) {
+    const visibleText = link.label.trim();
+    const ref = resolveReferenceTarget(link.slug ?? link.target, refs);
+    let replacement = link.raw;
     if (!ref) {
       // Ref not in sidecar list. Fill empty brackets with a slug-derived title
       // so the link is never rendered as a bare [].
       if (!visibleText) {
-        const derivedTitle = slugToTitle(slugify(target.trim()));
-        return `[${derivedTitle}](ref:${target.trim()})`;
+        const derivedTitle = slugToTitle(slugify(link.slug ?? link.target.trim()));
+        replacement = `[${derivedTitle}](ref:${link.target.trim()})`;
       }
-      return match;
+    } else {
+      const label = visibleText || ref.title;
+      // First occurrence: anchor link. Subsequent occurrences: plain text only,
+      // with inline formatting stripped so bold/italic from the link label doesn't
+      // bleed into plain-text repetitions.
+      if (seen.has(ref.slug)) replacement = label.replace(/\*\*?|__?|~~|`/g, "");
+      else {
+        seen.add(ref.slug);
+        replacement = `[${label}](ref:${ref.slug})`;
+      }
     }
-    const label = visibleText || ref.title;
-    // First occurrence: anchor link. Subsequent occurrences: plain text only,
-    // with inline formatting stripped so bold/italic from the link label doesn't
-    // bleed into plain-text repetitions.
-    if (seen.has(ref.slug)) return label.replace(/\*\*?|__?|~~|`/g, "");
-    seen.add(ref.slug);
-    return `[${label}](ref:${ref.slug})`;
-  });
+    output += body.slice(cursor, link.start);
+    output += replacement;
+    cursor = link.end;
+  }
+  output += body.slice(cursor);
+  return output;
 }
 
 export function resolveReferenceTarget(
@@ -499,10 +509,9 @@ export function resolveReferenceTarget(
 export function collectReferenceLinkSlugs(body: string): Set<string> {
   const slugs = new Set<string>();
   if (!body.includes("ref:")) return slugs;
-  const pattern = new RegExp(REF_LINK_RE.source, REF_LINK_RE.flags);
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(body)) !== null) {
-    const slug = slugify(match[2]);
+  for (const link of parseMarkdownLinks(body).links) {
+    if (link.kind !== "ref") continue;
+    const slug = slugify(link.slug ?? link.target);
     if (slug) slugs.add(slug);
   }
   return slugs;
@@ -581,10 +590,9 @@ export function findExistingArticleLinkReferences(
   const seen = new Set<string>();
   const refs: ReferenceList = [];
   const normalizedBody = normalizeHaluLinks(body);
-  const pattern = new RegExp(LINK_RE.source, LINK_RE.flags);
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(normalizedBody)) !== null) {
-    const slug = slugify(match[2]);
+  for (const link of parseMarkdownLinks(normalizedBody).links) {
+    if (link.kind !== "halu") continue;
+    const slug = slugify(link.slug ?? link.target);
     if (!slug || slug === normalizedSelf || seen.has(slug)) continue;
     const article = getArticleByLookup(db, slug);
     if (!article) continue;
@@ -700,10 +708,9 @@ export function findBodyReferencedArticles(
   }
 
   if (body.includes("ref:")) {
-    let match: RegExpExecArray | null;
-    const pattern = new RegExp(REF_LINK_RE.source, REF_LINK_RE.flags);
-    while ((match = pattern.exec(body)) !== null) {
-      const slug = slugify(match[2]);
+    for (const link of parseMarkdownLinks(body).links) {
+      if (link.kind !== "ref") continue;
+      const slug = slugify(link.slug ?? link.target);
       if (!slug || slug === normalizedSelf || bySlug.has(slug)) continue;
       const ref = articleToReferenceEntry(getArticleByLookup(db, slug));
       if (ref) bySlug.set(ref.slug, ref);
@@ -735,17 +742,16 @@ export function extractRefLinksAsInternalLinks(
   const normalizedSelf = slugify(selfSlug);
   const seen = new Set<string>();
   const links: ParsedInternalLink[] = [];
-  const pattern = new RegExp(REF_LINK_RE.source, REF_LINK_RE.flags);
-  let m: RegExpExecArray | null;
-  while ((m = pattern.exec(body)) !== null) {
-    const slug = slugify(m[2]);
+  for (const link of parseMarkdownLinks(body).links) {
+    if (link.kind !== "ref") continue;
+    const slug = slugify(link.slug ?? link.target);
     if (!slug || slug === normalizedSelf || seen.has(slug)) continue;
     seen.add(slug);
     const article = getArticleByLookup(db, slug);
     if (!article) continue;
     links.push({
       targetSlug: article.slug,
-      visibleLabel: m[1].trim() || article.title,
+      visibleLabel: link.label.trim() || article.title,
       hiddenHint: article.summaryMarkdown ?? "",
     });
   }
@@ -763,14 +769,24 @@ export function convertExistingArticleLinksToRefs(
   selfSlug: string,
 ): string {
   const normalizedSelf = slugify(selfSlug);
-  return normalizeHaluLinks(body).replace(
-    LINK_RE,
-    (match, visibleLabel: string, rawSlug: string, hint: string) => {
-      const slug = slugify(rawSlug);
-      if (!slug || slug === normalizedSelf) return match;
+  const normalizedBody = normalizeHaluLinks(body);
+  const parsed = parseMarkdownLinks(normalizedBody).links.filter((link) => link.kind === "halu");
+  if (parsed.length === 0) return normalizedBody;
+  let output = "";
+  let cursor = 0;
+  for (const link of parsed) {
+    const slug = slugify(link.slug ?? link.target);
+    let replacement = link.raw;
+    if (slug && slug !== normalizedSelf) {
       const article = getArticleByLookup(db, slug);
-      if (!article) return buildHaluLink(visibleLabel, slug, hint ?? "");
-      return `[${visibleLabel.trim() || article.title}](ref:${article.slug})`;
-    },
-  );
+      replacement = article
+        ? `[${link.label.trim() || article.title}](ref:${article.slug})`
+        : buildHaluLink(link.label, slug, link.hint ?? "");
+    }
+    output += normalizedBody.slice(cursor, link.start);
+    output += replacement;
+    cursor = link.end;
+  }
+  output += normalizedBody.slice(cursor);
+  return output;
 }

@@ -6,57 +6,52 @@ import type { LlmClient } from "./llm";
 import { getPrompt, renderTemplate, stripJsonFences } from "./prompts";
 import { stripTopLevelSections } from "./markdown";
 import { slugify } from "./slug";
-import { escapeRegExp } from "./selectionUtils";
 import type { loadConfig } from "./config";
-
-const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
-
-function normalizeDykLinks(fact: string): string {
-  return fact.replace(MARKDOWN_LINK_RE, (match, label: string, target: string) => {
-    const trimmedTarget = target.trim();
-    if (!trimmedTarget.toLowerCase().startsWith("halu:")) return match;
-
-    const rawSlug = trimmedTarget.slice("halu:".length).split(/[\s"')/]/u)[0] ?? "";
-    const slug = slugify(rawSlug);
-    return slug ? `[${label}](/${slug})` : label;
-  });
-}
-
-function hasMarkdownLink(fact: string): boolean {
-  MARKDOWN_LINK_RE.lastIndex = 0;
-  return MARKDOWN_LINK_RE.test(fact);
-}
+import { parseMarkdownLinks } from "./text/markdownLinkParser";
+import { normalizeMarkdownLinks } from "./text/linkNormalize";
+import { buildHaluLink } from "./text/links/haluLinks";
 
 /**
  * Ensure a DYK fact string contains a link back to the source article.
  *
- * Links use the plain slug form `[Title](/${slug})` so navigation goes
- * through the server's `/:slug` handler (which normalises and redirects as
- * needed) rather than hard-coding the wiki-path form. Halu links are not
- * used in DYK — they exist for article seeding only.
- *
- * Priority:
- *   1. Convert halu links to plain slug links.
- *   2. If any Markdown link is already present, preserve the fact.
- *   3. No link at all → prepend a source link attribution.
+ * DYK is markdown, so it uses the same internal markdown-link parser as the
+ * article pipeline. Fallback links are accepted as input, but only the source
+ * article link survives; unrelated links are stripped to plain label text.
  */
 export function ensureDykHasSourceLink(
   fact: string,
   slug: string,
   title: string,
 ): string {
-  fact = normalizeDykLinks(fact);
-  if (hasMarkdownLink(fact)) return fact;
+  const sourceSlug = slugify(slug);
+  let normalized = normalizeMarkdownLinks(fact, "dyk").markdown;
+  const parsed = parseMarkdownLinks(normalized).links;
+  let output = "";
+  let cursor = 0;
+  let hasSourceLink = false;
 
-  const slugLink = `[${title}](/${slug})`;
-  const slugPattern = new RegExp(`\\(/${escapeRegExp(slug)}\\)`, "i");
-
-  if (slugPattern.test(fact)) return fact;
-
-  if (fact.startsWith("... ")) {
-    return `... ${slugLink}: ${fact.slice("... ".length)}`;
+  for (const link of parsed) {
+    const linkSlug = slugify(link.slug ?? "");
+    const isSource = linkSlug === sourceSlug;
+    output += normalized.slice(cursor, link.start);
+    if (isSource && !hasSourceLink) {
+      output += buildHaluLink(link.label.trim() || title, sourceSlug, title);
+      hasSourceLink = true;
+    } else {
+      output += link.label.trim();
+    }
+    cursor = link.end;
   }
-  return `${slugLink} — ${fact}`;
+  output += normalized.slice(cursor);
+  normalized = output;
+
+  if (hasSourceLink) return normalized;
+
+  const sourceLink = buildHaluLink(title, sourceSlug, title);
+  if (fact.startsWith("... ")) {
+    return `... ${sourceLink}: ${normalized.slice("... ".length)}`;
+  }
+  return `${sourceLink} - ${normalized}`;
 }
 
 export function normalizeHomepageFact(raw: string): string {
@@ -78,7 +73,7 @@ export async function generateDidYouKnowFact(
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "did_you_know");
   const selectedLlm = prompt.model === "light" ? lightLlm : llm;
-  const articleTitleMarkdown = `[${article.title}](/${article.slug})`;
+  const articleTitleMarkdown = buildHaluLink(article.title, article.slug, article.title);
   const raw = await selectedLlm.chat(
     prompt.system,
     renderTemplate(prompt.user, {

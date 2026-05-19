@@ -1,4 +1,5 @@
 import { summaryMarkdownFromArticle } from "./markdown";
+import { normalizeMarkdownLinks } from "./text/linkNormalize";
 
 function collapseSummaryText(markdown: string): string {
   return markdown
@@ -25,7 +26,7 @@ export function normalizeSummaryMarkdown(markdown: string): string {
     .map((part) => collapseSummaryText(part))
     .find(Boolean);
 
-  return firstParagraph ?? "";
+  return firstParagraph ? normalizeMarkdownLinks(firstParagraph, "summary").markdown : "";
 }
 
 export function summaryLooksLikeLeadCopy(summaryMarkdown: string, articleMarkdown: string): boolean {

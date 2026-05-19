@@ -393,6 +393,7 @@ export function updateArticleInPlace(
   slug: string,
   fields: { markdown: string; html: string; summaryMarkdown: string; plain_text: string },
   links: ParsedInternalLink[],
+  options: { updateRevisionGeneratedAt?: number } = {},
 ) {
   const now = Date.now();
   db.exec("BEGIN");
@@ -407,6 +408,31 @@ export function updateArticleInPlace(
     for (const link of links) {
       if (link.targetSlug === slug) continue;
       insertLink.run(slug, link.targetSlug, link.visibleLabel, link.hiddenHint, now);
+    }
+    if (options.updateRevisionGeneratedAt) {
+      const revision = db.prepare(
+        `SELECT id
+         FROM article_revisions
+         WHERE article_slug = ? AND generated_at = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+      ).get(slug, options.updateRevisionGeneratedAt) as { id: number } | undefined;
+      if (revision) {
+        db.prepare(
+          `UPDATE article_revisions
+           SET markdown = ?,
+               html = ?,
+               summary_markdown = ?,
+               plain_text = ?
+           WHERE id = ?`,
+        ).run(
+          fields.markdown,
+          fields.html,
+          fields.summaryMarkdown,
+          fields.plain_text,
+          revision.id,
+        );
+      }
     }
     db.exec("COMMIT");
   } catch (error) {

@@ -83,6 +83,7 @@ import {
   wikiSegmentToTitle,
 } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
+import { normalizeMarkdownLinks } from "./text/linkNormalize";
 import type {
   ArticleRecord,
   HomepagePayload,
@@ -331,6 +332,8 @@ function sectionContainsNonLinkedBullets(section: string): boolean {
 }
 
 function cachedArticleNeedsRepair(markdown: string): boolean {
+  const normalized = normalizeMarkdownLinks(markdown, "article");
+  if (normalized.changed) return true;
   if (hasFootnoteArtifacts(markdown)) return true;
   const bodyMarkdown = stripTopLevelSections(markdown, [
     "References",
@@ -1308,8 +1311,27 @@ export async function createApp(options: CreateAppOptions = {}) {
     const normalizedTitle = normalizeCanonicalTitle(
       article.title || slugToTitle(article.canonicalSlug),
     );
-    const bodyMarkdown = sanitizeGeneratedBody(article.markdown);
+    const parsed = normalizeMarkdownLinks(article.markdown, "article");
+    logger.info("text.db_repair", {
+      slug: article.slug,
+      changed: parsed.changed,
+      links: parsed.stats.total,
+      halu: parsed.stats.halu,
+      ref: parsed.stats.ref,
+      bare_ref: parsed.stats.bareRef,
+      bare_halu: parsed.stats.bareHalu,
+      loose_ref: parsed.stats.looseRef,
+      loose_halu: parsed.stats.looseHalu,
+      wiki: parsed.stats.wiki,
+      plain_slug: parsed.stats.plainSlug,
+      external: parsed.stats.external,
+      diagnostics: parsed.stats.diagnostics,
+    });
+    const bodyMarkdown = sanitizeGeneratedBody(parsed.markdown);
     const markdown = rewriteArticleTitleHeading(bodyMarkdown, normalizedTitle);
+    if (markdown === article.markdown && normalizedTitle === article.title) {
+      return article;
+    }
     const links = extractAllBodyLinks(markdown, article.slug);
     const repairedArticle: ArticleRecord = {
       ...article,
@@ -1563,6 +1585,26 @@ export async function createApp(options: CreateAppOptions = {}) {
       scrapeExistingBodyLinks?: boolean;
     } = {},
   ) {
+    const parsedInput = normalizeMarkdownLinks(bodyMarkdown, "article");
+    logger.info("text.pipeline.start", {
+      slug,
+      source: revision.operation ?? "save",
+      chars: bodyMarkdown.length,
+      links: parsedInput.stats.total,
+      halu: parsedInput.stats.halu,
+      ref: parsedInput.stats.ref,
+      bare_ref: parsedInput.stats.bareRef,
+      bare_halu: parsedInput.stats.bareHalu,
+      loose_ref: parsedInput.stats.looseRef,
+      loose_halu: parsedInput.stats.looseHalu,
+      wiki: parsedInput.stats.wiki,
+      plain_slug: parsedInput.stats.plainSlug,
+      external: parsedInput.stats.external,
+      diagnostics: parsedInput.stats.diagnostics,
+      changed: parsedInput.changed,
+    });
+    bodyMarkdown = parsedInput.markdown;
+
     const { canonicalTitle, canonicalSlug, displayTitle } =
       deriveArticleIdentity(bodyMarkdown, requestedTitle, slug);
 
@@ -1634,6 +1676,23 @@ export async function createApp(options: CreateAppOptions = {}) {
         canonicalSlug,
       );
     }
+    const finalParsed = normalizeMarkdownLinks(normalizedBodyMarkdown, "article");
+    if (finalParsed.changed) {
+      logger.info("text.pipeline.final_cleanup", {
+        slug: canonicalSlug,
+        links: finalParsed.stats.total,
+        halu: finalParsed.stats.halu,
+        ref: finalParsed.stats.ref,
+        bare_ref: finalParsed.stats.bareRef,
+        bare_halu: finalParsed.stats.bareHalu,
+        loose_ref: finalParsed.stats.looseRef,
+        loose_halu: finalParsed.stats.looseHalu,
+        rewritten: finalParsed.stats.rewritten,
+        stripped: finalParsed.stats.stripped,
+        diagnostics: finalParsed.stats.diagnostics,
+      });
+      normalizedBodyMarkdown = finalParsed.markdown;
+    }
 
     const markdown = stripSelfLinks(normalizedBodyMarkdown.trim(), canonicalSlug);
 
@@ -1663,6 +1722,13 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     // (d) Persist the reference list using the canonical ReferenceList shape.
     saveArticleReferences(db, canonicalSlug, article.generated_at, referenceList);
+    logger.info("text.pipeline.done", {
+      slug: canonicalSlug,
+      clean_chars: markdown.length,
+      links: links.length,
+      references: referenceList.length,
+      changed: parsedInput.changed || markdown !== bodyMarkdown,
+    });
     logger.debug("save.article_immediate.saved_references", {
       slug: canonicalSlug,
       reference_count: referenceList.length,
@@ -1839,6 +1905,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           plain_text: updated.plain_text,
         },
         links,
+        expectedGeneratedAt ? { updateRevisionGeneratedAt: expectedGeneratedAt } : {},
       );
 
       // Persist see-also to its dedicated sidecar table. This makes see-also
@@ -3055,55 +3122,61 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
+    const wantsStream =
+      c.req.query("stream") === "1" ||
+      /\bapplication\/x-ndjson\b/i.test(c.req.header("accept") ?? "");
 
-    const hints = listIncomingHints(db, article.slug);
-    const retrieved = await retrieveContext(
-      db,
-      llm,
-      article.slug,
-      hintsToSearchStrings(hints),
-      runtime.app.rag.enabled,
-      runtime.app.rag.mode,
-      runtime.app.rag.max_results,
-      runtime.app.rag.min_score,
-      runtime.llm.embeddings.enabled,
-      logger,
-    );
-    const currentBodyMarkdown = stripTopLevelSections(article.markdown, [
-      "References",
-      "See also",
-    ]);
-    const currentArticleReferences = findBodyReferencedArticles(
-      db,
-      article.markdown,
-      article.slug,
-    );
-    const refreshPromptRefs = buildReferenceList(
-      db,
-      {
-        articleSlug: article.slug,
-        ragSources: retrieved.sourceArticles,
-        priorReferences: loadPriorReferenceList(db, article.slug),
-        userAdditions: currentArticleReferences,
-        revisionId: "current",
-        config: runtime.app.rag,
-      },
-      logger,
-    );
-    let bodyMarkdown = currentBodyMarkdown;
-    let operation = "refresh-context";
-    let instructions = "Refreshed retrieved context and derived references.";
-    if (retrieved.context || hints.length) {
-      const prompt = getPrompt(runtime.prompts, "article_refresh");
-      const selectedLlm = prompt.model === "light" ? lightLlm : llm;
-      const subtleMode = runtime.prompts.rewriteModes.subtle?.prompt ?? "";
-      const renderedRefreshSystem = renderTemplate(prompt.system, {
-        rewrite_mode: subtleMode,
-        link_hints: formatIncomingHintsForPrompt(hints, article.slug),
-      });
-      const raw = await selectedLlm.chat(
-        renderedRefreshSystem,
-        renderTemplate(prompt.user, {
+    const runRefresh = async (
+      send?: (event: Record<string, unknown>) => void,
+    ) => {
+      send?.({ type: "status", message: "Retrieving context..." });
+      const hints = listIncomingHints(db, article.slug);
+      const retrieved = await retrieveContext(
+        db,
+        llm,
+        article.slug,
+        hintsToSearchStrings(hints),
+        runtime.app.rag.enabled,
+        runtime.app.rag.mode,
+        runtime.app.rag.max_results,
+        runtime.app.rag.min_score,
+        runtime.llm.embeddings.enabled,
+        logger,
+      );
+      const currentBodyMarkdown = stripTopLevelSections(article.markdown, [
+        "References",
+        "See also",
+      ]);
+      const currentArticleReferences = findBodyReferencedArticles(
+        db,
+        article.markdown,
+        article.slug,
+      );
+      const refreshPromptRefs = buildReferenceList(
+        db,
+        {
+          articleSlug: article.slug,
+          ragSources: retrieved.sourceArticles,
+          priorReferences: loadPriorReferenceList(db, article.slug),
+          userAdditions: currentArticleReferences,
+          revisionId: "current",
+          config: runtime.app.rag,
+        },
+        logger,
+      );
+      let bodyMarkdown = currentBodyMarkdown;
+      let operation = "refresh-context";
+      let instructions = "Refreshed retrieved context and derived references.";
+      if (retrieved.context || hints.length) {
+        send?.({ type: "status", message: "Rewriting article with refreshed context..." });
+        const prompt = getPrompt(runtime.prompts, "article_refresh");
+        const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+        const subtleMode = runtime.prompts.rewriteModes.subtle?.prompt ?? "";
+        const renderedRefreshSystem = renderTemplate(prompt.system, {
+          rewrite_mode: subtleMode,
+          link_hints: formatIncomingHintsForPrompt(hints, article.slug),
+        });
+        const renderedRefreshUser = renderTemplate(prompt.user, {
           slug: article.slug,
           requested_title: article.title,
           current_article: currentBodyMarkdown,
@@ -3115,60 +3188,103 @@ export async function createApp(options: CreateAppOptions = {}) {
           parent_comment: "",
           selected_text: "",
           edit_instructions: "",
-        }),
-        { thinking: prompt.thinking },
-      );
-      bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
-      bodyMarkdown = await recheckArticleLinks(
-        llm,
-        lightLlm,
-        runtime.prompts,
+        });
+        const raw = wantsStream
+          ? (await selectedLlm.streamChat(
+            renderedRefreshSystem,
+            renderedRefreshUser,
+            (_delta, accumulated) => {
+              const progressMarkdown = sanitizeGeneratedBody(normalizeMarkdown(accumulated));
+              send?.({
+                type: "progress",
+                markdown: progressMarkdown,
+                html: renderMarkdown(progressMarkdown),
+              });
+            },
+            { thinking: prompt.thinking },
+          )).content
+          : await selectedLlm.chat(
+            renderedRefreshSystem,
+            renderedRefreshUser,
+            { thinking: prompt.thinking },
+          );
+        bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
+        operation = "refresh-context-rewrite";
+        instructions = "Refreshed article body from retrieved context.";
+      }
+      send?.({ type: "status", message: "Saving refreshed article..." });
+      // Always normalize markdown formatting regardless of whether the LLM rewrote
+      // the body — this corrects whitespace, heading levels, and stray artifacts
+      // from prior edits even on a context-only refresh.
+      bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(bodyMarkdown));
+      bodyMarkdown = normalizeMarkdownLinks(bodyMarkdown, "article").markdown;
+      bodyMarkdown = resolveRefLinks(bodyMarkdown, refreshPromptRefs);
+      bodyMarkdown = normalizeMarkdownLinks(bodyMarkdown, "article").markdown;
+      const { article: updatedArticle } = await saveArticleImmediately(
+        article.slug,
         article.title,
         bodyMarkdown,
-        refreshPromptRefs,
-      );
-      operation = "refresh-context-rewrite";
-      instructions = "Refreshed article body from retrieved context.";
-    }
-    // Always normalize markdown formatting regardless of whether the LLM rewrote
-    // the body — this corrects whitespace, heading levels, and stray artifacts
-    // from prior edits even on a context-only refresh.
-    bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(bodyMarkdown));
-    bodyMarkdown = resolveRefLinks(bodyMarkdown, refreshPromptRefs);
-    const {
-      article: updatedArticle,
-      normalizedTitle,
-      normalizedBodyMarkdown,
-    } = await saveArticleImmediately(
-      article.slug,
-      article.title,
-      bodyMarkdown,
-      retrieved,
-      { operation, instructions },
-      { userAdditionSlugs: refreshPromptRefs.map((ref) => ref.slug) },
-    );
-    trackGeneration(
-      postProcessArticle(
-        updatedArticle.slug,
-        normalizedTitle,
-        normalizedBodyMarkdown,
         retrieved,
-        hints,
-        updatedArticle.generated_at,
-      ).catch(() => {}),
-    );
-    const refreshChanged = updatedArticle.markdown !== article.markdown;
-    logger.info("page.refresh", { slug: updatedArticle.slug, changed: refreshChanged });
-    invalidateArticleHtml(updatedArticle.slug);
-    const response = buildArticleResponseFor(updatedArticle.slug);
-    if (!response) return c.json({ error: "failed to hydrate response" }, 500);
-    return c.json(
-      buildPageResponse(response, {
+        { operation, instructions },
+        { userAdditionSlugs: refreshPromptRefs.map((ref) => ref.slug) },
+      );
+      const refreshChanged = updatedArticle.markdown !== article.markdown;
+      logger.info("page.refresh", { slug: updatedArticle.slug, changed: refreshChanged });
+      invalidateArticleHtml(updatedArticle.slug);
+      const response = buildArticleResponseFor(updatedArticle.slug);
+      if (!response) throw new Error("failed to hydrate response");
+      return buildPageResponse(response, {
         cached: true,
         canonicalPath: canonicalPathForArticle(updatedArticle),
         refreshChanged,
-      }),
-    );
+      });
+    };
+
+    if (wantsStream) {
+      let streamOpen = true;
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          const send = (event: Record<string, unknown>) => {
+            if (!streamOpen) return;
+            controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          };
+          send({ type: "start", slug: article.slug, cached: true });
+          const refresh = (async () => {
+            const payload = await runRefresh(send);
+            send({ type: "done", ...payload });
+            streamOpen = false;
+            controller.close();
+          })().catch((error) => {
+            send({
+              type: "error",
+              message: error instanceof Error ? error.message : String(error),
+            });
+            streamOpen = false;
+            controller.close();
+          });
+          trackGeneration(refresh);
+        },
+        cancel() {
+          streamOpen = false;
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "content-type": "application/x-ndjson; charset=utf-8",
+          "cache-control": "no-store",
+        },
+      });
+    }
+
+    try {
+      return c.json(await runRefresh());
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        500,
+      );
+    }
   });
 
   app.get("/api/article/:slug/history", (c) => {

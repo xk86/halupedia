@@ -11,7 +11,7 @@ Rewrite Mode:
 {{rewrite_mode}}
 
 Rewrite Constraints:
-- In ---halu-body, return the full article in Markdown, not a diff or notes.
+- In ---body, return the full article in Markdown, not a diff or notes.
 - If the current article field contains a full article, return the full rewritten article.
 - If the current article field contains one section, return only that rewritten section.
 - Remove and replace material incompatible with the rewrite instructions directly instead of narrating the change.
@@ -57,15 +57,15 @@ Suggested related existing topics:
 
 Return the rewritten article using exactly these sections:
 
----halu-body
+---body
 # Article Title
 
 Rewritten article in Markdown here.
 
----halu-used-refs
+---used-refs
 ["slug-one","slug-two"]
 
-Only content in ---halu-body is article text.
-Pinned references (pinned: true) MUST be linked in ---halu-body and listed in ---halu-used-refs.
+Only content in ---body is article text.
+Pinned references (pinned: true) MUST be linked in ---body and listed in ---used-refs.
 Use double-quoted halu hints, e.g. `[Visible Title](halu:visible-title "hidden context hint")`.
 Do not wrap the article in JSON. Do not put Markdown body inside JSON."""

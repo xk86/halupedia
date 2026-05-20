@@ -189,34 +189,42 @@ export interface CreateAppOptions {
 
 type FrameSection = "meta" | "body" | "usedRefs";
 
-// halu- keywords tolerate any number of leading dashes (model may emit 1, 2, or 3).
-// Capture group 1 = keyword, group 2 = inline content after the marker (trimmed).
-const HALU_MARKER_RE = /^-+(halu-body|halu-meta|halu-used-refs)\s*(.*)?$/;
-// Non-halu dashed aliases require 3+ dashes to avoid false positives with prose.
-const DASH_ALIAS_RE = /^---(body|used-refs|references-used|meta)\s*(.*)?$/;
+// Prefix: 1+ of dash, underscore, or equals  (model may emit ---, ===, ___, or mixes)
+// Group 1 = keyword (dashes or underscores as separators), group 2 = inline content.
+// halu- prefixed: any prefix length (1+)
+// non-halu aliases: 3+ prefix chars to avoid false positives with bullet points
+const HALU_MARKER_RE = /^[-_=]+(halu[-_]body|halu[-_]meta|halu[-_]used[-_]refs|halu[-_]used[-_]references)\s*(.*)?$/;
+const ALIAS_MARKER_RE = /^[-_=]{3,}(body|used[-_]refs|used[-_]references|references[-_]used|meta)\s*(.*)?$/;
+
+/** Normalise a marker keyword: underscores → dashes, lowercase. */
+function normKeyword(s: string): string { return s.toLowerCase().replace(/_/g, "-"); }
 
 function identifyFrameMarker(line: string): { section: FrameSection; inline: string } | null {
   const normalized = line.trim().toLowerCase();
 
-  // halu- form: any dash count, optional inline content
+  // halu- prefixed form: any prefix char count
   const hm = HALU_MARKER_RE.exec(normalized);
   if (hm) {
+    const kw = normKeyword(hm[1]);
     const inline = hm[2]?.trim() ?? "";
-    switch (hm[1]) {
+    switch (kw) {
       case "halu-body": return { section: "body", inline };
       case "halu-meta": return { section: "meta", inline };
-      case "halu-used-refs": return { section: "usedRefs", inline };
+      case "halu-used-refs":
+      case "halu-used-references": return { section: "usedRefs", inline };
     }
   }
 
-  // --- form (3+ dashes, no halu- prefix)
-  const dm = DASH_ALIAS_RE.exec(normalized);
-  if (dm) {
-    const inline = dm[2]?.trim() ?? "";
-    switch (dm[1]) {
+  // Non-halu prefix form: require 3+ chars to avoid bullet-point false positives
+  const am = ALIAS_MARKER_RE.exec(normalized);
+  if (am) {
+    const kw = normKeyword(am[1]);
+    const inline = am[2]?.trim() ?? "";
+    switch (kw) {
       case "body": return { section: "body", inline };
       case "meta": return { section: "meta", inline };
       case "used-refs":
+      case "used-references":
       case "references-used": return { section: "usedRefs", inline };
     }
   }
@@ -296,9 +304,11 @@ export function parseArticleFrameOutput(
     try {
       const parsed = JSON.parse(sections.usedRefs) as unknown;
       if (Array.isArray(parsed)) {
-        declaredRefs = (parsed as unknown[]).filter(
-          (s): s is string => typeof s === "string" && providedSlugs.has(s),
-        );
+        declaredRefs = (parsed as unknown[])
+          .filter((s): s is string => typeof s === "string")
+          // Strip halu: or ref: prefix the model may emit (e.g. "halu:some-slug")
+          .map((s) => s.replace(/^(?:halu|ref):/, ""))
+          .filter((s) => providedSlugs.has(s));
       }
     } catch { /* derive from body links below */ }
   }

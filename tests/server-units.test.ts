@@ -2106,6 +2106,70 @@ test("parseArticleFrameOutput: single-dash -halu-used-refs with trailing JSON on
   assert.doesNotMatch(result.body, /slug-a/);
 });
 
+test("parseArticleFrameOutput: equals-sign prefix ===used-refs is recognized", () => {
+  // Reproduces production log: ===halu-used-refs [...]
+  const raw = [
+    "---halu-body",
+    "# Human Person Death",
+    "",
+    "Body text.",
+    '===halu-used-refs ["slug-a","slug-b"]',
+  ].join("\n");
+  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.doesNotMatch(result.body, /===halu-used-refs/);
+  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
+});
+
+test("parseArticleFrameOutput: underscore-prefix ___body is recognized", () => {
+  const raw = ["___body", "# Underscore Body", "", "Content."].join("\n");
+  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "# Underscore Body\n\nContent.");
+});
+
+test("parseArticleFrameOutput: underscore-separated keyword halu_used_refs is recognized", () => {
+  const raw = [
+    "---halu-body",
+    "# Test",
+    "Body.",
+    '---halu_used_refs ["slug-a"]',
+  ].join("\n");
+  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.refsUsed, ["slug-a"]);
+});
+
+test("parseArticleFrameOutput: canonical new format ---body / ---used-refs", () => {
+  // Tests the updated prompt format (no halu- prefix)
+  const raw = [
+    "---body",
+    "# New Format Article",
+    "",
+    "Article content.",
+    "---used-refs",
+    '["slug-a","slug-b"]',
+  ].join("\n");
+  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "# New Format Article\n\nArticle content.");
+  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
+});
+
+test("parseArticleFrameOutput: halu: prefix in ref entries is stripped", () => {
+  // Model emits ["halu:slug-a","halu:slug-b"] instead of ["slug-a","slug-b"]
+  const raw = [
+    "---body",
+    "# Test",
+    "Body.",
+    "---used-refs",
+    '["halu:slug-a","halu:slug-b","ref:slug-c"]',
+  ].join("\n");
+  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b", "slug-c"]);
+});
+
 test("parseArticleFrameOutput: missing body section with other sections → missing-body", () => {
   // Only meta JSON + usedRefs, no heading to extract body from
   const raw = ["---halu-meta", '{"title":"Test"}', "---halu-used-refs", '["slug-a"]'].join("\n");

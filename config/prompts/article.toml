@@ -31,14 +31,14 @@ Suggested related existing topics:
 
 Return the article using exactly these sections:
 
----halu-body
+---body
 # Article Title
 
 Full article in Markdown here.
 
----halu-used-refs
+---used-refs
 ["slug-one","slug-two"]
 
-Only content in ---halu-body is article text.
+Only content in ---body is article text.
 Use double-quoted halu hints, e.g. `[Visible Title](halu:visible-title "hidden context hint")`.
 Do not wrap the article in JSON. Do not put Markdown body inside JSON."""

@@ -30,8 +30,8 @@ class QueueLlmClient implements LlmClient {
   async chat(system?: string, user?: string): Promise<string> {
     const promptText = `${system ?? ""}\n${user ?? ""}`;
     const structuredBody = this.streamContent || this.streamChunks?.join("") || "";
-    if (structuredBody && promptText.includes("---halu-body")) {
-      return `---halu-body\n${structuredBody}\n---halu-used-refs\n[]`;
+    if (structuredBody && (promptText.includes("---body") || promptText.includes("---halu-body"))) {
+      return `---body\n${structuredBody}\n---used-refs\n[]`;
     }
     if (this.chatResponses.length) {
       return this.chatResponses.shift()!;
@@ -48,9 +48,9 @@ class QueueLlmClient implements LlmClient {
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
     const chunks = this.streamChunks ?? [this.streamContent];
-    // Wrap article body chunks in the frame format
-    const header = "---halu-body\n";
-    const footer = "\n---halu-used-refs\n[]";
+    // Wrap article body chunks in the canonical frame format
+    const header = "---body\n";
+    const footer = "\n---used-refs\n[]";
     const framedChunks = [header + chunks[0], ...chunks.slice(1), footer];
     let accumulated = "";
     for (const delta of framedChunks) {
@@ -559,7 +559,7 @@ test("refresh rewrite rejects truncated structured output without saving a revis
 
   // Response with no body section → missing-body → invalid structured output
   const llm = new QueueLlmClient("", [
-    "---halu-used-refs\n[\"source-a\"]",
+    "---used-refs\n[\"source-a\"]",
   ]);
   const server = await createServer(databasePath, llm);
 
@@ -1862,14 +1862,14 @@ test("article body generation uses streamChat (not chat) and emits progress even
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const ARTICLE_BODY = "# Streamed Article\n\nThis body was streamed chunk by chunk.";
-  const framedOutput = `---halu-body\n${ARTICLE_BODY}\n---halu-used-refs\n[]`;
+  const framedOutput = `---body\n${ARTICLE_BODY}\n---used-refs\n[]`;
 
   class StreamingBodyTracker implements LlmClient {
     public streamChatCalled = false;
     public chatCalledForBody = false;
 
     async chat(system: string, user: string): Promise<string> {
-      if ((system + user).includes("---halu-body")) {
+      if ((system + user).includes("---body") || (system + user).includes("---halu-body")) {
         this.chatCalledForBody = true;
         return framedOutput;
       }
@@ -1884,8 +1884,8 @@ test("article body generation uses streamChat (not chat) and emits progress even
     ): Promise<{ content: string; finishReason: string }> {
       this.streamChatCalled = true;
       // Emit header then body in chunks so onProgress fires mid-stream
-      const header = "---halu-body\n";
-      const footer = "\n---halu-used-refs\n[]";
+      const header = "---body\n";
+      const footer = "\n---used-refs\n[]";
       onChunk(header, header);
       onChunk(ARTICLE_BODY, header + ARTICLE_BODY);
       onChunk(footer, framedOutput);

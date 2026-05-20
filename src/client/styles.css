@@ -1384,6 +1384,24 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--ink);
 }
 
+.edit-ref-tag-blacklist {
+  background: none;
+  border: none;
+  padding: 0 0.1rem;
+  cursor: pointer;
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0.25;
+  flex-shrink: 0;
+  filter: grayscale(1);
+  transition: opacity 0.1s, filter 0.1s;
+}
+
+.edit-ref-tag-blacklist:hover:not(:disabled) {
+  opacity: 0.8;
+  filter: grayscale(0);
+}
+
 .edit-ref-tag-pin {
   background: none;
   border: none;
@@ -1416,14 +1434,28 @@ button.admin-danger-btn:hover:not(:disabled) {
   margin-top: 0.5rem;
 }
 
+.edit-refs-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
 .edit-refs-section-label {
   font-family: var(--mono);
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--ink-soft);
-  display: block;
-  margin-bottom: 0.25rem;
+}
+
+.edit-refs-section-hint {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  color: var(--ink-fade);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Add-references search panel */
@@ -1450,6 +1482,9 @@ button.admin-danger-btn:hover:not(:disabled) {
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .edit-refs-search-row {
@@ -1590,6 +1625,24 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--ink-soft);
 }
 
+.raw-edit-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.raw-edit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.raw-edit-body--split {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.6rem;
+}
+
 .raw-edit-textarea {
   width: 100%;
   min-height: 28rem;
@@ -1604,6 +1657,62 @@ button.admin-danger-btn:hover:not(:disabled) {
   box-sizing: border-box;
   tab-size: 2;
 }
+
+.raw-edit-body--split .raw-edit-textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  min-height: 28rem;
+}
+
+.raw-edit-preview-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  overflow: hidden;
+}
+
+.raw-edit-preview-html {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.8rem 1rem;
+  min-height: 0;
+  font-size: 0.92rem;
+}
+
+.raw-edit-preview-diagnostics {
+  border-top: 1px solid var(--rule);
+  background: var(--parchment-deep);
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
+.raw-edit-diagnostic {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  line-height: 1.4;
+}
+
+.raw-edit-diagnostic-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.raw-edit-diagnostic--warn .raw-edit-diagnostic-badge { color: #a07800; }
+.raw-edit-diagnostic--error .raw-edit-diagnostic-badge { color: var(--error, #c00); }
+.raw-edit-diagnostic--warn { color: #6a5000; }
+.raw-edit-diagnostic--error { color: #8a0000; }
 
 /* Friendlier panel for moderator-removed entries — distinct from generic
    transport errors. Styled like a redacted archival notice. */

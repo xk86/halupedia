@@ -850,6 +850,12 @@ describe("App", () => {
       )
       .mockResolvedValueOnce(
         ndjsonResponse([{ type: "done", ...payload }])
+      )
+      // 4th call: loadEditRefs reload after rewrite completes
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ references: [] }), {
+          headers: { "content-type": "application/json" },
+        })
       );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
@@ -862,7 +868,7 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Use last 2 edit prompts" }));
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     const rewriteInit = fetchMock.mock.calls[2][1] as RequestInit;
     expect(JSON.parse(String(rewriteInit.body))).toMatchObject({
       instructions: "tighten the ending",

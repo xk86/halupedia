@@ -18,11 +18,13 @@ const TEST_CONFIG = loadConfig().app.tests;
 
 class QueueLlmClient implements LlmClient {
   public streamedChunkCount = 0;
+  public embedInputs: string[][] = [];
 
   constructor(
     private readonly streamContent: string,
     private readonly chatResponses: string[] = [],
     private readonly streamChunks?: string[],
+    private readonly embedVector: number[] = [],
   ) {}
 
   async chat(system?: string, user?: string): Promise<string> {
@@ -55,7 +57,8 @@ class QueueLlmClient implements LlmClient {
   }
 
   async embed(input: string[]): Promise<number[][]> {
-    return input.map(() => []);
+    this.embedInputs.push(input);
+    return input.map(() => this.embedVector);
   }
 
   async probeConnections(): Promise<void> {}
@@ -443,6 +446,45 @@ test("generated article persists declared and body-linked refs, not every prompt
   assert.equal(revisions[0]?.operation, "generate");
 });
 
+test("new article generation searches RAG with the requested title even without backlinks", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "source-topic",
+    title: "Source Topic",
+    markdown: "# Source Topic\n\nSource material about target page optimization.",
+  });
+  const db = openDatabase(databasePath);
+  db.prepare(
+    `INSERT INTO article_chunks (slug, chunk_index, content, embedding_json)
+     VALUES (?, ?, ?, ?)`,
+  ).run("source-topic", 0, "Source material about target page optimization.", "[1]");
+  db.close();
+
+  const llm = new QueueLlmClient("", [
+    JSON.stringify({
+      body: "# Target Page\n\nUses [Source Topic](ref:source-topic).",
+      refs_used: ["source-topic"],
+    }),
+    JSON.stringify({ items: [] }),
+    "Target summary.",
+  ], undefined, [1]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/page/Target_Page?stream=1");
+  assert.equal(res.status, 200);
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  assert.ok(packets.some((packet) => packet.type === "done"), "generation should finish");
+
+  const checkDb = openDatabase(databasePath);
+  const refs = getLatestArticleReferences(checkDb, "target-page").map((ref) => ref.slug);
+  checkDb.close();
+  assert.deepEqual(refs, ["source-topic"]);
+  assert.match(llm.embedInputs[0]?.[0] ?? "", /Target Page/);
+  assert.match(llm.embedInputs[0]?.[0] ?? "", /target-page/);
+});
+
 test("refresh rewrite prunes unused prior prompt refs from the saved sidecar", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -465,6 +507,10 @@ test("refresh rewrite prunes unused prior prompt refs from the saved sidecar", a
   });
 
   const db = openDatabase(databasePath);
+  db.prepare(
+    `INSERT INTO article_chunks (slug, chunk_index, content, embedding_json)
+     VALUES (?, ?, ?, ?)`,
+  ).run("source-a", 0, "A source chunk about the original body.", "[]");
   saveArticleReferences(db, "target-page", Date.now(), [
     { slug: "source-a", title: "Source A", content: "", kind: "summary", pinned: false, revisionId: "current" },
     { slug: "source-b", title: "Source B", content: "", kind: "summary", pinned: false, revisionId: "current" },
@@ -489,6 +535,8 @@ test("refresh rewrite prunes unused prior prompt refs from the saved sidecar", a
   checkDb.close();
   assert.deepEqual(refs.sort(), ["source-a", "source-b"]);
   assert.equal(revisions[0]?.operation, "refresh-context-rewrite");
+  assert.match(llm.embedInputs[0]?.[0] ?? "", /Target Page/);
+  assert.match(llm.embedInputs[0]?.[0] ?? "", /Original body/);
 });
 
 test("refresh rewrite rejects truncated structured output without saving a revision", async (t) => {

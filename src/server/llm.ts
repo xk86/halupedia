@@ -177,6 +177,10 @@ export class OpenAICompatClient implements LlmClient {
         max_tokens: this.chatConfig.max_tokens,
         stream: true,
         think: options.thinking ?? false,
+        ...(options.jsonMode ? {
+          format: "json",
+          response_format: { type: "json_object" },
+        } : {}),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },

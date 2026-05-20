@@ -61,4 +61,5 @@ Return a JSON object with exactly two keys:
 - "refs_used": an array of slug strings for every reference you linked to or used when writing.
 
 Pinned references (pinned: true) MUST be used and linked in the body and appear in refs_used.
+Inside "body", use single-quoted halu hints, e.g. `[Visible Title](halu:visible-title 'hidden context hint')`.
 Example: {"body": "# Title\n\nRewritten text...", "refs_used": ["slug-one", "slug-two"]}"""

@@ -829,6 +829,9 @@ test("refresh-context streams exactly one persisted revision without post-proces
   });
   assert.equal(res.status, 200);
   const events = await readNdjson(res);
+  const types = events.map((event) => event.type);
+  assert.ok(types.includes("progress"), "refresh rewrite should emit progress events");
+  assert.ok(types.indexOf("progress") < types.indexOf("done"), "progress before done");
   const done = events.find((event) => event.type === "done");
   assert.ok(done, "stream should finish with done event");
 

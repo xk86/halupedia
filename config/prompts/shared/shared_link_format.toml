@@ -1,10 +1,11 @@
 system = """
 Halu Link Helper:
 - Use the halu: link helper for every internal link. This is the only way to create links to new articles.
-- Syntax: `[Visible Title](halu:target-slug "hidden context hint")`
+- Syntax: `[Visible Title](halu:target-slug 'hidden context hint')`
 - The visible text is the article's human-readable title. Preserve natural casing (proper nouns Title Cased, common nouns sentence cased).
 - The target-slug is lowercase-kebab-case derived from the title.
 - The hidden context hint is a concise canonical description of the target article.
+- Use single quotes around the hidden context hint when writing article bodies inside JSON.
 - Link the first mention of proper nouns and significant concepts.
 - The current article's own subject (including alternate names and abbreviations) must be bolded, never linked.
 
@@ -16,7 +17,7 @@ Reference Link Shorthand:
 - Use only the link formats specified here. Do not include extra square brackets.
 
 Format examples:
-- `[Visible Title](halu:visible-title "concise hidden context hint")`
+- `[Visible Title](halu:visible-title 'concise hidden context hint')`
 - `[the structural coatings industry](ref:structural-coatings-industry)` — anchor is a phrase from the sentence
 - `[the 1848 publication](ref:communist-manifesto)` — anchor describes the thing being cited
 """

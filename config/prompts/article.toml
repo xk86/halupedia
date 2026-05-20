@@ -34,4 +34,6 @@ Return a JSON object with exactly two keys:
 - "body": the full article as a Markdown string
 - "refs_used": an array of slug strings for every reference that you actually used and substantially informed the content of the article. Do not include it if it was not referenced or linked.
 
+Inside "body", use single-quoted halu hints, e.g. `[Visible Title](halu:visible-title 'hidden context hint')`.
+
 Example: {"body": "# Title\n\nArticle text...", "refs_used": ["slug-one", "slug-two"]}"""

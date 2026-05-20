@@ -180,6 +180,25 @@ export interface CreateAppOptions {
   llmClient?: LlmClient;
 }
 
+function endsInsideMarkdownLinkTarget(markdown: string): boolean {
+  const open = markdown.lastIndexOf("](");
+  if (open < 0) return false;
+  const tail = markdown.slice(open + 2);
+  if (tail.includes(")")) return false;
+  return tail.length === 0 || tail.startsWith("halu:") || tail.startsWith("ref:");
+}
+
+function parsePartialArticleJsonBody(raw: string): string | null {
+  const stripped = stripJsonFences(raw.trim()).replace(/^json\s*(?=[{\[])/i, "").trim();
+  if (!stripped.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(jsonrepair(stripped)) as { body?: unknown };
+    return typeof parsed.body === "string" ? parsed.body : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Parse the JSON envelope `{"body": "...", "refs_used": [...]}` that LLMs
  * return for article-generation prompts.
@@ -201,12 +220,10 @@ export function parseArticleJsonOutput(
     if (options.requireJson && source !== "json") {
       return { ok: false as const, body, missingPinned: [], reason: "missing-json-body" };
     }
-    if (/\[[^\]]*\]\($/.test(body)) {
+    if (endsInsideMarkdownLinkTarget(body)) {
       return { ok: false as const, body, missingPinned: [], reason: "truncated-markdown-link" };
     }
-    // Trim dangling incomplete markdown links at the end of a truncated body
-    // (e.g. "[Spring (Cat)](" with no URL or closing paren).
-    const cleanBody = body.replace(/\[[^\]]*\]\($/, "").trimEnd();
+    const cleanBody = body.trimEnd();
 
     // Scan only prose for body refs — strip References/See Also first so we
     // don't count refs the model put in a trailing section that will be removed
@@ -233,10 +250,6 @@ export function parseArticleJsonOutput(
   if (options.requireJson && !stripped.startsWith("{")) {
     return { ok: false as const, body: raw, missingPinned: [], reason: "missing-json-body" };
   }
-  if (options.requireJson && !stripped.endsWith("}")) {
-    return { ok: false as const, body: raw, missingPinned: [], reason: "truncated-json" };
-  }
-
   try {
     const repaired = jsonrepair(stripped);
     const parsed = JSON.parse(repaired) as { body?: unknown; refs_used?: unknown };
@@ -2111,6 +2124,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.app.rag.min_score,
       runtime.llm.embeddings.enabled,
       logger,
+      [requestedTitle, slug].filter(Boolean).join("\n"),
     );
     // Always pull in the full text of articles that link HERE so the generator
     // has concrete context even when RAG embeddings score zero.
@@ -3254,6 +3268,30 @@ export async function createApp(options: CreateAppOptions = {}) {
       }
     };
 
+    const renderRewriteProgress = (raw: string) => {
+      let previewMarkdown: string;
+      if (selectionRange) {
+        const replacement = normalizeMarkdown(raw)
+          .replace(/^#\s+.+?\n*/m, "")
+          .trim();
+        previewMarkdown =
+          article.markdown.slice(0, selectionRange.start) +
+          replacement +
+          article.markdown.slice(selectionRange.end);
+      } else {
+        const rewrittenBody = sanitizeGeneratedBody(normalizeMarkdown(raw));
+        previewMarkdown = sectionId
+          ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
+          : rewrittenBody;
+      }
+      previewMarkdown = stripTopLevelSections(previewMarkdown, ["References", "See also"]);
+      const links = extractAllBodyLinks(previewMarkdown, article.slug);
+      return {
+        html: rewriteArticleHtml(renderMarkdown(previewMarkdown), links),
+        markdown: previewMarkdown,
+      };
+    };
+
     if (wantsStream) {
       const encoder = new TextEncoder();
       let rewriteStreamOpen = true;
@@ -3286,11 +3324,20 @@ export async function createApp(options: CreateAppOptions = {}) {
               rag_sources: retrieved.sourceArticles.length,
               selected_text_length: selectionRange ? selectionRange.end - selectionRange.start : 0,
             });
-            const rawJson = await selectedLlm.chat(
+            const streamResult = await selectedLlm.streamChat(
               renderedSystemPrompt,
               renderedRewritePrompt,
+              (_delta, accumulated) => {
+                const partialBody = prompt.json
+                  ? parsePartialArticleJsonBody(accumulated)
+                  : accumulated;
+                if (!partialBody) return;
+                const preview = renderRewriteProgress(partialBody);
+                send({ type: "progress", ...preview });
+              },
               { thinking: prompt.thinking, jsonMode: prompt.json },
             );
+            const rawJson = streamResult.content;
             let rewriteResult = parseArticleJsonOutput(rawJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
             if (!rewriteResult.ok) {
               logger.warn("rewrite.invalid_structured_output", { slug: article.slug, reason: rewriteResult.reason ?? "missing-pinned-refs", missing: rewriteResult.missingPinned.join(", ") });
@@ -3389,6 +3436,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     ) => {
       send?.({ type: "status", message: "Retrieving context..." });
       const hints = listIncomingHints(db, article.slug);
+      const currentBodyMarkdown = stripTopLevelSections(article.markdown, [
+        "References",
+        "See also",
+      ]);
       const ragRetrieved = await retrieveContext(
         db,
         llm,
@@ -3400,6 +3451,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.app.rag.min_score,
         runtime.llm.embeddings.enabled,
         logger,
+        [article.title, currentBodyMarkdown].filter(Boolean).join("\n\n"),
       );
       // Pull in the full text of linking articles directly — backlinks always
       // provide context even when RAG embeddings score too low to be picked.
@@ -3408,10 +3460,6 @@ export async function createApp(options: CreateAppOptions = {}) {
         ? retrieveDirectArticleContext(db, article.slug, refreshBacklinkSlugs, runtime.app.rag.mode, runtime.app.rag.max_results, logger)
         : { context: "", relatedTitles: [], sourceArticles: [] };
       const retrieved = mergeRetrievedContextPackets(ragRetrieved, backlinkRetrieved);
-      const currentBodyMarkdown = stripTopLevelSections(article.markdown, [
-        "References",
-        "See also",
-      ]);
       const currentArticleReferences = findBodyReferencedArticles(
         db,
         article.markdown,
@@ -3438,6 +3486,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       let operation = "refresh-context";
       let instructions = "Refreshed retrieved context and derived references.";
       let refreshRefsUsed: string[] | null = null;
+      const renderRefreshProgress = (raw: string) => {
+        let previewMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
+        previewMarkdown = stripTopLevelSections(previewMarkdown, ["References", "See also"]);
+        const links = extractAllBodyLinks(previewMarkdown, article.slug);
+        return {
+          html: rewriteArticleHtml(renderMarkdown(previewMarkdown), links),
+          markdown: previewMarkdown,
+        };
+      };
       if (retrieved.context || hints.length) {
         send?.({ type: "status", message: "Rewriting article with refreshed context..." });
         const prompt = getPrompt(runtime.prompts, "article_refresh");
@@ -3461,11 +3518,25 @@ export async function createApp(options: CreateAppOptions = {}) {
           selected_text: "",
           edit_instructions: "",
         });
-        const rawJson = await selectedLlm.chat(
-          renderedRefreshSystem,
-          renderedRefreshUser,
-          { thinking: prompt.thinking, jsonMode: prompt.json },
-        );
+        const streamResult = send
+          ? await selectedLlm.streamChat(
+            renderedRefreshSystem,
+            renderedRefreshUser,
+            (_delta, accumulated) => {
+              const partialBody = prompt.json
+                ? parsePartialArticleJsonBody(accumulated)
+                : accumulated;
+              if (!partialBody) return;
+              send({ type: "progress", ...renderRefreshProgress(partialBody) });
+            },
+            { thinking: prompt.thinking, jsonMode: prompt.json },
+          )
+          : await selectedLlm.chat(
+            renderedRefreshSystem,
+            renderedRefreshUser,
+            { thinking: prompt.thinking, jsonMode: prompt.json },
+          );
+        const rawJson = typeof streamResult === "string" ? streamResult : streamResult.content;
         const refreshParseResult = parseArticleJsonOutput(rawJson, new Set(refreshPromptRefs.map((r) => r.slug)), new Set(), logger, { requireJson: prompt.json });
         if (!refreshParseResult.ok) {
           throw new Error(`refresh returned invalid structured output: ${refreshParseResult.reason ?? "missing required refs"}`);

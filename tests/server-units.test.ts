@@ -2048,12 +2048,22 @@ test("parseArticleJsonOutput: terminal dangling markdown link is invalid structu
   assert.match(result.body, /Broken at \[Slug\]\($/);
 });
 
-test("parseArticleJsonOutput: requireJson rejects incomplete JSON before repair", () => {
+test("parseArticleJsonOutput: jsonrepair can close incomplete JSON, but truncated markdown links still fail", () => {
   const raw = '{"body":"# Title\\n\\nBroken inside [Slug](halu:slug \\"';
   const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED, undefined, { requireJson: true });
   assert.equal(result.ok, false);
-  assert.equal(result.reason, "truncated-json");
-  assert.equal(result.body, raw);
+  assert.equal(result.reason, "truncated-markdown-link");
+  assert.match(result.body, /Broken inside \[Slug\]\(halu:slug "$/);
+});
+
+test("parseArticleJsonOutput: escaped quotes inside a markdown body string parse normally", () => {
+  const raw = '{"body":"# Title\\n\\nA [Copper Link](halu:copper-link \\"quoted hint\\") stays valid.","refs_used":[]}';
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED, undefined, { requireJson: true });
+  assert.equal(result.ok, true);
+  assert.equal(
+    result.body,
+    '# Title\n\nA [Copper Link](halu:copper-link "quoted hint") stays valid.',
+  );
 });
 
 test("prepareMarkdownForJsonPrompt converts halu hint quotes away from JSON-hostile double quotes", () => {

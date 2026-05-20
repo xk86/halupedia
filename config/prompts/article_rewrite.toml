@@ -1,6 +1,5 @@
 model = "heavy"
 thinking = false
-json = true
 system = """
 {{shared_article_rules}}
 
@@ -12,7 +11,7 @@ Rewrite Mode:
 {{rewrite_mode}}
 
 Rewrite Constraints:
-- In the body field, return the full article in Markdown, not a diff or notes.
+- In ---halu-body, return the full article in Markdown, not a diff or notes.
 - If the current article field contains a full article, return the full rewritten article.
 - If the current article field contains one section, return only that rewritten section.
 - Remove and replace material incompatible with the rewrite instructions directly instead of narrating the change.
@@ -56,10 +55,17 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Return a JSON object with exactly two keys:
-- "body": the rewritten text as a Markdown string
-- "refs_used": an array of slug strings for every reference you linked to or used when writing.
+Return the rewritten article using exactly these sections:
 
-Pinned references (pinned: true) MUST be used and linked in the body and appear in refs_used.
-Inside "body", use single-quoted halu hints, e.g. `[Visible Title](halu:visible-title 'hidden context hint')`.
-Example: {"body": "# Title\n\nRewritten text...", "refs_used": ["slug-one", "slug-two"]}"""
+---halu-body
+# Article Title
+
+Rewritten article in Markdown here.
+
+---halu-used-refs
+["slug-one","slug-two"]
+
+Only content in ---halu-body is article text.
+Pinned references (pinned: true) MUST be linked in ---halu-body and listed in ---halu-used-refs.
+Use double-quoted halu hints, e.g. `[Visible Title](halu:visible-title "hidden context hint")`.
+Do not wrap the article in JSON. Do not put Markdown body inside JSON."""

@@ -1,6 +1,5 @@
 model = "heavy"
 thinking = false
-json = true
 system = """
 
 {{shared_article_rules}}
@@ -30,10 +29,16 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Return a JSON object with exactly two keys:
-- "body": the full article as a Markdown string
-- "refs_used": an array of slug strings for every reference that you actually used and substantially informed the content of the article. Do not include it if it was not referenced or linked.
+Return the article using exactly these sections:
 
-Inside "body", use single-quoted halu hints, e.g. `[Visible Title](halu:visible-title 'hidden context hint')`.
+---halu-body
+# Article Title
 
-Example: {"body": "# Title\n\nArticle text...", "refs_used": ["slug-one", "slug-two"]}"""
+Full article in Markdown here.
+
+---halu-used-refs
+["slug-one","slug-two"]
+
+Only content in ---halu-body is article text.
+Use double-quoted halu hints, e.g. `[Visible Title](halu:visible-title "hidden context hint")`.
+Do not wrap the article in JSON. Do not put Markdown body inside JSON."""

@@ -30,8 +30,8 @@ class QueueLlmClient implements LlmClient {
   async chat(system?: string, user?: string): Promise<string> {
     const promptText = `${system ?? ""}\n${user ?? ""}`;
     const structuredBody = this.streamContent || this.streamChunks?.join("") || "";
-    if (structuredBody && promptText.includes('"refs_used"')) {
-      return JSON.stringify({ body: structuredBody, refs_used: [] });
+    if (structuredBody && promptText.includes("---halu-body")) {
+      return `---halu-body\n${structuredBody}\n---halu-used-refs\n[]`;
     }
     if (this.chatResponses.length) {
       return this.chatResponses.shift()!;
@@ -47,8 +47,13 @@ class QueueLlmClient implements LlmClient {
     _user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
+    const chunks = this.streamChunks ?? [this.streamContent];
+    // Wrap article body chunks in the frame format
+    const header = "---halu-body\n";
+    const footer = "\n---halu-used-refs\n[]";
+    const framedChunks = [header + chunks[0], ...chunks.slice(1), footer];
     let accumulated = "";
-    for (const delta of this.streamChunks ?? [this.streamContent]) {
+    for (const delta of framedChunks) {
       accumulated += delta;
       this.streamedChunkCount += 1;
       onChunk(delta, accumulated);
@@ -423,14 +428,10 @@ test("generated article persists declared and body-linked refs, not every prompt
     });
   }
 
-  const llm = new QueueLlmClient("", [
-    JSON.stringify({
-      body: "# Target Page\n\nUses [Source A](ref:source-a) and [Source B](ref:source-b).",
-      refs_used: ["source-a"],
-    }),
-    JSON.stringify({ items: [] }),
-    "Target summary.",
-  ]);
+  const llm = new QueueLlmClient(
+    "# Target Page\n\nUses [Source A](ref:source-a) and [Source B](ref:source-b).",
+    [JSON.stringify({ items: [] }), "Target summary."],
+  );
   const server = await createServer(databasePath, llm);
 
   const res = await server.request("/api/page/Target_Page?stream=1");
@@ -462,14 +463,12 @@ test("new article generation searches RAG with the requested title even without 
   ).run("source-topic", 0, "Source material about target page optimization.", "[1]");
   db.close();
 
-  const llm = new QueueLlmClient("", [
-    JSON.stringify({
-      body: "# Target Page\n\nUses [Source Topic](ref:source-topic).",
-      refs_used: ["source-topic"],
-    }),
-    JSON.stringify({ items: [] }),
-    "Target summary.",
-  ], undefined, [1]);
+  const llm = new QueueLlmClient(
+    "# Target Page\n\nUses [Source Topic](ref:source-topic).",
+    [JSON.stringify({ items: [] }), "Target summary."],
+    undefined,
+    [1],
+  );
   const server = await createServer(databasePath, llm);
 
   const res = await server.request("/api/page/Target_Page?stream=1");
@@ -518,12 +517,10 @@ test("refresh rewrite prunes unused prior prompt refs from the saved sidecar", a
   ]);
   db.close();
 
-  const llm = new QueueLlmClient("", [
-    JSON.stringify({
-      body: "# Target Page\n\nRefreshed with [Source A](ref:source-a) and [Source B](ref:source-b).",
-      refs_used: ["source-a"],
-    }),
-  ]);
+  const llm = new QueueLlmClient(
+    "# Target Page\n\nRefreshed with [Source A](ref:source-a) and [Source B](ref:source-b).",
+    [],
+  );
   const server = await createServer(databasePath, llm);
 
   const res = await server.request("/api/article/Target_Page/refresh-context", { method: "POST" });
@@ -560,8 +557,9 @@ test("refresh rewrite rejects truncated structured output without saving a revis
   beforeDb.close();
   assert.ok(beforeArticle);
 
+  // Response with no body section → missing-body → invalid structured output
   const llm = new QueueLlmClient("", [
-    '{"body":"# Target Page\\n\\nPartial rewrite ends at [Source A]("',
+    "---halu-used-refs\n[\"source-a\"]",
   ]);
   const server = await createServer(databasePath, llm);
 
@@ -1857,4 +1855,65 @@ test("generated article uses ref:slug links when references are available", asyn
       "rendered HTML is missing the references section when refs are present",
     );
   }
+});
+
+test("article body generation uses streamChat (not chat) and emits progress events before done", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const ARTICLE_BODY = "# Streamed Article\n\nThis body was streamed chunk by chunk.";
+  const framedOutput = `---halu-body\n${ARTICLE_BODY}\n---halu-used-refs\n[]`;
+
+  class StreamingBodyTracker implements LlmClient {
+    public streamChatCalled = false;
+    public chatCalledForBody = false;
+
+    async chat(system: string, user: string): Promise<string> {
+      if ((system + user).includes("---halu-body")) {
+        this.chatCalledForBody = true;
+        return framedOutput;
+      }
+      if (system.includes("concise summary")) return "Summary of streamed article.";
+      return JSON.stringify({ items: [] });
+    }
+
+    async streamChat(
+      _system: string,
+      _user: string,
+      onChunk: (delta: string, accumulated: string) => void,
+    ): Promise<{ content: string; finishReason: string }> {
+      this.streamChatCalled = true;
+      // Emit header then body in chunks so onProgress fires mid-stream
+      const header = "---halu-body\n";
+      const footer = "\n---halu-used-refs\n[]";
+      onChunk(header, header);
+      onChunk(ARTICLE_BODY, header + ARTICLE_BODY);
+      onChunk(footer, framedOutput);
+      return { content: framedOutput, finishReason: "stop" };
+    }
+
+    async embed(input: string[]): Promise<number[][]> {
+      return input.map(() => []);
+    }
+
+    async probeConnections(): Promise<void> {}
+  }
+
+  const tracker = new StreamingBodyTracker();
+  const server = await createServer(databasePath, tracker);
+
+  const res = await server.request("/api/page/Streamed_Article?stream=1");
+  assert.equal(res.status, 200);
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+
+  // Body generation must use streamChat, not chat
+  assert.equal(tracker.streamChatCalled, true, "streamChat should be called for article body generation");
+  assert.equal(tracker.chatCalledForBody, false, "chat() should NOT be called for article body generation");
+
+  // Must receive at least one progress event during streaming
+  const progressEvents = packets.filter((p) => p.type === "progress");
+  assert.ok(progressEvents.length > 0, "should receive progress events during body streaming");
+
+  // Article must still be generated successfully
+  assert.ok(packets.some((p) => p.type === "done"), "should have a done event");
 });

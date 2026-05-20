@@ -4,7 +4,6 @@ import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { jsonrepair } from "jsonrepair";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -180,100 +179,132 @@ export interface CreateAppOptions {
   llmClient?: LlmClient;
 }
 
-function endsInsideMarkdownLinkTarget(markdown: string): boolean {
-  const open = markdown.lastIndexOf("](");
-  if (open < 0) return false;
-  const tail = markdown.slice(open + 2);
-  if (tail.includes(")")) return false;
-  return tail.length === 0 || tail.startsWith("halu:") || tail.startsWith("ref:");
-}
+type FrameSection = "meta" | "body" | "usedRefs";
 
-function parsePartialArticleJsonBody(raw: string): string | null {
-  const stripped = stripJsonFences(raw.trim()).replace(/^json\s*(?=[{\[])/i, "").trim();
-  if (!stripped.startsWith("{")) return null;
-  try {
-    const parsed = JSON.parse(jsonrepair(stripped)) as { body?: unknown };
-    return typeof parsed.body === "string" ? parsed.body : null;
-  } catch {
-    return null;
+const FRAME_MARKERS: Record<FrameSection, string[]> = {
+  meta: ["---halu-meta", "---meta", "## meta", "## metadata"],
+  body: ["---halu-body", "---body", "## body", "## article", "## article body"],
+  usedRefs: [
+    "---halu-used-refs", "---used-refs", "---references-used",
+    "## used refs", "## used references", "## references used",
+  ],
+};
+
+function identifyFrameMarker(line: string): FrameSection | null {
+  const trimmed = line.trim();
+  const normalized = trimmed.toLowerCase();
+  for (const [section, aliases] of Object.entries(FRAME_MARKERS) as [FrameSection, string[]][]) {
+    for (const alias of aliases) {
+      if (normalized === alias) return section;
+      // Meta markers tolerate inline JSON on the same line (e.g. `---halu-meta {...}`)
+      if (section === "meta" && normalized.startsWith(alias + " ")) return "meta";
+    }
   }
+  return null;
 }
 
-/**
- * Parse the JSON envelope `{"body": "...", "refs_used": [...]}` that LLMs
- * return for article-generation prompts.
- *
- * Strategy:
- *   1. Strip any LLM prefix noise (code fences, bare `json` magic word).
- *   2. Run through jsonrepair so minor LLM slop (missing commas, stray chars,
- *      unquoted keys, etc.) is fixed before we hand it to JSON.parse.
- *   3. True fallback: treat raw as body only when the envelope is absent.
- */
-export function parseArticleJsonOutput(
+function extractFrameSections(raw: string): {
+  sections: Partial<Record<FrameSection, string>>;
+  preBody: string;
+} {
+  const sectionLines: Partial<Record<FrameSection, string[]>> = {};
+  const preSectionLines: string[] = [];
+  let current: FrameSection | null = null;
+  for (const line of raw.split("\n")) {
+    const marker = identifyFrameMarker(line);
+    if (marker !== null) {
+      current = marker;
+      sectionLines[current] ??= [];
+    } else if (current !== null) {
+      (sectionLines[current] ??= []).push(line);
+    } else {
+      preSectionLines.push(line);
+    }
+  }
+  const sections: Partial<Record<FrameSection, string>> = {};
+  for (const [k, lines] of Object.entries(sectionLines) as [FrameSection, string[]][]) {
+    sections[k] = lines.join("\n").trimEnd();
+  }
+  return { sections, preBody: preSectionLines.join("\n").trim() };
+}
+
+export function parseArticleFrameOutput(
   raw: string,
   providedSlugs: ReadonlySet<string>,
   pinnedSlugs: ReadonlySet<string>,
   logger?: Logger,
-  options: { requireJson?: boolean } = {},
 ): { ok: true; body: string; refsUsed: string[] } | { ok: false; body: string; missingPinned: string[]; reason?: string } {
-  const finish = (body: string, declared: string[], source: "json" | "fallback") => {
-    if (options.requireJson && source !== "json") {
-      return { ok: false as const, body, missingPinned: [], reason: "missing-json-body" };
-    }
-    if (endsInsideMarkdownLinkTarget(body)) {
-      return { ok: false as const, body, missingPinned: [], reason: "truncated-markdown-link" };
-    }
-    const cleanBody = body.trimEnd();
+  const { sections, preBody } = extractFrameSections(raw);
 
-    // Scan only prose for body refs — strip References/See Also first so we
-    // don't count refs the model put in a trailing section that will be removed
-    // during save, which would make pinned validation and logging misleading.
-    const proseBody = stripTopLevelSections(cleanBody, ["References", "See also"]);
-    const fromBody: string[] = [];
-    for (const m of proseBody.matchAll(/\(ref:([\w-]+)\)/g)) {
-      if (providedSlugs.has(m[1]) && !declared.includes(m[1])) fromBody.push(m[1]);
-    }
-    const refsUsed = [...new Set([...declared, ...fromBody])];
-    const unused = [...providedSlugs].filter((s) => !refsUsed.includes(s));
-    logger?.info("article.refs_resolved", {
-      json_declared: declared.join(", ") || "(none)",
-      body_found: fromBody.join(", ") || "(none)",
-      merged: refsUsed.join(", ") || "(none)",
-      unused: unused.join(", ") || "(none)",
-    });
-    const missingPinned = [...pinnedSlugs].filter((s) => !refsUsed.includes(s));
-    if (missingPinned.length > 0) return { ok: false as const, body: cleanBody, missingPinned };
-    return { ok: true as const, body: cleanBody, refsUsed };
-  };
+  let body = sections.body ?? "";
 
-  const stripped = stripJsonFences(raw.trim()).replace(/^json\s*(?=[{\[])/i, "").trim();
-  if (options.requireJson && !stripped.startsWith("{")) {
-    return { ok: false as const, body: raw, missingPinned: [], reason: "missing-json-body" };
+  // Layer 1: no markers found at all → whole raw is body
+  if (!body && !sections.meta && !sections.usedRefs && !preBody) {
+    body = raw.trim();
   }
-  try {
-    const repaired = jsonrepair(stripped);
-    const parsed = JSON.parse(repaired) as { body?: unknown; refs_used?: unknown };
-    if (typeof parsed.body === "string") {
-      const declared = Array.isArray(parsed.refs_used)
-        ? (parsed.refs_used as unknown[]).filter(
-            (s): s is string => typeof s === "string" && providedSlugs.has(s),
-          )
-        : [];
-      return finish(parsed.body, declared, "json");
-    }
-  } catch { /* fall through */ }
 
-  return finish(raw, [], "fallback");
+  // Layer 2: content appeared before the first section marker
+  // (model output article text before any ---halu-* line)
+  if (!body && preBody) {
+    body = preBody;
+  }
+
+  // Layer 3: model emitted ---halu-meta but skipped ---halu-body, so the body
+  // was absorbed into the meta section.  Extract everything from the first
+  // markdown heading onward.
+  if (!body && sections.meta) {
+    const headingIdx = sections.meta.search(/^#+ /m);
+    if (headingIdx >= 0) body = sections.meta.slice(headingIdx).trim();
+  }
+
+  if (!body) {
+    return { ok: false, body: raw, missingPinned: [], reason: "missing-body" };
+  }
+
+  let declaredRefs: string[] = [];
+  if (sections.usedRefs) {
+    try {
+      const parsed = JSON.parse(sections.usedRefs) as unknown;
+      if (Array.isArray(parsed)) {
+        declaredRefs = (parsed as unknown[]).filter(
+          (s): s is string => typeof s === "string" && providedSlugs.has(s),
+        );
+      }
+    } catch { /* derive from body links below */ }
+  }
+
+  const proseBody = stripTopLevelSections(body, ["References", "See also"]);
+  const fromBody: string[] = [];
+  for (const m of proseBody.matchAll(/\(ref:([\w-]+)\)/g)) {
+    if (providedSlugs.has(m[1]) && !declaredRefs.includes(m[1])) fromBody.push(m[1]);
+  }
+
+  const refsUsed = [...new Set([...declaredRefs, ...fromBody])];
+  const unused = [...providedSlugs].filter((s) => !refsUsed.includes(s));
+  logger?.info("article.refs_resolved", {
+    json_declared: declaredRefs.join(", ") || "(none)",
+    body_found: fromBody.join(", ") || "(none)",
+    merged: refsUsed.join(", ") || "(none)",
+    unused: unused.join(", ") || "(none)",
+  });
+
+  const missingPinned = [...pinnedSlugs].filter((s) => !refsUsed.includes(s));
+  if (missingPinned.length > 0) return { ok: false, body, missingPinned };
+
+  return { ok: true, body, refsUsed };
 }
 
-export function prepareMarkdownForJsonPrompt(markdown: string): string {
-  return markdown.replace(
-    /\]\(halu:([^)"'\t\r\n ]+)\s+"((?:\\.|[^"\\\r\n)])*)"\)/g,
-    (_match, slug: string, hint: string) => {
-      const safeHint = hint.replace(/\\"/g, '"').replace(/'/g, "&apos;");
-      return `](halu:${slug} '${safeHint}')`;
-    },
-  );
+export function parsePartialArticleFrame(accumulated: string): string | null {
+  const lines = accumulated.split("\n");
+  let inBody = false;
+  const bodyLines: string[] = [];
+  for (const line of lines) {
+    const marker = identifyFrameMarker(line);
+    if (marker === "body") { inBody = true; continue; }
+    if (marker !== null && inBody) break;
+    if (inBody) bodyLines.push(line);
+  }
+  return inBody ? bodyLines.join("\n") : null;
 }
 
 function titleMatchesRequested(
@@ -2166,10 +2197,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     const renderedUserPrompt = renderTemplate(prompt.user, {
       slug,
       requested_title: requestedTitle,
-      link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, slug)),
+      link_hints: formatIncomingHintsForPrompt(hints, slug),
       references_list: formatReferencesForPrompt(preliminaryRefs),
-      references_json: formatReferencesForPromptJson(preliminaryRefs.map((ref) => ({ ...ref, content: prepareMarkdownForJsonPrompt(ref.content) })), runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
-      rag_context: prepareMarkdownForJsonPrompt(retrieved.context) || "(none)",
+      references_json: formatReferencesForPromptJson(preliminaryRefs, runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
+      rag_context: retrieved.context || "(none)",
       related_titles: relatedTitlesBlock.rendered,
       article_excerpt: "",
       parent_comment: "",
@@ -2177,12 +2208,21 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     logger.debug("build.article_generating_body", { slug, rag_sources: retrieved.sourceArticles.length, link_hints: hints.length, backlink_titles: relatedTitlesBlock.backlinkCount });
     onStatus?.("Writing...");
-    const rawJson = await selectedLlm.chat(prompt.system, renderedUserPrompt, {
-      thinking: prompt.thinking,
-      jsonMode: prompt.json,
-    });
-    logger.debug("build.article_body_generated", { slug, body_length: rawJson.length });
-    const parseResult = parseArticleJsonOutput(rawJson, new Set(preliminaryRefs.map((r) => r.slug)), new Set(), logger, { requireJson: prompt.json });
+    const streamResult = await selectedLlm.streamChat(
+      prompt.system,
+      renderedUserPrompt,
+      (_delta, accumulated) => {
+        if (!onProgress) return;
+        const partialBody = parsePartialArticleFrame(accumulated);
+        if (!partialBody) return;
+        const progressMarkdown = sanitizeGeneratedBody(normalizeMarkdown(partialBody));
+        onProgress(renderMarkdown(progressMarkdown), progressMarkdown);
+      },
+      { thinking: prompt.thinking },
+    );
+    const rawOutput = streamResult.content;
+    logger.debug("build.article_body_generated", { slug, body_length: rawOutput.length });
+    const parseResult = parseArticleFrameOutput(rawOutput, new Set(preliminaryRefs.map((r) => r.slug)), new Set(), logger);
     if (!parseResult.ok) {
       throw new Error(`article generation returned invalid structured output: ${parseResult.reason ?? "missing required refs"}`);
     }
@@ -3109,7 +3149,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const selectedLlm = prompt.model === "light" ? lightLlm : llm;
     const renderedSystemPrompt = renderTemplate(prompt.system, {
       rewrite_mode: modePrompt,
-      link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, article.slug)),
+      link_hints: formatIncomingHintsForPrompt(hints, article.slug),
     });
     // TODO: factor prompts out into configurable file
     const recentEditHistory = body.includeRecentEditHistory === true
@@ -3141,12 +3181,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       slug: article.slug,
       requested_title: article.title,
       edit_instructions: selectionEditInstructions,
-      current_article: prepareMarkdownForJsonPrompt(selectedSection),
-      full_article: prepareMarkdownForJsonPrompt(articleBodyOnly),
-      link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, article.slug)),
+      current_article: selectedSection,
+      full_article: articleBodyOnly,
+      link_hints: formatIncomingHintsForPrompt(hints, article.slug),
       references_list: formatReferencesForPrompt(rewritePromptRefs),
-      references_json: formatReferencesForPromptJson(rewritePromptRefs.map((ref) => ({ ...ref, content: prepareMarkdownForJsonPrompt(ref.content) })), runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
-      rag_context: prepareMarkdownForJsonPrompt(retrieved.context) || "(none)",
+      references_json: formatReferencesForPromptJson(rewritePromptRefs, runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
+      rag_context: retrieved.context || "(none)",
       related_titles: formatRelatedTitlesForPrompt(article.slug, retrieved.relatedTitles).rendered,
       article_excerpt: "",
       parent_comment: "",
@@ -3328,21 +3368,19 @@ export async function createApp(options: CreateAppOptions = {}) {
               renderedSystemPrompt,
               renderedRewritePrompt,
               (_delta, accumulated) => {
-                const partialBody = prompt.json
-                  ? parsePartialArticleJsonBody(accumulated)
-                  : accumulated;
+                const partialBody = parsePartialArticleFrame(accumulated);
                 if (!partialBody) return;
                 const preview = renderRewriteProgress(partialBody);
                 send({ type: "progress", ...preview });
               },
-              { thinking: prompt.thinking, jsonMode: prompt.json },
+              { thinking: prompt.thinking },
             );
-            const rawJson = streamResult.content;
-            let rewriteResult = parseArticleJsonOutput(rawJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
+            const rawOutput = streamResult.content;
+            let rewriteResult = parseArticleFrameOutput(rawOutput, rewriteProvidedSlugs, pinnedSlugsSet, logger);
             if (!rewriteResult.ok) {
               logger.warn("rewrite.invalid_structured_output", { slug: article.slug, reason: rewriteResult.reason ?? "missing-pinned-refs", missing: rewriteResult.missingPinned.join(", ") });
-              const retryJson = await selectedLlm.chat(renderedSystemPrompt, renderedRewritePrompt, { thinking: prompt.thinking, jsonMode: prompt.json });
-              rewriteResult = parseArticleJsonOutput(retryJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
+              const retryOutput = await selectedLlm.chat(renderedSystemPrompt, renderedRewritePrompt, { thinking: prompt.thinking });
+              rewriteResult = parseArticleFrameOutput(retryOutput, rewriteProvidedSlugs, pinnedSlugsSet, logger);
             }
             if (!rewriteResult.ok) {
               throw new Error(`rewrite returned invalid structured output: ${rewriteResult.reason ?? "missing required refs"}`);
@@ -3387,16 +3425,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       rag_sources: retrieved.sourceArticles.length,
       selected_text_length: selectionRange ? selectionRange.end - selectionRange.start : 0,
     });
-    const rawJson = await selectedLlm.chat(
+    const rawOutput = await selectedLlm.chat(
       renderedSystemPrompt,
       renderedRewritePrompt,
-      { thinking: prompt.thinking, jsonMode: prompt.json },
+      { thinking: prompt.thinking },
     );
-    let nonStreamResult = parseArticleJsonOutput(rawJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
+    let nonStreamResult = parseArticleFrameOutput(rawOutput, rewriteProvidedSlugs, pinnedSlugsSet, logger);
     if (!nonStreamResult.ok) {
       logger.warn("rewrite.invalid_structured_output", { slug: article.slug, reason: nonStreamResult.reason ?? "missing-pinned-refs", missing: nonStreamResult.missingPinned.join(", ") });
-      const retryJson = await selectedLlm.chat(renderedSystemPrompt, renderedRewritePrompt, { thinking: prompt.thinking, jsonMode: prompt.json });
-      nonStreamResult = parseArticleJsonOutput(retryJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
+      const retryOutput = await selectedLlm.chat(renderedSystemPrompt, renderedRewritePrompt, { thinking: prompt.thinking });
+      nonStreamResult = parseArticleFrameOutput(retryOutput, rewriteProvidedSlugs, pinnedSlugsSet, logger);
     }
     if (!nonStreamResult.ok) {
       throw new Error(`rewrite returned invalid structured output: ${nonStreamResult.reason ?? "missing required refs"}`);
@@ -3495,23 +3533,23 @@ export async function createApp(options: CreateAppOptions = {}) {
           markdown: previewMarkdown,
         };
       };
-      if (retrieved.context || hints.length) {
-        send?.({ type: "status", message: "Rewriting article with refreshed context..." });
+      {
+        send?.({ type: "status", message: "Refreshing article formatting and context..." });
         const prompt = getPrompt(runtime.prompts, "article_refresh");
         const selectedLlm = prompt.model === "light" ? lightLlm : llm;
         const subtleMode = runtime.prompts.rewriteModes.subtle?.prompt ?? "";
         const renderedRefreshSystem = renderTemplate(prompt.system, {
           rewrite_mode: subtleMode,
-          link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, article.slug)),
+          link_hints: formatIncomingHintsForPrompt(hints, article.slug),
         });
         const renderedRefreshUser = renderTemplate(prompt.user, {
           slug: article.slug,
           requested_title: article.title,
-          current_article: prepareMarkdownForJsonPrompt(currentBodyMarkdown),
-          link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, article.slug)),
+          current_article: currentBodyMarkdown,
+          link_hints: formatIncomingHintsForPrompt(hints, article.slug),
           references_list: formatReferencesForPrompt(refreshPromptRefs),
-          references_json: formatReferencesForPromptJson(refreshPromptRefs.map((ref) => ({ ...ref, content: prepareMarkdownForJsonPrompt(ref.content) })), runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
-          rag_context: prepareMarkdownForJsonPrompt(retrieved.context) || "(none)",
+          references_json: formatReferencesForPromptJson(refreshPromptRefs, runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
+          rag_context: retrieved.context || "(none)",
           related_titles: formatRelatedTitlesForPrompt(article.slug, retrieved.relatedTitles).rendered,
           article_excerpt: "",
           parent_comment: "",
@@ -3523,21 +3561,19 @@ export async function createApp(options: CreateAppOptions = {}) {
             renderedRefreshSystem,
             renderedRefreshUser,
             (_delta, accumulated) => {
-              const partialBody = prompt.json
-                ? parsePartialArticleJsonBody(accumulated)
-                : accumulated;
+              const partialBody = parsePartialArticleFrame(accumulated);
               if (!partialBody) return;
               send({ type: "progress", ...renderRefreshProgress(partialBody) });
             },
-            { thinking: prompt.thinking, jsonMode: prompt.json },
+            { thinking: prompt.thinking },
           )
           : await selectedLlm.chat(
             renderedRefreshSystem,
             renderedRefreshUser,
-            { thinking: prompt.thinking, jsonMode: prompt.json },
+            { thinking: prompt.thinking },
           );
-        const rawJson = typeof streamResult === "string" ? streamResult : streamResult.content;
-        const refreshParseResult = parseArticleJsonOutput(rawJson, new Set(refreshPromptRefs.map((r) => r.slug)), new Set(), logger, { requireJson: prompt.json });
+        const rawOutput = typeof streamResult === "string" ? streamResult : streamResult.content;
+        const refreshParseResult = parseArticleFrameOutput(rawOutput, new Set(refreshPromptRefs.map((r) => r.slug)), new Set(), logger);
         if (!refreshParseResult.ok) {
           throw new Error(`refresh returned invalid structured output: ${refreshParseResult.reason ?? "missing required refs"}`);
         }

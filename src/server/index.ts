@@ -651,18 +651,23 @@ async function generateSeeAlsoCandidates(
   requestedTitle: string,
   bodyMarkdown: string,
   referenceSlugs: string[],
+  forbiddenSlugs: string[] = [],
 ): Promise<InternalArticleCandidate[]> {
   const prompt = getPrompt(promptConfig, "see_also");
   const selectedLlm = prompt.model === "light" ? lightLlm : llm;
   const referenceSlugsList = referenceSlugs.length
     ? referenceSlugs.map((s) => `- ${s}`).join("\n")
     : "(none)";
+  const alreadyUsedSection = forbiddenSlugs.length
+    ? `Already used or rejected (do not re-suggest):\n${forbiddenSlugs.map((s) => `- ${s}`).join("\n")}\n\n`
+    : "";
   const raw = await selectedLlm.chat(
     prompt.system,
     renderTemplate(prompt.user, {
       requested_title: requestedTitle,
       article_excerpt: bodyMarkdown.slice(0, 6000),
       reference_slugs: referenceSlugsList,
+      already_used_section: alreadyUsedSection,
     }),
     { thinking: prompt.thinking, jsonMode: prompt.json },
   );
@@ -2081,6 +2086,15 @@ export async function createApp(options: CreateAppOptions = {}) {
 
       // Start SA and summary in parallel — both are LLM calls with no dependency on each other.
       logger.debug("post_process.generating_see_also_and_summary", { slug: normalizedSlug });
+
+      /** A candidate is valid for See Also only if the article does not already exist. */
+      const isHaluOnly = (slug: string) =>
+        slug !== normalizedSlug &&
+        !bodyLinkSlugs.has(slug) &&
+        !getArticleByLookup(db, slug);
+
+      // Run summary in parallel with the first see-also attempt.
+      const referenceSlugsForSeeAlso = referenceList.map((r) => r.slug);
       const [seeAlsoRaw, summaryMarkdown] = await Promise.all([
         generateSeeAlsoCandidates(
           llm,
@@ -2088,7 +2102,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           runtime.prompts,
           normalizedTitle,
           repairedBodyMarkdown,
-          referenceList.map((r) => r.slug),
+          referenceSlugsForSeeAlso,
         ).catch(() => []),
         generateArticleSummary(
           llm,
@@ -2098,9 +2112,30 @@ export async function createApp(options: CreateAppOptions = {}) {
           markdown,
         ).catch(() => summaryMarkdownFromArticle(markdown)),
       ]);
-      const seeAlso = seeAlsoRaw
-        .filter((candidate) => candidate.slug !== normalizedSlug && !bodyLinkSlugs.has(candidate.slug))
-        .slice(0, 7);
+
+      let seeAlso = seeAlsoRaw.filter((c) => isHaluOnly(c.slug)).slice(0, 7);
+
+      // Retry if the model returned too many existing-article slugs.
+      if (seeAlso.length < 3) {
+        const rejected = seeAlsoRaw.map((c) => c.slug).filter((s) => !isHaluOnly(s));
+        logger.debug("post_process.see_also_retry", {
+          slug: normalizedSlug,
+          valid: seeAlso.length,
+          rejected: rejected.length,
+        });
+        const retryRaw = await generateSeeAlsoCandidates(
+          llm,
+          lightLlm,
+          runtime.prompts,
+          normalizedTitle,
+          repairedBodyMarkdown,
+          referenceSlugsForSeeAlso,
+          [...referenceSlugsForSeeAlso, ...rejected],
+        ).catch(() => []);
+        const retryCandidates = retryRaw.filter((c) => isHaluOnly(c.slug)).slice(0, 7);
+        if (retryCandidates.length > seeAlso.length) seeAlso = retryCandidates;
+      }
+
       logger.debug("post_process.see_also_generated", { slug: normalizedSlug, count: seeAlso.length });
       logger.debug("post_process.summary_generated", { slug: normalizedSlug });
 

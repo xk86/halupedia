@@ -386,6 +386,7 @@ export function buildReferenceList(
     pinned: pinnedCount,
     recursive_candidates: recursiveCandidateCount,
     recursive_traversed: recursiveTraversalCount,
+    recursive_max_per_article: config.reference_recursive_max_per_article,
     blacklisted: blacklistSlugs.length,
     kept: kept.length,
     dropped: candidates.length - kept.length,

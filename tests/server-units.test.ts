@@ -1428,10 +1428,10 @@ test("buildReferenceList preserves carried refs before applying RAG cap", (t) =>
     ["body", "body", "prior", "prior", "rag", "rag"],
   );
   const built = logger.entries.find((entry) => entry.event === "references.built");
-  assert.equal(built?.fields.body_reference_count, 2);
-  assert.equal(built?.fields.user_added_count, 0);
-  const detail = logger.entries.find((entry) => entry.event === "references.built_detail");
-  assert.match(String(detail?.fields.entries ?? ""), /"source":"body"/);
+  assert.equal(built?.fields.body, 2, "body ref count in log");
+  assert.equal(built?.fields.user, 0, "user-added ref count in log");
+  // refs field contains formatted entries; body refs appear as slug[body]
+  assert.match(String(built?.fields.refs ?? ""), /\[body\]/);
 });
 
 test("buildReferenceList adds recursive sidecar refs within configured depth", (t) => {
@@ -1532,8 +1532,8 @@ test("buildReferenceList adds recursive sidecar refs within configured depth", (
     ["body", "recursive", "recursive"],
   );
   const built = logger.entries.find((entry) => entry.event === "references.built");
-  assert.equal(built?.fields.recursive_candidate_count, 2);
-  assert.equal(built?.fields.recursive_max_per_article, 1);
+  assert.equal(built?.fields.recursive_candidates, 2, "recursive candidate count");
+  assert.equal(built?.fields.recursive_max_per_article, 1, "recursive max per article config");
 });
 
 test("linkMentionedReferencesInBody wraps exact unlinked reference title mentions", () => {

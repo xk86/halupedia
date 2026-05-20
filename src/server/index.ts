@@ -37,6 +37,14 @@ import {
   updateArticleSummary,
   updateArticleInPlace,
   wipeGeneratedCorpus,
+  searchSlugFuzzy,
+  addSlugAlias,
+  removeSlugAlias,
+  listAliasesForSlug,
+  archiveArticle,
+  listArchivedArticles,
+  getArchivedArticle,
+  deleteArchivedArticle,
 } from "./db";
 import {
   findFuzzyTitleMatchesInEditText,
@@ -3903,6 +3911,120 @@ export async function createApp(options: CreateAppOptions = {}) {
         500,
       );
     }
+  });
+
+  // ── Alias / redirect management ─────────────────────────────────────────
+
+  app.get("/api/admin/slug-search", (c) => {
+    const q = c.req.query("q") ?? "";
+    if (!q.trim()) return c.json({ results: [] });
+    const results = searchSlugFuzzy(db, q.trim());
+    return c.json({ results });
+  });
+
+  app.get("/api/admin/slug-aliases/:slug", (c) => {
+    const slug = c.req.param("slug");
+    const aliases = listAliasesForSlug(db, slug);
+    const article = getArticleByLookup(db, slug);
+    return c.json({ slug, articleExists: !!article, aliases });
+  });
+
+  app.post("/api/admin/slug-aliases", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { aliasSlug?: string; articleSlug?: string };
+    const aliasSlug = slugify(body.aliasSlug ?? "");
+    const articleSlug = slugify(body.articleSlug ?? "");
+    if (!aliasSlug || !articleSlug) return c.json({ error: "missing aliasSlug or articleSlug" }, 400);
+    if (aliasSlug === articleSlug) return c.json({ error: "alias and canonical slug must differ" }, 400);
+    const canonical = getArticleByLookup(db, articleSlug);
+    if (!canonical) return c.json({ error: "canonical article not found" }, 404);
+    addSlugAlias(db, aliasSlug, articleSlug);
+    logger.info("admin.alias_added", { aliasSlug, articleSlug });
+    return c.json({ ok: true, aliasSlug, articleSlug });
+  });
+
+  app.delete("/api/admin/slug-aliases/:aliasSlug", (c) => {
+    const aliasSlug = c.req.param("aliasSlug");
+    removeSlugAlias(db, aliasSlug);
+    logger.info("admin.alias_removed", { aliasSlug });
+    return c.json({ ok: true });
+  });
+
+  // Canonical redirect: make sourceSlug redirect to canonicalSlug,
+  // archiving any existing article at sourceSlug.
+  app.post("/api/admin/slug-redirect", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sourceSlug?: string;
+      canonicalSlug?: string;
+      confirm?: boolean;
+    };
+    const sourceSlug = slugify(body.sourceSlug ?? "");
+    const canonicalSlug = slugify(body.canonicalSlug ?? "");
+    if (!sourceSlug || !canonicalSlug) return c.json({ error: "missing sourceSlug or canonicalSlug" }, 400);
+    if (sourceSlug === canonicalSlug) return c.json({ error: "source and canonical slugs must differ" }, 400);
+
+    const canonical = getArticleByLookup(db, canonicalSlug);
+    if (!canonical) return c.json({ error: "canonical article not found" }, 404);
+
+    const displaced = getArticleByLookup(db, sourceSlug);
+    if (displaced && !body.confirm) {
+      return c.json({
+        requiresConfirm: true,
+        displacedSlug: displaced.slug,
+        displacedTitle: displaced.title,
+        message: `Article "${displaced.title}" at ${displaced.slug} will be archived. Send confirm:true to proceed.`,
+      });
+    }
+
+    if (displaced) {
+      archiveArticle(db, displaced, `displaced by canonical redirect → ${canonicalSlug}`);
+      deleteArticleBySlug(db, displaced.slug);
+      logger.info("admin.article_archived", { slug: displaced.slug, reason: "canonical_redirect", canonicalSlug });
+    }
+
+    addSlugAlias(db, sourceSlug, canonicalSlug);
+    logger.info("admin.redirect_added", { sourceSlug, canonicalSlug, displaced: displaced?.slug ?? null });
+    return c.json({ ok: true, sourceSlug, canonicalSlug, archived: displaced ? displaced.slug : null });
+  });
+
+  // ── Archived articles ─────────────────────────────────────────────────────
+
+  app.get("/api/admin/archived", (c) => {
+    return c.json({ archived: listArchivedArticles(db) });
+  });
+
+  app.post("/api/admin/archived/:slug/restore", async (c) => {
+    const slug = c.req.param("slug");
+    const body = (await c.req.json().catch(() => ({}))) as { confirm?: boolean };
+    const archived = getArchivedArticle(db, slug);
+    if (!archived) return c.json({ error: "archived article not found" }, 404);
+
+    const existing = getArticleByLookup(db, slug);
+    if (existing && !body.confirm) {
+      return c.json({
+        requiresConfirm: true,
+        message: `An article already exists at ${slug}. Send confirm:true to overwrite it with the archived version.`,
+      });
+    }
+
+    const links = extractInternalLinks(archived.markdown);
+    saveArticle(
+      db,
+      {
+        slug: archived.slug,
+        canonicalSlug: archived.canonicalSlug,
+        title: archived.title,
+        markdown: archived.markdown,
+        html: archived.html,
+        plain_text: archived.plain_text,
+        generated_at: archived.generated_at,
+      },
+      links,
+      [archived.slug],
+    );
+    deleteArchivedArticle(db, slug);
+    removeSlugAlias(db, slug);
+    logger.info("admin.article_restored", { slug });
+    return c.json({ ok: true, slug });
   });
 
   app.post("/api/disambiguation", async (c) => {

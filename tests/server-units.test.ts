@@ -29,6 +29,7 @@ import {
   summaryMarkdownFromArticle,
   stripSelfLinks,
   stripTopLevelSections,
+  stripFootnoteArtifacts,
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
 import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
@@ -1951,6 +1952,56 @@ test("normalizeHaluLinks: title with apostrophe like [Obama's Method] becomes a 
   const result = normalizeHaluLinks(input);
   // Apostrophe in title is fine — only double-quote is rejected
   assert.match(result, /halu:obama-s-method/);
+});
+
+// Halu slug normalization (wiki-format → kebab-case)
+
+test("normalizeHaluLinks: wiki-format slug with underscores is slugified to kebab-case", () => {
+  const input = `[The American Trade Bloc](halu:The_American_Trade_Bloc "hint")`;
+  const result = normalizeHaluLinks(input);
+  assert.match(result, /halu:the-american-trade-bloc/);
+  assert.doesNotMatch(result, /The_American_Trade_Bloc/);
+});
+
+test("normalizeHaluLinks: mixed-case slug is lowercased and underscores become dashes", () => {
+  const input = `[Foo Bar](halu:Foo_Bar "some hint")`;
+  const result = normalizeHaluLinks(input);
+  assert.match(result, /halu:foo-bar/);
+});
+
+test("normalizeMarkdownLinks: ref link with wiki-format slug is slugified", () => {
+  const result = normalizeMarkdownLinks(`[Title](ref:The_American_Trade_Bloc)`, "article");
+  assert.match(result.markdown, /ref:the-american-trade-bloc/);
+  assert.doesNotMatch(result.markdown, /The_American_Trade_Bloc/);
+});
+
+test("normalizeMarkdownLinks: already-canonical ref slug is unchanged", () => {
+  const result = normalizeMarkdownLinks(`[Title](ref:the-american-trade-bloc)`, "article");
+  assert.match(result.markdown, /ref:the-american-trade-bloc/);
+});
+
+// Slug metadata leakage stripping
+
+test("stripFootnoteArtifacts: strips Slug: metadata line from article body", () => {
+  const md = "# Article\n\nSlug: The_American_Trade_Bloc\n\nBody text.";
+  const result = stripFootnoteArtifacts(md);
+  assert.doesNotMatch(result, /Slug:/);
+  assert.match(result, /Body text/);
+});
+
+test("stripFootnoteArtifacts: strips Title: and Category: metadata lines", () => {
+  const md = "# Article\n\nTitle: Some Title\nCategory: Politics\n\nBody.";
+  const result = stripFootnoteArtifacts(md);
+  assert.doesNotMatch(result, /Title:/);
+  assert.doesNotMatch(result, /Category:/);
+  assert.match(result, /Body\./);
+});
+
+test("stripFootnoteArtifacts: does not strip Slug in normal prose sentences", () => {
+  // "Slug" appearing inside a sentence should NOT be stripped
+  const md = "The slug for this article is important.";
+  const result = stripFootnoteArtifacts(md);
+  assert.match(result, /slug for this article/);
 });
 
 // parseArticleFrameOutput / parsePartialArticleFrame

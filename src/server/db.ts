@@ -168,6 +168,20 @@ export function openDatabase(databasePath: string): DatabaseSync {
       title TEXT NOT NULL DEFAULT '',
       deleted_at INTEGER NOT NULL
     );
+
+    -- Articles displaced by a canonical slug redirect. Full article data
+    -- is stored here so admins can restore them if needed.
+    CREATE TABLE IF NOT EXISTS archived_articles (
+      slug TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      archived_at INTEGER NOT NULL,
+      markdown TEXT NOT NULL,
+      html TEXT NOT NULL,
+      summary_markdown TEXT NOT NULL DEFAULT '',
+      plain_text TEXT NOT NULL,
+      generated_at INTEGER NOT NULL,
+      reason TEXT NOT NULL DEFAULT ''
+    );
   `);
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {
@@ -1179,4 +1193,114 @@ export function getLatestArticleSeeAlso(
        WHERE article_slug = ? AND saved_at = ?`,
     )
     .all(articleSlug, latest.saved_at) as unknown as StoredSeeAlsoEntry[];
+}
+
+// ── Alias management ────────────────────────────────────────────────────────
+
+export interface AliasRow {
+  aliasSlug: string;
+  articleSlug: string;
+}
+
+export interface ArchivedArticleRow {
+  slug: string;
+  title: string;
+  archivedAt: number;
+  reason: string;
+}
+
+/** Return all aliases for a given canonical article slug. */
+export function listAliasesForSlug(db: DatabaseSync, articleSlug: string): AliasRow[] {
+  return (db
+    .prepare(`SELECT alias_slug AS aliasSlug, article_slug AS articleSlug FROM article_aliases WHERE article_slug = ?`)
+    .all(articleSlug) as unknown) as AliasRow[];
+}
+
+/** Fuzzy search: find article slugs (and their aliases) whose slug or title contains the query. */
+export function searchSlugFuzzy(
+  db: DatabaseSync,
+  query: string,
+): Array<{ slug: string; title: string; aliases: AliasRow[] }> {
+  const pattern = `%${slugify(query).replace(/-/g, "%")}%`;
+  const rows = (db
+    .prepare(
+      `SELECT slug, title FROM articles
+       WHERE slug LIKE ? OR title LIKE ?
+       ORDER BY slug ASC LIMIT 20`,
+    )
+    .all(pattern, `%${query}%`) as unknown) as Array<{ slug: string; title: string }>;
+  return rows.map((row) => ({
+    ...row,
+    aliases: listAliasesForSlug(db, row.slug),
+  }));
+}
+
+/** Add a slug alias pointing to an existing article. Throws if the alias already exists. */
+export function addSlugAlias(db: DatabaseSync, aliasSlug: string, articleSlug: string): void {
+  db.prepare(`INSERT OR REPLACE INTO article_aliases (alias_slug, article_slug) VALUES (?, ?)`)
+    .run(aliasSlug, articleSlug);
+}
+
+/** Remove a slug alias. */
+export function removeSlugAlias(db: DatabaseSync, aliasSlug: string): void {
+  db.prepare(`DELETE FROM article_aliases WHERE alias_slug = ?`).run(aliasSlug);
+}
+
+// ── Archived articles ────────────────────────────────────────────────────────
+
+/** Archive an article (displaces it without deleting its data). */
+export function archiveArticle(
+  db: DatabaseSync,
+  article: ArticleRecord,
+  reason: string,
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO archived_articles
+     (slug, title, archived_at, markdown, html, summary_markdown, plain_text, generated_at, reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    article.slug,
+    article.title,
+    Date.now(),
+    article.markdown,
+    article.html,
+    article.summaryMarkdown ?? "",
+    article.plain_text,
+    article.generated_at,
+    reason,
+  );
+}
+
+/** List all archived articles (metadata only). */
+export function listArchivedArticles(db: DatabaseSync): ArchivedArticleRow[] {
+  return (db
+    .prepare(
+      `SELECT slug, title, archived_at AS archivedAt, reason
+       FROM archived_articles ORDER BY archived_at DESC`,
+    )
+    .all() as unknown) as ArchivedArticleRow[];
+}
+
+/** Get one archived article's full data for restoration. */
+export function getArchivedArticle(db: DatabaseSync, slug: string): ArticleRecord | null {
+  const row = db
+    .prepare(`SELECT * FROM archived_articles WHERE slug = ?`)
+    .get(slug) as (ArchivedArticleRow & Omit<ArticleRecord, "canonicalSlug" | "isDisambiguation" | "displayTitle">) | undefined;
+  if (!row) return null;
+  return {
+    slug: row.slug,
+    canonicalSlug: row.slug,
+    title: row.title,
+    markdown: (row as any).markdown,
+    html: (row as any).html,
+    summaryMarkdown: (row as any).summary_markdown ?? "",
+    plain_text: (row as any).plain_text,
+    generated_at: (row as any).generated_at,
+    isDisambiguation: false,
+  };
+}
+
+/** Remove an archived article (after restore or manual deletion). */
+export function deleteArchivedArticle(db: DatabaseSync, slug: string): void {
+  db.prepare(`DELETE FROM archived_articles WHERE slug = ?`).run(slug);
 }

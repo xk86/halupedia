@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toWikiSegment } from "./wikiPath";
 
 interface AdminOverview {
@@ -51,6 +51,28 @@ export function Admin({ onNavigate }: Props) {
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
   const [generationQueue, setGenerationQueue] = useState<GenerationQueueItem[]>([]);
   const [savingPromptKey, setSavingPromptKey] = useState<string | null>(null);
+
+  // Slug alias management
+  const [aliasSearch, setAliasSearch] = useState("");
+  const [aliasResults, setAliasResults] = useState<Array<{ slug: string; title: string; aliases: Array<{ aliasSlug: string; articleSlug: string }> }>>([]);
+  const [aliasSearching, setAliasSearching] = useState(false);
+  const [newAliasSlug, setNewAliasSlug] = useState("");
+  const [newAliasTarget, setNewAliasTarget] = useState("");
+  const [aliasMsg, setAliasMsg] = useState<string | null>(null);
+
+  // Canonical redirect
+  const [redirectSource, setRedirectSource] = useState("");
+  const [redirectTarget, setRedirectTarget] = useState("");
+  const [redirectMsg, setRedirectMsg] = useState<string | null>(null);
+  const [redirectConfirmData, setRedirectConfirmData] = useState<{ displacedTitle: string; message: string } | null>(null);
+  const [redirectBusy, setRedirectBusy] = useState(false);
+
+  // Archived articles
+  const [archived, setArchived] = useState<Array<{ slug: string; title: string; archivedAt: number; reason: string }>>([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
+  const [restoreConfirm, setRestoreConfirm] = useState<string | null>(null);
+  const aliasSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -181,6 +203,85 @@ export function Admin({ onNavigate }: Props) {
       setSavingPromptKey(null);
     }
   }, [loadOverview]);
+
+  const doAliasSearch = useCallback(async (q: string) => {
+    if (!q.trim()) { setAliasResults([]); return; }
+    setAliasSearching(true);
+    try {
+      const res = await fetch(`/api/admin/slug-search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      setAliasResults(data.results ?? []);
+    } finally {
+      setAliasSearching(false);
+    }
+  }, []);
+
+  const loadArchived = useCallback(async () => {
+    setArchivedLoading(true);
+    try {
+      const res = await fetch("/api/admin/archived");
+      const data = await res.json();
+      setArchived(data.archived ?? []);
+    } finally {
+      setArchivedLoading(false);
+    }
+  }, []);
+
+  const addAlias = useCallback(async () => {
+    const aliasSlug = newAliasSlug.trim();
+    const articleSlug = newAliasTarget.trim();
+    if (!aliasSlug || !articleSlug) return;
+    const res = await fetch("/api/admin/slug-aliases", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ aliasSlug, articleSlug }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setAliasMsg(`Error: ${data.error}`); return; }
+    setAliasMsg(`Added alias ${aliasSlug} → ${articleSlug}`);
+    setNewAliasSlug(""); setNewAliasTarget("");
+    void doAliasSearch(aliasSearch);
+  }, [newAliasSlug, newAliasTarget, aliasSearch, doAliasSearch]);
+
+  const removeAlias = useCallback(async (aliasSlug: string) => {
+    await fetch(`/api/admin/slug-aliases/${encodeURIComponent(aliasSlug)}`, { method: "DELETE" });
+    void doAliasSearch(aliasSearch);
+  }, [aliasSearch, doAliasSearch]);
+
+  const createRedirect = useCallback(async (confirm = false) => {
+    setRedirectBusy(true); setRedirectMsg(null);
+    try {
+      const res = await fetch("/api/admin/slug-redirect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sourceSlug: redirectSource, canonicalSlug: redirectTarget, confirm }),
+      });
+      const data = await res.json();
+      if (data.requiresConfirm) {
+        setRedirectConfirmData({ displacedTitle: data.displacedTitle, message: data.message });
+        return;
+      }
+      if (!res.ok) { setRedirectMsg(`Error: ${data.error}`); return; }
+      setRedirectMsg(`Redirect created: ${data.sourceSlug} → ${data.canonicalSlug}${data.archived ? ` (archived ${data.archived})` : ""}`);
+      setRedirectSource(""); setRedirectTarget(""); setRedirectConfirmData(null);
+      void loadArchived();
+    } finally {
+      setRedirectBusy(false);
+    }
+  }, [redirectSource, redirectTarget, loadArchived]);
+
+  const restoreArchived = useCallback(async (slug: string, confirm = false) => {
+    const res = await fetch(`/api/admin/archived/${encodeURIComponent(slug)}/restore`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm }),
+    });
+    const data = await res.json();
+    if (data.requiresConfirm) { setRestoreConfirm(slug); return; }
+    if (!res.ok) { setRestoreMsg(`Error: ${data.error}`); return; }
+    setRestoreMsg(`Restored ${slug}`); setRestoreConfirm(null);
+    void loadArchived();
+  }, [loadArchived]);
 
   if (loading) return <p className="search-status">Loading admin overview...</p>;
   if (error) return <div className="search-error">{error}</div>;
@@ -346,6 +447,107 @@ export function Admin({ onNavigate }: Props) {
         </div>
         {summaryResult ? <p className="admin-result-headline">{summaryResult}</p> : null}
       </div>
+
+      <section className="search-section" style={{ marginTop: "1.5rem" }}>
+        <h2 className="search-section-title">Slug & Alias Management</h2>
+        <p style={{ fontSize: "0.875rem", color: "var(--color-muted, #888)", marginBottom: "1rem" }}>
+          <strong>Aliases</strong> let multiple slug paths resolve to the same article.
+          A <strong>canonical redirect</strong> makes a source slug silently rewrite to a target slug (useful for merging two articles — the displaced article is archived and restorable).
+        </p>
+
+        <h3 className="sb-heading" style={{ marginBottom: "0.5rem" }}>Find Aliases by Slug</h3>
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+          <input
+            className="search-input"
+            placeholder="Search slug…"
+            value={aliasSearch}
+            onChange={(e) => {
+              setAliasSearch(e.target.value);
+              if (aliasSearchTimer.current) clearTimeout(aliasSearchTimer.current);
+              aliasSearchTimer.current = setTimeout(() => doAliasSearch(e.target.value), 300);
+            }}
+            style={{ flex: 1 }}
+          />
+          {aliasSearching && <span style={{ alignSelf: "center", fontSize: "0.8rem" }}>Searching…</span>}
+        </div>
+        {aliasResults.map((r) => (
+          <div key={r.slug} style={{ border: "1px solid var(--color-border, #ddd)", borderRadius: 6, padding: "0.75rem", marginBottom: "0.5rem" }}>
+            <strong>{r.title}</strong> <code style={{ fontSize: "0.8rem" }}>{r.slug}</code>
+            {r.aliases.length > 0 && (
+              <ul style={{ marginTop: "0.4rem", paddingLeft: "1.2rem" }}>
+                {r.aliases.map((a) => (
+                  <li key={a.aliasSlug} style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.2rem" }}>
+                    <code style={{ fontSize: "0.8rem" }}>{a.aliasSlug}</code>
+                    <button className="admin-btn" style={{ fontSize: "0.75rem", padding: "0.1rem 0.4rem" }} onClick={() => removeAlias(a.aliasSlug)}>Remove</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {r.aliases.length === 0 && <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginTop: "0.3rem" }}>No aliases.</p>}
+          </div>
+        ))}
+
+        <h3 className="sb-heading" style={{ marginTop: "1rem", marginBottom: "0.5rem" }}>Add Alias</h3>
+        <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
+          Alias slug → canonical slug. Visiting the alias will serve the canonical article.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          <input className="search-input" placeholder="alias-slug" value={newAliasSlug} onChange={(e) => setNewAliasSlug(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
+          <span style={{ alignSelf: "center" }}>→</span>
+          <input className="search-input" placeholder="canonical-slug" value={newAliasTarget} onChange={(e) => setNewAliasTarget(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
+          <button className="admin-btn" onClick={addAlias} disabled={!newAliasSlug.trim() || !newAliasTarget.trim()}>Add Alias</button>
+        </div>
+        {aliasMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>{aliasMsg}</p>}
+
+        <h3 className="sb-heading" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>Canonical Slug Redirect</h3>
+        <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
+          All traffic to <em>source slug</em> will silently redirect to <em>canonical slug</em>. If an article exists at the source slug it will be archived (see below). Use this to merge two pages.
+        </p>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+          <input className="search-input" placeholder="source-slug (will redirect)" value={redirectSource} onChange={(e) => setRedirectSource(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
+          <span style={{ alignSelf: "center" }}>→</span>
+          <input className="search-input" placeholder="canonical-slug (stays)" value={redirectTarget} onChange={(e) => setRedirectTarget(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
+          <button className="admin-btn admin-danger-btn" onClick={() => createRedirect(false)} disabled={redirectBusy || !redirectSource.trim() || !redirectTarget.trim()}>Create Redirect</button>
+        </div>
+        {redirectConfirmData && (
+          <div style={{ background: "var(--color-warn-bg, #fff3cd)", border: "1px solid var(--color-warn, #f0ad4e)", borderRadius: 6, padding: "0.75rem", marginBottom: "0.5rem" }}>
+            <p style={{ marginBottom: "0.5rem" }}>{redirectConfirmData.message}</p>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button className="admin-btn admin-danger-btn" onClick={() => createRedirect(true)} disabled={redirectBusy}>Confirm & Archive</button>
+              <button className="admin-btn" onClick={() => setRedirectConfirmData(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {redirectMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>{redirectMsg}</p>}
+
+        <h3 className="sb-heading" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>
+          Archived Articles
+          <button className="admin-btn" style={{ marginLeft: "0.75rem", fontSize: "0.8rem" }} onClick={loadArchived} disabled={archivedLoading}>
+            {archivedLoading ? "Loading…" : "Load / Refresh"}
+          </button>
+        </h3>
+        <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
+          Articles displaced by canonical redirects. Restore to bring them back as a live article at their original slug.
+        </p>
+        {archived.length === 0 && !archivedLoading && <p style={{ fontSize: "0.85rem", color: "var(--color-muted, #888)" }}>No archived articles. Click Load to check.</p>}
+        {archived.map((a) => (
+          <div key={a.slug} style={{ display: "flex", gap: "0.75rem", alignItems: "center", padding: "0.5rem 0", borderBottom: "1px solid var(--color-border, #eee)" }}>
+            <div style={{ flex: 1 }}>
+              <strong>{a.title}</strong> <code style={{ fontSize: "0.8rem" }}>{a.slug}</code>
+              <div style={{ fontSize: "0.75rem", color: "var(--color-muted, #888)" }}>{a.reason} — archived {new Date(a.archivedAt).toLocaleString()}</div>
+            </div>
+            {restoreConfirm === a.slug ? (
+              <div style={{ display: "flex", gap: "0.4rem" }}>
+                <button className="admin-btn admin-danger-btn" onClick={() => restoreArchived(a.slug, true)}>Confirm Restore</button>
+                <button className="admin-btn" onClick={() => setRestoreConfirm(null)}>Cancel</button>
+              </div>
+            ) : (
+              <button className="admin-btn" onClick={() => restoreArchived(a.slug, false)}>Restore</button>
+            )}
+          </div>
+        ))}
+        {restoreMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>{restoreMsg}</p>}
+      </section>
 
       <section className="search-section" style={{ marginTop: "1.5rem" }}>
         <h2 className="search-section-title">Recent Articles</h2>

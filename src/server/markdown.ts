@@ -272,6 +272,9 @@ export function stripFootnoteArtifacts(markdown: string): string {
     // Safe because our rendering system uses [N] superscripts only in HTML output,
     // never expects them in stored markdown source.
     .replace(/\[(\d+)\](?!\()/g, "")
+    // Strip metadata field lines the model may emit (Slug: ..., Title: ..., etc.)
+    // These leak when the model outputs leftover frame-format metadata as prose.
+    .replace(/^(?:Slug|Title|Category|Tags?|Author|Date|Source):\s+\S[^\n]*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

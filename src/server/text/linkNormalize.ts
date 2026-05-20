@@ -1,4 +1,4 @@
-import { slugToTitle } from "../slug";
+import { slugToTitle, slugify } from "../slug";
 import {
   parseMarkdownLinks,
   type BareBracketKind,
@@ -87,7 +87,9 @@ function canonicalForLink(
   const label = displayLabel(link);
 
   if (link.kind === "halu") {
-    const slug = link.slug ?? "";
+    // Slugify normalizes wiki-format slugs (The_American_Trade_Bloc → the-american-trade-bloc)
+    // and any other non-canonical forms the model may emit.
+    const slug = slugify(link.slug ?? "");
     const hint = link.hint?.trim() ?? "";
     if (!label || !slug) {
       return {
@@ -111,7 +113,7 @@ function canonicalForLink(
   }
 
   if (link.kind === "ref") {
-    const slug = link.slug ?? "";
+    const slug = slugify(link.slug ?? "");
     if (context === "see-also") {
       const text = buildHaluLink(label || slugToTitle(slug), slug, fallbackHint(link));
       return {

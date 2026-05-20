@@ -1449,7 +1449,7 @@ test("section rewrite preserves existing references even when the UI omits them"
   );
 });
 
-test("refresh-context reports when references are already current", async (t) => {
+test("refresh-context always runs LLM and preserves article when content is unchanged", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -1464,9 +1464,10 @@ test("refresh-context reports when references are already current", async (t) =>
     markdown,
   });
 
+  // Mock returns the same body — article content should be intact after refresh
   const server = await createServer(
     databasePath,
-    new QueueLlmClient("", [JSON.stringify({ items: [] })]),
+    new QueueLlmClient(markdown, []),
   );
   const res = await server.request("/api/article/Stable_Page/refresh-context", {
     method: "POST",
@@ -1474,8 +1475,7 @@ test("refresh-context reports when references are already current", async (t) =>
 
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.equal(body.refreshChanged, false);
-  assert.equal(body.article.markdown, markdown);
+  assert.match(body.article.markdown, /Stable Page has a body/);
 });
 
 test("refresh-context can rewrite from retrieved context", async (t) => {

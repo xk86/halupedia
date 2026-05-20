@@ -295,16 +295,23 @@ export function parseArticleFrameOutput(
 }
 
 export function parsePartialArticleFrame(accumulated: string): string | null {
-  const lines = accumulated.split("\n");
-  let inBody = false;
-  const bodyLines: string[] = [];
-  for (const line of lines) {
-    const marker = identifyFrameMarker(line);
-    if (marker === "body") { inBody = true; continue; }
-    if (marker !== null && inBody) break;
-    if (inBody) bodyLines.push(line);
+  const { sections, preBody } = extractFrameSections(accumulated);
+
+  // Primary: explicit body section with content
+  if (sections.body) return sections.body;
+
+  // Fallback: article body arrived before any section marker (model skipped framing).
+  // Require a markdown heading so we don't show stray JSON or marker lines.
+  if (preBody && /^#+ /m.test(preBody)) return preBody;
+
+  // Fallback: body was absorbed into the meta section because the model emitted
+  // ---halu-meta but skipped ---halu-body.  Stream from the first heading onward.
+  if (sections.meta) {
+    const headingIdx = sections.meta.search(/^#+ /m);
+    if (headingIdx >= 0) return sections.meta.slice(headingIdx);
   }
-  return inBody ? bodyLines.join("\n") : null;
+
+  return null;
 }
 
 function titleMatchesRequested(

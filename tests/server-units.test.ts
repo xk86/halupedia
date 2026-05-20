@@ -2165,9 +2165,30 @@ test("parsePartialArticleFrame: works with tolerant alias ---body", () => {
   assert.equal(parsePartialArticleFrame(accumulated), "# Alt Title\n\nContent");
 });
 
-test("parsePartialArticleFrame: returns empty string (not null) for marker with no following content", () => {
+test("parsePartialArticleFrame: returns null when body marker seen but no content yet", () => {
+  // Empty body section = nothing worth showing; caller guards on !partialBody
   const accumulated = "---halu-body\n";
-  assert.equal(parsePartialArticleFrame(accumulated), "");
+  assert.equal(parsePartialArticleFrame(accumulated), null);
+});
+
+test("parsePartialArticleFrame: pre-body content with heading streams before body marker", () => {
+  // Model skipped ---halu-body and wrote article directly
+  const accumulated = "# Direct Article\n\nStreaming content here.";
+  assert.equal(parsePartialArticleFrame(accumulated), "# Direct Article\n\nStreaming content here.");
+});
+
+test("parsePartialArticleFrame: pre-body without heading does not stream (avoids metadata noise)", () => {
+  // JSON or marker text before a heading should not be streamed
+  const accumulated = '---halu-meta {"title":"Test"}\n';
+  assert.equal(parsePartialArticleFrame(accumulated), null);
+});
+
+test("parsePartialArticleFrame: meta-absorbed body streams from first heading", () => {
+  // Model emitted ---halu-meta then body without ---halu-body
+  const accumulated = "---halu-meta\n{\"title\":\"Test\"}\n\n# Test Article\n\nBody so far.";
+  const result = parsePartialArticleFrame(accumulated);
+  assert.ok(result?.includes("# Test Article"));
+  assert.ok(result?.includes("Body so far."));
 });
 
 test("normalizeMarkdownLinks: dangling markdown link tail is not converted into a title seed", () => {

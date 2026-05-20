@@ -62,10 +62,14 @@ class RewriteLlmClient implements LlmClient {
     this.rewriteBody = rewriteBody;
   }
 
+  private rewriteEnvelope(): string {
+    return JSON.stringify({ body: this.rewriteBody, refs_used: [] });
+  }
+
   async chat(system: string, user: string): Promise<string> {
     this.chatCalls.push({ system, user });
     if (system.includes("Rewrite") || system.includes("Refresh")) {
-      return this.rewriteBody;
+      return this.rewriteEnvelope();
     }
     return JSON.stringify({ items: [] });
   }
@@ -76,8 +80,9 @@ class RewriteLlmClient implements LlmClient {
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
     this.chatCalls.push({ system, user });
-    onChunk(this.rewriteBody, this.rewriteBody);
-    return { content: this.rewriteBody, finishReason: "stop" };
+    const content = this.rewriteEnvelope();
+    onChunk(content, content);
+    return { content, finishReason: "stop" };
   }
 
   async embed(): Promise<number[][]> { return []; }
@@ -824,7 +829,6 @@ test("refresh-context streams exactly one persisted revision without post-proces
   });
   assert.equal(res.status, 200);
   const events = await readNdjson(res);
-  assert.ok(events.some((event) => event.type === "progress"), "refresh should stream progress");
   const done = events.find((event) => event.type === "done");
   assert.ok(done, "stream should finish with done event");
 

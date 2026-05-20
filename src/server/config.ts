@@ -23,6 +23,7 @@ function loadPromptFiles(dir: string, runnable: boolean) {
       user?: string;
       model?: "heavy" | "light";
       thinking?: boolean;
+      json?: boolean;
       modes?: Record<string, RewriteMode>;
     };
     prompts[key] = {
@@ -37,6 +38,7 @@ function loadPromptFiles(dir: string, runnable: boolean) {
                   ? "heavy"
                   : undefined,
             thinking: raw.thinking ?? false,
+            json: raw.json ?? false,
           }
         : {}),
     };
@@ -84,6 +86,8 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       max_references: app.rag?.max_references ?? 50,
       reference_recursive_depth: app.rag?.reference_recursive_depth ?? 2,
       reference_recursive_max_per_article: app.rag?.reference_recursive_max_per_article ?? 3,
+      prompt_ref_content_min_score: app.rag?.prompt_ref_content_min_score ?? 0.5,
+      prompt_ref_content_top_k: app.rag?.prompt_ref_content_top_k ?? 6,
     },
     homepage: {
       rotation_hours: app.homepage?.rotation_hours ?? 4,

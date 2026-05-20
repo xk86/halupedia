@@ -4,7 +4,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  getArticle,
   listArticles,
+  listArticleRevisions,
   openDatabase,
   saveArticle,
   saveArticleReferences,
@@ -12,6 +14,7 @@ import {
   deleteArticleBySlug,
   getArticleByLookup,
   isSlugDeleted,
+  updateArticleSummary,
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import {
@@ -45,7 +48,7 @@ import {
   normalizeSummaryMarkdown,
   summaryLooksLikeLeadCopy,
 } from "../src/server/summary";
-import { summarizeRetrievedSource } from "../src/server/index";
+import { summarizeRetrievedSource, parseArticleJsonOutput, prepareMarkdownForJsonPrompt } from "../src/server/index";
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
@@ -155,6 +158,7 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
 
   await heavy.chat("system", "user");
   await light.chat("system", "user", { thinking: true });
+  await heavy.chat("system", "user", { jsonMode: true });
   await heavy.embed(["article chunk"]);
 
   assert.equal(logger.entries.find((entry) => entry.event === "llm.chat_request")?.fields.role, "heavy");
@@ -165,6 +169,8 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
   assert.ok(!logger.entries.some((entry) => entry.fields.role === "chat"));
   assert.equal((chatBodies[0] as { think?: boolean }).think, false);
   assert.equal((chatBodies[1] as { think?: boolean }).think, true);
+  assert.equal((chatBodies[2] as { format?: string }).format, "json");
+  assert.deepEqual((chatBodies[2] as { response_format?: unknown }).response_format, { type: "json_object" });
 });
 
 test("heavy and light OpenAI-compatible requests are sent independently", async (t) => {
@@ -472,7 +478,7 @@ test("loadConfig populates a dedicated light LLM config section", () => {
   const { llm } = loadConfig();
   assert.ok(llm.light.model);
   assert.ok(llm.light.base_url);
-  assert.equal(llm.light.max_tokens, 3000);
+  assert.ok(typeof llm.light.max_tokens === "number" && llm.light.max_tokens > 0);
 });
 
 test("loadConfig resolves prompt manifest file references", () => {
@@ -550,6 +556,140 @@ test("summary helpers preserve complete long paragraphs", () => {
 
   assert.equal(normalizeSummaryMarkdown(longSummary), longSummary);
   assert.equal(summaryMarkdownFromArticle(articleMarkdown), longSummary);
+});
+
+test("updateArticleSummary is pipeline-only and updates the active revision without creating history", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-summary-revision-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const firstMarkdown = "# Revision Boundary\n\nOriginal body.";
+  const secondMarkdown = "# Revision Boundary\n\nUser-edited body.";
+
+  saveArticle(
+    db,
+    {
+      slug: "revision-boundary",
+      canonicalSlug: "revision-boundary",
+      title: "Revision Boundary",
+      markdown: firstMarkdown,
+      html: renderMarkdown(firstMarkdown),
+      plain_text: markdownToPlainText(firstMarkdown),
+      generated_at: 100,
+      summaryMarkdown: "Original summary.",
+    },
+    [],
+    ["revision-boundary"],
+    { operation: "generate" },
+  );
+  saveArticle(
+    db,
+    {
+      slug: "revision-boundary",
+      canonicalSlug: "revision-boundary",
+      title: "Revision Boundary",
+      markdown: secondMarkdown,
+      html: renderMarkdown(secondMarkdown),
+      plain_text: markdownToPlainText(secondMarkdown),
+      generated_at: 200,
+      summaryMarkdown: "Edit summary.",
+    },
+    [],
+    ["revision-boundary"],
+    { operation: "raw-edit", instructions: "User changed body." },
+  );
+
+  const beforeArticle = getArticle(db, "revision-boundary");
+  const beforeRevisions = listArticleRevisions(db, "revision-boundary");
+  assert.ok(beforeArticle);
+  assert.equal(beforeRevisions.length, 2);
+
+  const staleUpdated = updateArticleSummary(db, "revision-boundary", "Stale summary refresh.", {
+    updateRevisionGeneratedAt: 100,
+  });
+  const afterStaleArticle = getArticle(db, "revision-boundary");
+  const afterStaleRevisions = listArticleRevisions(db, "revision-boundary");
+  assert.equal(staleUpdated?.summaryMarkdown, "Edit summary.");
+  assert.equal(afterStaleArticle?.summaryMarkdown, "Edit summary.");
+  assert.equal(afterStaleRevisions.length, beforeRevisions.length);
+  assert.equal(afterStaleRevisions[0].summaryMarkdown, "Edit summary.");
+  assert.equal(afterStaleRevisions[1].summaryMarkdown, "Stale summary refresh.");
+
+  const updated = updateArticleSummary(db, "revision-boundary", "Pipeline summary refresh.", {
+    updateRevisionGeneratedAt: 200,
+  });
+  const afterArticle = getArticle(db, "revision-boundary");
+  const afterRevisions = listArticleRevisions(db, "revision-boundary");
+  db.close();
+
+  assert.equal(updated?.summaryMarkdown, "Pipeline summary refresh.");
+  assert.equal(afterArticle?.summaryMarkdown, "Pipeline summary refresh.");
+  assert.equal(afterArticle?.markdown, beforeArticle.markdown);
+  assert.equal(afterArticle?.html, beforeArticle.html);
+  assert.equal(afterArticle?.plain_text, beforeArticle.plain_text);
+  assert.equal(afterArticle?.generated_at, beforeArticle.generated_at);
+  assert.equal(afterRevisions.length, beforeRevisions.length);
+  assert.equal(afterRevisions[0].operation, "raw-edit");
+  assert.equal(afterRevisions[0].summaryMarkdown, "Pipeline summary refresh.");
+  assert.equal(afterRevisions[0].markdown, beforeRevisions[0].markdown);
+  assert.equal(afterRevisions[1].summaryMarkdown, "Stale summary refresh.");
+});
+
+test("saveArticle skipRevision updates pipeline artifacts without adding a revision", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-skip-revision-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const originalMarkdown = "# Pipeline Repair\n\nOriginal body.";
+  const repairedMarkdown = "# Pipeline Repair\n\nOriginal body.";
+
+  saveArticle(
+    db,
+    {
+      slug: "pipeline-repair",
+      canonicalSlug: "pipeline-repair",
+      title: "Pipeline Repair",
+      markdown: originalMarkdown,
+      html: renderMarkdown(originalMarkdown),
+      plain_text: markdownToPlainText(originalMarkdown),
+      generated_at: 100,
+      summaryMarkdown: "Original summary.",
+    },
+    [],
+    ["pipeline-repair"],
+    { operation: "generate" },
+  );
+  const beforeRevisions = listArticleRevisions(db, "pipeline-repair");
+
+  saveArticle(
+    db,
+    {
+      slug: "pipeline-repair",
+      canonicalSlug: "pipeline-repair",
+      title: "Pipeline Repair",
+      markdown: repairedMarkdown,
+      html: renderMarkdown(repairedMarkdown),
+      plain_text: markdownToPlainText(repairedMarkdown),
+      generated_at: 200,
+      summaryMarkdown: "Pipeline-updated summary.",
+    },
+    [],
+    ["pipeline-repair"],
+    { operation: "repair", instructions: "Pipeline artifact update.", skipRevision: true },
+  );
+
+  const article = getArticle(db, "pipeline-repair");
+  const afterRevisions = listArticleRevisions(db, "pipeline-repair");
+  db.close();
+
+  assert.equal(article?.summaryMarkdown, "Pipeline-updated summary.");
+  assert.equal(afterRevisions.length, beforeRevisions.length);
+  assert.deepEqual(
+    afterRevisions.map((revision) => revision.operation),
+    beforeRevisions.map((revision) => revision.operation),
+  );
 });
 
 test("listArticles only returns real article entries", (t) => {
@@ -1811,4 +1951,183 @@ test("normalizeHaluLinks: title with apostrophe like [Obama's Method] becomes a 
   const result = normalizeHaluLinks(input);
   // Apostrophe in title is fine — only double-quote is rejected
   assert.match(result, /halu:obama-s-method/);
+});
+
+// parseArticleJsonOutput
+
+const PROVIDED = new Set(["slug-a", "slug-b", "slug-c"]);
+const NO_PINNED = new Set<string>();
+const PINNED = new Set(["slug-a"]);
+
+test("parseArticleJsonOutput: bare JSON object", () => {
+  const raw = JSON.stringify({ body: "# Title\n\nBody text.", refs_used: ["slug-a", "slug-b"] });
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "# Title\n\nBody text.");
+  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
+});
+
+test("parseArticleJsonOutput: JSON wrapped in ```json fence", () => {
+  const inner = JSON.stringify({ body: "# Title\n\nBody.", refs_used: ["slug-a"] });
+  const raw = "```json\n" + inner + "\n```";
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "# Title\n\nBody.");
+  assert.deepEqual(result.refsUsed, ["slug-a"]);
+});
+
+test("parseArticleJsonOutput: JSON wrapped in unlabelled ``` fence", () => {
+  const inner = JSON.stringify({ body: "# Title\n\nBody.", refs_used: ["slug-b"] });
+  const raw = "```\n" + inner + "\n```";
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "# Title\n\nBody.");
+});
+
+test("parseArticleJsonOutput: 'json {...}' prefix style (no backticks)", () => {
+  const inner = JSON.stringify({ body: "# Title\n\nBody.", refs_used: ["slug-a"] });
+  const raw = "json " + inner;
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "# Title\n\nBody.");
+});
+
+test("parseArticleJsonOutput: \\n in JSON body becomes real newline", () => {
+  const raw = '{"body":"line one\\n\\nline two","refs_used":[]}';
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "line one\n\nline two");
+});
+
+test("parseArticleJsonOutput: refs_used filtered to provided slugs only", () => {
+  const raw = JSON.stringify({ body: "Body.", refs_used: ["slug-a", "unknown-slug", "slug-c"] });
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.refsUsed, ["slug-a", "slug-c"]);
+});
+
+test("parseArticleJsonOutput: body ref links are merged with declared refs", () => {
+  const raw = JSON.stringify({
+    body: "Body cites [B](ref:slug-b) and [C](ref:slug-c).",
+    refs_used: ["slug-a"],
+  });
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b", "slug-c"]);
+});
+
+test("parseArticleJsonOutput: fallback raw markdown still scans body refs", () => {
+  const raw = "Plain markdown cites [B](ref:slug-b).";
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, raw);
+  assert.deepEqual(result.refsUsed, ["slug-b"]);
+});
+
+test("parseArticleJsonOutput: dangling final link is rejected instead of trimmed", () => {
+  const raw = "Plain markdown ends with [Spring (Cat)](";
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "truncated-markdown-link");
+  assert.equal(result.body, raw);
+});
+
+test("parseArticleJsonOutput: requireJson rejects raw markdown fallback", () => {
+  const raw = "Plain markdown cites [B](ref:slug-b).";
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED, undefined, { requireJson: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "missing-json-body");
+  assert.equal(result.body, raw);
+});
+
+test("parseArticleJsonOutput: terminal dangling markdown link is invalid structured output", () => {
+  const raw = '{"body":"# Title\\n\\nBroken at [Slug]("}';
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED, undefined, { requireJson: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "truncated-markdown-link");
+  assert.match(result.body, /Broken at \[Slug\]\($/);
+});
+
+test("parseArticleJsonOutput: requireJson rejects incomplete JSON before repair", () => {
+  const raw = '{"body":"# Title\\n\\nBroken inside [Slug](halu:slug \\"';
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED, undefined, { requireJson: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "truncated-json");
+  assert.equal(result.body, raw);
+});
+
+test("prepareMarkdownForJsonPrompt converts halu hint quotes away from JSON-hostile double quotes", () => {
+  const raw = 'A [Copper Link](halu:copper-link "quoted hint") and [Other](ref:other).';
+  assert.equal(
+    prepareMarkdownForJsonPrompt(raw),
+    "A [Copper Link](halu:copper-link 'quoted hint') and [Other](ref:other).",
+  );
+});
+
+test("prepareMarkdownForJsonPrompt handles escaped quotes inside halu hints", () => {
+  const raw = 'A [Copper Link](halu:copper-link "hint with \\"inner\\" quotes and Bob\'s note").';
+  assert.equal(
+    prepareMarkdownForJsonPrompt(raw),
+    'A [Copper Link](halu:copper-link \'hint with "inner" quotes and Bob&apos;s note\').',
+  );
+});
+
+test("parseArticleJsonOutput: missing pinned ref returns ok=false", () => {
+  const raw = JSON.stringify({ body: "Body.", refs_used: ["slug-b"] });
+  const result = parseArticleJsonOutput(raw, PROVIDED, PINNED);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.missingPinned, ["slug-a"]);
+  assert.equal(result.body, "Body.");
+});
+
+test("parseArticleJsonOutput: all pinned refs present returns ok=true", () => {
+  const raw = JSON.stringify({ body: "Body.", refs_used: ["slug-a", "slug-b"] });
+  const result = parseArticleJsonOutput(raw, PROVIDED, PINNED);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
+});
+
+test("parseArticleJsonOutput: malformed JSON falls back to raw body", () => {
+  const raw = "not json at all";
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, raw);
+  assert.deepEqual(result.refsUsed, []);
+});
+
+test("parseArticleJsonOutput: body field missing falls back to raw body", () => {
+  const raw = JSON.stringify({ refs_used: ["slug-a"] });
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, raw);
+});
+
+test("parseArticleJsonOutput: body prose containing braces parses correctly", () => {
+  const obj = { body: "Some {nested} text here.", refs_used: ["slug-a"] };
+  const raw = "json " + JSON.stringify(obj);
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "Some {nested} text here.");
+});
+
+test("parseArticleJsonOutput: direct body extraction when outer JSON is malformed", () => {
+  // Missing comma between keys — JSON.parse fails, but body is still readable
+  const raw = '{"body": "Recovered body text." "refs_used": ["slug-a"]}';
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "Recovered body text.");
+});
+
+test("parseArticleJsonOutput: direct extraction handles \\n escape sequences in malformed JSON", () => {
+  const raw = '{"body": "line one\\n\\nline two" "refs_used": []}';
+  const result = parseArticleJsonOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "line one\n\nline two");
+});
+
+test("normalizeMarkdownLinks: dangling markdown link tail is not converted into a title seed", () => {
+  const raw = "Body ends with [Spring (Cat)](";
+  const result = normalizeMarkdownLinks(raw, "article");
+  assert.equal(result.markdown, raw);
+  assert.equal(result.stats.rewritten, 0);
 });

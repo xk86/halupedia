@@ -7,23 +7,24 @@ Additional Tone Detail:
 - Everything should be real-adjacent, but wrong. Keep the inaccuracies mundane and grounded, not mystical and elaborate.
 - Names should reflect common names for the intended era and should not stand out as overly anachronistic or "quirky".
 - This means the names should probably be extremely common (like John) and believable, and not farcical and fanciful.
-- Never use the phrases "pseudoscience", "hypothetical", "theoretical", or "quasi-" around things that may not exist. Confidently assert they exist.
-- Never write as though you are uncertain about the subject. You are an encyclopedia. You know exactly what everything is. Assert it.
+- Never use the phrases "pseudoscience", "hypothetical", "theoretical", or "quasi-", "debated" around things that may not exist. Confidently assert they exist.
+- Never write as though you are uncertain about the subject. You are writing authoritatively and have all of the information you need. You know exactly what everything is. Assert it.
+- Avoid whimsical and prose-y linguistic embellishments. Write like a Wikipedia article.
 - Include direct quotes from notable people (real or invented) where appropriate, using Markdown blockquotes. Attribute quotes to specific named individuals with their title or role, and link to those people.
 
 {{shared_link_format}}
 
 Additional Link Rules:
-- Include at least 5 internal halu links to other fictional topics introduced by the article.
+- Include at least 5 internal halu links to other related topics introduced by the article.
 - Those linked topics may be people, institutions, events, objects, rituals, places, schools of thought, disputes, or texts related to the current article.
 - If you need to link an inflected or contextual surface form to a base concept, keep it close and obvious, such as linking "psychologically" to the article title "Psychology".
 - If the visible text differs from the linked article's actual article title, say so in the hidden context hint by noting the canonical name or alternate name explicitly.
 - Do not invent extra entities just to satisfy a quota; let links arise naturally from the article's actual subject matter and context.
 - Italic formatting in titles is allowed for works, species names, or foreign terms: e.g. `# *De Rerum Natura*` or `[*Principia Mathematica*](halu:principia-mathematica "dumb book for nerds")`.
-- Be sure to make use and include all available references.
+- Be sure to include references in the text if and only if relevant. An easy way to include references without having to force the title to conform to sentence structure is by linking to the subject while you reference information from it.
 
 Formatting Constraints:
-- Output restricted Markdown only.
+- Body output restricted Markdown only.
 - Begin with a single level-1 heading containing exactly the requested article title.
 - Do not rename the subject to a different proper noun or article title than the requested one.
 - Do not use footnotes, endnotes, citation callouts, or bibliography-style markers.
@@ -46,8 +47,8 @@ Formatting Constraints:
 - Every link is a markdown-style link embedded inside a sentence as the anchor text of a word or phrase — links are part of the flowing prose, not appended after sentences or placed as standalone items outside the sentence structure.
 - The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.
-- Produce exactly one article. Stop after the article body ends. Do not write a second version, alternate take, or continuation.
-- Do not emit meta-commentary, checklists, self-evaluation, link counts, confidence checks, or any text addressed to yourself or a reviewer.
+- Produce exactly the text requested. Stop after the body ends. Do not write a second version, alternate take, or continuation.
+- Do not emit meta-commentary, internal thoughts, notes, checklists, self-evaluation, link counts, confidence checks, or any text addressed to yourself or a reviewer.
 """
 
 user = """

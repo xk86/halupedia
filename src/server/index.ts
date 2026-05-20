@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { jsonrepair } from "jsonrepair";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -99,6 +100,7 @@ import {
   findBodyReferencedArticles,
   findExistingArticleLinkReferences,
   formatReferencesForPrompt,
+  formatReferencesForPromptJson,
   linkMentionedReferencesInBody,
   loadPriorReferenceList,
   resolveRefLinks,
@@ -176,6 +178,89 @@ export interface CreateAppOptions {
   skipHomepagePrepare?: boolean;
   logger?: Logger;
   llmClient?: LlmClient;
+}
+
+/**
+ * Parse the JSON envelope `{"body": "...", "refs_used": [...]}` that LLMs
+ * return for article-generation prompts.
+ *
+ * Strategy:
+ *   1. Strip any LLM prefix noise (code fences, bare `json` magic word).
+ *   2. Run through jsonrepair so minor LLM slop (missing commas, stray chars,
+ *      unquoted keys, etc.) is fixed before we hand it to JSON.parse.
+ *   3. True fallback: treat raw as body only when the envelope is absent.
+ */
+export function parseArticleJsonOutput(
+  raw: string,
+  providedSlugs: ReadonlySet<string>,
+  pinnedSlugs: ReadonlySet<string>,
+  logger?: Logger,
+  options: { requireJson?: boolean } = {},
+): { ok: true; body: string; refsUsed: string[] } | { ok: false; body: string; missingPinned: string[]; reason?: string } {
+  const finish = (body: string, declared: string[], source: "json" | "fallback") => {
+    if (options.requireJson && source !== "json") {
+      return { ok: false as const, body, missingPinned: [], reason: "missing-json-body" };
+    }
+    if (/\[[^\]]*\]\($/.test(body)) {
+      return { ok: false as const, body, missingPinned: [], reason: "truncated-markdown-link" };
+    }
+    // Trim dangling incomplete markdown links at the end of a truncated body
+    // (e.g. "[Spring (Cat)](" with no URL or closing paren).
+    const cleanBody = body.replace(/\[[^\]]*\]\($/, "").trimEnd();
+
+    // Scan only prose for body refs — strip References/See Also first so we
+    // don't count refs the model put in a trailing section that will be removed
+    // during save, which would make pinned validation and logging misleading.
+    const proseBody = stripTopLevelSections(cleanBody, ["References", "See also"]);
+    const fromBody: string[] = [];
+    for (const m of proseBody.matchAll(/\(ref:([\w-]+)\)/g)) {
+      if (providedSlugs.has(m[1]) && !declared.includes(m[1])) fromBody.push(m[1]);
+    }
+    const refsUsed = [...new Set([...declared, ...fromBody])];
+    const unused = [...providedSlugs].filter((s) => !refsUsed.includes(s));
+    logger?.info("article.refs_resolved", {
+      json_declared: declared.join(", ") || "(none)",
+      body_found: fromBody.join(", ") || "(none)",
+      merged: refsUsed.join(", ") || "(none)",
+      unused: unused.join(", ") || "(none)",
+    });
+    const missingPinned = [...pinnedSlugs].filter((s) => !refsUsed.includes(s));
+    if (missingPinned.length > 0) return { ok: false as const, body: cleanBody, missingPinned };
+    return { ok: true as const, body: cleanBody, refsUsed };
+  };
+
+  const stripped = stripJsonFences(raw.trim()).replace(/^json\s*(?=[{\[])/i, "").trim();
+  if (options.requireJson && !stripped.startsWith("{")) {
+    return { ok: false as const, body: raw, missingPinned: [], reason: "missing-json-body" };
+  }
+  if (options.requireJson && !stripped.endsWith("}")) {
+    return { ok: false as const, body: raw, missingPinned: [], reason: "truncated-json" };
+  }
+
+  try {
+    const repaired = jsonrepair(stripped);
+    const parsed = JSON.parse(repaired) as { body?: unknown; refs_used?: unknown };
+    if (typeof parsed.body === "string") {
+      const declared = Array.isArray(parsed.refs_used)
+        ? (parsed.refs_used as unknown[]).filter(
+            (s): s is string => typeof s === "string" && providedSlugs.has(s),
+          )
+        : [];
+      return finish(parsed.body, declared, "json");
+    }
+  } catch { /* fall through */ }
+
+  return finish(raw, [], "fallback");
+}
+
+export function prepareMarkdownForJsonPrompt(markdown: string): string {
+  return markdown.replace(
+    /\]\(halu:([^)"'\t\r\n ]+)\s+"((?:\\.|[^"\\\r\n)])*)"\)/g,
+    (_match, slug: string, hint: string) => {
+      const safeHint = hint.replace(/\\"/g, '"').replace(/'/g, "&apos;");
+      return `](halu:${slug} '${safeHint}')`;
+    },
+  );
 }
 
 function titleMatchesRequested(
@@ -474,36 +559,43 @@ async function generateSeeAlsoCandidates(
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   bodyMarkdown: string,
-  ragContext: string,
-  linkHints: IncomingHint[],
-  relatedTitles: string[],
+  referenceSlugs: string[],
 ): Promise<InternalArticleCandidate[]> {
   const prompt = getPrompt(promptConfig, "see_also");
   const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const referenceSlugsList = referenceSlugs.length
+    ? referenceSlugs.map((s) => `- ${s}`).join("\n")
+    : "(none)";
   const raw = await selectedLlm.chat(
     prompt.system,
     renderTemplate(prompt.user, {
-      slug: slugify(requestedTitle),
       requested_title: requestedTitle,
       article_excerpt: bodyMarkdown.slice(0, 6000),
-      rag_context: ragContext || "(none)",
-      link_hints: formatIncomingHintsForPrompt(linkHints, slugify(requestedTitle)),
-      related_titles: relatedTitles.length
-        ? relatedTitles.map((title) => `- ${title}`).join("\n")
-        : "(none)",
-      parent_comment: "",
+      reference_slugs: referenceSlugsList,
     }),
-    { thinking: prompt.thinking },
+    { thinking: prompt.thinking, jsonMode: prompt.json },
   );
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) return [];
-  const parsed = JSON.parse(match[0]) as { items?: SeeAlsoCandidate[] };
+  // Accept either a bare JSON array or an object wrapping it in an `items` key.
+  const arrayMatch = raw.match(/\[[\s\S]*\]/);
+  const objectMatch = raw.match(/\{[\s\S]*\}/);
+  let items: SeeAlsoCandidate[] = [];
+  if (arrayMatch) {
+    try { items = JSON.parse(arrayMatch[0]) as SeeAlsoCandidate[]; } catch { /* fall through */ }
+  }
+  if (items.length === 0 && objectMatch) {
+    try {
+      const obj = JSON.parse(objectMatch[0]) as { items?: SeeAlsoCandidate[] };
+      items = obj.items ?? [];
+    } catch { /* fall through */ }
+  }
   return dedupeArticleCandidates(
-    (parsed.items ?? []).map((item) => ({
-      slug: slugify(item.title ?? ""),
-      title: (item.title ?? "").replace(/\s+/g, " ").trim(),
-      hiddenHint: (item.hint ?? "").replace(/\s+/g, " ").trim(),
-    })),
+    items
+      .filter((item) => item.slug)
+      .map((item) => ({
+        slug: slugify(item.slug ?? ""),
+        title: slugToTitle(slugify(item.slug ?? "")),
+        hiddenHint: (item.hint ?? "").replace(/\s+/g, " ").trim(),
+      })),
   );
 }
 
@@ -536,7 +628,7 @@ async function recheckArticleLinks(
       selected_text: "",
       edit_instructions: "",
     }),
-    { thinking: prompt.thinking },
+    { thinking: prompt.thinking, jsonMode: prompt.json },
   );
 
   const match = raw.match(/\{[\s\S]*\}/);
@@ -708,7 +800,7 @@ async function generateArticleSummary(
         edit_instructions: "",
         full_article: currentArticle,
       }),
-      { thinking: prompt.thinking },
+      { thinking: prompt.thinking, jsonMode: prompt.json },
     );
     const summary = normalizeSummaryMarkdown(raw);
     if (summary && !summaryLooksLikeLeadCopy(summary, articleMarkdown)) {
@@ -794,7 +886,7 @@ async function generateRandomPageChoice(
         ? inspiration.map((a) => `- ${a.title} (${a.slug})`).join("\n")
         : "(none)",
     }),
-    { thinking: prompt.thinking },
+    { thinking: prompt.thinking, jsonMode: prompt.json },
   );
 
   return normalizeRandomPageChoice(raw);
@@ -970,7 +1062,7 @@ async function generateLinkSuggestion(
       link_hints: "",
       parent_comment: "",
     }),
-    { thinking: prompt.thinking },
+    { thinking: prompt.thinking, jsonMode: prompt.json },
   );
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) {
@@ -1109,7 +1201,7 @@ export async function createApp(options: CreateAppOptions = {}) {
    * the full postProcessArticle pipeline (e.g. add-link, revert).
    * Non-blocking — fires via trackGeneration and logs failures.
    */
-  function afterArticleSaved(slug: string, title: string, markdown: string): void {
+  function afterArticleSaved(slug: string, title: string, markdown: string, generatedAt: number): void {
     trackGeneration(
       (async () => {
         await indexArticleChunks(
@@ -1128,10 +1220,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           title,
           markdown,
         ).catch(() => summaryMarkdownFromArticle(markdown));
-        updateArticleSummary(db, slug, summaryMarkdown, {
-          operation: "summary-regenerate",
-          instructions: "Post-save summary refresh.",
-        });
+        updateArticleSummary(db, slug, summaryMarkdown, { updateRevisionGeneratedAt: generatedAt });
       })().catch((error) => {
         logger.warn("article.post_save_hook_failed", {
           slug,
@@ -1270,6 +1359,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       {
         operation: "repair",
         instructions: "Normalize lowercase-first canonical title.",
+        skipRevision: true,
       },
     );
     return repairedArticle;
@@ -1353,6 +1443,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       {
         operation: "repair",
         instructions: "Repair cached article artifacts.",
+        skipRevision: true,
       },
     );
     return getArticleByLookup(db, repairedArticle.slug) ?? repairedArticle;
@@ -1578,14 +1669,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       operation?: string;
       instructions?: string;
       revertedFromRevisionId?: number | null;
+      skipRevision?: boolean;
     } = {},
-    { userAdditionSlugs = [], pinnedSlugsSet = new Set<string>(), blacklistSlugs = [], scrapeExistingBodyLinks = true }: {
+    { userAdditionSlugs = [], pinnedSlugsSet = new Set<string>(), blacklistSlugs = [], scrapeExistingBodyLinks = true, selectedReferenceSlugs = null }: {
       userAdditionSlugs?: string[];
       pinnedSlugsSet?: ReadonlySet<string>;
       blacklistSlugs?: string[];
       scrapeExistingBodyLinks?: boolean;
+      selectedReferenceSlugs?: string[] | null;
     } = {},
   ) {
+    const selectedReferenceSet = selectedReferenceSlugs
+      ? new Set(selectedReferenceSlugs.map((s) => slugify(s)).filter(Boolean))
+      : null;
     const parsedInput = normalizeMarkdownLinks(bodyMarkdown, "article");
     logger.info("text.pipeline.start", {
       slug,
@@ -1647,8 +1743,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       db,
       {
         articleSlug: canonicalSlug,
-        ragSources: retrieved.sourceArticles,
-        priorReferences: loadPriorReferenceList(db, canonicalSlug),
+        ragSources: selectedReferenceSet
+          ? retrieved.sourceArticles.filter((source) => selectedReferenceSet.has(source.slug))
+          : retrieved.sourceArticles,
+        priorReferences: selectedReferenceSet
+          ? (loadPriorReferenceList(db, canonicalSlug) ?? []).filter((ref) => selectedReferenceSet.has(ref.slug) || ref.pinned)
+          : loadPriorReferenceList(db, canonicalSlug),
         userAdditions,
         blacklistSlugs,
         revisionId: "current",
@@ -1720,6 +1820,13 @@ export async function createApp(options: CreateAppOptions = {}) {
       Array.from(new Set([slug, canonicalSlug, article.canonicalSlug])),
       revision,
     );
+    if (!revision.skipRevision) {
+      logger.info("revision.saved", {
+        slug: canonicalSlug,
+        operation: revision.operation ?? "update",
+        ...(revision.instructions ? { instructions: revision.instructions } : {}),
+      });
+    }
     logger.debug("save.article_immediate.saved_article", { slug: canonicalSlug });
 
     // (d) Persist the reference list using the canonical ReferenceList shape.
@@ -1761,9 +1868,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     retrieved: Awaited<ReturnType<typeof retrieveContext>>,
     hints: IncomingHint[],
     expectedGeneratedAt?: number,
-    { blacklistSlugs = [], userAdditionSlugs = [] }: { blacklistSlugs?: string[]; userAdditionSlugs?: string[] } = {},
+    { blacklistSlugs = [], userAdditionSlugs = [], selectedReferenceSlugs = null }: {
+      blacklistSlugs?: string[];
+      userAdditionSlugs?: string[];
+      selectedReferenceSlugs?: string[] | null;
+    } = {},
   ) {
     const normalizedSlug = slugify(slug);
+    const selectedReferenceSet = selectedReferenceSlugs
+      ? new Set(selectedReferenceSlugs.map((s) => slugify(s)).filter(Boolean))
+      : null;
     logger.debug("post_process.start", { slug: normalizedSlug });
     try {
       // Repair malformed halu links in the BODY only. References/See-also are
@@ -1789,25 +1903,6 @@ export async function createApp(options: CreateAppOptions = {}) {
           (link) => link.targetSlug,
         ),
       );
-      logger.debug("post_process.generating_see_also", { slug: normalizedSlug });
-      const seeAlso = (
-        await generateSeeAlsoCandidates(
-          llm,
-          lightLlm,
-          runtime.prompts,
-          normalizedTitle,
-          repairedBodyMarkdown,
-          retrieved.context,
-          hints,
-          retrieved.relatedTitles,
-        ).catch(() => [])
-      )
-        .filter(
-          (candidate) =>
-            candidate.slug !== slug && !bodyLinkSlugs.has(candidate.slug),
-        )
-        .slice(0, 7);
-      logger.debug("post_process.see_also_generated", { slug: normalizedSlug, count: seeAlso.length });
 
       const existing = getArticleByLookup(db, normalizedSlug);
       if (!existing) return;
@@ -1830,18 +1925,35 @@ export async function createApp(options: CreateAppOptions = {}) {
       );
       // Explicit user additions (from the edit that triggered post-processing) come
       // first so they survive the carried-entry cap even when there are many body refs.
-      const explicitPostProcessAdditions = slugsToUserAdditions(userAdditionSlugs);
+      // Backlink source articles are also always included as user additions so they
+      // appear as references even when RAG scores are zero.
+      const postProcessHints = listIncomingHints(db, normalizedSlug);
+      const postProcessBacklinkSlugs = [...new Set(postProcessHints.map((h) => h.sourceSlug).filter(Boolean))];
+      const explicitPostProcessAdditions = slugsToUserAdditions([
+        ...(selectedReferenceSet ? [] : postProcessBacklinkSlugs),
+        ...userAdditionSlugs,
+      ]);
       const postProcessAdditionsBySlug = new Map<string, ReferenceListEntry>();
       for (const ref of [...explicitPostProcessAdditions, ...existingBodyReferences]) {
         postProcessAdditionsBySlug.set(ref.slug, ref);
       }
       const postProcessUserAdditions = Array.from(postProcessAdditionsBySlug.values());
+      // Merge backlink article context into retrieved sources so the reference list
+      // builder has their content even if the original RAG retrieval scored zero.
+      const postProcessBacklinkContext = postProcessBacklinkSlugs.length > 0
+        ? retrieveDirectArticleContext(db, normalizedSlug, postProcessBacklinkSlugs, runtime.app.rag.mode, runtime.app.rag.max_results, logger)
+        : { context: "", relatedTitles: [], sourceArticles: [] };
+      const postProcessRetrieved = mergeRetrievedContextPackets(retrieved, postProcessBacklinkContext);
       const referenceList = buildReferenceList(
         db,
         {
           articleSlug: normalizedSlug,
-          ragSources: retrieved.sourceArticles,
-          priorReferences: loadPriorReferenceList(db, normalizedSlug),
+          ragSources: selectedReferenceSet
+            ? postProcessRetrieved.sourceArticles.filter((source) => selectedReferenceSet.has(source.slug))
+            : postProcessRetrieved.sourceArticles,
+          priorReferences: selectedReferenceSet
+            ? (loadPriorReferenceList(db, normalizedSlug) ?? []).filter((ref) => selectedReferenceSet.has(ref.slug) || ref.pinned)
+            : loadPriorReferenceList(db, normalizedSlug),
           userAdditions: postProcessUserAdditions,
           blacklistSlugs,
           revisionId: "current",
@@ -1860,7 +1972,6 @@ export async function createApp(options: CreateAppOptions = {}) {
             pinned: r.pinned,
           })),
         ),
-        see_also_count: seeAlso.length,
       });
 
       // Assemble body only. References and see-also stay sidecar-only metadata
@@ -1876,14 +1987,30 @@ export async function createApp(options: CreateAppOptions = {}) {
         slug: normalizedSlug,
         markdown_length: markdown.length,
       });
-      logger.debug("post_process.generating_summary", { slug: normalizedSlug });
-      const summaryMarkdown = await generateArticleSummary(
-        llm,
-        lightLlm,
-        runtime.prompts,
-        normalizedTitle,
-        markdown,
-      ).catch(() => summaryMarkdownFromArticle(markdown));
+
+      // Start SA and summary in parallel — both are LLM calls with no dependency on each other.
+      logger.debug("post_process.generating_see_also_and_summary", { slug: normalizedSlug });
+      const [seeAlsoRaw, summaryMarkdown] = await Promise.all([
+        generateSeeAlsoCandidates(
+          llm,
+          lightLlm,
+          runtime.prompts,
+          normalizedTitle,
+          repairedBodyMarkdown,
+          referenceList.map((r) => r.slug),
+        ).catch(() => []),
+        generateArticleSummary(
+          llm,
+          lightLlm,
+          runtime.prompts,
+          normalizedTitle,
+          markdown,
+        ).catch(() => summaryMarkdownFromArticle(markdown)),
+      ]);
+      const seeAlso = seeAlsoRaw
+        .filter((candidate) => candidate.slug !== normalizedSlug && !bodyLinkSlugs.has(candidate.slug))
+        .slice(0, 7);
+      logger.debug("post_process.see_also_generated", { slug: normalizedSlug, count: seeAlso.length });
       logger.debug("post_process.summary_generated", { slug: normalizedSlug });
 
       const freshCheck = getArticleByLookup(db, normalizedSlug);
@@ -1973,7 +2100,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     onStatus?.("Gathering references...");
     const hints = listIncomingHints(db, slug);
     logger.debug("build.article_rag_retrieving", { slug, incoming_hints: hints.length });
-    const retrieved = await retrieveContext(
+    const ragRetrieved = await retrieveContext(
       db,
       llm,
       slug,
@@ -1985,13 +2112,18 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.llm.embeddings.enabled,
       logger,
     );
+    // Always pull in the full text of articles that link HERE so the generator
+    // has concrete context even when RAG embeddings score zero.
+    const backlinkSlugs = [...new Set(hints.map((h) => h.sourceSlug).filter(Boolean))];
+    const backlinkRetrieved = backlinkSlugs.length > 0
+      ? retrieveDirectArticleContext(db, slug, backlinkSlugs, runtime.app.rag.mode, runtime.app.rag.max_results, logger)
+      : { context: "", relatedTitles: [], sourceArticles: [] };
+    const retrieved = mergeRetrievedContextPackets(ragRetrieved, backlinkRetrieved);
     const relatedTitlesBlock = formatRelatedTitlesForPrompt(slug, retrieved.relatedTitles);
     logger.info("build.article_rag_retrieved", {
       slug,
-      // Each source type called out explicitly so prompt-context provenance is
-      // never ambiguous in logs: chunks come from RAG, backlinks from
-      // article_links, link_hints (hidden_hint) ALSO from article_links.
-      rag_chunk_sources: retrieved.sourceArticles.length,
+      rag_chunk_sources: ragRetrieved.sourceArticles.length,
+      backlink_direct_sources: backlinkRetrieved.sourceArticles.length,
       rag_chunk_titles: relatedTitlesBlock.ragCount,
       backlink_titles: relatedTitlesBlock.backlinkCount,
       incoming_link_hints: hints.length,
@@ -2001,12 +2133,14 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     // Build a preliminary reference list so the prompt can expose ref:N
     // shorthand and the LLM can link back to sources without knowing slugs.
+    const backlinkUserAdditions = slugsToUserAdditions(backlinkSlugs);
     const preliminaryRefs = buildReferenceList(
       db,
       {
         articleSlug: slug,
         ragSources: retrieved.sourceArticles,
         priorReferences: loadPriorReferenceList(db, slug),
+        userAdditions: backlinkUserAdditions,
         revisionId: "current",
         config: runtime.app.rag,
       },
@@ -2018,9 +2152,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     const renderedUserPrompt = renderTemplate(prompt.user, {
       slug,
       requested_title: requestedTitle,
-      link_hints: formatIncomingHintsForPrompt(hints, slug),
+      link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, slug)),
       references_list: formatReferencesForPrompt(preliminaryRefs),
-      rag_context: retrieved.context || "(none)",
+      references_json: formatReferencesForPromptJson(preliminaryRefs.map((ref) => ({ ...ref, content: prepareMarkdownForJsonPrompt(ref.content) })), runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
+      rag_context: prepareMarkdownForJsonPrompt(retrieved.context) || "(none)",
       related_titles: relatedTitlesBlock.rendered,
       article_excerpt: "",
       parent_comment: "",
@@ -2028,30 +2163,23 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     logger.debug("build.article_generating_body", { slug, rag_sources: retrieved.sourceArticles.length, link_hints: hints.length, backlink_titles: relatedTitlesBlock.backlinkCount });
     onStatus?.("Writing...");
-    let rawMarkdown = "";
-    if (onProgress) {
-      await selectedLlm.streamChat(
-        prompt.system,
-        renderedUserPrompt,
-        (_delta, accumulated) => {
-          rawMarkdown = accumulated;
-          const progressMarkdown = sanitizeGeneratedBody(
-            normalizeMarkdown(accumulated),
-          );
-          onProgress(renderMarkdown(progressMarkdown), progressMarkdown);
-        },
-        { thinking: prompt.thinking },
-      );
-    } else {
-      rawMarkdown = await selectedLlm.chat(prompt.system, renderedUserPrompt, {
-        thinking: prompt.thinking,
-      });
+    const rawJson = await selectedLlm.chat(prompt.system, renderedUserPrompt, {
+      thinking: prompt.thinking,
+      jsonMode: prompt.json,
+    });
+    logger.debug("build.article_body_generated", { slug, body_length: rawJson.length });
+    const parseResult = parseArticleJsonOutput(rawJson, new Set(preliminaryRefs.map((r) => r.slug)), new Set(), logger, { requireJson: prompt.json });
+    if (!parseResult.ok) {
+      throw new Error(`article generation returned invalid structured output: ${parseResult.reason ?? "missing required refs"}`);
     }
-    logger.debug("build.article_body_generated", { slug, body_length: rawMarkdown.length });
+    if (onProgress) {
+      const progressMarkdown = sanitizeGeneratedBody(normalizeMarkdown(parseResult.body));
+      onProgress(renderMarkdown(progressMarkdown), progressMarkdown);
+    }
 
     // Resolve ref:N shorthand links the LLM may have emitted before any
     // further processing; must run before stripTopLevelSections in saveArticleImmediately.
-    let markdown = sanitizeGeneratedBody(normalizeMarkdown(rawMarkdown));
+    let markdown = sanitizeGeneratedBody(normalizeMarkdown(parseResult.body));
     markdown = resolveRefLinks(markdown, preliminaryRefs);
     const refLinksResolved = extractInternalLinks(markdown).length;
     logger.debug("build.article_ref_links_resolved", { slug, halu_links: refLinksResolved });
@@ -2070,6 +2198,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     const { article, links, normalizedTitle, normalizedBodyMarkdown } =
       await saveArticleImmediately(slug, requestedTitle, markdown, retrieved, {
         operation: "generate",
+      }, {
+        userAdditionSlugs: parseResult.ok ? parseResult.refsUsed : [],
+        selectedReferenceSlugs: parseResult.ok ? parseResult.refsUsed : [],
       });
     logger.info("page.generated", { slug, links: links.length, sources: retrieved.sourceArticles.length });
 
@@ -2083,6 +2214,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         retrieved,
         hints,
         article.generated_at,
+        {
+          userAdditionSlugs: parseResult.ok ? parseResult.refsUsed : [],
+          selectedReferenceSlugs: parseResult.ok ? parseResult.refsUsed : [],
+        },
       ).catch(() => {}),
     );
 
@@ -2503,6 +2638,40 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
       return c.json({ error: err instanceof Error ? err.message : "save failed" }, 500);
     }
+  });
+
+  // Render a markdown preview without saving. Returns HTML + any link/parser diagnostics.
+  app.post("/api/article/:slug/preview-markdown", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+
+    const body = (await c.req.json().catch(() => ({}))) as { markdown?: string };
+    const rawMarkdown = (body.markdown ?? "").trim();
+    if (!rawMarkdown) return c.json({ html: "", diagnostics: [] });
+
+    const normalized = normalizeMarkdownLinks(rawMarkdown, "article");
+    // Check for broken halu:/ref: links (slugs that don't exist in the DB).
+    const brokenLinks: Array<{ slug: string; reason: string }> = [];
+    const checkedSlugs = new Set<string>();
+    for (const link of normalized.links) {
+      if (link.slug && link.slug !== lookupSlug && !checkedSlugs.has(link.slug)) {
+        checkedSlugs.add(link.slug);
+        const exists = getArticleByLookup(db, link.slug);
+        if (!exists) {
+          brokenLinks.push({ slug: link.slug, reason: `no article with slug "${link.slug}"` });
+        }
+      }
+    }
+    const html = renderMarkdown(normalized.markdown);
+    const diagnostics = [
+      ...normalized.diagnostics
+        .filter((d) => d.severity === "warn" || d.severity === "error")
+        .map((d) => ({ severity: d.severity, message: d.message })),
+      ...brokenLinks.map((b) => ({ severity: "warn" as const, message: `Broken link to "${b.slug}": ${b.reason}` })),
+    ];
+    return c.json({ html, diagnostics });
   });
 
   /**
@@ -2926,7 +3095,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const selectedLlm = prompt.model === "light" ? lightLlm : llm;
     const renderedSystemPrompt = renderTemplate(prompt.system, {
       rewrite_mode: modePrompt,
-      link_hints: formatIncomingHintsForPrompt(hints, article.slug),
+      link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, article.slug)),
     });
     // TODO: factor prompts out into configurable file
     const recentEditHistory = body.includeRecentEditHistory === true
@@ -2958,16 +3127,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       slug: article.slug,
       requested_title: article.title,
       edit_instructions: selectionEditInstructions,
-      current_article: selectedSection,
-      full_article: articleBodyOnly,
-      link_hints: formatIncomingHintsForPrompt(hints, article.slug),
+      current_article: prepareMarkdownForJsonPrompt(selectedSection),
+      full_article: prepareMarkdownForJsonPrompt(articleBodyOnly),
+      link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, article.slug)),
       references_list: formatReferencesForPrompt(rewritePromptRefs),
-      rag_context: retrieved.context || "(none)",
+      references_json: formatReferencesForPromptJson(rewritePromptRefs.map((ref) => ({ ...ref, content: prepareMarkdownForJsonPrompt(ref.content) })), runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
+      rag_context: prepareMarkdownForJsonPrompt(retrieved.context) || "(none)",
       related_titles: formatRelatedTitlesForPrompt(article.slug, retrieved.relatedTitles).rendered,
       article_excerpt: "",
       parent_comment: "",
       selected_text: "",
     });
+
+    const rewriteProvidedSlugs = new Set(rewritePromptRefs.map((r) => r.slug));
 
     const wantsStream =
       c.req.query("stream") === "1" ||
@@ -2978,7 +3150,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         ? "section-rewrite"
         : "rewrite";
 
-    const persistRewrite = async (raw: string) => {
+    const persistRewrite = async (raw: string, refsUsed: string[] = []) => {
       inFlightEdits.add(article.slug);
       logger.debug("rewrite.edit_in_flight", { slug: article.slug, in_flight_edits: inFlightEdits.size });
       try {
@@ -3026,7 +3198,8 @@ export async function createApp(options: CreateAppOptions = {}) {
           retrieved,
           { operation: operationName, instructions },
           {
-            userAdditionSlugs: effectiveUserAdditionSlugs,
+            userAdditionSlugs: Array.from(new Set([...effectiveUserAdditionSlugs, ...refsUsed])),
+            selectedReferenceSlugs: Array.from(new Set([...effectiveUserAdditionSlugs, ...refsUsed])),
             pinnedSlugsSet,
             blacklistSlugs: effectiveBlacklistSlugs,
             scrapeExistingBodyLinks: !selectionRange && !sectionId,
@@ -3058,7 +3231,11 @@ export async function createApp(options: CreateAppOptions = {}) {
               retrieved,
               hints,
               updatedArticle.generated_at,
-              { blacklistSlugs: effectiveBlacklistSlugs, userAdditionSlugs: effectiveUserAdditionSlugs },
+              {
+                blacklistSlugs: effectiveBlacklistSlugs,
+                userAdditionSlugs: Array.from(new Set([...effectiveUserAdditionSlugs, ...refsUsed])),
+                selectedReferenceSlugs: Array.from(new Set([...effectiveUserAdditionSlugs, ...refsUsed])),
+              },
             ).catch(() => {}),
           );
         }
@@ -3109,47 +3286,26 @@ export async function createApp(options: CreateAppOptions = {}) {
               rag_sources: retrieved.sourceArticles.length,
               selected_text_length: selectionRange ? selectionRange.end - selectionRange.start : 0,
             });
-            let raw = "";
-            await selectedLlm.streamChat(
+            const rawJson = await selectedLlm.chat(
               renderedSystemPrompt,
               renderedRewritePrompt,
-              (_delta, accumulated) => {
-                raw = accumulated;
-                const progressMarkdown = sanitizeGeneratedBody(
-                  normalizeMarkdown(accumulated),
-                );
-                let mergedMarkdown: string;
-                if (selectionRange) {
-                  const replacement = normalizeMarkdown(accumulated)
-                    .replace(/^#\s+.+?\n*/m, "")
-                    .trim();
-                  mergedMarkdown =
-                    article.markdown.slice(0, selectionRange.start) +
-                    replacement +
-                    article.markdown.slice(selectionRange.end);
-                } else if (sectionId) {
-                  mergedMarkdown = replaceArticleSection(
-                    article.markdown,
-                    sectionId,
-                    progressMarkdown,
-                  );
-                } else {
-                  mergedMarkdown = progressMarkdown;
-                }
-                send({
-                  type: "progress",
-                  html: renderMarkdown(mergedMarkdown),
-                  markdown: mergedMarkdown,
-                });
-              },
-              { thinking: prompt.thinking },
+              { thinking: prompt.thinking, jsonMode: prompt.json },
             );
+            let rewriteResult = parseArticleJsonOutput(rawJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
+            if (!rewriteResult.ok) {
+              logger.warn("rewrite.invalid_structured_output", { slug: article.slug, reason: rewriteResult.reason ?? "missing-pinned-refs", missing: rewriteResult.missingPinned.join(", ") });
+              const retryJson = await selectedLlm.chat(renderedSystemPrompt, renderedRewritePrompt, { thinking: prompt.thinking, jsonMode: prompt.json });
+              rewriteResult = parseArticleJsonOutput(retryJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
+            }
+            if (!rewriteResult.ok) {
+              throw new Error(`rewrite returned invalid structured output: ${rewriteResult.reason ?? "missing required refs"}`);
+            }
             logger.debug("rewrite.generated", {
               slug: article.slug,
               operation: operationName,
-              rewrite_length: raw.length,
+              rewrite_length: rewriteResult.body.length,
             });
-            const payload = await persistRewrite(raw);
+            const payload = await persistRewrite(rewriteResult.body, rewriteResult.ok ? rewriteResult.refsUsed : []);
             logger.debug("rewrite.persisted", {
               slug: article.slug,
               operation: operationName,
@@ -3184,19 +3340,28 @@ export async function createApp(options: CreateAppOptions = {}) {
       rag_sources: retrieved.sourceArticles.length,
       selected_text_length: selectionRange ? selectionRange.end - selectionRange.start : 0,
     });
-    const raw = await selectedLlm.chat(
+    const rawJson = await selectedLlm.chat(
       renderedSystemPrompt,
       renderedRewritePrompt,
-      { thinking: prompt.thinking },
+      { thinking: prompt.thinking, jsonMode: prompt.json },
     );
+    let nonStreamResult = parseArticleJsonOutput(rawJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
+    if (!nonStreamResult.ok) {
+      logger.warn("rewrite.invalid_structured_output", { slug: article.slug, reason: nonStreamResult.reason ?? "missing-pinned-refs", missing: nonStreamResult.missingPinned.join(", ") });
+      const retryJson = await selectedLlm.chat(renderedSystemPrompt, renderedRewritePrompt, { thinking: prompt.thinking, jsonMode: prompt.json });
+      nonStreamResult = parseArticleJsonOutput(retryJson, rewriteProvidedSlugs, pinnedSlugsSet, logger, { requireJson: prompt.json });
+    }
+    if (!nonStreamResult.ok) {
+      throw new Error(`rewrite returned invalid structured output: ${nonStreamResult.reason ?? "missing required refs"}`);
+    }
     logger.debug("rewrite.generated", {
       slug: article.slug,
       operation: operationName,
-      rewrite_length: raw.length,
+      rewrite_length: nonStreamResult.body.length,
     });
 
     try {
-      const result = await persistRewrite(raw);
+      const result = await persistRewrite(nonStreamResult.body, nonStreamResult.ok ? nonStreamResult.refsUsed : []);
       logger.debug("rewrite.persisted", {
         slug: article.slug,
         operation: operationName,
@@ -3224,7 +3389,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     ) => {
       send?.({ type: "status", message: "Retrieving context..." });
       const hints = listIncomingHints(db, article.slug);
-      const retrieved = await retrieveContext(
+      const ragRetrieved = await retrieveContext(
         db,
         llm,
         article.slug,
@@ -3236,6 +3401,13 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.llm.embeddings.enabled,
         logger,
       );
+      // Pull in the full text of linking articles directly — backlinks always
+      // provide context even when RAG embeddings score too low to be picked.
+      const refreshBacklinkSlugs = [...new Set(hints.map((h) => h.sourceSlug).filter(Boolean))];
+      const backlinkRetrieved = refreshBacklinkSlugs.length > 0
+        ? retrieveDirectArticleContext(db, article.slug, refreshBacklinkSlugs, runtime.app.rag.mode, runtime.app.rag.max_results, logger)
+        : { context: "", relatedTitles: [], sourceArticles: [] };
+      const retrieved = mergeRetrievedContextPackets(ragRetrieved, backlinkRetrieved);
       const currentBodyMarkdown = stripTopLevelSections(article.markdown, [
         "References",
         "See also",
@@ -3245,13 +3417,18 @@ export async function createApp(options: CreateAppOptions = {}) {
         article.markdown,
         article.slug,
       );
+      const backlinkAdditions = slugsToUserAdditions(refreshBacklinkSlugs);
+      const additionsBySlug = new Map<string, ReferenceListEntry>();
+      for (const ref of [...backlinkAdditions, ...currentArticleReferences]) {
+        additionsBySlug.set(ref.slug, ref);
+      }
       const refreshPromptRefs = buildReferenceList(
         db,
         {
           articleSlug: article.slug,
           ragSources: retrieved.sourceArticles,
           priorReferences: loadPriorReferenceList(db, article.slug),
-          userAdditions: currentArticleReferences,
+          userAdditions: Array.from(additionsBySlug.values()),
           revisionId: "current",
           config: runtime.app.rag,
         },
@@ -3260,6 +3437,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       let bodyMarkdown = currentBodyMarkdown;
       let operation = "refresh-context";
       let instructions = "Refreshed retrieved context and derived references.";
+      let refreshRefsUsed: string[] | null = null;
       if (retrieved.context || hints.length) {
         send?.({ type: "status", message: "Rewriting article with refreshed context..." });
         const prompt = getPrompt(runtime.prompts, "article_refresh");
@@ -3267,41 +3445,33 @@ export async function createApp(options: CreateAppOptions = {}) {
         const subtleMode = runtime.prompts.rewriteModes.subtle?.prompt ?? "";
         const renderedRefreshSystem = renderTemplate(prompt.system, {
           rewrite_mode: subtleMode,
-          link_hints: formatIncomingHintsForPrompt(hints, article.slug),
+          link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, article.slug)),
         });
         const renderedRefreshUser = renderTemplate(prompt.user, {
           slug: article.slug,
           requested_title: article.title,
-          current_article: currentBodyMarkdown,
-          link_hints: formatIncomingHintsForPrompt(hints, article.slug),
+          current_article: prepareMarkdownForJsonPrompt(currentBodyMarkdown),
+          link_hints: prepareMarkdownForJsonPrompt(formatIncomingHintsForPrompt(hints, article.slug)),
           references_list: formatReferencesForPrompt(refreshPromptRefs),
-          rag_context: retrieved.context || "(none)",
+          references_json: formatReferencesForPromptJson(refreshPromptRefs.map((ref) => ({ ...ref, content: prepareMarkdownForJsonPrompt(ref.content) })), runtime.app.rag.prompt_ref_content_min_score, runtime.app.rag.prompt_ref_content_top_k),
+          rag_context: prepareMarkdownForJsonPrompt(retrieved.context) || "(none)",
           related_titles: formatRelatedTitlesForPrompt(article.slug, retrieved.relatedTitles).rendered,
           article_excerpt: "",
           parent_comment: "",
           selected_text: "",
           edit_instructions: "",
         });
-        const raw = wantsStream
-          ? (await selectedLlm.streamChat(
-            renderedRefreshSystem,
-            renderedRefreshUser,
-            (_delta, accumulated) => {
-              const progressMarkdown = sanitizeGeneratedBody(normalizeMarkdown(accumulated));
-              send?.({
-                type: "progress",
-                markdown: progressMarkdown,
-                html: renderMarkdown(progressMarkdown),
-              });
-            },
-            { thinking: prompt.thinking },
-          )).content
-          : await selectedLlm.chat(
-            renderedRefreshSystem,
-            renderedRefreshUser,
-            { thinking: prompt.thinking },
-          );
-        bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(raw));
+        const rawJson = await selectedLlm.chat(
+          renderedRefreshSystem,
+          renderedRefreshUser,
+          { thinking: prompt.thinking, jsonMode: prompt.json },
+        );
+        const refreshParseResult = parseArticleJsonOutput(rawJson, new Set(refreshPromptRefs.map((r) => r.slug)), new Set(), logger, { requireJson: prompt.json });
+        if (!refreshParseResult.ok) {
+          throw new Error(`refresh returned invalid structured output: ${refreshParseResult.reason ?? "missing required refs"}`);
+        }
+        bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(refreshParseResult.body));
+        refreshRefsUsed = refreshParseResult.ok ? refreshParseResult.refsUsed : [];
         operation = "refresh-context-rewrite";
         instructions = "Refreshed article body from retrieved context.";
       }
@@ -3319,7 +3489,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         bodyMarkdown,
         retrieved,
         { operation, instructions },
-        { userAdditionSlugs: refreshPromptRefs.map((ref) => ref.slug) },
+        {
+          userAdditionSlugs: Array.from(new Set(refreshRefsUsed ?? [...refreshBacklinkSlugs, ...refreshPromptRefs.map((ref) => ref.slug)])),
+          selectedReferenceSlugs: refreshRefsUsed,
+        },
       );
       const refreshChanged = updatedArticle.markdown !== article.markdown;
       logger.info("page.refresh", { slug: updatedArticle.slug, changed: refreshChanged });
@@ -3343,18 +3516,21 @@ export async function createApp(options: CreateAppOptions = {}) {
             controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
           };
           send({ type: "start", slug: article.slug, cached: true });
+          const safeClose = () => {
+            if (!streamOpen) return;
+            streamOpen = false;
+            try { controller.close(); } catch { /* client already disconnected */ }
+          };
           const refresh = (async () => {
             const payload = await runRefresh(send);
             send({ type: "done", ...payload });
-            streamOpen = false;
-            controller.close();
+            safeClose();
           })().catch((error) => {
             send({
               type: "error",
               message: error instanceof Error ? error.message : String(error),
             });
-            streamOpen = false;
-            controller.close();
+            safeClose();
           });
           trackGeneration(refresh);
         },
@@ -3427,7 +3603,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         revertedFromRevisionId: revision.id,
       },
     );
-    afterArticleSaved(nextArticle.slug, nextArticle.title, nextArticle.markdown);
+    afterArticleSaved(nextArticle.slug, nextArticle.title, nextArticle.markdown, nextArticle.generated_at);
     invalidateArticleHtml(nextArticle.slug);
     const response = buildArticleResponseFor(nextArticle.slug);
     if (!response) return c.json({ error: "failed to hydrate response" }, 500);
@@ -3576,8 +3752,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         article.markdown,
       );
       const updated = updateArticleSummary(db, article.slug, summaryMarkdown, {
-        operation: "summary-regenerate",
-        instructions: "Regenerated article summary from current prompt config.",
+        updateRevisionGeneratedAt: article.generated_at,
       });
       if (!updated) return c.json({ error: "article not found" }, 404);
       return c.json({

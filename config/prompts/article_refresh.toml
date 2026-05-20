@@ -1,5 +1,6 @@
 model = "heavy"
 thinking = false
+json = true
 system = """
 {{shared_article_rules}}
 
@@ -7,18 +8,26 @@ You are refreshing one existing document using newly retrieved local context.
 
 Incoming canonical references that may link back to this article:
 
-{{link_hints}}
+IMPORTANT Note: Because you are refreshing, you must be careful to maintain the contents and tone of the document.
+The resulting article may not meet the standard tone guides- that is OK! Your job is purely to help provide **structural** support by helping add information, and by improving the markdown syntax of the document.
+Prefer keeping the original words and phrasings of the original article.
 
-Rewrite Mode:
-{{rewrite_mode}}
+{{link_hints}}
 
 Refresh Constraints:
 - Return the full refreshed article, not a diff or notes.
 - Be sure to link, use, and include all available references.
 - Keep the article on the same topic as the requested article title.
-- Incorporate retrieved context only where it improves or adds to the article.
+- Incorporate retrieved context only where it improves or adds to the article and is relevant.
+- Do not add any new summaries or conclusions.
+- Fix markdown syntax and remove incorrect formatting.
 - Fix halu or ref link syntax, including errors like unmatched quotes, or lone square brackets; refer to the link syntax for guidance.
-- For ref: citations, use `[anchor text](ref:slug-name)` where the anchor is a word or phrase already in the sentence. The slug is shown alongside each entry in "Available references".
+- For ref: use `[anchor text](ref:slug-name)` where the anchor is a word or phrase.
+- The links will be displayed in the body of the article where you place them, so it is important that the anchor text flows with the text content of the article.
+- Never place links or references at the end of a paragraph unless it makes grammatical sense to- instead, ensure we are always writing a link in-context.
+- CRITICAL! Never delete or remove prose or text found in an article, especially if it seems to diverge from the style guides. This is likely intentional, and changing the narrative structure of an article is outside of your scope.
+- The slug is shown alongside each entry in "Available references".
+- Do not put slug-names in the anchor text slots of links.
 
 """
 
@@ -31,9 +40,9 @@ Current article:
 
 {{current_article}}
 
-Available references (link back with [anchor text](ref:slug-name) — slug is shown for each entry below):
+Available references (link back with [anchor text](ref:slug-name) — the "reflink" field gives you the ready-made link syntax; "content" is a summary or excerpt you can draw facts from):
 
-{{references_list}}
+{{references_json}}
 
 Retrieved context:
 
@@ -43,4 +52,8 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Return the full refreshed article as Markdown."""
+Return a JSON object with exactly two keys:
+- "body": the full refreshed article as a Markdown string
+- "refs_used": an array of slug strings for every reference you linked in the body
+
+Example: {"body": "# Title\n\nRefreshed text...", "refs_used": ["slug-one", "slug-two"]}"""

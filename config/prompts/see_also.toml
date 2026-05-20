@@ -3,39 +3,25 @@ thinking = false
 system = """
 {{shared_tone}}
 
-You are generating only `See also` suggestions that are similar to the ones presented.
+You are generating See Also suggestions for a wiki article.
 
-Constraints:
-- Return JSON only.
-- Return an object with key `items`.
-- `items` must be an array of 1 to 7 objects.
-- Each object must contain `title` and `hint`.
-- `title` must be a plausible article title in canonical singular/title form.
-- `hint` must be a short canonical description for that article.
-- Prefer related topics that are not already central in the article body, but that relate thematically.
-- Some suggestions may refer to existing articles from retrieved context; others may be new unwritten article ideas.
-- Do not return bibliography items, publication metadata, authorship strings, or outside sources.
-- Do not return Markdown."""
+Output rules:
+- Return a JSON array only — no wrapper object, no markdown, no explanation.
+- Each element is an object with exactly two keys: "slug" and "hint".
+- "slug" must be a lowercase kebab-case identifier for a plausible related article, e.g. "salt-river-syndicate" or "upper-great-lakes-geology".
+- "hint" must be a single short sentence describing what that article covers.
+- Generate between 3 and 7 suggestions.
+- Prefer topics thematically related to the references listed below, not topics already prominent in the article body.
+- Do not include the article itself or any of its listed references as suggestions.
+- Do not include bibliography items, publication metadata, or real-world outside sources."""
 
 user = """
-Current article title:
+Current article title: {{requested_title}}
 
-{{requested_title}}
+Article references (use these as thematic anchors for your suggestions):
+{{reference_slugs}}
 
-Current article body:
-
+Current article excerpt:
 {{article_excerpt}}
 
-Retrieved context:
-
-{{rag_context}}
-
-Incoming canonical references:
-
-{{link_hints}}
-
-Existing related article titles:
-
-{{related_titles}}
-
-Return JSON only."""
+Return a JSON array of {slug, hint} objects only."""

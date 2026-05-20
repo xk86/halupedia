@@ -6,6 +6,9 @@ type ChatLlmRole = Exclude<LlmRole, "embeddings">;
 
 export interface ChatOptions {
   thinking?: boolean;
+  /** Request JSON-mode output — passes `format:"json"` to the API so the
+   *  model is constrained to emit valid JSON. Use for structured-output prompts. */
+  jsonMode?: boolean;
 }
 
 export interface LlmClient {
@@ -100,6 +103,13 @@ export class OpenAICompatClient implements LlmClient {
         temperature: this.chatConfig.temperature,
         max_tokens: this.chatConfig.max_tokens,
         think: options.thinking ?? false,
+        // format: "json" is the native Ollama API param; response_format is
+        // the OpenAI-compat param. Send both — Ollama's /v1/ endpoint honours
+        // whichever it recognises, so this covers both routing modes.
+        ...(options.jsonMode ? {
+          format: "json",
+          response_format: { type: "json_object" },
+        } : {}),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -116,22 +126,28 @@ export class OpenAICompatClient implements LlmClient {
     const json = (await response.json()) as {
       id?: string;
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-      choices?: Array<{ finish_reason?: string; message?: { content?: string } }>;
+      choices?: Array<{ finish_reason?: string | null; message?: { content?: string } }>;
     };
     const content = json.choices?.[0]?.message?.content?.trim();
     const finishReason = json.choices?.[0]?.finish_reason ?? "unknown";
     const durationMs = Date.now() - startedAt;
+    const totalTokens = json.usage?.total_tokens;
     this.logger.info("llm.chat_response", chatResultFields(this.role, this.chatConfig, {
       finishReason,
       durationMs,
       completionChars: content?.length ?? 0,
-      tokens: json.usage?.total_tokens ?? "?",
+      tokens: totalTokens ?? "?",
     }));
-    if (finishReason === "length") {
-      this.logger.warn("llm.chat_truncated", {
+    if (finishReason === "length" || finishReason === "unknown" || totalTokens === undefined || /\[[^\]]*\]\($/.test(content ?? "")) {
+      this.logger.warn("llm.chat_suspicious_response", {
         role: this.role,
         model: this.chatConfig.model,
-        preview: truncateForLog(content ?? "", 240),
+        finish_reason: finishReason,
+        prompt_tokens: json.usage?.prompt_tokens ?? "?",
+        completion_tokens: json.usage?.completion_tokens ?? "?",
+        total_tokens: totalTokens ?? "?",
+        choices: json.choices?.length ?? 0,
+        content_suffix: truncateForLog((content ?? "").slice(-240), 240),
       });
     }
     if (!content) {

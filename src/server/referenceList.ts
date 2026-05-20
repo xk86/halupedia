@@ -73,6 +73,18 @@ export interface BuildReferenceListInput {
   >;
 }
 
+/**
+ * Why a candidate has its ranking score — used only for logging.
+ *
+ * - "pinned"    : user-pinned, score is +Inf
+ * - "trusted"   : body/user/prior ref, no RAG score, rank is also +Inf
+ * - "rag"       : from vector search, score is cosine similarity
+ * - "inherited" : recursive ref whose parent seed had a real RAG score
+ * - "floor"     : recursive ref whose parent seed was non-RAG (body/user/prior/pinned),
+ *                 so score falls back to reference_min_score
+ */
+type ScoreTag = "pinned" | "trusted" | "rag" | "inherited" | "floor";
+
 interface InternalCandidate {
   entry: ReferenceListEntry;
   source: ReferenceSource;
@@ -81,6 +93,8 @@ interface InternalCandidate {
    * and survive the pruning cut unconditionally.
    */
   rankScore: number;
+  /** Explains why the rankScore is what it is (log/debug only). */
+  scoreTag: ScoreTag;
 }
 
 interface RecursiveSeed {
@@ -154,6 +168,7 @@ export function buildReferenceList(
     },
     rankScore: number,
     source: InternalCandidate["source"],
+    scoreTag: ScoreTag,
   ) => {
     const normalized = slugify(candidate.slug);
     if (!normalized || seen.has(normalized)) return;
@@ -180,6 +195,7 @@ export function buildReferenceList(
       },
       source: candidate.pinned ? "pinned" : source,
       rankScore: candidate.pinned ? Number.POSITIVE_INFINITY : rankScore,
+      scoreTag: candidate.pinned ? "pinned" : scoreTag,
     });
   };
 
@@ -200,6 +216,7 @@ export function buildReferenceList(
         },
         Number.POSITIVE_INFINITY,
         "pinned",
+        "pinned",
       );
       pinnedCount += 1;
       addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, ref.slug, Number.POSITIVE_INFINITY);
@@ -208,9 +225,9 @@ export function buildReferenceList(
 
   // (2) non-pinned user-added entries — always survive RAG pruning but
   // they DO count toward max_references.
-  // TODO: ensure these do not get pruned by ref_max_results... as discussed below
   for (const ref of userAdditions) {
     if (!ref.pinned) {
+      const src = ref.source === "body" ? "body" : "user";
       add(
         {
           slug: ref.slug,
@@ -223,7 +240,8 @@ export function buildReferenceList(
           explicitRevisionId: ref.revisionId,
         },
         Number.POSITIVE_INFINITY,
-        ref.source === "body" ? "body" : "user",
+        src,
+        "trusted",
       );
       addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, ref.slug, Number.POSITIVE_INFINITY);
     }
@@ -245,8 +263,9 @@ export function buildReferenceList(
         source: ref.source,
         explicitRevisionId: ref.revisionId,
       },
-      ref.pinned ? Number.POSITIVE_INFINITY : Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
       ref.pinned ? "pinned" : "prior",
+      ref.pinned ? "pinned" : "trusted",
     );
     addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, ref.slug, Number.POSITIVE_INFINITY);
   }
@@ -265,6 +284,7 @@ export function buildReferenceList(
         score,
       },
       score,
+      "rag",
       "rag",
     );
     addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, src.slug, score);
@@ -291,6 +311,12 @@ export function buildReferenceList(
       for (const ref of sidecarRefs) {
         if (blacklist.has(ref.slug)) continue;
         recursiveCandidateCount += 1;
+        // Propagate the parent seed's real RAG score when available.
+        // If the seed was body/user/prior/pinned its rankScore is +Inf —
+        // those aren't vector-ranked, so fall back to reference_min_score
+        // (the floor) rather than inflating recursive entries to +Inf.
+        const seedHasRagScore = Number.isFinite(seed.score);
+        const inheritedScore = seedHasRagScore ? seed.score : config.reference_min_score;
         add(
           {
             slug: ref.slug,
@@ -298,19 +324,15 @@ export function buildReferenceList(
             content: ref.content,
             kind: ref.kind,
             pinned: false,
-            score: Number.isFinite(seed.score) ? seed.score : ref.score,
+            score: seedHasRagScore ? seed.score : ref.score,
             source: "recursive",
             explicitRevisionId: ref.revisionId,
           },
-          Number.isFinite(seed.score) ? seed.score : config.reference_min_score,
+          inheritedScore,
           "recursive",
+          seedHasRagScore ? "inherited" : "floor",
         );
-        addRecursiveSeed(
-          nextFrontier,
-          recursiveSeedSeen,
-          ref.slug,
-          Number.isFinite(seed.score) ? seed.score : config.reference_min_score,
-        );
+        addRecursiveSeed(nextFrontier, recursiveSeedSeen, ref.slug, inheritedScore);
       }
     }
     frontier = nextFrontier;
@@ -338,44 +360,39 @@ export function buildReferenceList(
   );
   const kept = [...pinned, ...keptCarried, ...rag.slice(0, ragBudget)];
 
+  // Format each kept entry as: slug[source:score-annotation]
+  // Score annotations:
+  //   (no annotation)   — body/user/prior: trusted, not vector-ranked
+  //   pinned            — user-pinned, always included
+  //   rag:0.656         — cosine similarity from vector search
+  //   recursive:0.598   — inherited from a RAG-scored parent seed
+  //   recursive:floor   — parent seed was body/user/prior (not vector-ranked)
+  const formatEntry = (c: InternalCandidate): string => {
+    switch (c.scoreTag) {
+      case "pinned":    return `${c.entry.slug}[pinned]`;
+      case "trusted":   return `${c.entry.slug}[${c.source}]`;
+      case "rag":       return `${c.entry.slug}[rag:${(c.entry.score ?? 0).toFixed(3)}]`;
+      case "inherited": return `${c.entry.slug}[recursive:${(c.entry.score ?? 0).toFixed(3)}]`;
+      case "floor":     return `${c.entry.slug}[recursive:floor]`;
+    }
+  };
+
   logger?.info("references.built", {
     article: articleSlug,
-    rag_input_count: ragSources.length,
-    prior_count: priorReferences.length,
-    body_reference_count: userAdditions.filter((ref) => ref.source === "body").length,
-    user_added_count: userAdditions.filter((ref) => ref.source !== "body").length,
-    recursive_candidate_count: recursiveCandidateCount,
-    recursive_traversed_articles: recursiveTraversalCount,
-    recursive_depth: recursiveDepth,
-    recursive_max_per_article: recursivePerArticle,
-    pinned_count: pinnedCount,
-    blacklist_count: blacklistSlugs.length,
-    candidates: candidates.length,
+    rag_sources: ragSources.length,
+    prior: priorReferences.length,
+    body: userAdditions.filter((ref) => ref.source === "body").length,
+    user: userAdditions.filter((ref) => ref.source !== "body").length,
+    pinned: pinnedCount,
+    recursive_candidates: recursiveCandidateCount,
+    recursive_traversed: recursiveTraversalCount,
+    blacklisted: blacklistSlugs.length,
     kept: kept.length,
     dropped: candidates.length - kept.length,
     score_floor: config.reference_min_score,
-    cap_total: config.max_references,
-    cap_per_build: config.reference_max_results,
-    // slug[kind/source:score] for every kept entry — shows what data type fed refs
-    sources: kept
-      .map((c) => {
-        const score = typeof c.entry.score === "number" ? `:${c.entry.score.toFixed(3)}` : "";
-        return `${c.entry.slug}[${c.entry.kind}/${c.source}${score}]`;
-      })
-      .join(", ") || "(none)",
-  });
-  logger?.debug("references.built_detail", {
-    article: articleSlug,
-    entries: JSON.stringify(
-      kept.map((c) => ({
-        slug: c.entry.slug,
-        kind: c.entry.kind,
-        source: c.source,
-        pinned: c.entry.pinned,
-        score: c.entry.score,
-        revision: c.entry.revisionId,
-      })),
-    ),
+    cap: config.max_references,
+    rag_cap: config.reference_max_results,
+    refs: kept.map(formatEntry).join(", ") || "(none)",
   });
 
   return kept.map((c) => c.entry);
@@ -442,6 +459,35 @@ export function formatReferencesForPrompt(refs: ReferenceList): string {
   return refs
     .map((r) => `- [${r.title}](ref:${r.slug})`)
     .join("\n");
+}
+
+/**
+ * Richer JSON format for article-generation prompts.
+ * Includes the ref:slug link shorthand, pinned flag, and available content
+ * (summary or chunk) so the LLM has factual grounding for each reference.
+ *
+ * contentMinScore: only include content for refs whose score meets this
+ * threshold (or whose score is absent, meaning they were body/user/prior
+ * linked rather than RAG-ranked). Pinned refs always get content regardless.
+ */
+export function formatReferencesForPromptJson(refs: ReferenceList, contentMinScore = 0.0, contentTopK = 0): string {
+  if (refs.length === 0) return "[]";
+
+  // Determine which non-pinned refs earn content inclusion by score, then
+  // cap to the top-K highest scorers (0 = no cap).
+  const eligible = refs
+    .filter((r) => !r.pinned && (r.score === undefined || r.score >= contentMinScore))
+    .sort((a, b) => (b.score ?? 1) - (a.score ?? 1));
+  const cappedEligible = contentTopK > 0 ? eligible.slice(0, contentTopK) : eligible;
+  const withContent = new Set(cappedEligible.map((r) => r.slug));
+
+  const entries = refs.map((r) => ({
+    reflink: `[${r.title}](ref:${r.slug})`,
+    slug: r.slug,
+    pinned: r.pinned,
+    content: (r.pinned || withContent.has(r.slug)) ? (r.content || null) : null,
+  }));
+  return JSON.stringify(entries, null, 2);
 }
 
 /**

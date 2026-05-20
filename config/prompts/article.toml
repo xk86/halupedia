@@ -1,5 +1,6 @@
 model = "heavy"
 thinking = false
+json = true
 system = """
 
 {{shared_article_rules}}
@@ -17,9 +18,9 @@ Requested article title:
 
 {{requested_title}}
 
-Available references (link back with [anchor text](ref:slug-name) — slug is shown for each entry below):
+Available references (link back with [anchor text](ref:slug-name) — the "reflink" field gives you the ready-made link syntax; "content" is a summary or excerpt you can draw facts from):
 
-{{references_list}}
+{{references_json}}
 
 Retrieved context:
 
@@ -29,4 +30,8 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Return the full article as Markdown, not notes."""
+Return a JSON object with exactly two keys:
+- "body": the full article as a Markdown string
+- "refs_used": an array of slug strings for every reference that you actually used and substantially informed the content of the article. Do not include it if it was not referenced or linked.
+
+Example: {"body": "# Title\n\nArticle text...", "refs_used": ["slug-one", "slug-two"]}"""

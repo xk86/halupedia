@@ -300,6 +300,9 @@ export function saveArticle(
     operation?: string;
     instructions?: string;
     revertedFromRevisionId?: number | null;
+    /** Skip inserting a revision row — use for automatic pipeline repairs that
+     *  are not user-visible edits (title normalisation, link cleanup, etc.). */
+    skipRevision?: boolean;
   } = {}
 ): void {
   const now = article.generated_at;
@@ -368,19 +371,21 @@ export function saveArticle(
       now,
       article.isDisambiguation ? 1 : 0
     );
-    insertRevision.run(
-      article.slug,
-      article.title,
-      article.markdown,
-      article.html,
-      summaryMarkdown,
-      article.plain_text,
-      article.generated_at,
-      Date.now(),
-      revision.operation ?? "update",
-      revision.instructions ?? "",
-      revision.revertedFromRevisionId ?? null
-    );
+    if (!revision.skipRevision) {
+      insertRevision.run(
+        article.slug,
+        article.title,
+        article.markdown,
+        article.html,
+        summaryMarkdown,
+        article.plain_text,
+        article.generated_at,
+        Date.now(),
+        revision.operation ?? "update",
+        revision.instructions ?? "",
+        revision.revertedFromRevisionId ?? null
+      );
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -445,47 +450,37 @@ export function updateArticleSummary(
   db: DatabaseSync,
   slug: string,
   summaryMarkdown: string,
-  revision: {
-    operation?: string;
-    instructions?: string;
-  } = {},
+  options: { updateRevisionGeneratedAt?: number } = {},
 ) {
   const article = getArticle(db, slug);
   if (!article) return null;
-  const now = Date.now();
   db.exec("BEGIN");
   try {
-    db.prepare(
-      `UPDATE articles SET summary_markdown = ?, generated_at = ? WHERE slug = ?`,
-    ).run(summaryMarkdown, now, slug);
-    db.prepare(`
-      INSERT INTO article_revisions (
-        article_slug,
-        title,
-        markdown,
-        html,
-        summary_markdown,
-        plain_text,
-        generated_at,
-        created_at,
-        operation,
-        instructions,
-        reverted_from_revision_id
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      article.slug,
-      article.title,
-      article.markdown,
-      article.html,
-      summaryMarkdown,
-      article.plain_text,
-      now,
-      now,
-      revision.operation ?? "summary-regenerate",
-      revision.instructions ?? "",
-      null,
-    );
+    if (options.updateRevisionGeneratedAt) {
+      db.prepare(
+        `UPDATE articles SET summary_markdown = ? WHERE slug = ? AND generated_at = ?`,
+      ).run(summaryMarkdown, slug, options.updateRevisionGeneratedAt);
+      db.prepare(
+        `UPDATE article_revisions
+         SET summary_markdown = ?
+         WHERE article_slug = ? AND generated_at = ?`,
+      ).run(summaryMarkdown, article.slug, options.updateRevisionGeneratedAt);
+    } else {
+      db.prepare(
+        `UPDATE articles SET summary_markdown = ? WHERE slug = ?`,
+      ).run(summaryMarkdown, slug);
+      db.prepare(`
+        UPDATE article_revisions
+        SET summary_markdown = ?
+        WHERE id = (
+          SELECT id
+          FROM article_revisions
+          WHERE article_slug = ?
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        )
+      `).run(summaryMarkdown, article.slug);
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

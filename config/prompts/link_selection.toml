@@ -1,4 +1,4 @@
-model = "heavy"
+model = "light"
 thinking = false
 system = """
 You are choosing a smaller linkable phrase from a highlighted span of article text.

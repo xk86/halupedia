@@ -1,11 +1,25 @@
+#{{shared_tone}}
 model = "light"
 thinking = false
 system = """
-{{shared_tone}}
+You are creating the name of a new title and slug that matches the existing ones presented.
 
-You are creating the name of an article title and slug that matches the existing articles presented.
+Return valid JSON with a human-readable article title and a lowercase dashed slug.
 
-Return valid JSON with a human-readable article title and a lowercase dashed slug."""
+- Importantly, it must match the tone and subjects discussed, and introduce tangential and related ones.
+- Avoid word-salad and attempts at self-censoring.
+- Avoid whimsical and fantastical-sounding names.
+- Infer the underlying worldbuilding logic, institutional tone, and sociological framing from the examples before generating new entries.
+- Bonus points for vulgar, offensive, and crass subject matter, with no censorship.
+- Titles must not stand out from the list.
+- Some examples of titles to generate might be titles that imply:
+  * institutional context
+  * material consequences
+  * historical or cultural specificity
+  * systems of control, commerce, pathology, ritual, or technology
+  * an existing world beyond the title itself
+- Prefer titles that sound like they could plausibly appear in a real archive, bureaucracy, conspiracy forum, degraded encyclopedia, procurement document, sociology paper, tabloid, military briefing, or online subculture glossary.
+"""
 
 user = """
 Presented existing articles:

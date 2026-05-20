@@ -36,6 +36,21 @@ export interface RagConfig {
    * always survive regardless of this cap. Default 50.
    */
   max_references: number;
+  /**
+   * Minimum relevancy score for a reference to have its content included in
+   * the prompt JSON. Below this threshold the ref still appears in the list
+   * (so the LLM can link to it) but its content field is omitted, keeping
+   * the prompt size manageable. Pinned references always include content.
+   * Set to 0 to include content for all refs; set to 1 to include none.
+   */
+  prompt_ref_content_min_score: number;
+  /**
+   * Maximum number of refs that get their content included in the prompt JSON,
+   * selected from the highest-scoring eligible refs after the min_score filter.
+   * Pinned refs are always included and do not count against this cap.
+   * Set to 0 to disable the cap.
+   */
+  prompt_ref_content_top_k: number;
   /** How far to traverse persisted reference sidecars from candidate refs. */
   reference_recursive_depth: number;
   /** Maximum sidecar refs to pull from each traversed article per depth step. */
@@ -166,6 +181,8 @@ export interface PromptTemplate {
   user: string;
   model?: "heavy" | "light";
   thinking?: boolean;
+  /** Request JSON-mode output from the LLM for this prompt. */
+  json?: boolean;
 }
 
 export interface RewriteMode {
@@ -180,7 +197,7 @@ export interface PromptConfig {
 }
 
 export interface SeeAlsoCandidate {
-  title: string;
+  slug: string;
   hint: string;
 }
 

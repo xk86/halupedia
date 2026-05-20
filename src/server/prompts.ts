@@ -12,6 +12,7 @@ export function getPrompt(config: PromptConfig, key: string) {
     user: resolveSharedRefs(prompt.user, config),
     model: prompt.model ?? "heavy",
     thinking: prompt.thinking ?? false,
+    json: prompt.json ?? false,
   };
 }
 

@@ -3672,6 +3672,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       bodyMarkdown = normalizeMarkdownLinks(bodyMarkdown, "article").markdown;
       bodyMarkdown = resolveRefLinks(bodyMarkdown, refreshPromptRefs);
       bodyMarkdown = normalizeMarkdownLinks(bodyMarkdown, "article").markdown;
+      const refreshUserAdditionSlugs = Array.from(new Set(refreshRefsUsed ?? [...refreshBacklinkSlugs, ...refreshPromptRefs.map((ref) => ref.slug)]));
       const { article: updatedArticle } = await saveArticleImmediately(
         article.slug,
         article.title,
@@ -3679,13 +3680,32 @@ export async function createApp(options: CreateAppOptions = {}) {
         retrieved,
         { operation, instructions },
         {
-          userAdditionSlugs: Array.from(new Set(refreshRefsUsed ?? [...refreshBacklinkSlugs, ...refreshPromptRefs.map((ref) => ref.slug)])),
+          userAdditionSlugs: refreshUserAdditionSlugs,
           selectedReferenceSlugs: refreshRefsUsed,
         },
       );
       const refreshChanged = updatedArticle.markdown !== article.markdown;
       logger.info("page.refresh", { slug: updatedArticle.slug, changed: refreshChanged });
       invalidateArticleHtml(updatedArticle.slug);
+
+      // Always kick off full post-processing (see-also, summary, RAG indexing)
+      // after a refresh — previously this was missing, so see-also and summary
+      // were never updated on refresh.
+      trackGeneration(
+        postProcessArticle(
+          updatedArticle.slug,
+          updatedArticle.title,
+          updatedArticle.markdown,
+          retrieved,
+          hints,
+          updatedArticle.generated_at,
+          {
+            userAdditionSlugs: refreshUserAdditionSlugs,
+            selectedReferenceSlugs: refreshRefsUsed,
+          },
+        ).catch(() => {}),
+      );
+
       const response = buildArticleResponseFor(updatedArticle.slug);
       if (!response) throw new Error("failed to hydrate response");
       return buildPageResponse(response, {

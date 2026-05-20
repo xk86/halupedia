@@ -2018,6 +2018,43 @@ test("parseArticleFrameOutput: no sections → treat whole raw as body", () => {
   assert.equal(result.body, raw);
 });
 
+test("parseArticleFrameOutput: single-dash -halu-used-refs is recognized (variable dash count)", () => {
+  // Model emits -halu-used-refs instead of ---halu-used-refs
+  const raw = [
+    "---halu-body",
+    "# Test Article",
+    "",
+    "Body content.",
+    '-halu-used-refs ["slug-a","slug-b"]',
+  ].join("\n");
+  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "# Test Article\n\nBody content.");
+  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
+});
+
+test("parseArticleFrameOutput: two-dash --halu-body is recognized", () => {
+  const raw = ["--halu-body", "# Two Dash", "", "Content."].join("\n");
+  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.equal(result.body, "# Two Dash\n\nContent.");
+});
+
+test("parseArticleFrameOutput: single-dash -halu-used-refs with trailing JSON on same line", () => {
+  // Reproduces the exact leakage pattern from production logs
+  const raw = [
+    "---halu-body",
+    "# Ford Fistula",
+    "",
+    "Article body here.",
+    '-halu-used-refs ["slug-a","slug-b","slug-c"]',
+  ].join("\n");
+  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
+  assert.equal(result.ok, true);
+  assert.doesNotMatch(result.body, /halu-used-refs/);
+  assert.doesNotMatch(result.body, /slug-a/);
+});
+
 test("parseArticleFrameOutput: missing body section with other sections → missing-body", () => {
   // Only meta JSON + usedRefs, no heading to extract body from
   const raw = ["---halu-meta", '{"title":"Test"}', "---halu-used-refs", '["slug-a"]'].join("\n");

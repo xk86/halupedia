@@ -181,25 +181,45 @@ export interface CreateAppOptions {
 
 type FrameSection = "meta" | "body" | "usedRefs";
 
-const FRAME_MARKERS: Record<FrameSection, string[]> = {
-  meta: ["---halu-meta", "---meta", "## meta", "## metadata"],
-  body: ["---halu-body", "---body", "## body", "## article", "## article body"],
-  usedRefs: [
-    "---halu-used-refs", "---used-refs", "---references-used",
-    "## used refs", "## used references", "## references used",
-  ],
-};
+// halu- keywords tolerate any number of leading dashes (model may emit 1, 2, or 3).
+// Capture group 1 = keyword, group 2 = inline content after the marker (trimmed).
+const HALU_MARKER_RE = /^-+(halu-body|halu-meta|halu-used-refs)\s*(.*)?$/;
+// Non-halu dashed aliases require 3+ dashes to avoid false positives with prose.
+const DASH_ALIAS_RE = /^---(body|used-refs|references-used|meta)\s*(.*)?$/;
 
-function identifyFrameMarker(line: string): FrameSection | null {
-  const trimmed = line.trim();
-  const normalized = trimmed.toLowerCase();
-  for (const [section, aliases] of Object.entries(FRAME_MARKERS) as [FrameSection, string[]][]) {
-    for (const alias of aliases) {
-      if (normalized === alias) return section;
-      // Meta markers tolerate inline JSON on the same line (e.g. `---halu-meta {...}`)
-      if (section === "meta" && normalized.startsWith(alias + " ")) return "meta";
+function identifyFrameMarker(line: string): { section: FrameSection; inline: string } | null {
+  const normalized = line.trim().toLowerCase();
+
+  // halu- form: any dash count, optional inline content
+  const hm = HALU_MARKER_RE.exec(normalized);
+  if (hm) {
+    const inline = hm[2]?.trim() ?? "";
+    switch (hm[1]) {
+      case "halu-body": return { section: "body", inline };
+      case "halu-meta": return { section: "meta", inline };
+      case "halu-used-refs": return { section: "usedRefs", inline };
     }
   }
+
+  // --- form (3+ dashes, no halu- prefix)
+  const dm = DASH_ALIAS_RE.exec(normalized);
+  if (dm) {
+    const inline = dm[2]?.trim() ?? "";
+    switch (dm[1]) {
+      case "body": return { section: "body", inline };
+      case "meta": return { section: "meta", inline };
+      case "used-refs":
+      case "references-used": return { section: "usedRefs", inline };
+    }
+  }
+
+  // ## Style aliases (exact match, case-insensitive)
+  switch (normalized) {
+    case "## meta": case "## metadata": return { section: "meta", inline: "" };
+    case "## body": case "## article": case "## article body": return { section: "body", inline: "" };
+    case "## used refs": case "## used references": case "## references used": return { section: "usedRefs", inline: "" };
+  }
+
   return null;
 }
 
@@ -211,10 +231,12 @@ function extractFrameSections(raw: string): {
   const preSectionLines: string[] = [];
   let current: FrameSection | null = null;
   for (const line of raw.split("\n")) {
-    const marker = identifyFrameMarker(line);
-    if (marker !== null) {
-      current = marker;
+    const result = identifyFrameMarker(line);
+    if (result !== null) {
+      current = result.section;
       sectionLines[current] ??= [];
+      // Preserve any content on the same line as the marker (e.g. inline JSON)
+      if (result.inline) (sectionLines[current] ??= []).push(result.inline);
     } else if (current !== null) {
       (sectionLines[current] ??= []).push(line);
     } else {

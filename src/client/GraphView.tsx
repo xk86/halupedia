@@ -117,22 +117,49 @@ function Knob({
   );
 }
 
+// ── Preferences persistence ──────────────────────────────────────────────────
+
+const PREFS_KEY = "halupedia-graph-prefs";
+
+interface SavedPrefs {
+  settings: RenderSettings;
+  showHalu: boolean;
+  topN: number;
+  filterMode: FilterMode;
+  neighborMode: NeighborhoodMode;
+}
+
+function loadPrefs(): Partial<SavedPrefs> {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    return raw ? (JSON.parse(raw) as Partial<SavedPrefs>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePrefs(prefs: SavedPrefs): void {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch { /* storage unavailable — ignore */ }
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }) {
   const [rawData, setRawData] = useState<GraphData | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [filterMode, setFilterMode] = useState<FilterMode>("top");
-  const [topN, setTopN] = useState(60);
-  const [neighborMode, setNeighborMode] = useState<NeighborhoodMode>("both");
+  const [filterMode, setFilterMode] = useState<FilterMode>(() => loadPrefs().filterMode ?? "top");
+  const [topN, setTopN] = useState(() => loadPrefs().topN ?? 60);
+  const [neighborMode, setNeighborMode] = useState<NeighborhoodMode>(() => loadPrefs().neighborMode ?? "both");
   const [searchQuery, setSearchQuery] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [seeds, setSeeds] = useState<Seed[]>([]);
-  const [showHalu, setShowHalu] = useState(false);
+  const [showHalu, setShowHalu] = useState(() => loadPrefs().showHalu ?? false);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<RenderSettings>(() => ({ ...DEFAULT_SETTINGS, ...loadPrefs().settings }));
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
@@ -140,6 +167,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
   }, []);
+
+  // Persist preferences whenever any user-controlled value changes (seeds are transient, not saved)
+  useEffect(() => {
+    savePrefs({ settings, showHalu, topN, filterMode, neighborMode });
+  }, [settings, showHalu, topN, filterMode, neighborMode]);
 
   // ── Graphology: build directed graph + stats ────────────────────────────────
 

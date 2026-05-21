@@ -3575,6 +3575,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 .graph-error-inline { color: #b22; }
+.graph-halu-hidden { color: var(--ink-fade); font-style: italic; }
 
 .graph-canvas {
   flex: 1;

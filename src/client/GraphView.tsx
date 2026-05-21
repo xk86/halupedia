@@ -129,6 +129,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [seeds, setSeeds] = useState<Seed[]>([]);
+  const [showHalu, setShowHalu] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS);
@@ -199,7 +200,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       }
     }
 
-    const nodes: FgNode[] = [...slugSet].map((slug) => ({
+    const allNodes: FgNode[] = [...slugSet].map((slug) => ({
       id: slug,
       title: (gInstance.getNodeAttribute(slug, "title") as string) || slug,
       exists: (gInstance.getNodeAttribute(slug, "exists") as boolean) ?? false,
@@ -209,16 +210,20 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       outDegree: gInstance.outDegree(slug),
     }));
 
+    const haluCount = allNodes.filter((n) => !n.exists).length;
+    const nodes = showHalu ? allNodes : allNodes.filter((n) => n.exists);
+    const visibleIds = new Set(nodes.map((n) => n.id));
+
     const links: { source: string; target: string }[] = [];
     for (const edge of gInstance.edges()) {
       const [src, tgt] = gInstance.extremities(edge);
-      if (slugSet.has(src) && slugSet.has(tgt)) {
+      if (visibleIds.has(src) && visibleIds.has(tgt)) {
         links.push({ source: src, target: tgt });
       }
     }
 
-    return { nodes, links };
-  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode]);
+    return { nodes, links, haluCount };
+  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -354,6 +359,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   const nodeCount = fgData.nodes.length;
   const edgeCount = fgData.links.length;
+  const haluCount = fgData.haluCount ?? 0;
   const totalArticles = gInstance?.order ?? 0;
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -423,10 +429,22 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         <div className="graph-stats">
           {loadError && <span className="graph-error-inline">Failed to load graph data.</span>}
           {!loadError && gInstance && (
-            <span>{nodeCount} nodes · {edgeCount} edges · {totalArticles} total</span>
+            <span>
+              {nodeCount} nodes
+              {!showHalu && haluCount > 0 && <span className="graph-halu-hidden"> ({haluCount} halu hidden)</span>}
+              {" · "}{edgeCount} edges · {totalArticles} total
+            </span>
           )}
           {!loadError && !gInstance && <span>Loading graph…</span>}
         </div>
+
+        <button
+          type="button"
+          className={`graph-settings-btn${showHalu ? " active" : ""}`}
+          onClick={() => setShowHalu((v) => !v)}
+        >
+          {showHalu ? "Hide halu" : "Show halu"}
+        </button>
 
         <button
           type="button"

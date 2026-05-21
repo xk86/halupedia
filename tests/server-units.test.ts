@@ -15,6 +15,8 @@ import {
   getArticleByLookup,
   isSlugDeleted,
   updateArticleSummary,
+  listTopArticles,
+  getGraphData,
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import {
@@ -2348,4 +2350,112 @@ test("normalizeMarkdownLinks: dangling markdown link tail is not converted into 
   const result = normalizeMarkdownLinks(raw, "article");
   assert.equal(result.markdown, raw);
   assert.equal(result.stats.rewritten, 0);
+});
+
+// ── listTopArticles ────────────────────────────────────────────────────────
+
+test("listTopArticles returns written articles ranked by inbound halu-link count", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-top-articles-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const save = (slug: string, title: string, links: Array<{ targetSlug: string; visibleLabel: string; hiddenHint: string }>) => {
+    const md = `# ${title}\n\nBody.`;
+    saveArticle(db, { slug, canonicalSlug: slug, title, markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now(), summaryMarkdown: "" }, links, [slug], { operation: "generate" });
+  };
+
+  save("alpha", "Alpha", []);
+  save("beta",  "Beta",  [{ targetSlug: "alpha", visibleLabel: "Alpha", hiddenHint: "hint" }]);
+  save("gamma", "Gamma", [{ targetSlug: "alpha", visibleLabel: "Alpha", hiddenHint: "hint" }, { targetSlug: "beta", visibleLabel: "Beta", hiddenHint: "hint" }]);
+
+  const top = listTopArticles(db, 10);
+
+  // alpha is referenced by beta + gamma = 2; beta by gamma = 1
+  assert.equal(top[0].slug, "alpha");
+  assert.equal(top[0].title, "Alpha");
+  assert.equal(top[0].inboundCount, 2);
+  assert.equal(top[1].slug, "beta");
+  assert.equal(top[1].inboundCount, 1);
+});
+
+test("listTopArticles excludes unwritten (halu-only) targets", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-top-unwritten-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const md = "# Source\n\nBody.";
+  // source links to "ghost" which is never written
+  saveArticle(db, { slug: "source", canonicalSlug: "source", title: "Source", markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now(), summaryMarkdown: "" },
+    [{ targetSlug: "ghost", visibleLabel: "Ghost", hiddenHint: "hint" }], ["source"], { operation: "generate" });
+
+  const top = listTopArticles(db, 10);
+  assert.equal(top.length, 0, "unwritten target must not appear");
+});
+
+test("listTopArticles respects the limit parameter", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-top-limit-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const save = (slug: string) => {
+    const md = `# ${slug}\n\nBody.`;
+    saveArticle(db, { slug, canonicalSlug: slug, title: slug, markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now(), summaryMarkdown: "" }, [], [slug], { operation: "generate" });
+  };
+  const targets = ["t1","t2","t3","t4","t5"];
+  targets.forEach(save);
+
+  // source links to all five targets
+  const srcMd = "# Src\n\nBody.";
+  saveArticle(db, { slug: "src", canonicalSlug: "src", title: "Src", markdown: srcMd, html: renderMarkdown(srcMd), plain_text: markdownToPlainText(srcMd), generated_at: Date.now(), summaryMarkdown: "" },
+    targets.map(s => ({ targetSlug: s, visibleLabel: s, hiddenHint: "h" })), ["src"], { operation: "generate" });
+
+  assert.equal(listTopArticles(db, 3).length, 3);
+  assert.equal(listTopArticles(db, 10).length, 5);
+});
+
+// ── getGraphData ───────────────────────────────────────────────────────────
+
+test("getGraphData returns nodes for all written articles and their halu targets", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-graph-data-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const md = "# Written\n\nBody.";
+  saveArticle(db, { slug: "written", canonicalSlug: "written", title: "Written", markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now(), summaryMarkdown: "" },
+    [{ targetSlug: "unwritten", visibleLabel: "Unwritten", hiddenHint: "hint" }], ["written"], { operation: "generate" });
+
+  const { nodes, links } = getGraphData(db);
+
+  const slugs = nodes.map(n => n.slug);
+  assert.ok(slugs.includes("written"), "written article must be a node");
+  assert.ok(slugs.includes("unwritten"), "halu target must be a node");
+
+  const written = nodes.find(n => n.slug === "written")!;
+  const ghost   = nodes.find(n => n.slug === "unwritten")!;
+  assert.equal(written.exists, true);
+  assert.equal(ghost.exists, false);
+
+  assert.equal(links.length, 1);
+  assert.equal(links[0].source, "written");
+  assert.equal(links[0].target, "unwritten");
+});
+
+test("getGraphData deduplicates links", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-graph-dedup-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const save = (slug: string, links: Array<{ targetSlug: string; visibleLabel: string; hiddenHint: string }>) => {
+    const md = `# ${slug}\n\nBody.`;
+    saveArticle(db, { slug, canonicalSlug: slug, title: slug, markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now(), summaryMarkdown: "" }, links, [slug], { operation: "generate" });
+  };
+
+  save("a", [{ targetSlug: "b", visibleLabel: "B", hiddenHint: "h" }]);
+  save("b", [{ targetSlug: "a", visibleLabel: "A", hiddenHint: "h" }]);
+
+  const { links } = getGraphData(db);
+  // a→b and b→a are distinct directed edges; no duplicates
+  assert.equal(links.length, 2);
+  const pairs = links.map(l => `${l.source}→${l.target}`).sort();
+  assert.deepEqual(pairs, ["a→b", "b→a"]);
 });

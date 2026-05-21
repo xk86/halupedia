@@ -4256,6 +4256,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       path === "/search" ||
       path === "/all-entries" ||
       path === "/admin" ||
+      path === "/graph" ||
       routeSlug(path)
     ) {
       return c.html(await readFile(resolve(distRoot, "index.html"), "utf8"));

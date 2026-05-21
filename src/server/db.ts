@@ -1309,10 +1309,11 @@ export function listTopArticles(db: DatabaseSync, limit: number): { slug: string
   return db
     .prepare(
       `SELECT l.target_slug AS slug,
-              COALESCE(a.title, l.target_slug) AS title,
+              a.title AS title,
               COUNT(*) AS inboundCount
        FROM article_links l
-       LEFT JOIN articles a ON a.slug = l.target_slug
+       JOIN articles a ON a.slug = l.target_slug
+       WHERE a.is_disambiguation = 0
        GROUP BY l.target_slug
        ORDER BY inboundCount DESC
        LIMIT ?`

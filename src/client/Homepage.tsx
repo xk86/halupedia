@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { renderSummaryHtml } from "./summaryHtml";
 import { toWikiSegment } from "./wikiPath";
 
+interface TopArticle {
+  slug: string;
+  title: string;
+  inboundCount: number;
+}
+
 interface FeaturedArticle {
   slug: string;
   title: string;
@@ -28,6 +34,7 @@ interface Props {
 export function Homepage({ onNavigate }: Props) {
   const [data, setData] = useState<HomepageData | null>(null);
   const [error, setError] = useState(false);
+  const [topArticles, setTopArticles] = useState<TopArticle[]>([]);
   const [now, setNow] = useState(() => Date.now());
 
   // History: list of prior homepage snapshots and which one is being previewed
@@ -57,6 +64,13 @@ export function Homepage({ onNavigate }: Props) {
       cancelled = true;
     };
   }, [loadHomepage]);
+
+  useEffect(() => {
+    fetch("/api/top-articles?limit=10")
+      .then((r) => r.json())
+      .then((d) => setTopArticles((d as { articles: TopArticle[] }).articles ?? []))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!data) return;
@@ -192,6 +206,28 @@ export function Homepage({ onNavigate }: Props) {
         <p className="homepage-empty">
           No articles yet. Search for a topic to generate your first entry.
         </p>
+      )}
+
+      {topArticles.length > 0 && (
+        <section className="homepage-top-articles">
+          <h2>Top articles</h2>
+          <ol className="homepage-top-list">
+            {topArticles.map((a, i) => (
+              <li key={a.slug}>
+                <span className="homepage-top-rank">{i + 1}</span>
+                <a
+                  href={`/wiki/${toWikiSegment(a.title)}`}
+                  onClick={handleClick(a.title)}
+                >
+                  {a.title}
+                </a>
+                <span className="homepage-top-count">
+                  {a.inboundCount} {a.inboundCount === 1 ? "ref" : "refs"}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
       )}
 
       {displayData && (

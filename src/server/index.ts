@@ -45,6 +45,8 @@ import {
   listArchivedArticles,
   getArchivedArticle,
   deleteArchivedArticle,
+  listTopArticles,
+  getGraphData,
 } from "./db";
 import {
   findFuzzyTitleMatchesInEditText,
@@ -151,6 +153,7 @@ const RESERVED_PATHS = new Set([
   "admin",
   "random",
   "Random",
+  "graph",
   "api",
   "assets",
 ]);
@@ -2454,6 +2457,15 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/homepage/history", (c) => {
     const history = listHomepageHistory(db, 50);
     return c.json({ history });
+  });
+
+  app.get("/api/top-articles", (c) => {
+    const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? "10")));
+    return c.json({ articles: listTopArticles(db, limit) });
+  });
+
+  app.get("/api/graph", (c) => {
+    return c.json(getGraphData(db));
   });
 
   app.get("/api/random-page", async (c) => {

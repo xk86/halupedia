@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
+import { GraphView } from "./GraphView";
 import { Homepage } from "./Homepage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
@@ -13,6 +14,7 @@ type Route =
   | { kind: "index" }
   | { kind: "admin" }
   | { kind: "random" }
+  | { kind: "graph" }
   | { kind: "article"; slug: string; title?: string }
   | { kind: "history"; slug: string }
   | { kind: "disambiguation"; slug: string };
@@ -115,6 +117,7 @@ function parseRoute(): Route {
   if (pathname === "/Random" || pathname === "/random") return { kind: "random" };
   if (pathname === "/all-entries") return { kind: "index" };
   if (pathname === "/admin") return { kind: "admin" };
+  if (pathname === "/graph") return { kind: "graph" };
   if (pathname === "/search") {
     return { kind: "search", query: new URLSearchParams(search).get("q") ?? "" };
   }
@@ -596,6 +599,12 @@ export function App() {
     window.history.pushState({}, "", "/admin");
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     setRoute({ kind: "admin" });
+  }, []);
+
+  const navigateToGraph = useCallback(() => {
+    window.history.pushState({}, "", "/graph");
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "graph" });
   }, []);
 
   const navigateToDisambiguation = useCallback((titleSegment: string) => {
@@ -1219,6 +1228,10 @@ export function App() {
 
     if (route.kind === "admin") {
       return <Admin onNavigate={navigateToArticle} />;
+    }
+
+    if (route.kind === "graph") {
+      return <GraphView onNavigate={navigateToArticle} />;
     }
 
     if (route.kind === "random") {
@@ -1909,6 +1922,15 @@ export function App() {
             }}
           >
             Admin
+          </a>
+          <a
+            href="/graph"
+            onClick={(e) => {
+              e.preventDefault();
+              navigateToGraph();
+            }}
+          >
+            Graph
           </a>
         </nav>
 

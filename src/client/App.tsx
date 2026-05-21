@@ -853,6 +853,15 @@ export function App() {
         const payload = await res.json().catch(() => ({}));
         throw new Error(payload?.error || `error ${res.status}`);
       }
+      // Server returns plain JSON (not NDJSON) when rewrite was blocked
+      // (e.g. article protection active). Detect by content-type and bail cleanly.
+      if (!(res.headers.get("content-type") ?? "").includes("application/x-ndjson")) {
+        const data = await res.json().catch(() => null) as PageData | null;
+        if (data) setPage(data);
+        else setPage(previousPage);
+        setEditBusy(false);
+        return;
+      }
       if (!res.body) throw new Error("streaming response missing body");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -1807,8 +1816,13 @@ export function App() {
             )}
 
             {editError ? <div className="edit-modal-error">{editError}</div> : null}
+            {page.isProtected && (
+              <div className="edit-modal-error" style={{ background: "transparent", border: "1px solid var(--color-border, #ccc)", color: "var(--color-muted, #888)" }}>
+                🔒 Article is locked — LLM rewrites are blocked. Use <strong>Raw</strong> to edit directly.
+              </div>
+            )}
             <div className="edit-modal-actions">
-              <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || !editDraft.trim()}>
+              <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || !editDraft.trim() || !!page.isProtected}>
                 {editBusy ? "Rewriting..." : "Apply edit"}
               </button>
               <button type="button" className="edit-raw-btn" onClick={openRawEdit} disabled={editBusy} title="Edit raw markdown directly">

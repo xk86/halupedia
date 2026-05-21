@@ -2004,6 +2004,41 @@ test("stripFootnoteArtifacts: does not strip Slug in normal prose sentences", ()
   assert.match(result, /slug for this article/);
 });
 
+test("stripFootnoteArtifacts: strips ---used-refs leak from body", () => {
+  const md = "# Article\n\nBody text.\n\n---used-refs [\"ford-fistula\",\"ford-motors\"]\n\nMore text.";
+  const result = stripFootnoteArtifacts(md);
+  assert.doesNotMatch(result, /used-refs/);
+  assert.match(result, /Body text/);
+  assert.match(result, /More text/);
+});
+
+test("stripFootnoteArtifacts: strips bare used-refs (no dashes) from body", () => {
+  const md = "# Article\n\nBody text.\n\nused-refs []\n\nMore text.";
+  const result = stripFootnoteArtifacts(md);
+  assert.doesNotMatch(result, /used-refs/);
+  assert.match(result, /Body text/);
+});
+
+test("stripFootnoteArtifacts: strips ===used-refs from body", () => {
+  const md = "# Article\n\nBody.\n\n===used-refs [\"slug-one\",\"slug-two\"]";
+  const result = stripFootnoteArtifacts(md);
+  assert.doesNotMatch(result, /used-refs/);
+  assert.doesNotMatch(result, /slug-one/);
+});
+
+test("stripFootnoteArtifacts: strips prompt placeholder lines copied verbatim", () => {
+  const md = "# Article\n\n(write the full Markdown article here — the # heading, body paragraphs, and inline links)\n\nReal body.";
+  const result = stripFootnoteArtifacts(md);
+  assert.doesNotMatch(result, /write the full/);
+  assert.match(result, /Real body/);
+});
+
+test("stripFootnoteArtifacts: does not strip normal prose containing 'used'", () => {
+  const md = "Energy storage is used widely in modern infrastructure.";
+  const result = stripFootnoteArtifacts(md);
+  assert.match(result, /used widely/);
+});
+
 // parseArticleFrameOutput / parsePartialArticleFrame
 
 const PROVIDED = new Set(["slug-a", "slug-b", "slug-c"]);

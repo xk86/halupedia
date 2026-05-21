@@ -275,6 +275,16 @@ export function stripFootnoteArtifacts(markdown: string): string {
     // Strip metadata field lines the model may emit (Slug: ..., Title: ..., etc.)
     // These leak when the model outputs leftover frame-format metadata as prose.
     .replace(/^(?:Slug|Title|Category|Tags?|Author|Date|Source):\s+\S[^\n]*$/gim, "")
+    // Strip frame section marker lines that leaked into the body.
+    // Matches with or without the --- prefix, any separator char count, covering:
+    //   ---used-refs [...], used-refs [], ===halu-used-refs [...], etc.
+    // Also strips placeholder lines the model may copy from the prompt example.
+    .replace(/^[-_=]*\s*(?:halu[-_])?(?:used[-_]refs?|used[-_]references?|references[-_]used)\s*.*$/gim, "")
+    .replace(/^[-_=]{2,}\s*(?:halu[-_])?(?:body|meta|metadata)\s*.*$/gim, "")
+    // Strip prompt-placeholder lines the model may echo literally
+    .replace(/^\(write the full.*\)$/gim, "")
+    .replace(/^\(write a JSON array.*\)$/gim, "")
+    .replace(/^Do not copy the placeholder.*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

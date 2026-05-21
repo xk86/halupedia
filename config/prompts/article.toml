@@ -29,16 +29,14 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Return the article using exactly these sections:
+Return the article using exactly these two sections. Do not emit any text outside them.
 
 ---body
-# Article Title
-
-Full article in Markdown here.
+(write the full Markdown article here — the # heading, body paragraphs, and inline links)
 
 ---used-refs
-["slug-one","slug-two"]
+(write a JSON array of the ref slugs you actually used, e.g. ["a-slug","b-slug"], or [] if none)
 
-Only content in ---body is article text.
+Only content inside ---body is article text. Do not copy the placeholder text above literally.
 Use double-quoted halu hints, e.g. `[Visible Title](halu:visible-title "hidden context hint")`.
 Do not wrap the article in JSON. Do not put Markdown body inside JSON."""

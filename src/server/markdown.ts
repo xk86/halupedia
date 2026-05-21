@@ -446,6 +446,45 @@ export function articleSectionMarkdown(
   return range ? markdown.slice(range.start, range.end).trim() : markdown;
 }
 
+/**
+ * Given a freshly LLM-written body and a list of protected section IDs,
+ * splice the original content of each protected section back from originalBody.
+ *
+ * If a protected section is present in newBody, its content is replaced with
+ * the original. If it is absent from newBody (LLM dropped it), it is appended.
+ */
+export function spliceProtectedSections(
+  newBody: string,
+  protectedSectionIds: string[],
+  originalBody: string,
+): string {
+  if (protectedSectionIds.length === 0) return newBody;
+  const origRanges = sectionRanges(originalBody);
+  let result = newBody;
+  const appended: string[] = [];
+
+  for (const sectionId of protectedSectionIds) {
+    const origRange = origRanges.find((r) => r.id === sectionId);
+    if (!origRange) continue;
+    const originalContent = originalBody.slice(origRange.start, origRange.end).trim();
+
+    const newRanges = sectionRanges(result);
+    const newRange = newRanges.find((r) => r.id === sectionId);
+    if (newRange) {
+      // Section exists in new body — replace its content with the original.
+      result = `${result.slice(0, newRange.start).trimEnd()}\n\n${originalContent}\n\n${result.slice(newRange.end).trimStart()}`.trim();
+    } else {
+      // Section missing from new body — append it at the end.
+      appended.push(originalContent);
+    }
+  }
+
+  if (appended.length > 0) {
+    result = `${result.trimEnd()}\n\n${appended.join("\n\n")}`.trim();
+  }
+  return result;
+}
+
 export function replaceArticleSection(
   markdown: string,
   sectionId: string,

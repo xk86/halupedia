@@ -169,6 +169,14 @@ export function openDatabase(databasePath: string): DatabaseSync {
       deleted_at INTEGER NOT NULL
     );
 
+    -- Protection: sections the user has locked against automatic rewrites.
+    CREATE TABLE IF NOT EXISTS protected_sections (
+      article_slug TEXT NOT NULL,
+      section_id TEXT NOT NULL,
+      heading TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (article_slug, section_id)
+    );
+
     -- Articles displaced by a canonical slug redirect. Full article data
     -- is stored here so admins can restore them if needed.
     CREATE TABLE IF NOT EXISTS archived_articles (
@@ -204,6 +212,9 @@ export function openDatabase(databasePath: string): DatabaseSync {
   }
   if (!hasColumn(db, "articles", "display_title")) {
     db.exec(`ALTER TABLE articles ADD COLUMN display_title TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!hasColumn(db, "articles", "is_protected")) {
+    db.exec(`ALTER TABLE articles ADD COLUMN is_protected INTEGER NOT NULL DEFAULT 0`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   return db;
@@ -1303,4 +1314,52 @@ export function getArchivedArticle(db: DatabaseSync, slug: string): ArticleRecor
 /** Remove an archived article (after restore or manual deletion). */
 export function deleteArchivedArticle(db: DatabaseSync, slug: string): void {
   db.prepare(`DELETE FROM archived_articles WHERE slug = ?`).run(slug);
+}
+
+// ── Article & section protection ─────────────────────────────────────────────
+
+export function isArticleProtected(db: DatabaseSync, slug: string): boolean {
+  const row = db.prepare(`SELECT is_protected FROM articles WHERE slug = ?`).get(slug) as { is_protected: number } | undefined;
+  return row ? Boolean(row.is_protected) : false;
+}
+
+export function setArticleProtection(db: DatabaseSync, slug: string, isProtected: boolean): void {
+  db.prepare(`UPDATE articles SET is_protected = ? WHERE slug = ?`).run(isProtected ? 1 : 0, slug);
+}
+
+export interface ProtectedSectionRow {
+  articleSlug: string;
+  sectionId: string;
+  heading: string;
+}
+
+export function listProtectedSections(db: DatabaseSync, articleSlug: string): ProtectedSectionRow[] {
+  return (db
+    .prepare(`SELECT article_slug AS articleSlug, section_id AS sectionId, heading FROM protected_sections WHERE article_slug = ?`)
+    .all(articleSlug) as unknown) as ProtectedSectionRow[];
+}
+
+export function isArticleSectionProtected(db: DatabaseSync, articleSlug: string, sectionId: string): boolean {
+  const row = db.prepare(`SELECT 1 FROM protected_sections WHERE article_slug = ? AND section_id = ?`).get(articleSlug, sectionId);
+  return !!row;
+}
+
+export function setArticleSectionProtection(
+  db: DatabaseSync,
+  articleSlug: string,
+  sectionId: string,
+  heading: string,
+  isProtected: boolean,
+): void {
+  if (isProtected) {
+    db.prepare(`INSERT OR REPLACE INTO protected_sections (article_slug, section_id, heading) VALUES (?, ?, ?)`)
+      .run(articleSlug, sectionId, heading);
+  } else {
+    db.prepare(`DELETE FROM protected_sections WHERE article_slug = ? AND section_id = ?`).run(articleSlug, sectionId);
+  }
+}
+
+export function updateArticleTitle(db: DatabaseSync, slug: string, title: string): ArticleRecord | null {
+  db.prepare(`UPDATE articles SET title = ? WHERE slug = ?`).run(title, slug);
+  return getArticle(db, slug);
 }

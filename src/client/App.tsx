@@ -53,6 +53,8 @@ interface PageData {
   };
   refreshChanged?: boolean;
   statusMessage?: string;
+  isProtected?: boolean;
+  protectedSections?: string[];
 }
 
 interface ArticleSection {
@@ -174,6 +176,12 @@ export function App() {
   const [editRewriteMode, setEditRewriteMode] = useState<"aggressive" | "subtle">("aggressive");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  // Title editing
+  const [editTitleDraft, setEditTitleDraft] = useState("");
+  const [editTitleBusy, setEditTitleBusy] = useState(false);
+  const [editTitleError, setEditTitleError] = useState<string | null>(null);
+  // Protection
+  const [protectionBusy, setProtectionBusy] = useState(false);
   const [rawEditOpen, setRawEditOpen] = useState(false);
   const [rawEditMarkdown, setRawEditMarkdown] = useState("");
   const [rawEditPreview, setRawEditPreview] = useState<{ html: string; diagnostics: Array<{ severity: string; message: string }> } | null>(null);
@@ -1371,6 +1379,32 @@ export function App() {
           <button
             type="button"
             className="article-edit-button"
+            style={{ opacity: page.isProtected ? 1 : 0.35, fontSize: "1.1rem", lineHeight: 1 }}
+            title={page.isProtected ? "Article is locked — click to unlock" : "Lock article against automatic rewrites"}
+            aria-label={page.isProtected ? "Unlock article" : "Lock article"}
+            disabled={protectionBusy}
+            onClick={async () => {
+              setProtectionBusy(true);
+              try {
+                const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/protect`, {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ isProtected: !page.isProtected }),
+                });
+                if (res.ok) {
+                  const data = await res.json() as { isProtected: boolean };
+                  setPage((cur) => cur ? { ...cur, isProtected: data.isProtected } : cur);
+                }
+              } finally {
+                setProtectionBusy(false);
+              }
+            }}
+          >
+            {page.isProtected ? "🔒" : "🔓"}
+          </button>
+          <button
+            type="button"
+            className="article-edit-button"
             onClick={copyArticleSlug}
             aria-label="Copy slug"
             title="Copy slug"
@@ -1420,6 +1454,51 @@ export function App() {
         {copySlugMessage ? <div className="status">{copySlugMessage}</div> : null}
         {editOpen ? (
           <section className="edit-tray" aria-label="Edit article" ref={editTrayRef}>
+            {/* Title editing row */}
+            <div className="edit-tray-row" style={{ borderBottom: "1px solid var(--color-border, #ddd)", paddingBottom: "0.5rem", marginBottom: "0.5rem" }}>
+              <label style={{ flex: 1 }}>
+                Title <span style={{ fontSize: "0.75rem", color: "var(--color-muted, #888)" }}>(markdown, no links)</span>
+                <input
+                  type="text"
+                  className="search-input"
+                  style={{ width: "100%", marginTop: "0.25rem" }}
+                  placeholder={articleDisplayTitle}
+                  value={editTitleDraft}
+                  onChange={(e) => { setEditTitleDraft(e.target.value); setEditTitleError(null); }}
+                  disabled={editTitleBusy}
+                />
+              </label>
+              <button
+                type="button"
+                className="edit-modal-close"
+                style={{ alignSelf: "flex-end" }}
+                disabled={editTitleBusy || !editTitleDraft.trim()}
+                onClick={async () => {
+                  const newTitle = editTitleDraft.trim();
+                  if (!newTitle) return;
+                  setEditTitleBusy(true);
+                  setEditTitleError(null);
+                  try {
+                    const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/update-title`, {
+                      method: "PATCH",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ title: newTitle }),
+                    });
+                    const data = await res.json() as any;
+                    if (!res.ok) { setEditTitleError(data.error ?? "Failed to update title"); return; }
+                    setPage(data);
+                    setEditTitleDraft("");
+                  } catch {
+                    setEditTitleError("Network error");
+                  } finally {
+                    setEditTitleBusy(false);
+                  }
+                }}
+              >
+                {editTitleBusy ? "Saving…" : "Save Title"}
+              </button>
+            </div>
+            {editTitleError && <p style={{ color: "red", fontSize: "0.85rem", marginBottom: "0.5rem" }}>{editTitleError}</p>}
             <div className="edit-tray-row">
               <label>
                 Section

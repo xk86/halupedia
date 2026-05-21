@@ -45,6 +45,12 @@ import {
   listArchivedArticles,
   getArchivedArticle,
   deleteArchivedArticle,
+  isArticleProtected,
+  setArticleProtection,
+  listProtectedSections,
+  isArticleSectionProtected,
+  setArticleSectionProtection,
+  updateArticleTitle,
 } from "./db";
 import {
   findFuzzyTitleMatchesInEditText,
@@ -69,6 +75,7 @@ import {
   renderMarkdown,
   replaceArticleSection,
   sectionSlice,
+  spliceProtectedSections,
   stripFootnoteArtifacts,
   stripSelfLinks,
   stripTopLevelSections,
@@ -1660,6 +1667,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       // Sections list is derived from the rendered body, not metadata.
       sections: listArticleSections(response.body),
       backlinks: listBacklinks(db, response.slug),
+      isProtected: isArticleProtected(db, response.slug),
+      protectedSections: listProtectedSections(db, response.slug).map((s) => s.sectionId),
       ...(opts.statusMessage ? { statusMessage: opts.statusMessage } : {}),
       ...(opts.refreshChanged !== undefined
         ? { refreshChanged: opts.refreshChanged }
@@ -3045,6 +3054,66 @@ export async function createApp(options: CreateAppOptions = {}) {
     );
   });
 
+  // ── Article protection ───────────────────────────────────────────────────
+
+  app.post("/api/article/:slug/protect", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { isProtected?: boolean };
+    const newValue = body.isProtected ?? !isArticleProtected(db, article.slug);
+    setArticleProtection(db, article.slug, newValue);
+    logger.info("article.protection_changed", { slug: article.slug, isProtected: newValue });
+    return c.json({ ok: true, slug: article.slug, isProtected: newValue });
+  });
+
+  app.post("/api/article/:slug/protect-section", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { sectionId?: string; heading?: string; isProtected?: boolean };
+    const sectionId = body.sectionId ?? "";
+    if (!sectionId) return c.json({ error: "missing sectionId" }, 400);
+    const heading = body.heading ?? sectionId;
+    const newValue = body.isProtected ?? !isArticleSectionProtected(db, article.slug, sectionId);
+    setArticleSectionProtection(db, article.slug, sectionId, heading, newValue);
+    logger.info("article.section_protection_changed", { slug: article.slug, sectionId, isProtected: newValue });
+    const sections = listProtectedSections(db, article.slug);
+    return c.json({ ok: true, slug: article.slug, sectionId, isProtected: newValue, protectedSections: sections });
+  });
+
+  app.patch("/api/article/:slug/update-title", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    if (!article) return c.json({ error: "article not found" }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { title?: string };
+    const newTitle = (body.title ?? "").replace(/\[.*?\]\(.*?\)/g, "").trim(); // strip links
+    if (!newTitle) return c.json({ error: "title cannot be empty" }, 400);
+    const updated = updateArticleTitle(db, article.slug, newTitle);
+    if (!updated) return c.json({ error: "article not found" }, 404);
+    // Rebuild HTML with new title in heading
+    const newMarkdown = updated.markdown.replace(/^#\s+.+?$/m, `# ${newTitle}`);
+    const links = extractInternalLinks(newMarkdown);
+    const newHtml = renderMarkdown(newMarkdown);
+    db.prepare(`UPDATE articles SET markdown = ?, html = ?, plain_text = ? WHERE slug = ?`)
+      .run(newMarkdown, newHtml, markdownToPlainText(newMarkdown), article.slug);
+    // Save revision
+    db.prepare(
+      `INSERT INTO article_revisions (article_slug, title, markdown, html, summary_markdown, plain_text, generated_at, created_at, operation, instructions)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(article.slug, newTitle, newMarkdown, newHtml, updated.summaryMarkdown ?? "", markdownToPlainText(newMarkdown), article.generated_at, Date.now(), "title-edit", `Title changed to: ${newTitle}`);
+    invalidateArticleHtml(article.slug);
+    // Fire post-processing hooks for reindex + summary update
+    afterArticleSaved(article.slug, newTitle, newMarkdown, article.generated_at);
+    logger.info("article.title_updated", { slug: article.slug, newTitle });
+    const response = buildArticleResponseFor(article.slug);
+    if (!response) return c.json({ error: "failed to hydrate response" }, 500);
+    return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(updated) }));
+  });
+
   app.post("/api/article/:slug/rewrite", async (c) => {
     const lookupSlug = slugify(c.req.param("slug"));
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
@@ -3065,6 +3134,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       // if they would otherwise score well enough to be included.
       blacklistSlugs?: string[];
       includeRecentEditHistory?: boolean;
+      /** When true, bypass article-level protection (user is explicitly editing). */
+      isManualEdit?: boolean;
     };
     const instructions = (body.instructions ?? "")
       .replace(/\s+/g, " ")
@@ -3075,6 +3146,22 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
+
+    // ── Protection check ──────────────────────────────────────────────────────
+    const isManualEdit = body.isManualEdit === true;
+    const articleIsProtected = !isManualEdit && !body.sectionId && !body.selectedText && isArticleProtected(db, article.slug);
+    if (articleIsProtected) {
+      // Skip LLM entirely; record that the rewrite was blocked and return current content.
+      const links = extractInternalLinks(article.markdown);
+      db.prepare(
+        `INSERT INTO article_revisions (article_slug, title, markdown, html, summary_markdown, plain_text, generated_at, created_at, operation, instructions)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(article.slug, article.title, article.markdown, article.html, article.summaryMarkdown ?? "", article.plain_text, article.generated_at, Date.now(), "rewrite-skipped-protected", instructions);
+      logger.info("article.rewrite_blocked_protection", { slug: article.slug });
+      const response = buildArticleResponseFor(article.slug);
+      if (!response) return c.json({ error: "failed to hydrate response" }, 500);
+      return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(article) }));
+    }
 
     const selectedText = (body.selectedText ?? "").trim();
     let selectionRange: { start: number; end: number } | null = null;
@@ -3299,6 +3386,14 @@ export async function createApp(options: CreateAppOptions = {}) {
         ? "section-rewrite"
         : "rewrite";
 
+    // Splice protected sections back into a freshly LLM-written body.
+    const applyProtectedSections = (llmBody: string): string => {
+      const protectedIds = listProtectedSections(db, article.slug).map((s) => s.sectionId);
+      return protectedIds.length > 0
+        ? spliceProtectedSections(llmBody, protectedIds, article.markdown)
+        : llmBody;
+    };
+
     const persistRewrite = async (raw: string, refsUsed: string[] = []) => {
       inFlightEdits.add(article.slug);
       logger.debug("rewrite.edit_in_flight", { slug: article.slug, in_flight_edits: inFlightEdits.size });
@@ -3485,7 +3580,7 @@ export async function createApp(options: CreateAppOptions = {}) {
               operation: operationName,
               rewrite_length: rewriteResult.body.length,
             });
-            const payload = await persistRewrite(rewriteResult.body, rewriteResult.ok ? rewriteResult.refsUsed : []);
+            const payload = await persistRewrite(applyProtectedSections(rewriteResult.body), rewriteResult.ok ? rewriteResult.refsUsed : []);
             logger.debug("rewrite.persisted", {
               slug: article.slug,
               operation: operationName,
@@ -3541,7 +3636,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
 
     try {
-      const result = await persistRewrite(nonStreamResult.body, nonStreamResult.ok ? nonStreamResult.refsUsed : []);
+      const result = await persistRewrite(applyProtectedSections(nonStreamResult.body), nonStreamResult.ok ? nonStreamResult.refsUsed : []);
       logger.debug("rewrite.persisted", {
         slug: article.slug,
         operation: operationName,
@@ -3615,6 +3710,18 @@ export async function createApp(options: CreateAppOptions = {}) {
         },
         logger,
       );
+      // Short-circuit if the article is fully protected — skip LLM entirely.
+      if (isArticleProtected(db, article.slug)) {
+        logger.info("article.refresh_blocked_protection", { slug: article.slug });
+        const response = buildArticleResponseFor(article.slug);
+        if (!response) throw new Error("failed to hydrate response");
+        return buildPageResponse(response, {
+          cached: true,
+          canonicalPath: canonicalPathForArticle(article),
+          refreshChanged: false,
+        });
+      }
+
       let bodyMarkdown = currentBodyMarkdown;
       let operation = "refresh-context";
       let instructions = "Refreshed retrieved context and derived references.";
@@ -3672,7 +3779,13 @@ export async function createApp(options: CreateAppOptions = {}) {
         if (!refreshParseResult.ok) {
           throw new Error(`refresh returned invalid structured output: ${refreshParseResult.reason ?? "missing required refs"}`);
         }
-        bodyMarkdown = sanitizeGeneratedBody(normalizeMarkdown(refreshParseResult.body));
+        let refreshedBody = sanitizeGeneratedBody(normalizeMarkdown(refreshParseResult.body));
+        // Splice protected sections back if any sections are locked.
+        const refreshProtectedIds = listProtectedSections(db, article.slug).map((s) => s.sectionId);
+        if (refreshProtectedIds.length > 0) {
+          refreshedBody = spliceProtectedSections(refreshedBody, refreshProtectedIds, currentBodyMarkdown);
+        }
+        bodyMarkdown = refreshedBody;
         refreshRefsUsed = refreshParseResult.ok ? refreshParseResult.refsUsed : [];
         operation = "refresh-context-rewrite";
         instructions = "Refreshed article body from retrieved context.";

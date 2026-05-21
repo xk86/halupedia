@@ -15,6 +15,11 @@ import {
   getArticleByLookup,
   isSlugDeleted,
   updateArticleSummary,
+  isArticleProtected,
+  setArticleProtection,
+  listProtectedSections,
+  isArticleSectionProtected,
+  setArticleSectionProtection,
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import {
@@ -30,6 +35,7 @@ import {
   stripSelfLinks,
   stripTopLevelSections,
   stripFootnoteArtifacts,
+  spliceProtectedSections,
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
 import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
@@ -2407,4 +2413,80 @@ test("normalizeMarkdownLinks: dangling markdown link tail is not converted into 
   const result = normalizeMarkdownLinks(raw, "article");
   assert.equal(result.markdown, raw);
   assert.equal(result.stats.rewritten, 0);
+});
+
+// ── Protection: DB functions ─────────────────────────────────────────────────
+
+test("isArticleProtected returns false for new articles", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-protect-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const md = "# Sentinel\n\nBody.";
+  saveArticle(db, { slug: "sentinel", canonicalSlug: "sentinel", title: "Sentinel", markdown: md, html: renderMarkdown(md), plain_text: md, generated_at: 1 }, [], ["sentinel"]);
+  // import isArticleProtected lazily to avoid circular dep issues
+  assert.equal(isArticleProtected(db, "sentinel"), false);
+});
+
+test("setArticleProtection / isArticleProtected round-trip", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-protect-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const md = "# Sentinel\n\nBody.";
+  saveArticle(db, { slug: "sentinel", canonicalSlug: "sentinel", title: "Sentinel", markdown: md, html: renderMarkdown(md), plain_text: md, generated_at: 1 }, [], ["sentinel"]);
+  assert.equal(isArticleProtected(db, "sentinel"), false);
+  setArticleProtection(db, "sentinel", true);
+  assert.equal(isArticleProtected(db, "sentinel"), true);
+  setArticleProtection(db, "sentinel", false);
+  assert.equal(isArticleProtected(db, "sentinel"), false);
+});
+
+test("listProtectedSections / setArticleSectionProtection round-trip", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-protect-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const md = "# Article\n\n## Section A\n\nContent A.\n\n## Section B\n\nContent B.";
+  saveArticle(db, { slug: "article", canonicalSlug: "article", title: "Article", markdown: md, html: renderMarkdown(md), plain_text: md, generated_at: 1 }, [], ["article"]);
+  assert.deepEqual(listProtectedSections(db, "article"), []);
+  setArticleSectionProtection(db, "article", "section-a", "Section A", true);
+  assert.equal(isArticleSectionProtected(db, "article", "section-a"), true);
+  assert.equal(isArticleSectionProtected(db, "article", "section-b"), false);
+  const sections = listProtectedSections(db, "article");
+  assert.equal(sections.length, 1);
+  assert.equal(sections[0].sectionId, "section-a");
+  // Toggle off
+  setArticleSectionProtection(db, "article", "section-a", "Section A", false);
+  assert.equal(isArticleSectionProtected(db, "article", "section-a"), false);
+});
+
+// ── Protection: spliceProtectedSections ──────────────────────────────────────
+
+test("spliceProtectedSections: no protected sections → returns new body unchanged", () => {
+  const orig = "# Article\n\n## Intro\n\nOld intro.\n\n## Details\n\nOld details.";
+  const newBody = "# Article\n\n## Intro\n\nNew intro.\n\n## Details\n\nNew details.";
+  assert.equal(spliceProtectedSections(newBody, [], orig), newBody);
+});
+
+test("spliceProtectedSections: protected section keeps original content", () => {
+  const orig = "# Article\n\n## Intro\n\nOriginal intro text.\n\n## Details\n\nOriginal details.";
+  const newBody = "# Article\n\n## Intro\n\nLLM rewrote this.\n\n## Details\n\nLLM rewrote this too.";
+  const result = spliceProtectedSections(newBody, ["intro"], orig);
+  assert.match(result, /Original intro text/);
+  assert.match(result, /LLM rewrote this too/);
+  assert.doesNotMatch(result, /LLM rewrote this\./);
+});
+
+test("spliceProtectedSections: multiple protected sections all preserved", () => {
+  const orig = "# Article\n\n## Alpha\n\nOriginal alpha.\n\n## Beta\n\nOriginal beta.\n\n## Gamma\n\nOriginal gamma.";
+  const newBody = "# Article\n\n## Alpha\n\nNew alpha.\n\n## Beta\n\nNew beta.\n\n## Gamma\n\nNew gamma.";
+  const result = spliceProtectedSections(newBody, ["alpha", "gamma"], orig);
+  assert.match(result, /Original alpha/);
+  assert.match(result, /New beta/);
+  assert.match(result, /Original gamma/);
+});
+
+test("spliceProtectedSections: protected section missing from new body → section appended", () => {
+  const orig = "# Article\n\n## Old Section\n\nImportant protected content.";
+  const newBody = "# Article\n\n## New Section\n\nNew content.";
+  const result = spliceProtectedSections(newBody, ["old-section"], orig);
+  assert.match(result, /Important protected content/);
 });

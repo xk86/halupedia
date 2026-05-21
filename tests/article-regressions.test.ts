@@ -1959,3 +1959,168 @@ test("article body generation uses streamChat (not chat) and emits progress even
   // Article must still be generated successfully
   assert.ok(packets.some((p) => p.type === "done"), "should have a done event");
 });
+
+// ── Article/section protection (integration) ─────────────────────────────────
+
+test("protect endpoint toggles is_protected flag and returns current state", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  saveMarkdownArticle(databasePath, { slug: "guarded", title: "Guarded", markdown: "# Guarded\n\nOriginal body." });
+
+  const server = await createServer(databasePath, new QueueLlmClient(""));
+  const r1 = await server.request("/api/article/Guarded/protect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ isProtected: true }),
+  });
+  assert.equal(r1.status, 200);
+  const b1 = await r1.json() as any;
+  assert.equal(b1.isProtected, true);
+
+  const r2 = await server.request("/api/article/Guarded/protect", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ isProtected: false }),
+  });
+  assert.equal(r2.status, 200);
+  const b2 = await r2.json() as any;
+  assert.equal(b2.isProtected, false);
+});
+
+test("rewrite on protected article leaves body unchanged", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const original = "# Vault\n\nThis content is sacred.";
+  saveMarkdownArticle(databasePath, { slug: "vault", title: "Vault", markdown: original });
+
+  const server = await createServer(databasePath, new QueueLlmClient("# Vault\n\nLLM overwrote this."));
+  // Lock the article
+  await server.request("/api/article/Vault/protect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ isProtected: true }),
+  });
+
+  const res = await server.request("/api/article/Vault/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "rewrite everything" }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.match(body.article.markdown, /This content is sacred/);
+  assert.doesNotMatch(body.article.markdown, /LLM overwrote/);
+});
+
+test("rewrite on protected article creates a revision documenting the skip", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  saveMarkdownArticle(databasePath, { slug: "vault2", title: "Vault2", markdown: "# Vault2\n\nProtected." });
+
+  const server = await createServer(databasePath, new QueueLlmClient("# Vault2\n\nNew content."));
+  await server.request("/api/article/Vault2/protect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ isProtected: true }),
+  });
+  await server.request("/api/article/Vault2/rewrite", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "change it" }),
+  });
+
+  const db = openDatabase(databasePath);
+  const revisions = listArticleRevisions(db, "vault2");
+  db.close();
+  assert.ok(revisions.some((r) => r.operation === "rewrite-skipped-protected"));
+});
+
+test("refresh on protected article leaves body unchanged", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const original = "# Shrine\n\nDo not touch.";
+  saveMarkdownArticle(databasePath, { slug: "shrine", title: "Shrine", markdown: original });
+
+  const server = await createServer(databasePath, new QueueLlmClient("# Shrine\n\nLLM refreshed."));
+  await server.request("/api/article/Shrine/protect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ isProtected: true }),
+  });
+  const res = await server.request("/api/article/Shrine/refresh-context", { method: "POST" });
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.match(body.article.markdown, /Do not touch/);
+  assert.doesNotMatch(body.article.markdown, /LLM refreshed/);
+});
+
+test("manual edit on protected article succeeds and creates a revision", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  saveMarkdownArticle(databasePath, { slug: "editable", title: "Editable", markdown: "# Editable\n\nOriginal." });
+
+  const server = await createServer(databasePath, new QueueLlmClient("# Editable\n\nManual edit content."));
+  await server.request("/api/article/Editable/protect", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ isProtected: true }),
+  });
+
+  const editRes = await server.request("/api/article/Editable/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "manual edit", isManualEdit: true }),
+  });
+  assert.equal(editRes.status, 200);
+  const editBody = await editRes.json() as any;
+  assert.match(editBody.article.markdown, /Manual edit content/);
+
+  const db = openDatabase(databasePath);
+  const revisions = listArticleRevisions(db, "editable");
+  db.close();
+  assert.ok(revisions.some((r) => r.operation === "rewrite"));
+});
+
+test("section protection: rewrite preserves locked section, rewrites others", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const original = "# Article\n\n## History\n\nAncient sacred history.\n\n## Uses\n\nOld uses.";
+  saveMarkdownArticle(databasePath, { slug: "sectioned", title: "Sectioned", markdown: original });
+
+  const newBody = "# Sectioned\n\n## History\n\nLLM overwrote history.\n\n## Uses\n\nLLM rewrote uses.";
+  const server = await createServer(databasePath, new QueueLlmClient(newBody));
+  // Lock the History section
+  await server.request("/api/article/Sectioned/protect-section", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sectionId: "history", isProtected: true }),
+  });
+
+  const res = await server.request("/api/article/Sectioned/rewrite", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "rewrite everything" }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.match(body.article.markdown, /Ancient sacred history/);
+  assert.match(body.article.markdown, /LLM rewrote uses/);
+  assert.doesNotMatch(body.article.markdown, /LLM overwrote history/);
+});
+
+test("update-title endpoint changes stored title without changing slug", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  saveMarkdownArticle(databasePath, { slug: "my-article", title: "My Article", markdown: "# My Article\n\nContent." });
+
+  const server = await createServer(databasePath, new QueueLlmClient(""));
+  const res = await server.request("/api/article/My_Article/update-title", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "**My Renamed Article**" }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+  assert.equal(body.article.title, "**My Renamed Article**");
+
+  const db = openDatabase(databasePath);
+  const stored = getArticle(db, "my-article");
+  const revisions = listArticleRevisions(db, "my-article");
+  db.close();
+  assert.equal(stored?.title, "**My Renamed Article**");
+  assert.equal(stored?.slug, "my-article"); // slug unchanged
+  assert.ok(revisions.some((r) => r.operation === "title-edit"));
+});

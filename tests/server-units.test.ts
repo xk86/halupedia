@@ -1296,6 +1296,30 @@ test("stripTopLevelSections removes model-emitted metadata headings at any level
   assert.equal(stripTopLevelSections(markdown, ["References", "See also"]), "# Article\n\nBody stays.");
 });
 
+test("stripTopLevelSections strips 'Used References' / 'None' pattern the model emits", () => {
+  const markdown = [
+    "# Article",
+    "",
+    "Body content here.",
+    "",
+    "## Used References",
+    "",
+    "None",
+  ].join("\n");
+
+  const headings = ["References", "See also", "Used References", "Used Refs", "References Used", "Refs Used", "Reference List", "Sources", "Bibliography"];
+  assert.equal(stripTopLevelSections(markdown, headings), "# Article\n\nBody content here.");
+});
+
+test("stripTopLevelSections strips 'Sources' and 'Bibliography' sections", () => {
+  const markdown = "# Article\n\nBody.\n\n## Sources\n\n- [1] Something\n\n## Bibliography\n\n- Something else";
+  const headings = ["References", "See also", "Used References", "Used Refs", "References Used", "Refs Used", "Reference List", "Sources", "Bibliography"];
+  const result = stripTopLevelSections(markdown, headings);
+  assert.doesNotMatch(result, /Sources/);
+  assert.doesNotMatch(result, /Bibliography/);
+  assert.match(result, /Body\./);
+});
+
 test("references render as ordered footnote targets, not markdown bullets", () => {
   const refs: ReferenceList = [
     {

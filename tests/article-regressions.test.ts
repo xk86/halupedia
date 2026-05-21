@@ -1585,6 +1585,48 @@ test("self-links are stripped from generated articles", async (t) => {
   assert.match(done.article.markdown, /is a Fog Registry that tracks/);
 });
 
+test("generated article DB markdown contains no frame markers or model-emitted ref headings", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Model leaks frame markers and a "Used References / None" section into the body
+  const leakyBody = [
+    "# Leaky Article",
+    "",
+    "Body content here.",
+    "",
+    "## Used References",
+    "",
+    "None",
+    "",
+    "---used-refs []",
+    "",
+    "---body leftover",
+  ].join("\n");
+
+  const llm = new QueueLlmClient(leakyBody, [
+    JSON.stringify({ items: [] }),
+    "Leaky Article summary.",
+  ]);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/page/Leaky_Article?stream=1");
+  assert.equal(res.status, 200);
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  assert.ok(packets.some((p) => p.type === "done"), "should have done event");
+
+  const db = openDatabase(databasePath);
+  const stored = getArticle(db, "leaky-article");
+  db.close();
+
+  assert.ok(stored, "article should be saved");
+  assert.doesNotMatch(stored!.markdown, /Used References/, "Used References heading must be stripped");
+  assert.doesNotMatch(stored!.markdown, /^---used-refs/m, "---used-refs marker must be stripped");
+  assert.doesNotMatch(stored!.markdown, /^---body/m, "---body marker must be stripped");
+  assert.doesNotMatch(stored!.markdown, /^None$/m, "lone None line must be stripped");
+  assert.match(stored!.markdown, /Body content here/, "article body must be preserved");
+});
+
 test("disambiguation pages can be created and retrieved via API", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));

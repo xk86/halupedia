@@ -539,10 +539,23 @@ function rewriteArticleTitleHeading(markdown: string, title: string): string {
   return `# ${normalizedTitle}\n\n${markdown.trim()}`.trim();
 }
 
+/** Heading aliases the model uses for the used-refs section — strip them all. */
+const USED_REFS_HEADING_ALIASES = [
+  "References",
+  "See also",
+  "Used References",
+  "Used Refs",
+  "References Used",
+  "Refs Used",
+  "Reference List",
+  "Sources",
+  "Bibliography",
+];
+
 function sanitizeGeneratedBody(markdown: string): string {
   return fixSlugVisibleText(
     stripFootnoteArtifacts(
-      stripTopLevelSections(markdown, ["References", "See also"]),
+      stripTopLevelSections(markdown, USED_REFS_HEADING_ALIASES),
     ),
   );
 }
@@ -3305,7 +3318,7 @@ export async function createApp(options: CreateAppOptions = {}) {
             ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
             : rewrittenBody;
         }
-        nextMarkdown = stripTopLevelSections(nextMarkdown, ["References", "See also"]);
+        nextMarkdown = stripTopLevelSections(nextMarkdown, USED_REFS_HEADING_ALIASES);
         // Resolve any ref:N shorthand the LLM used against the current ref list.
         const rewriteRefs = buildReferenceList(
           db,
@@ -3406,7 +3419,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           ? replaceArticleSection(article.markdown, sectionId, rewrittenBody)
           : rewrittenBody;
       }
-      previewMarkdown = stripTopLevelSections(previewMarkdown, ["References", "See also"]);
+      previewMarkdown = stripTopLevelSections(previewMarkdown, USED_REFS_HEADING_ALIASES);
       const links = extractAllBodyLinks(previewMarkdown, article.slug);
       return {
         html: rewriteArticleHtml(renderMarkdown(previewMarkdown), links),

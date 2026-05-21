@@ -51,14 +51,11 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Return the refreshed article using exactly these two sections. Do not emit any text outside them.
+Output format — use these two markers, no other text:
 
 ---body
-(write the full refreshed Markdown article here)
-
 ---used-refs
-(write a JSON array of the ref slugs you actually used, e.g. ["a-slug","b-slug"], or [] if none)
 
-Only content inside ---body is article text. Do not copy the placeholder text above literally.
-Use double-quoted halu hints, e.g. `[Visible Title](halu:visible-title "hidden context hint")`.
-Do not wrap the article in JSON. Do not put Markdown body inside JSON."""
+After ---body: the full refreshed Markdown article, starting with # heading.
+After ---used-refs: a JSON array of ref slugs you used, e.g. ["slug-a","slug-b"], or [].
+Use double-quoted halu hints inside the article, e.g. `[Title](halu:slug "hint")`."""

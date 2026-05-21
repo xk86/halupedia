@@ -1,8 +1,11 @@
 // TODO: split api and shit out because jesus christ this file is way too long
 // TODO: make sure that formatting text isn't being added into link replacement/strips.
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
+import { readFile, stat as fsStat } from "node:fs/promises";
+import { extname, resolve, dirname, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -162,6 +165,9 @@ const RESERVED_PATHS = new Set([
   "assets",
 ]);
 const HOMEPAGE_MAINTENANCE_TASK = "homepage.refresh";
+const DB_BACKUP_TASK = "db.backup";
+const DB_BACKUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const DB_BACKUP_KEEP = 7; // keep last 7 compressed backups
 const HOMEPAGE_PENDING_RETRY_MS = 1_000;
 const HOMEPAGE_REFRESH_GRACE_MS = 250;
 
@@ -2443,6 +2449,48 @@ export async function createApp(options: CreateAppOptions = {}) {
       },
     });
   }
+
+  // ── Periodic database backup ────────────────────────────────────────────────
+  maintenance.register({
+    name: DB_BACKUP_TASK,
+    nextDelayMs: () => DB_BACKUP_INTERVAL_MS,
+    run: async () => {
+      const dbPath = resolve(process.cwd(), runtime.app.storage.database_path);
+      if (!existsSync(dbPath)) return;
+      const backupDir = dirname(dbPath);
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      const rawPath = `${dbPath}.backup-${ts}`;
+      const gzPath = `${rawPath}.gz`;
+
+      // VACUUM INTO produces a consistent, defragmented copy even under load.
+      db.exec(`VACUUM INTO '${rawPath.replace(/'/g, "''")}'`);
+
+      // Compress and delete the raw copy.
+      await pipeline(
+        (await import("node:fs")).createReadStream(rawPath),
+        createGzip({ level: 6 }),
+        createWriteStream(gzPath),
+      );
+      rmSync(rawPath);
+
+      const { size } = await fsStat(gzPath);
+      logger.info("db.backup_done", {
+        path: gzPath,
+        size_kb: Math.round(size / 1024),
+      });
+
+      // Prune old backups — keep the most recent DB_BACKUP_KEEP files.
+      const prefix = basename(dbPath) + ".backup-";
+      const existing = readdirSync(backupDir)
+        .filter((f) => f.startsWith(prefix) && f.endsWith(".gz"))
+        .sort()
+        .reverse();
+      for (const old of existing.slice(DB_BACKUP_KEEP)) {
+        rmSync(resolve(backupDir, old));
+        logger.info("db.backup_pruned", { file: old });
+      }
+    },
+  });
 
   app.get("/api/homepage", (c) => {
     const cached = getHomepageCache(db);

@@ -16,6 +16,8 @@ interface FgNode {
   community: number;
   inDegree: number;
   outDegree: number;
+  visibleInDegree: number;
+  visibleOutDegree: number;
 }
 
 type FilterMode = "top" | "search";
@@ -53,8 +55,8 @@ const DEFAULT_SETTINGS: RenderSettings = {
   nodeResolution: 16,
   nodeRelSize: 4,
   nodeOpacity: 0.9,
-  linkOpacity: 0.18,
-  linkWidth: 0.6,
+  linkOpacity: 0.4,
+  linkWidth: 1.0,
   arrowLength: 3.5,
   linkCurvature: 0,
   particles: 0,
@@ -240,6 +242,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       community: nodeStats.get(slug)?.community ?? 0,
       inDegree: gInstance.inDegree(slug),
       outDegree: gInstance.outDegree(slug),
+      visibleInDegree: 0,
+      visibleOutDegree: 0,
     }));
 
     const haluCount = allNodes.filter((n) => !n.exists).length;
@@ -252,6 +256,15 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       if (visibleIds.has(src) && visibleIds.has(tgt)) {
         links.push({ source: src, target: tgt });
       }
+    }
+
+    // Compute visible-only degrees from the filtered edge list
+    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    for (const l of links) {
+      const src = nodeById.get(l.source);
+      const tgt = nodeById.get(l.target);
+      if (src) src.visibleOutDegree++;
+      if (tgt) tgt.visibleInDegree++;
     }
 
     return { nodes, links, haluCount };
@@ -300,10 +313,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
       fg
         .nodeId("id")
-        .nodeLabel((n: FgNode) => `${n.title}\n↑ ${n.inDegree} in  ↓ ${n.outDegree} out`)
+        .nodeLabel((n: FgNode) => `${n.title}\n↑ ${n.visibleInDegree} in  ↓ ${n.visibleOutDegree} out`)
         .nodeColor((n: FgNode) => n.exists ? communityColor(n.community) : "#555566")
         .nodeVal((n: FgNode) => Math.max(1, n.inDegree * 0.5 + n.pagerank * 4000))
-        .linkColor(() => "rgba(255,255,255,0.15)")
+        .linkColor(() => "#ffffff")
         .onNodeClick((n: FgNode) => {
           if (n.exists) onNavigate(toWikiSegment(n.title));
         });

@@ -24,6 +24,59 @@ type NeighborhoodMode = "refs" | "backlinks" | "both";
 interface Suggestion { slug: string; title: string; }
 interface Seed { slug: string; title: string; }
 
+// ── Render settings ──────────────────────────────────────────────────────────
+
+interface RenderSettings {
+  // Nodes
+  nodeResolution: number;   // sphere segments: 4–32
+  nodeRelSize: number;      // base sphere volume per val unit: 1–12
+  nodeOpacity: number;      // 0.1–1.0
+  // Links
+  linkOpacity: number;      // 0.01–0.6
+  linkWidth: number;        // 0.1–4.0
+  arrowLength: number;      // 0–10
+  linkCurvature: number;    // 0–0.8
+  particles: number;        // 0–8
+  particleSpeed: number;    // 0.001–0.02
+  particleWidth: number;    // 0.5–6
+  // Physics
+  chargeStrength: number;   // -20 to -1200 (repulsion)
+  linkDistance: number;     // 5–400
+  alphaDecay: number;       // 0.001–0.06
+  velocityDecay: number;    // 0.1–0.99
+  // Appearance
+  bgColor: string;
+  labelThreshold: number;   // inDegree >= this shows a persistent label: 0–20
+}
+
+const DEFAULT_SETTINGS: RenderSettings = {
+  nodeResolution: 16,
+  nodeRelSize: 4,
+  nodeOpacity: 0.9,
+  linkOpacity: 0.18,
+  linkWidth: 0.6,
+  arrowLength: 3.5,
+  linkCurvature: 0,
+  particles: 0,
+  particleSpeed: 0.005,
+  particleWidth: 2,
+  chargeStrength: -180,
+  linkDistance: 60,
+  alphaDecay: 0.0228,
+  velocityDecay: 0.4,
+  bgColor: "#080810",
+  labelThreshold: 999, // off by default
+};
+
+const BG_PRESETS = [
+  { label: "Void", value: "#080810" },
+  { label: "Space", value: "#020408" },
+  { label: "Slate", value: "#0d1117" },
+  { label: "Paper", value: "#1a1a2e" },
+];
+
+// ── Community colours ────────────────────────────────────────────────────────
+
 const COMMUNITY_COLORS = [
   "#e63946", "#457b9d", "#2a9d8f", "#e9c46a", "#f4a261",
   "#8338ec", "#06d6a0", "#ef476f", "#118ab2", "#ffd166",
@@ -33,6 +86,38 @@ const COMMUNITY_COLORS = [
 function communityColor(id: number): string {
   return COMMUNITY_COLORS[id % COMMUNITY_COLORS.length];
 }
+
+// ── Knob helpers ─────────────────────────────────────────────────────────────
+
+function Knob({
+  label, value, min, max, step, format, onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format?: (v: number) => string;
+  onChange: (v: number) => void;
+}) {
+  const display = format ? format(value) : String(value);
+  return (
+    <label className="grs-knob">
+      <span className="grs-knob-label">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <span className="grs-knob-val">{display}</span>
+    </label>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 
 export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }) {
   const [rawData, setRawData] = useState<GraphData | null>(null);
@@ -45,11 +130,18 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [initialized, setInitialized] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<RenderSettings>(DEFAULT_SETTINGS);
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
 
-  // Build graphology graph + compute stats once raw data arrives
+  const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
+    setSettings((s) => ({ ...s, [key]: value }));
+  }, []);
+
+  // ── Graphology: build directed graph + stats ────────────────────────────────
+
   const { gInstance, nodeStats } = useMemo(() => {
     if (!rawData) return { gInstance: null, nodeStats: new Map<string, { pr: number; community: number }>() };
 
@@ -65,7 +157,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     const pr = pagerank(g);
     let communities: Record<string, number> = {};
-    try { communities = louvain(g); } catch { /* undirected required, skip */ }
+    try { communities = louvain(g); } catch { /* needs edges */ }
 
     const stats = new Map<string, { pr: number; community: number }>();
     for (const slug of g.nodes()) {
@@ -75,7 +167,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     return { gInstance: g, nodeStats: stats };
   }, [rawData]);
 
-  // Build filtered node/link list for the renderer
+  // ── Filtered subgraph for the renderer ─────────────────────────────────────
+
   const fgData = useMemo(() => {
     if (!gInstance) return { nodes: [] as FgNode[], links: [] as { source: string; target: string }[] };
 
@@ -108,8 +201,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     const nodes: FgNode[] = [...slugSet].map((slug) => ({
       id: slug,
-      title: gInstance.getNodeAttribute(slug, "title") as string || slug,
-      exists: gInstance.getNodeAttribute(slug, "exists") as boolean ?? false,
+      title: (gInstance.getNodeAttribute(slug, "title") as string) || slug,
+      exists: (gInstance.getNodeAttribute(slug, "exists") as boolean) ?? false,
       pagerank: nodeStats.get(slug)?.pr ?? 0,
       community: nodeStats.get(slug)?.community ?? 0,
       inDegree: gInstance.inDegree(slug),
@@ -127,7 +220,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     return { nodes, links };
   }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode]);
 
-  // Fetch raw graph data on mount
+  // ── Data fetching ───────────────────────────────────────────────────────────
+
   useEffect(() => {
     fetch("/api/graph")
       .then((r) => r.json())
@@ -135,15 +229,18 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       .catch(() => setLoadError(true));
   }, []);
 
-  // Debounced article search for seed suggestions
+  // Debounced article search
   useEffect(() => {
     if (!searchQuery.trim()) { setSuggestions([]); return; }
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
       fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`, { signal: ctrl.signal })
         .then((r) => r.json())
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .then((d: any) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const hits = (d.results ?? []).filter((r: any) => r.exists).slice(0, 7);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           setSuggestions(hits.map((r: any) => ({ slug: r.slug, title: r.title })));
         })
         .catch(() => {});
@@ -151,7 +248,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     return () => { clearTimeout(timer); ctrl.abort(); };
   }, [searchQuery]);
 
-  // Initialize 3d-force-graph instance once (async import)
+  // ── 3d-force-graph: initialize once ────────────────────────────────────────
+
   useEffect(() => {
     if (!containerRef.current) return;
     const el = containerRef.current;
@@ -162,18 +260,17 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fg = (ForceGraph3D as any)({ controlType: "orbit" })(el);
       fgRef.current = fg;
+
       fg
         .nodeId("id")
         .nodeLabel((n: FgNode) => `${n.title}\n↑ ${n.inDegree} in  ↓ ${n.outDegree} out`)
         .nodeColor((n: FgNode) => n.exists ? communityColor(n.community) : "#555566")
         .nodeVal((n: FgNode) => Math.max(1, n.inDegree * 0.5 + n.pagerank * 4000))
-        .linkColor(() => "rgba(255,255,255,0.1)")
-        .linkWidth(0.4)
-        .linkDirectionalArrowLength(2.5)
-        .linkDirectionalArrowRelPos(1)
+        .linkColor(() => "rgba(255,255,255,0.15)")
         .onNodeClick((n: FgNode) => {
           if (n.exists) onNavigate(toWikiSegment(n.title));
         });
+
       setInitialized(true);
     });
 
@@ -186,7 +283,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Push updated data into the live graph whenever fgData or init state changes
+  // ── Push graph data whenever it changes ────────────────────────────────────
+
   useEffect(() => {
     if (!fgRef.current || !initialized || fgData.nodes.length === 0) return;
     fgRef.current.graphData({
@@ -195,7 +293,38 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     });
   }, [fgData, initialized]);
 
-  // Keep canvas sized to container
+  // ── Apply render settings imperatively ─────────────────────────────────────
+
+  useEffect(() => {
+    if (!fgRef.current || !initialized) return;
+    const fg = fgRef.current;
+
+    fg
+      .nodeResolution(settings.nodeResolution)
+      .nodeRelSize(settings.nodeRelSize)
+      .nodeOpacity(settings.nodeOpacity)
+      .linkOpacity(settings.linkOpacity)
+      .linkWidth(settings.linkWidth)
+      .linkDirectionalArrowLength(settings.arrowLength)
+      .linkCurvature(settings.linkCurvature)
+      .linkDirectionalParticles(settings.particles)
+      .linkDirectionalParticleSpeed(settings.particleSpeed)
+      .linkDirectionalParticleWidth(settings.particleWidth)
+      .backgroundColor(settings.bgColor)
+      .d3AlphaDecay(settings.alphaDecay)
+      .d3VelocityDecay(settings.velocityDecay);
+
+    const charge = fg.d3Force("charge");
+    if (charge) charge.strength(settings.chargeStrength);
+
+    const link = fg.d3Force("link");
+    if (link) link.distance(settings.linkDistance);
+
+    fg.d3ReheatSimulation();
+  }, [settings, initialized]);
+
+  // ── Resize observer ─────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver(() => {
@@ -208,6 +337,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, [initialized]);
+
+  // ── Seed management ─────────────────────────────────────────────────────────
 
   const addSeed = useCallback((s: Suggestion) => {
     setSeeds((prev) => prev.some((x) => x.slug === s.slug) ? prev : [...prev, { slug: s.slug, title: s.title }]);
@@ -223,38 +354,29 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   const nodeCount = fgData.nodes.length;
   const edgeCount = fgData.links.length;
+  const totalArticles = gInstance?.order ?? 0;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="graph-view">
+
+      {/* ── Top control bar ── */}
       <div className="graph-controls">
         <div className="graph-filter-tabs">
-          <button
-            className={filterMode === "top" ? "active" : ""}
-            onClick={() => setFilterMode("top")}
-          >
+          <button className={filterMode === "top" ? "active" : ""} onClick={() => setFilterMode("top")}>
             Top articles
           </button>
-          <button
-            className={filterMode === "search" ? "active" : ""}
-            onClick={() => setFilterMode("search")}
-          >
+          <button className={filterMode === "search" ? "active" : ""} onClick={() => setFilterMode("search")}>
             Find article
           </button>
         </div>
 
         {filterMode === "top" && (
           <div className="graph-top-control">
-            <label>
-              Top <strong>{topN}</strong> by PageRank
-            </label>
-            <input
-              type="range"
-              min={10}
-              max={200}
-              step={10}
-              value={topN}
-              onChange={(e) => setTopN(Number(e.target.value))}
-            />
+            <label>Top <strong>{topN}</strong> by PageRank</label>
+            <input type="range" min={10} max={200} step={10} value={topN}
+              onChange={(e) => setTopN(Number(e.target.value))} />
           </div>
         )}
 
@@ -265,21 +387,13 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 {seeds.map((s) => (
                   <span key={s.slug} className="graph-seed-chip">
                     {s.title}
-                    <button
-                      type="button"
-                      aria-label={`Remove ${s.title}`}
-                      onClick={() => removeSeed(s.slug)}
-                    >
-                      ×
-                    </button>
+                    <button type="button" aria-label={`Remove ${s.title}`} onClick={() => removeSeed(s.slug)}>×</button>
                   </span>
                 ))}
               </div>
             )}
             <div className="graph-search-wrap">
-              <input
-                type="text"
-                className="graph-search-input"
+              <input type="text" className="graph-search-input"
                 placeholder="Search articles to seed graph..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -290,9 +404,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 <ul className="graph-suggest">
                   {suggestions.map((s) => (
                     <li key={s.slug}>
-                      <button type="button" onMouseDown={() => addSeed(s)}>
-                        {s.title}
-                      </button>
+                      <button type="button" onMouseDown={() => addSeed(s)}>{s.title}</button>
                     </li>
                   ))}
                 </ul>
@@ -300,11 +412,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
             </div>
             <div className="graph-neighbor-tabs">
               {(["refs", "backlinks", "both"] as NeighborhoodMode[]).map((m) => (
-                <button
-                  key={m}
-                  className={neighborMode === m ? "active" : ""}
-                  onClick={() => setNeighborMode(m)}
-                >
+                <button key={m} className={neighborMode === m ? "active" : ""} onClick={() => setNeighborMode(m)}>
                   {m === "refs" ? "Refs" : m === "backlinks" ? "Backlinks" : "Both"}
                 </button>
               ))}
@@ -315,11 +423,91 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         <div className="graph-stats">
           {loadError && <span className="graph-error-inline">Failed to load graph data.</span>}
           {!loadError && gInstance && (
-            <span>{nodeCount} nodes · {edgeCount} edges · {gInstance.order} total articles</span>
+            <span>{nodeCount} nodes · {edgeCount} edges · {totalArticles} total</span>
           )}
           {!loadError && !gInstance && <span>Loading graph…</span>}
         </div>
+
+        <button
+          type="button"
+          className={`graph-settings-btn${settingsOpen ? " active" : ""}`}
+          onClick={() => setSettingsOpen((o) => !o)}
+        >
+          ⚙ Render
+        </button>
       </div>
+
+      {/* ── Render settings panel ── */}
+      {settingsOpen && (
+        <div className="grs-panel">
+
+          <div className="grs-section">
+            <div className="grs-section-label">Nodes</div>
+            <Knob label="Resolution" value={settings.nodeResolution} min={4} max={32} step={2}
+              onChange={(v) => set("nodeResolution", v)} />
+            <Knob label="Base size" value={settings.nodeRelSize} min={1} max={12} step={0.5}
+              format={(v) => v.toFixed(1)} onChange={(v) => set("nodeRelSize", v)} />
+            <Knob label="Opacity" value={settings.nodeOpacity} min={0.1} max={1} step={0.05}
+              format={(v) => v.toFixed(2)} onChange={(v) => set("nodeOpacity", v)} />
+          </div>
+
+          <div className="grs-section">
+            <div className="grs-section-label">Links</div>
+            <Knob label="Opacity" value={settings.linkOpacity} min={0.01} max={0.6} step={0.01}
+              format={(v) => v.toFixed(2)} onChange={(v) => set("linkOpacity", v)} />
+            <Knob label="Width" value={settings.linkWidth} min={0.1} max={4} step={0.1}
+              format={(v) => v.toFixed(1)} onChange={(v) => set("linkWidth", v)} />
+            <Knob label="Arrow size" value={settings.arrowLength} min={0} max={10} step={0.5}
+              format={(v) => v.toFixed(1)} onChange={(v) => set("arrowLength", v)} />
+            <Knob label="Curvature" value={settings.linkCurvature} min={0} max={0.8} step={0.05}
+              format={(v) => v.toFixed(2)} onChange={(v) => set("linkCurvature", v)} />
+            <Knob label="Particles" value={settings.particles} min={0} max={8} step={1}
+              onChange={(v) => set("particles", v)} />
+            <Knob label="Particle speed" value={settings.particleSpeed} min={0.001} max={0.02} step={0.001}
+              format={(v) => v.toFixed(3)} onChange={(v) => set("particleSpeed", v)} />
+            <Knob label="Particle size" value={settings.particleWidth} min={0.5} max={6} step={0.5}
+              format={(v) => v.toFixed(1)} onChange={(v) => set("particleWidth", v)} />
+          </div>
+
+          <div className="grs-section">
+            <div className="grs-section-label">Physics</div>
+            <Knob label="Repulsion" value={settings.chargeStrength} min={-1200} max={-20} step={20}
+              onChange={(v) => set("chargeStrength", v)} />
+            <Knob label="Link distance" value={settings.linkDistance} min={5} max={400} step={5}
+              onChange={(v) => set("linkDistance", v)} />
+            <Knob label="Alpha decay" value={settings.alphaDecay} min={0.001} max={0.06} step={0.001}
+              format={(v) => v.toFixed(3)} onChange={(v) => set("alphaDecay", v)} />
+            <Knob label="Velocity decay" value={settings.velocityDecay} min={0.1} max={0.99} step={0.01}
+              format={(v) => v.toFixed(2)} onChange={(v) => set("velocityDecay", v)} />
+          </div>
+
+          <div className="grs-section">
+            <div className="grs-section-label">Background</div>
+            <div className="grs-bg-presets">
+              {BG_PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  className={`grs-bg-swatch${settings.bgColor === p.value ? " active" : ""}`}
+                  style={{ background: p.value }}
+                  title={p.label}
+                  onClick={() => set("bgColor", p.value)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="grs-reset"
+            onClick={() => setSettings(DEFAULT_SETTINGS)}
+          >
+            Reset to defaults
+          </button>
+        </div>
+      )}
 
       <div className="graph-canvas" ref={containerRef} />
     </div>

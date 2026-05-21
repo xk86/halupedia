@@ -3579,5 +3579,137 @@ button.admin-danger-btn:hover:not(:disabled) {
 .graph-canvas {
   flex: 1;
   min-height: 0;
-  background: #0a0a12;
+  background: #080810;
+}
+
+.graph-settings-btn {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.graph-settings-btn.active {
+  background: var(--parchment-deep);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.graph-settings-btn:hover:not(.active) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Render settings panel ─────────────────────────────────── */
+
+.grs-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: flex-start;
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--parchment-deep);
+  flex-shrink: 0;
+}
+
+.grs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 160px;
+}
+
+.grs-section-label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-fade);
+  margin-bottom: 0.15rem;
+  border-bottom: 1px dotted var(--rule-dotted);
+  padding-bottom: 0.15rem;
+}
+
+.grs-knob {
+  display: grid;
+  grid-template-columns: 7rem 1fr 2.8rem;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+}
+
+.grs-knob-label {
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.grs-knob input[type="range"] {
+  width: 100%;
+  min-width: 80px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.grs-knob-val {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--ink-fade);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.grs-bg-presets {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.grs-bg-swatch {
+  padding: 0.2rem 0.55rem;
+  border-radius: 3px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-family: var(--mono);
+  color: rgba(255,255,255,0.7);
+  transition: border-color 0.1s;
+}
+
+.grs-bg-swatch.active {
+  border-color: var(--accent);
+}
+
+.grs-bg-swatch:hover:not(.active) {
+  border-color: rgba(255,255,255,0.4);
+}
+
+.grs-reset {
+  align-self: flex-end;
+  margin-left: auto;
+  margin-top: auto;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-fade);
+  cursor: pointer;
+}
+
+.grs-reset:hover {
+  border-color: #b22;
+  color: #b22;
 }

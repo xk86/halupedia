@@ -190,6 +190,26 @@ export const PipelineStateSchema = z.object({
   // persistence outcome ──────────────────────────────────────────────────────
   persistedAt: z.number().optional(),
   persistedRevisionId: z.number().optional(),
+
+  // post-process specifics ───────────────────────────────────────────────────
+  /** Timestamp the article was at when post-process started (staleness guard). */
+  postProcessExpectedGeneratedAt: z.number().optional(),
+  /** Whether the article has section-level protection locks. */
+  protectedSectionIds: z.array(z.string()).optional(),
+  /** Whether the whole article is protection-locked (skips LLM rewrites). */
+  isProtected: z.boolean().optional(),
+  /** Markdown for the selection range being rewritten (partial-rewrite path). */
+  selectedMarkdown: z.string().optional(),
+  /** Character range within the full article markdown for the selected text. */
+  selectionRange: z.object({ start: z.number(), end: z.number() }).nullable().optional(),
+  /** Section id being rewritten (section-rewrite path). */
+  sectionId: z.string().optional(),
+  /** Rewrite mode label (from rewriteModes config). */
+  rewriteMode: z.string().optional(),
+
+  // RAG indexing ─────────────────────────────────────────────────────────────
+  /** True once RAG chunks have been re-indexed for this article. */
+  ragIndexed: z.boolean().optional(),
 });
 export type PipelineState = z.infer<typeof PipelineStateSchema>;
 

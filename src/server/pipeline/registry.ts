@@ -8,9 +8,15 @@
 import type { WorkflowDefinition } from "./runtime/graph";
 import type { PipelineDeps } from "./deps";
 import { generateArticleWorkflow } from "./workflows/generateArticle";
+import { postProcessWorkflow } from "./workflows/postProcess";
+import { refreshArticleWorkflow } from "./workflows/refreshArticle";
+import { rewriteArticleWorkflow } from "./workflows/rewriteArticle";
 
 export const ALL_WORKFLOWS: WorkflowDefinition<PipelineDeps>[] = [
   generateArticleWorkflow,
+  refreshArticleWorkflow,
+  rewriteArticleWorkflow,
+  postProcessWorkflow,
 ];
 
 export function findWorkflow(

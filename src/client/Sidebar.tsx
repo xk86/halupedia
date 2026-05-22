@@ -35,7 +35,10 @@ export function Sidebar({ articleSlug, articleTitle, backlinks, onNavigate }: Si
       {backlinks && (
         <section className="sb-panel" aria-labelledby="sb-backlinks-h">
           <h3 className="sb-heading" id="sb-backlinks-h">
-            Referenced By
+            Referenced By{" "}
+            <span className="sb-count">
+              ({backlinks.existing.length + backlinks.unwritten.length})
+            </span>
           </h3>
 
           {backlinks.existing.length === 0 && backlinks.unwritten.length === 0 ? (

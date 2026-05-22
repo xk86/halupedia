@@ -1316,6 +1316,53 @@ export function deleteArchivedArticle(db: DatabaseSync, slug: string): void {
   db.prepare(`DELETE FROM archived_articles WHERE slug = ?`).run(slug);
 }
 
+export function listTopArticles(db: DatabaseSync, limit: number): { slug: string; title: string; inboundCount: number }[] {
+  return db
+    .prepare(
+      `SELECT l.target_slug AS slug,
+              a.title AS title,
+              COUNT(*) AS inboundCount
+       FROM article_links l
+       JOIN articles a ON a.slug = l.target_slug
+       WHERE a.is_disambiguation = 0
+       GROUP BY l.target_slug
+       ORDER BY inboundCount DESC
+       LIMIT ?`
+    )
+    .all(limit) as { slug: string; title: string; inboundCount: number }[];
+}
+
+export function getGraphData(db: DatabaseSync): {
+  nodes: { slug: string; title: string; exists: boolean }[];
+  links: { source: string; target: string }[];
+} {
+  const articles = db
+    .prepare(`SELECT slug, COALESCE(title, slug) AS title FROM articles WHERE is_disambiguation = 0`)
+    .all() as { slug: string; title: string }[];
+
+  const links = db
+    .prepare(`SELECT DISTINCT source_slug, target_slug FROM article_links`)
+    .all() as { source_slug: string; target_slug: string }[];
+
+  const nodeMap = new Map<string, { slug: string; title: string; exists: boolean }>();
+  for (const a of articles) {
+    nodeMap.set(a.slug, { slug: a.slug, title: a.title, exists: true });
+  }
+  for (const l of links) {
+    if (!nodeMap.has(l.target_slug)) {
+      nodeMap.set(l.target_slug, { slug: l.target_slug, title: l.target_slug, exists: false });
+    }
+    if (!nodeMap.has(l.source_slug)) {
+      nodeMap.set(l.source_slug, { slug: l.source_slug, title: l.source_slug, exists: false });
+    }
+  }
+
+  return {
+    nodes: [...nodeMap.values()],
+    links: links.map((l) => ({ source: l.source_slug, target: l.target_slug })),
+  };
+}
+
 // ── Article & section protection ─────────────────────────────────────────────
 
 export function isArticleProtected(db: DatabaseSync, slug: string): boolean {

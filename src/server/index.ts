@@ -48,6 +48,8 @@ import {
   listArchivedArticles,
   getArchivedArticle,
   deleteArchivedArticle,
+  listTopArticles,
+  getGraphData,
   isArticleProtected,
   setArticleProtection,
   listProtectedSections,
@@ -161,6 +163,7 @@ const RESERVED_PATHS = new Set([
   "admin",
   "random",
   "Random",
+  "graph",
   "api",
   "assets",
 ]);
@@ -2526,6 +2529,15 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({ history });
   });
 
+  app.get("/api/top-articles", (c) => {
+    const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? "10")));
+    return c.json({ articles: listTopArticles(db, limit) });
+  });
+
+  app.get("/api/graph", (c) => {
+    return c.json(getGraphData(db));
+  });
+
   app.get("/api/random-page", async (c) => {
     try {
       await reloadRuntime();
@@ -4418,6 +4430,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       path === "/search" ||
       path === "/all-entries" ||
       path === "/admin" ||
+      path === "/graph" ||
       routeSlug(path)
     ) {
       return c.html(await readFile(resolve(distRoot, "index.html"), "utf8"));

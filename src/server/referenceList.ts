@@ -413,14 +413,37 @@ import { parseMarkdownLinks } from "./text/markdownLinkParser";
  */
 export function renderReferencesHtml(refs: ReferenceList): string {
   if (refs.length === 0) return "";
-  const items = refs
-    .map((entry, i) => {
-      const n = i + 1;
-      const wikiPath = `/wiki/${titleToWikiSegment(entry.title)}`;
-      return `<li id="ref-${n}"><a href="${wikiPath}">${entry.title}</a></li>`;
-    })
-    .join("");
-  return `<section class="article-references"><h2>References</h2><ol>${items}</ol></section>`;
+
+  // Linked refs (actually cited in body via ref:slug) are numbered footnotes.
+  // Unlinked refs (provided to the LLM but not cited) are shown in grey parens
+  // at the bottom so readers know what context was available.
+  const linked = refs.filter((r) => r.linked !== false);
+  const unlinked = refs.filter((r) => r.linked === false && !r.pinned);
+  // Pinned refs always appear in the linked list even if not cited.
+  const pinnedUnlinked = refs.filter((r) => r.linked === false && r.pinned);
+  const allLinked = [...linked, ...pinnedUnlinked];
+
+  let html = "";
+  if (allLinked.length > 0) {
+    const items = allLinked
+      .map((entry, i) => {
+        const n = i + 1;
+        const wikiPath = `/wiki/${titleToWikiSegment(entry.title)}`;
+        return `<li id="ref-${n}"><a href="${wikiPath}">${entry.title}</a></li>`;
+      })
+      .join("");
+    html += `<section class="article-references"><h2>References</h2><ol>${items}</ol></section>`;
+  }
+  if (unlinked.length > 0) {
+    const items = unlinked
+      .map((entry) => {
+        const wikiPath = `/wiki/${titleToWikiSegment(entry.title)}`;
+        return `<span class="ref-context"><a href="${wikiPath}">${entry.title}</a></span>`;
+      })
+      .join("");
+    html += `<section class="article-references-context">${items}</section>`;
+  }
+  return html;
 }
 
 /**
@@ -463,32 +486,49 @@ export function formatReferencesForPrompt(refs: ReferenceList): string {
 }
 
 /**
- * Richer JSON format for article-generation prompts.
- * Includes the ref:slug link shorthand, pinned flag, and available content
- * (summary or chunk) so the LLM has factual grounding for each reference.
+ * Format references for article-generation prompts.
  *
- * contentMinScore: only include content for refs whose score meets this
- * threshold (or whose score is absent, meaning they were body/user/prior
- * linked rather than RAG-ranked). Pinned refs always get content regardless.
+ * Produces two clearly separated sections: pinned refs (which the model
+ * should prioritize linking to) and additional refs (contextual, use if
+ * relevant). The model is NOT required to cite all refs or declare which
+ * ones it used — it simply links via [text](ref:slug) or [text](halu:slug).
+ *
+ * Content (summary/chunk) is included for refs meeting the score threshold
+ * so the model has factual grounding. Pinned refs always include content.
  */
 export function formatReferencesForPromptJson(refs: ReferenceList, contentMinScore = 0.0, contentTopK = 0): string {
-  if (refs.length === 0) return "[]";
+  if (refs.length === 0) return "(none)";
 
-  // Determine which non-pinned refs earn content inclusion by score, then
-  // cap to the top-K highest scorers (0 = no cap).
-  const eligible = refs
-    .filter((r) => !r.pinned && (r.score === undefined || r.score >= contentMinScore))
+  const pinnedRefs = refs.filter((r) => r.pinned);
+  const otherRefs = refs.filter((r) => !r.pinned);
+
+  const eligible = otherRefs
+    .filter((r) => r.score === undefined || r.score >= contentMinScore)
     .sort((a, b) => (b.score ?? 1) - (a.score ?? 1));
   const cappedEligible = contentTopK > 0 ? eligible.slice(0, contentTopK) : eligible;
   const withContent = new Set(cappedEligible.map((r) => r.slug));
 
-  const entries = refs.map((r) => ({
-    reflink: `[${r.title}](ref:${r.slug})`,
-    slug: r.slug,
-    pinned: r.pinned,
-    content: (r.pinned || withContent.has(r.slug)) ? (r.content || null) : null,
-  }));
-  return JSON.stringify(entries, null, 2);
+  const fmtEntry = (r: typeof refs[number], forceContent: boolean) => {
+    const content = (forceContent || withContent.has(r.slug)) ? (r.content || null) : null;
+    return content
+      ? `- [${r.title}](ref:${r.slug}): ${content}`
+      : `- [${r.title}](ref:${r.slug})`;
+  };
+
+  const parts: string[] = [];
+  if (pinnedRefs.length > 0) {
+    parts.push(
+      "PINNED REFERENCES — prioritize linking to these:\n" +
+      pinnedRefs.map((r) => fmtEntry(r, true)).join("\n"),
+    );
+  }
+  if (otherRefs.length > 0) {
+    parts.push(
+      "ADDITIONAL REFERENCES — use if relevant:\n" +
+      otherRefs.map((r) => fmtEntry(r, false)).join("\n"),
+    );
+  }
+  return parts.join("\n\n");
 }
 
 /**

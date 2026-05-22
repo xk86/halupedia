@@ -1,4 +1,5 @@
 # Text Processing Refactor Plan
+(Notice: this document reflects a plan that was implemented and may not currently reflect the state of the codebase.)
 
 Status: first refactor pass implemented. This document records the target shape, completed extraction, and remaining follow-up work.
 

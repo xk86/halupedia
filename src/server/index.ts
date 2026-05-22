@@ -1,5 +1,6 @@
 // TODO: split api and shit out because jesus christ this file is way too long
 // TODO: make sure that formatting text isn't being added into link replacement/strips.
+import { jsonrepair } from "jsonrepair";
 import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
@@ -1191,18 +1192,13 @@ async function generateLinkSuggestion(
   );
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) {
-    throw new Error(`link suggestion returned invalid JSON. Raw response: "${raw.slice(0, 500)}"`);
+    throw new Error(`link suggestion returned invalid JSON. Raw response: “${raw.slice(0, 500)}”`);
   }
-  // Normalize typographic/curly quotes the LLM may emit to straight ASCII quotes
-  // before parsing, so JSON.parse doesn't choke on them.
-  const normalized = match[0]
-    .replace(/[“”„‟″‶]/g, '"') // curly double quotes → "
-    .replace(/[‘’‚‛′‵]/g, "'"); // curly single quotes → '
   let parsed: Partial<LinkSuggestion>;
   try {
-    parsed = JSON.parse(normalized);
+    parsed = JSON.parse(jsonrepair(match[0]));
   } catch (jsonErr) {
-    throw new Error(`link suggestion JSON parsing failed: ${jsonErr instanceof Error ? jsonErr.message : String(jsonErr)}. JSON: "${match[0]}"`);
+    throw new Error(`link suggestion JSON parsing failed: ${jsonErr instanceof Error ? jsonErr.message : String(jsonErr)}. JSON: “${match[0]}”`);
   }
   const description = (parsed.description ?? "").replace(/\s+/g, " ").trim();
   const slug = slugify(parsed.slug ?? "");
@@ -3010,6 +3006,43 @@ export async function createApp(options: CreateAppOptions = {}) {
         422,
       );
     }
+    // ── Fast path: visible label resolves to an existing article in the DB ──
+    // Try slug-form first, then equivalent-key lookup (handles "The Foo" → "foo").
+    const labelSlug = slugify(wrapRange.visibleLabel);
+    const existingArticle = labelSlug
+      ? (getArticleByLookup(db, labelSlug) ?? getArticleByEquivalentLookup(db, labelSlug))
+      : null;
+    if (existingArticle && existingArticle.slug !== article.slug) {
+      const refLink = `[${wrapRange.visibleLabel}](ref:${existingArticle.slug})`;
+      const nextMarkdown = stripSelfLinks(
+        article.markdown.slice(0, wrapRange.start) + refLink + article.markdown.slice(wrapRange.end),
+        article.slug,
+      );
+      const links = extractAllBodyLinks(nextMarkdown, article.slug);
+      const nextArticle = {
+        ...article,
+        markdown: nextMarkdown,
+        html: rewriteArticleHtml(renderMarkdown(nextMarkdown), links),
+        summaryMarkdown: article.summaryMarkdown || summaryMarkdownFromArticle(nextMarkdown),
+        plain_text: markdownToPlainText(nextMarkdown),
+        generated_at: Date.now(),
+      };
+      saveArticle(db, nextArticle, links, Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])), {
+        operation: "add-link",
+        instructions: `Linked selected text to existing article: ${existingArticle.slug}`,
+      });
+      afterArticleSaved(nextArticle.slug, nextArticle.title, nextMarkdown, nextArticle.generated_at);
+      logger.info("add_link.resolved_existing", {
+        slug: article.slug,
+        target_slug: existingArticle.slug,
+        visible_label: wrapRange.visibleLabel,
+      });
+      const response = buildArticleResponseFor(nextArticle.slug);
+      if (!response) return c.json({ error: "failed to hydrate response" }, 500);
+      return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(nextArticle) }));
+    }
+
+    // ── Slow path: ask the LLM to suggest a link target ───────────────────────
     logger.debug("add_link.dispatching_llm", {
       slug: article.slug,
       prompt: "link_suggestion",

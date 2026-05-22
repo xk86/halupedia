@@ -1193,9 +1193,14 @@ async function generateLinkSuggestion(
   if (!match) {
     throw new Error(`link suggestion returned invalid JSON. Raw response: "${raw.slice(0, 500)}"`);
   }
+  // Normalize typographic/curly quotes the LLM may emit to straight ASCII quotes
+  // before parsing, so JSON.parse doesn't choke on them.
+  const normalized = match[0]
+    .replace(/[“”„‟″‶]/g, '"') // curly double quotes → "
+    .replace(/[‘’‚‛′‵]/g, "'"); // curly single quotes → '
   let parsed: Partial<LinkSuggestion>;
   try {
-    parsed = JSON.parse(match[0]);
+    parsed = JSON.parse(normalized);
   } catch (jsonErr) {
     throw new Error(`link suggestion JSON parsing failed: ${jsonErr instanceof Error ? jsonErr.message : String(jsonErr)}. JSON: "${match[0]}"`);
   }

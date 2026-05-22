@@ -16,6 +16,38 @@ export function normalizeHaluLinks(markdown: string): string {
   return normalizeMarkdownLinks(markdown, "article").markdown;
 }
 
+/**
+ * Strip embedded link-syntax artifacts from visible link labels.
+ *
+ * The LLM occasionally leaks the link target into the label text, producing:
+ *   [Security Credentials (halu:security-credentials)](halu:security-credentials "hint")
+ *
+ * This is a deterministic structural normalisation — no LLM pass needed.
+ * Patterns stripped from labels:
+ *   - `(halu:some-slug)` and `(halu:some-slug "hint")`
+ *   - `(ref:some-slug)`
+ *   - standalone bare `halu:some-slug` or `ref:some-slug` fragments
+ */
+export function cleanLinkLabels(markdown: string): string {
+  return markdown.replace(
+    new RegExp(LINK_RE.source, LINK_RE.flags),
+    (match, visibleLabel: string, rawSlug: string, hint: string) => {
+      const cleaned = visibleLabel
+        // Strip (halu:slug "optional hint") or (halu:slug)
+        .replace(/\s*\(halu:[a-z0-9-]+(?:\s+"[^"]*")?\)/gi, "")
+        // Strip (ref:slug) or (ref:slug "hint")
+        .replace(/\s*\(ref:[a-z0-9-]+(?:\s+"[^"]*")?\)/gi, "")
+        // Strip bare halu:slug or ref:slug fragments not wrapped in parens
+        .replace(/\s*\b(?:halu|ref):[a-z0-9-]+\b/gi, "")
+        .trim();
+      if (cleaned === visibleLabel.trim()) return match;
+      // If the whole label was an artifact, fall back to a title-cased slug.
+      const label = cleaned || slugToTitle(rawSlug);
+      return buildHaluLink(label, rawSlug, hint ?? "");
+    },
+  );
+}
+
 export function fixSlugVisibleText(markdown: string): string {
   return normalizeHaluLinks(markdown).replace(
     LINK_RE,

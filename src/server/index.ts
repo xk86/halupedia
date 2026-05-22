@@ -156,6 +156,8 @@ import {
   generateDidYouKnowFact,
 } from "./dyk";
 export { ensureDykHasSourceLink } from "./dyk";
+import { registerPipelineAdminRoutes } from "./pipeline/adminRoutes";
+import { buildPromptRegistry } from "./pipeline/prompts/registry";
 
 const RESERVED_PATHS = new Set([
   "",
@@ -4063,6 +4065,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       total: page.total,
     });
   });
+
+  registerPipelineAdminRoutes(app, () => runtime.app.pipeline.trace, () => ({
+    db,
+    heavyLlm: llm,
+    lightLlm,
+    prompts: buildPromptRegistry(runtime.prompts),
+    logger,
+    runtime,
+  }));
 
   app.get("/api/admin/overview", (c) => {
     const modelConfigs = {

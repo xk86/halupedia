@@ -101,6 +101,15 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       llm_api_key: app.tests?.llm_api_key ?? "ollama",
       llm_model: app.tests?.llm_model ?? "gemma4",
     },
+    pipeline: {
+      trace: {
+        enabled: app.pipeline?.trace?.enabled ?? true,
+        database_path:
+          app.pipeline?.trace?.database_path ?? "data/halupedia-traces.sqlite",
+        level: app.pipeline?.trace?.level ?? "normal",
+        retention_days: app.pipeline?.trace?.retention_days ?? 14,
+      },
+    },
   };
 }
 

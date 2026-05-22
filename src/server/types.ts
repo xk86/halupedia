@@ -145,6 +145,39 @@ export interface TestConfig {
   llm_model: string;
 }
 
+export type PipelineTraceLevel = "off" | "quiet" | "normal" | "debug" | "trace";
+
+export interface PipelineTraceConfig {
+  /**
+   * Master switch for structural pipeline tracing. When false, the runtime
+   * skips all trace recording entirely — no DB opened, no overhead.
+   */
+  enabled: boolean;
+  /**
+   * SQLite path for pipeline traces. Intentionally a SEPARATE database from
+   * the article DB so trace churn never contends with article reads and so
+   * traces can be archived/pruned/wiped independently.
+   */
+  database_path: string;
+  /**
+   * Verbosity of recorded trace data:
+   *   - off:    do not record anything (equivalent to enabled=false)
+   *   - quiet:  one row per run + node name/timing only
+   *   - normal: + warnings, finish reasons, hashes, validation results
+   *   - debug:  + full state diffs (added/removed/changed keys)
+   *   - trace:  + full inputs/outputs as captured by each node
+   */
+  level: PipelineTraceLevel;
+  /**
+   * Days to keep a trace before pruning. 0 disables pruning.
+   */
+  retention_days: number;
+}
+
+export interface PipelineConfig {
+  trace: PipelineTraceConfig;
+}
+
 export interface AppConfig {
   server: ServerConfig;
   storage: StorageConfig;
@@ -153,6 +186,7 @@ export interface AppConfig {
   homepage: HomepageConfig;
   random_page: RandomPageConfig;
   tests: TestConfig;
+  pipeline: PipelineConfig;
 }
 
 export interface ChatConfig {

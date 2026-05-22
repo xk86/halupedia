@@ -25,7 +25,11 @@
   "dependencies": {
     "3d-force-graph": "^1.80.0",
     "@hono/node-server": "^2.0.2",
+    "@langchain/core": "^1.1.48",
+    "@langchain/langgraph": "^1.3.2",
     "@types/three": "^0.184.1",
+    "diff-match-patch": "^1.0.5",
+    "fast-json-patch": "^3.1.1",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-components": "^1.5.4",
@@ -38,9 +42,19 @@
     "katex": "^0.16.46",
     "markdown-it": "^14.1.1",
     "markdown-it-footnote": "^4.0.0",
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-to-markdown": "^2.1.2",
+    "mustache": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "smol-toml": "^1.6.1"
+    "rehype-sanitize": "^6.0.0",
+    "remark": "^15.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "smol-toml": "^1.6.1",
+    "toml": "^4.1.1",
+    "unist-util-visit": "^5.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
@@ -54,10 +68,11 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.2.1",
     "jsdom": "^29.1.1",
+    "promptfoo": "^0.121.12",
     "tsx": "^4.22.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.7"
   },
   "packageManager": "pnpm@9.15.0"
 }

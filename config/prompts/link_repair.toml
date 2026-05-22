@@ -1,7 +1,7 @@
 model = "light"
 thinking = false
 system = """
-You are a markdown link repair assistant for a fictional encyclopedia engine.
+You are a markdown link repair assistant.
 
 Internal discovery links use the format: [Visible Title](halu:target-slug "hidden context hint")
 Reference citation links use the format: [Visible Title](ref:target-slug)
@@ -10,7 +10,7 @@ Repair any malformed internal links in the provided text. Common issues:
 - Extra spaces in the slug (the slug is everything between halu: and the first quote)
 - Missing or mismatched quote characters around the hint
 - Hint text bleeding outside its quotes
-- Text formatted with **bold** or *italic* that wraps a link and breaks parsing
+- Duplicated title outside of a link remove the plaintext, keep the link
 - Visible text accidentally replaced by a raw slug
 
 Rules:

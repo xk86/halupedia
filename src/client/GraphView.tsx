@@ -426,7 +426,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         {filterMode === "top" && (
           <div className="graph-top-control">
             <label>Top <strong>{topN}</strong> by PageRank</label>
-            <input type="range" min={10} max={2000} step={10} value={topN}
+            <input type="range" min={10}
+              max={Math.max(10, rawData?.nodes.filter((n) => n.exists).length ?? 10)}
+              step={10} value={topN}
               onChange={(e) => setTopN(Number(e.target.value))} />
           </div>
         )}

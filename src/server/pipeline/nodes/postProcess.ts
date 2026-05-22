@@ -434,7 +434,6 @@ export const updateArticleInPlaceNode = defineNode({
     const html = renderMarkdown(body);
     const plainText = markdownToPlainText(body);
 
-    const { updateArticleInPlace } = require("../../db");
     updateArticleInPlace(
       deps.db,
       slug,

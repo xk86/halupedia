@@ -285,6 +285,10 @@ let cachedKey: string | null = null;
 /**
  * Returns a process-cached recorder keyed by (path, level). Re-loading config
  * with a different level swaps the recorder transparently.
+ *
+ * If the SQLite DB cannot be opened (e.g. locked by a concurrent test process),
+ * silently returns a NoopRecorder rather than crashing. Tracing is observability
+ * infrastructure and must never take down the application.
  */
 export function getTraceRecorder(config: PipelineTraceConfig): TraceRecorder {
   if (!config.enabled || config.level === "off") {
@@ -293,11 +297,14 @@ export function getTraceRecorder(config: PipelineTraceConfig): TraceRecorder {
   const key = `${config.database_path}|${config.level}`;
   if (cachedRecorder && cachedKey === key) return cachedRecorder;
   if (cachedRecorder) cachedRecorder.close();
-  cachedRecorder = new SqliteTraceRecorder(
-    config.database_path,
-    config.level,
-  );
-  cachedKey = key;
+  try {
+    cachedRecorder = new SqliteTraceRecorder(config.database_path, config.level);
+    cachedKey = key;
+  } catch {
+    // DB open failed (e.g. locked by concurrent process). Degrade to noop.
+    cachedRecorder = new NoopRecorder();
+    cachedKey = key;
+  }
   return cachedRecorder;
 }
 

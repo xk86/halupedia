@@ -17,7 +17,9 @@ Requested article title:
 
 {{requested_title}}
 
-Available references (link back with [anchor text](ref:slug-name) — the "reflink" field gives you the ready-made link syntax; "content" is a summary or excerpt you can draw facts from):
+References — link to these using [Visible Title](ref:slug) syntax.
+You do not need to cite all of them. Pinned references should be prioritized
+and linked where relevant. Unlinked references are fine to omit from the article body.
 
 {{references_json}}
 
@@ -29,11 +31,10 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Output format — use these two markers, no other text:
+Output format — use this marker, no other text outside it:
 
 ---body
----used-refs
 
 After ---body: the full article Markdown, starting with # heading.
-After ---used-refs: a JSON array of ref slugs you used, e.g. ["slug-a","slug-b"], or [].
-Use double-quoted halu hints inside the article, e.g. `[Title](halu:slug "hint")`."""
+Use [Title](ref:slug) to link to provided references.
+Use [Title](halu:slug "short description") for other internal topics not in the reference list."""

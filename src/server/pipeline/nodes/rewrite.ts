@@ -16,6 +16,7 @@ import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps } from "../deps";
 import {
   getArticleByLookup,
+  isArticleProtected,
   listIncomingHints,
   listProtectedSections,
 } from "../../db";
@@ -30,6 +31,7 @@ import { formatIncomingHintsForPrompt } from "../../linkHints";
 import {
   articleSectionMarkdown,
   extractInternalLinks,
+  replaceArticleSection,
   stripTopLevelSections,
 } from "../../markdown";
 import {
@@ -37,6 +39,11 @@ import {
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
 } from "../../retrieval";
+import {
+  normalizeMarkdown,
+  renderMarkdown,
+} from "../../markdown";
+import { parsePartialArticleFrame } from "../../articleFrame";
 import {
   findSelectionRangeInMarkdown,
 } from "../../selectionUtils";
@@ -70,6 +77,7 @@ export const readArticleForRewriteNode = defineNode({
     "selectedMarkdown",
     "selectionRange",
     "sectionId",
+    "rewriteMode",
   ] as const,
   run({ input }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
@@ -79,13 +87,10 @@ export const readArticleForRewriteNode = defineNode({
     if (!record) return { loadedArticle: null };
 
     const bodyOnly = stripTopLevelSections(record.markdown, ["References", "See also"]);
-    const sectionId = (input.instructions?.match(/^sectionId:(\S+)/) ?? [])[1] ?? "";
-    // Selection text is passed via a convention in instructions for now;
-    // the route handler will encode it. TODO: dedicated state field.
-    const selectedTextMatch = input.instructions?.match(/^selectedText:(.+?)(?:\|instructions:|$)/s);
-    const selectedText = selectedTextMatch ? selectedTextMatch[1].trim() : "";
+    const sectionId = input.targetSectionId ?? "";
+    const selectedText = input.selectedText ?? "";
 
-    let selectionRange = null;
+    let selectionRange: { start: number; end: number } | null = null;
     if (selectedText) {
       selectionRange = findSelectionRangeInMarkdown(record.markdown, selectedText);
     }
@@ -96,6 +101,13 @@ export const readArticleForRewriteNode = defineNode({
         ? articleSectionMarkdown(record.markdown, sectionId)
         : bodyOnly;
 
+    const isManualEdit = input.isManualEdit === true;
+    const isProtected =
+      !isManualEdit &&
+      !sectionId &&
+      !selectedText &&
+      isArticleProtected(deps.db, slug);
+
     return {
       loadedArticle: {
         slug: record.slug,
@@ -105,14 +117,12 @@ export const readArticleForRewriteNode = defineNode({
         summary: record.summaryMarkdown ?? "",
         generatedAt: record.generated_at,
       },
-      isProtected: !input.instructions?.includes("isManualEdit:true") &&
-        !sectionId &&
-        !selectedText &&
-        deps.db.prepare("SELECT 1 FROM article_protection WHERE slug = ? AND is_active = 1").get(slug) != null,
+      isProtected: !!isProtected,
       protectedSectionIds: listProtectedSections(deps.db, slug).map((s) => s.sectionId),
       selectedMarkdown,
       selectionRange: selectionRange ?? null,
       sectionId: sectionId || undefined,
+      rewriteMode: input.rewriteModeName,
     };
   },
 });
@@ -132,12 +142,9 @@ export const retrieveContextForRewriteNode = defineNode({
 
     // Decode rewrite-specific options from instructions encoding.
     const explicitSlugs = (input.pinnedSlugs ?? []);
-    const ragEnabled = input.instructions?.includes("ragEnabled:true") ?? false;
-    const ragQueryMatch = input.instructions?.match(/ragQuery:([^\|]+)/);
-    const ragQuery = ragQueryMatch ? ragQueryMatch[1].trim() : "";
-    const instructionsText = input.instructions?.replace(/^selectedText:.+?\|instructions:/s, "")
-      .replace(/ragEnabled:true|ragQuery:[^\|]+|isManualEdit:true|sectionId:\S+/g, "")
-      .trim() ?? "";
+    const ragEnabled = input.ragEnabled === true;
+    const ragQuery = input.ragQuery ?? "";
+    const instructionsText = input.instructions ?? "";
 
     const hints = listIncomingHints(deps.db, slug);
     const backlinkSlugs = [...new Set(hints.map((h) => h.sourceSlug).filter(Boolean))];
@@ -277,15 +284,9 @@ export const renderRewritePromptNode = defineNode({
     const title = loadedArticle?.title ?? input.requestedTitle ?? slug;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
     const hints = listIncomingHints(deps.db, slug);
-    const modeName = rewriteMode ?? "default";
+    const modeName = rewriteMode ?? input.rewriteModeName ?? "default";
     const modePrompt = deps.runtime.prompts.rewriteModes?.[modeName]?.prompt ?? "";
-
-    // Extract the actual instructions, stripping any encoded rewrite options.
-    const instructionsRaw = input.instructions ?? "";
-    const instructions = instructionsRaw
-      .replace(/^selectedText:.+?\|instructions:/s, "")
-      .replace(/ragEnabled:true|ragQuery:[^\|]+|isManualEdit:true|sectionId:\S+|rewriteMode:\S+/g, "")
-      .trim();
+    const instructions = input.instructions ?? "";
 
     const rendered = deps.prompts.render("article_rewrite", {
       slug,
@@ -318,22 +319,42 @@ export const renderRewritePromptNode = defineNode({
 export const callRewriteModelNode = defineNode({
   name: "llm.rewrite_article",
   kind: "llm",
-  description: "Call the article_rewrite model for the selected scope.",
+  description: "Call article_rewrite model (streams when onProgress set).",
   reads: ["renderedPrompt"] as const,
   writes: ["llmOutput"] as const,
   async run({ renderedPrompt }, deps: PipelineDeps) {
     if (!renderedPrompt) throw new Error("llm.rewrite_article: missing renderedPrompt");
     const client = renderedPrompt.role === "light" ? deps.lightLlm : deps.heavyLlm;
     const startedAt = Date.now();
-    const text = await client.chat(renderedPrompt.system, renderedPrompt.user, {
-      thinking: renderedPrompt.thinking,
-      jsonMode: renderedPrompt.json,
-    });
+    let text: string;
+    let finishReason = "stop";
+
+    if (deps.onProgress) {
+      const result = await client.streamChat(
+        renderedPrompt.system,
+        renderedPrompt.user,
+        (_delta, accumulated) => {
+          const partial = parsePartialArticleFrame(accumulated);
+          if (!partial || !deps.onProgress) return;
+          const preview = normalizeMarkdown(partial);
+          deps.onProgress(renderMarkdown(preview), preview);
+        },
+        { thinking: renderedPrompt.thinking },
+      );
+      text = result.content;
+      finishReason = result.finishReason;
+    } else {
+      text = await client.chat(renderedPrompt.system, renderedPrompt.user, {
+        thinking: renderedPrompt.thinking,
+        jsonMode: renderedPrompt.json,
+      });
+    }
+
     return {
       llmOutput: {
         promptKey: renderedPrompt.key,
         text,
-        finishReason: "stop",
+        finishReason,
         durationMs: Date.now() - startedAt,
         contentHash: hashValue(text),
       },
@@ -369,7 +390,6 @@ export const spliceRewriteResultNode = defineNode({
 
     if (sectionId) {
       // Section rewrite: replace just the named section.
-      const { replaceArticleSection } = require("../../markdown");
       return {
         rawArticleBody: replaceArticleSection(fullMarkdown, sectionId, generated),
       };

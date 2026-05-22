@@ -2819,6 +2819,33 @@ button.admin-danger-btn:hover:not(:disabled) {
   padding-left: 1.5rem;
 }
 
+/* Unlinked refs — provided to the LLM but not cited in the body.
+   Shown in a subdued row below the numbered list. */
+.article-references-context {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.6rem;
+  font-size: 0.82em;
+  color: var(--ink-soft, #888);
+}
+
+.article-references-context::before {
+  content: "Context: ";
+  font-style: italic;
+  color: var(--ink-soft, #888);
+  white-space: nowrap;
+}
+
+.ref-context a {
+  color: inherit;
+  opacity: 0.65;
+}
+
+.ref-context a:hover {
+  opacity: 1;
+}
+
 .article-vote {
   position: absolute;
   top: 0.15rem;

@@ -53,6 +53,22 @@ export const WorkflowInputSchema = z.object({
   blacklistSlugs: z.array(SlugSchema).optional(),
   /** Caller-explicit reference selection (overrides RAG when present). */
   selectedReferenceSlugs: z.array(SlugSchema).nullable().optional(),
+
+  // Rewrite-specific options ─────────────────────────────────────────────────
+  /** Plain text the user selected (selection-edit path). */
+  selectedText: z.string().optional(),
+  /** Section id to rewrite (section-rewrite path). */
+  targetSectionId: z.string().optional(),
+  /** True when RAG retrieval should be driven by ragQuery. */
+  ragEnabled: z.boolean().optional(),
+  /** Free-text query for RAG retrieval (rewrite path). */
+  ragQuery: z.string().optional(),
+  /** Rewrite mode label (e.g. "subtle", "aggressive"). */
+  rewriteModeName: z.string().optional(),
+  /** True when user explicitly initiated a manual edit (bypasses protection). */
+  isManualEdit: z.boolean().optional(),
+  /** Include recent edit history in the prompt. */
+  includeRecentEditHistory: z.boolean().optional(),
 });
 export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
 

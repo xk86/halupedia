@@ -25,9 +25,12 @@ import {
 } from "../../referenceList";
 import { formatIncomingHintsForPrompt } from "../../linkHints";
 import {
+  normalizeMarkdown,
+  renderMarkdown,
   spliceProtectedSections,
   stripTopLevelSections,
 } from "../../markdown";
+import { parsePartialArticleFrame } from "../../articleFrame";
 import { slugify } from "../../slug";
 import type { ReferenceListEntry } from "../../types";
 import type { ReferenceEntry } from "../state";
@@ -113,27 +116,45 @@ export const renderRefreshPromptNode = defineNode({
 export const callRefreshModelNode = defineNode({
   name: "llm.refresh_article",
   kind: "llm",
-  description: "Stream the article_refresh prompt; LLM improves context/formatting.",
+  description: "Call article_refresh model (streams when onProgress set).",
   reads: ["renderedPrompt", "isProtected"] as const,
   writes: ["llmOutput"] as const,
   async run({ renderedPrompt, isProtected }, deps: PipelineDeps) {
     if (isProtected) {
-      // Protection check already stored in state; the workflow's `when`
-      // predicate will skip this node. Guard here as belt-and-suspenders.
       throw new Error("llm.refresh_article: article is protected, should have been skipped");
     }
     if (!renderedPrompt) throw new Error("llm.refresh_article: missing renderedPrompt");
     const client = renderedPrompt.role === "light" ? deps.lightLlm : deps.heavyLlm;
     const startedAt = Date.now();
-    const text = await client.chat(renderedPrompt.system, renderedPrompt.user, {
-      thinking: renderedPrompt.thinking,
-      jsonMode: renderedPrompt.json,
-    });
+    let text: string;
+    let finishReason = "stop";
+
+    if (deps.onProgress) {
+      const result = await client.streamChat(
+        renderedPrompt.system,
+        renderedPrompt.user,
+        (_delta, accumulated) => {
+          const partial = parsePartialArticleFrame(accumulated);
+          if (!partial || !deps.onProgress) return;
+          const preview = normalizeMarkdown(partial);
+          deps.onProgress(renderMarkdown(preview), preview);
+        },
+        { thinking: renderedPrompt.thinking },
+      );
+      text = result.content;
+      finishReason = result.finishReason;
+    } else {
+      text = await client.chat(renderedPrompt.system, renderedPrompt.user, {
+        thinking: renderedPrompt.thinking,
+        jsonMode: renderedPrompt.json,
+      });
+    }
+
     return {
       llmOutput: {
         promptKey: renderedPrompt.key,
         text,
-        finishReason: "stop",
+        finishReason,
         durationMs: Date.now() - startedAt,
         contentHash: hashValue(text),
       },

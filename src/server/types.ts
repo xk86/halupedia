@@ -125,6 +125,13 @@ export interface ReferenceListEntry {
   score?: number;
   /** Candidate provenance (debug/UI only; older persisted rows may omit it). */
   source?: ReferenceSource;
+  /**
+   * Whether the article body actually links to this reference via ref:slug.
+   * Derived at load time by scanning the body — never persisted separately.
+   * Unlinked refs (provided to the LLM but not cited) are shown greyed/in
+   * parentheses in the References section rather than as numbered footnotes.
+   */
+  linked?: boolean;
 }
 
 /** Type alias to make pipeline intent obvious at call sites. */

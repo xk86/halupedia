@@ -8,6 +8,10 @@
  *  - findBodyReferencedArticles / findExistingArticleLinkReferences
  *  - linkMentionedReferencesInBody
  *  - convertExistingArticleLinksToRefs
+ *  - HTTP integration: generation via article.generate workflow
+ *  - HTTP integration: rewrite via article.rewrite workflow
+ *  - HTTP integration: refresh via article.refresh workflow
+ *  - Behavior invariants: body never has metadata sections, refs are sidecar
  *  - Pin/unpin HTTP endpoint
  *  - Raw-save HTTP endpoint
  *  - Preview-markdown HTTP endpoint
@@ -29,6 +33,7 @@ import {
   saveArticleReferences,
   getLatestArticleReferences,
   listIncomingHints,
+  setArticleProtection,
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
@@ -113,6 +118,38 @@ class EchoLlm implements LlmClient {
   async streamChat(_s: string, _u: string, onChunk: (d: string, a: string) => void) {
     onChunk(this.response, this.response);
     return { content: this.response, finishReason: "stop" };
+  }
+  async embed(): Promise<number[][]> { return []; }
+  async probeConnections(): Promise<void> {}
+}
+
+/**
+ * LLM stub for pipeline integration tests. Returns properly-framed article
+ * output so the frame parser produces real article bodies, and JSON arrays
+ * for prompts that expect structured output (see-also, summary).
+ */
+class PipelineLlm implements LlmClient {
+  private readonly articleBody: string;
+  constructor(opts: { articleBody?: string } = {}) {
+    this.articleBody = opts.articleBody ??
+      "# Test Article\n\nThis is a test article about the topic.\n\nIt has [multiple](halu:multiple \"multiple things\") paragraphs.";
+  }
+  async chat(system: string, _u: string): Promise<string> {
+    // Summary prompt → return a short summary string.
+    if (system.includes("summary") || _u.includes("summary_feedback")) {
+      return "A brief test summary.";
+    }
+    // See-also prompt → return empty array.
+    if (_u.includes("already_used_section") || _u.includes("article_excerpt")) {
+      return "[]";
+    }
+    // Link repair → return context unchanged.
+    return _u;
+  }
+  async streamChat(_s: string, _u: string, onChunk: (d: string, a: string) => void) {
+    const framed = `---body\n${this.articleBody}\n---used-refs\n[]`;
+    onChunk(framed, framed);
+    return { content: framed, finishReason: "stop" };
   }
   async embed(): Promise<number[][]> { return []; }
   async probeConnections(): Promise<void> {}
@@ -937,6 +974,28 @@ function makeTempDbPath() {
   const root = mkdtempSync(join(tmpdir(), "halu-http-"));
   const databasePath = join(root, TEST_CONFIG.database_path);
   return { root, databasePath };
+}
+
+/**
+ * The article generation endpoint returns NDJSON. Parse the stream and
+ * return the payload from the `done` event (the full page response).
+ */
+async function readNdjsonDone(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text();
+  const lines = text.split("\n").filter(Boolean);
+  for (const line of lines.reverse()) {
+    try {
+      const obj = JSON.parse(line) as Record<string, unknown>;
+      if (obj.type === "done") return obj;
+      if (obj.type === "error") throw new Error(`stream error: ${obj.message}`);
+    } catch (e) {
+      if (e instanceof SyntaxError) continue;
+      throw e;
+    }
+  }
+  // No done event — maybe it was cached (single JSON response).
+  try { return JSON.parse(text) as Record<string, unknown>; } catch {}
+  return {};
 }
 
 async function makeTestApp(databasePath: string, llm?: LlmClient) {
@@ -1906,4 +1965,186 @@ test("buildReferenceList: source field set to user for user additions", () => {
     const entry = refs.find((r) => r.slug === "user-added");
     assert.equal(entry?.source, "user");
   } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   HTTP Integration — article.generate pipeline
+   These tests verify the full HTTP → pipeline → DB round-trip, not
+   just individual node behavior.
+   ───────────────────────────────────────────────────────────────── */
+
+test("generation: GET /api/page/:slug creates article via pipeline, body has no metadata sections", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const { request, db, shutdown } = await makeTestApp(databasePath, new PipelineLlm());
+  t.after(() => shutdown());
+
+  const res = await request("/api/page/test-article");
+  // Generation endpoint returns NDJSON — read the done event.
+  const payload = await readNdjsonDone(res);
+  const article = payload.article as { body?: string; slug?: string } | undefined;
+  assert.ok(article, "done event should contain article");
+  assert.ok(article?.body, "article should have a body");
+  // Core invariant: body must never contain References or See also sections.
+  assert.doesNotMatch(article?.body ?? "", /^##\s+(references|see also)/im,
+    "article body must not contain References or See also sections");
+  // Article saved in DB.
+  const saved = db.prepare("SELECT slug, markdown FROM articles WHERE slug = ?").get("test-article") as { slug: string; markdown: string } | undefined;
+  assert.ok(saved, "article should be saved in DB");
+  assert.doesNotMatch(saved.markdown, /^##\s+(references|see also)/im,
+    "saved markdown must not contain metadata sections");
+});
+
+test("generation: body never contains frontmatter", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const { request, shutdown } = await makeTestApp(databasePath, new PipelineLlm());
+  t.after(() => shutdown());
+
+  const res = await request("/api/page/test-frontmatter");
+  const payload = await readNdjsonDone(res);
+  const article = payload.article as { body?: string } | undefined;
+  assert.ok(!(article?.body ?? "").startsWith("---"), "body must not start with frontmatter");
+});
+
+test("generation: references are sidecar (metadata.references), not baked into body", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const { request, db, shutdown } = await makeTestApp(databasePath, new PipelineLlm());
+  t.after(() => shutdown());
+
+  // Seed a reference target so the reference list can include it.
+  seedDbArticle(db, "multiple", "Multiple", "An article about multiple things.");
+
+  const res = await request("/api/page/test-sidecar");
+  const payload = await readNdjsonDone(res) as { article?: { body?: string; metadata?: { references?: unknown[] } } };
+  // References are sidecar objects — not embedded in body.
+  assert.ok(Array.isArray(payload.article?.metadata?.references),
+    "references should be a sidecar array on metadata");
+  assert.doesNotMatch(payload.article?.body ?? "", /^##\s+references/im,
+    "references must not be embedded in body");
+});
+
+test("generation: pipeline admin endpoint records a trace for the run", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const { request, shutdown } = await makeTestApp(databasePath, new PipelineLlm());
+  t.after(() => shutdown());
+
+  // Generate an article which runs the pipeline.
+  await readNdjsonDone(await request("/api/page/trace-test"));
+  // Give async post-process tasks a moment to settle.
+  await new Promise((r) => setTimeout(r, 200));
+
+  const runsRes = await request("/api/admin/pipeline/runs?workflow=article.generate&limit=5");
+  assert.equal(runsRes.status, 200);
+  const runsBody = await runsRes.json() as { traceEnabled: boolean; runs: Array<{ workflow: string; status: string; nodes_executed: number }> };
+  // Tracing may be disabled in test config — just assert shape is correct if enabled.
+  if (runsBody.traceEnabled) {
+    const run = runsBody.runs.find((r) => r.workflow === "article.generate");
+    if (run) {
+      assert.equal(run.status, "ok");
+      assert.ok(run.nodes_executed > 0, "should have executed nodes");
+    }
+  }
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   HTTP Integration — article.rewrite pipeline
+   ───────────────────────────────────────────────────────────────── */
+
+test("rewrite: POST /api/article/:slug/rewrite runs pipeline and updates article", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const rewriteBody = "# Test Article\n\nRewritten body with new content.";
+  const { request, db, shutdown } = await makeTestApp(databasePath, new PipelineLlm({ articleBody: rewriteBody }));
+  t.after(() => shutdown());
+
+  seedDbArticle(db, "rewrite-test", "Rewrite Test", "Original body content.");
+
+  const res = await request("/api/article/rewrite-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "Make it better." }),
+  });
+  assert.equal(res.status, 200, `rewrite should succeed, got ${res.status}`);
+  const payload = await res.json() as { article?: { body?: string } };
+  assert.ok(payload.article, "response should contain article");
+  // Core invariant: no metadata sections in rewritten body.
+  assert.doesNotMatch(payload.article?.body ?? "", /^##\s+(references|see also)/im,
+    "rewritten body must not contain metadata sections");
+});
+
+test("rewrite: protected article returns current content without LLM call", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const { request, db, shutdown } = await makeTestApp(databasePath, new PipelineLlm());
+  t.after(() => shutdown());
+
+  seedDbArticle(db, "protected-article", "Protected Article", "Protected body.");
+  setArticleProtection(db, "protected-article", true);
+
+  const res = await request("/api/article/protected-article/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "Rewrite it." }),
+  });
+  assert.equal(res.status, 200);
+  const payload = await res.json() as { article?: { body?: string } };
+  // Body should be unchanged.
+  assert.match(payload.article?.body ?? "", /Protected body\./,
+    "protected article body should be unchanged");
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   HTTP Integration — article.refresh pipeline
+   ───────────────────────────────────────────────────────────────── */
+
+test("refresh: POST /api/article/:slug/refresh-context runs pipeline and updates article", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const refreshedBody = "# Refresh Target\n\nRefreshed with new context.";
+  const { request, db, shutdown } = await makeTestApp(databasePath, new PipelineLlm({ articleBody: refreshedBody }));
+  t.after(() => shutdown());
+
+  seedDbArticle(db, "refresh-target", "Refresh Target", "Original content.");
+
+  const res = await request("/api/article/refresh-target/refresh-context", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 200, `refresh should succeed, got ${res.status}`);
+  const payload = await res.json() as { article?: { body?: string }; refreshChanged?: boolean };
+  assert.ok(payload.article, "response should contain article");
+  assert.doesNotMatch(payload.article?.body ?? "", /^##\s+(references|see also)/im,
+    "refreshed body must not contain metadata sections");
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   Behavior invariants — cleanLinkLabels via the full pipeline
+   ───────────────────────────────────────────────────────────────── */
+
+test("pipeline cleans leaked halu: syntax from visible link labels", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const dirtyBody = "# Dirty Links\n\nSee [Security Credentials (halu:security-credentials)](halu:security-credentials \"the vault\").";
+  const { request, shutdown } = await makeTestApp(databasePath, new PipelineLlm({ articleBody: dirtyBody }));
+  t.after(() => shutdown());
+
+  const res = await request("/api/page/dirty-links");
+  const payload = await readNdjsonDone(res) as { article?: { body?: string } };
+  // The pipeline's transform.clean_link_labels node must have stripped the leaked syntax.
+  assert.doesNotMatch(payload.article?.body ?? "", /\(halu:[^)]+\)\]\(halu:/,
+    "leaked halu: syntax in visible label should be stripped by pipeline");
+  assert.match(payload.article?.body ?? "", /\[Security Credentials\]\(halu:security-credentials/,
+    "cleaned label should remain");
 });

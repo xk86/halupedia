@@ -43,6 +43,7 @@ import {
   extractInternalLinks,
   extractTitle,
   extractDisplayTitle,
+  fixSlugVisibleText,
   markdownToPlainText,
   normalizeMarkdown,
   renderMarkdown,
@@ -59,8 +60,10 @@ import {
 import { normalizeMarkdownLinks } from "../../text/linkNormalize";
 import { formatIncomingHintsForPrompt } from "../../linkHints";
 import { extractRefLinksAsInternalLinks } from "../../referenceList";
-import { parseArticleFrameOutput } from "../../index";
-import { fixSlugVisibleText } from "../../markdown";
+import {
+  parseArticleFrameOutput,
+  parsePartialArticleFrame,
+} from "../../articleFrame";
 import type {
   ReferenceList,
   ReferenceListEntry,
@@ -310,28 +313,44 @@ export const renderArticlePromptNode = defineNode({
 export const callArticleModelNode = defineNode({
   name: "llm.generate_article",
   kind: "llm",
-  description: "Call the configured chat model with the rendered prompt.",
+  description: "Call the configured chat model with the rendered prompt (streams when onProgress set).",
   reads: ["renderedPrompt"] as const,
   writes: ["llmOutput"] as const,
   async run({ renderedPrompt }, deps: PipelineDeps) {
     if (!renderedPrompt) {
       throw new Error("llm.generate_article: renderedPrompt missing");
     }
-    const client =
-      renderedPrompt.role === "light" ? deps.lightLlm : deps.heavyLlm;
+    const client = renderedPrompt.role === "light" ? deps.lightLlm : deps.heavyLlm;
     const startedAt = Date.now();
-    const text = await client.chat(
-      renderedPrompt.system,
-      renderedPrompt.user,
-      { thinking: renderedPrompt.thinking, jsonMode: renderedPrompt.json },
-    );
+    let text: string;
+    let finishReason = "stop";
+
+    if (deps.onProgress) {
+      const result = await client.streamChat(
+        renderedPrompt.system,
+        renderedPrompt.user,
+        (_delta, accumulated) => {
+          const partialBody = parsePartialArticleFrame(accumulated);
+          if (!partialBody || !deps.onProgress) return;
+          const preview = normalizeMarkdown(partialBody);
+          deps.onProgress(renderMarkdown(preview), preview);
+        },
+        { thinking: renderedPrompt.thinking },
+      );
+      text = result.content;
+      finishReason = result.finishReason;
+    } else {
+      text = await client.chat(renderedPrompt.system, renderedPrompt.user, {
+        thinking: renderedPrompt.thinking,
+        jsonMode: renderedPrompt.json,
+      });
+    }
+
     return {
       llmOutput: {
         promptKey: renderedPrompt.key,
         text,
-        // legacy `chat()` discards finish_reason — surface stop until we
-        // teach OpenAICompatClient to expose it.
-        finishReason: "stop",
+        finishReason,
         durationMs: Date.now() - startedAt,
         contentHash: hashValue(text),
       },
@@ -345,32 +364,15 @@ export const extractArticleBodyNode = defineNode({
   name: "transform.extract_body",
   kind: "transform",
   description:
-    "Parse the LLM frame output (---body / ---used-refs) into prose-only markdown.",
-  reads: ["llmOutput", "references", "input"] as const,
+    "Parse LLM frame output (---body marker) into prose-only markdown. Used-refs section is ignored — refs are built from body scan instead.",
+  reads: ["llmOutput"] as const,
   writes: ["rawArticleBody"] as const,
-  run({ llmOutput, references, input }, deps: PipelineDeps) {
+  run({ llmOutput }, deps: PipelineDeps) {
     if (!llmOutput) {
       throw new Error("transform.extract_body: llmOutput missing");
     }
-    const providedSlugs = new Set((references ?? []).map((r) => r.slug));
-    const pinnedSlugs = new Set((input.pinnedSlugs ?? []).map(slugify).filter(Boolean));
-    const parsed = parseArticleFrameOutput(
-      llmOutput.text,
-      providedSlugs,
-      pinnedSlugs,
-      deps.logger,
-    );
-    if (!parsed.ok) {
-      // Missing pinned refs is a non-fatal warning at this stage — the
-      // validation node will surface it. Fall through with whatever body
-      // we got so downstream nodes still produce a reviewable artifact.
-      deps.logger.warn("pipeline.extract_body.frame_incomplete", {
-        slug: input.slug ?? "",
-        reason: "reason" in parsed ? parsed.reason ?? "missing-pinned" : "missing-pinned",
-        missing_pinned: ("missingPinned" in parsed ? parsed.missingPinned : []).join(",") || "(none)",
-      });
-    }
-    return { rawArticleBody: parsed.body };
+    const { body } = parseArticleFrameOutput(llmOutput.text, undefined, undefined, deps.logger);
+    return { rawArticleBody: body };
   },
 });
 

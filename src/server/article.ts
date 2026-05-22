@@ -215,6 +215,8 @@ export interface ReferenceResponseEntry {
   title: string;
   kind: ReferenceListEntry["kind"];
   pinned: boolean;
+  /** True when the article body contains a ref:slug link to this entry. */
+  linked: boolean;
 }
 
 export interface ReferenceStatusEntry {
@@ -284,6 +286,7 @@ export function articleToResponse(
         title: r.title,
         kind: r.kind,
         pinned: r.pinned,
+        linked: r.linked ?? true,
       })),
       seeAlso: article.metadata.seeAlso,
     },
@@ -317,13 +320,32 @@ export function assertValidSlug(slug: string): void {
  * to read an article in new code; legacy paths that need `ArticleRecord`
  * can keep calling `getArticleByLookup` directly while migration proceeds.
  */
+/**
+ * Derive which references are actually linked in the article body.
+ * A ref is "linked" if the body contains [anything](ref:slug) pointing at it.
+ * This is computed at read time — never persisted as a separate column.
+ */
+function computeLinkedSlugs(body: string): Set<string> {
+  const linked = new Set<string>();
+  for (const m of body.matchAll(/\]\(ref:([\w-]+)\)/g)) {
+    linked.add(m[1]);
+  }
+  return linked;
+}
+
 export function loadArticle(
   db: DatabaseSync,
   slug: string,
 ): Article | null {
   const record = getArticleByLookup(db, slug);
   if (!record) return null;
-  const references: ReferenceList = getLatestArticleReferences(db, record.slug);
+  const rawRefs: ReferenceList = getLatestArticleReferences(db, record.slug);
+  const body = record.markdown;
+  const linkedSlugs = computeLinkedSlugs(body);
+  const references: ReferenceList = rawRefs.map((r) => ({
+    ...r,
+    linked: linkedSlugs.has(r.slug),
+  }));
   const seeAlsoRows = getLatestArticleSeeAlso(db, record.slug);
   const seeAlso: SeeAlsoList = seeAlsoRows.map((row) => ({
     slug: row.slug,

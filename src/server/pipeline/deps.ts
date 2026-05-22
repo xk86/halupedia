@@ -28,4 +28,10 @@ export interface PipelineDeps {
   prompts: PromptRegistry;
   logger: Logger;
   runtime: ReturnType<typeof loadConfig>;
+  /**
+   * Optional streaming progress callback. When set, LLM call nodes use
+   * `streamChat` instead of `chat` and fire this on each partial body
+   * (rendered HTML + raw markdown), enabling live preview on the client.
+   */
+  onProgress?: (html: string, markdown: string) => void;
 }

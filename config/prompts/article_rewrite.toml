@@ -11,7 +11,7 @@ Rewrite Mode:
 {{rewrite_mode}}
 
 Rewrite Constraints:
-- In ---body, return the full article in Markdown, not a diff or notes.
+- Return the full article in Markdown, not a diff or notes.
 - If the current article field contains a full article, return the full rewritten article.
 - If the current article field contains one section, return only that rewritten section.
 - Remove and replace material incompatible with the rewrite instructions directly instead of narrating the change.
@@ -43,7 +43,9 @@ Current article:
 
 {{current_article}}
 
-Available references (link back with [anchor text](ref:slug-name) — the "reflink" field gives you the ready-made link syntax; "content" is a summary or excerpt you can draw facts from; pinned entries must appear in the article):
+References — link to these using [Visible Title](ref:slug) syntax.
+Pinned references should be prioritized and linked where relevant.
+You do not need to link all of them.
 
 {{references_json}}
 
@@ -55,12 +57,10 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Output format — use these two markers, no other text:
+Output format — use this marker, no other text outside it:
 
 ---body
----used-refs
 
 After ---body: the full rewritten Markdown article, starting with # heading.
-After ---used-refs: a JSON array of ref slugs you used, e.g. ["slug-a","slug-b"], or [].
-Pinned references (pinned: true) MUST appear in ---body links and in ---used-refs.
-Use double-quoted halu hints inside the article, e.g. `[Title](halu:slug "hint")`."""
+Use [Title](ref:slug) to link to provided references.
+Use [Title](halu:slug "short description") for other internal topics."""

@@ -98,6 +98,10 @@ function canonicalForLink(
       };
     }
     const text = buildHaluLink(label, slug, hint);
+    // A halu link is already canonical if only difference from raw is the empty hint that
+    // buildHaluLink appends ("") — avoid counting no-op normalizations as rewrites.
+    const slugUnchanged = slug === (link.slug ?? "").trim();
+    const isAlreadyCanonical = text === link.raw || (hint === "" && slugUnchanged && label === link.label.trim());
     return {
       text,
       normalized: {
@@ -106,8 +110,8 @@ function canonicalForLink(
         canonicalKind: "halu",
         slug,
         hint,
-        action: text === link.raw ? "keep" : "rewrite",
-        reason: text === link.raw ? "canonical_halu" : "canonicalize_halu",
+        action: isAlreadyCanonical ? "keep" : "rewrite",
+        reason: isAlreadyCanonical ? "canonical_halu" : "canonicalize_halu",
       },
     };
   }
@@ -286,6 +290,23 @@ function linkNearestPrecedingTitle(
   };
 }
 
+/** Fenced code block ranges (``` ... ``` and ` ... `) to skip during normalization. */
+function fencedCodeRanges(markdown: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  // Fenced blocks: ``` ... ```
+  const fenceRe = /^```[\s\S]*?^```\s*$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRe.exec(markdown)) !== null) {
+    ranges.push({ start: m.index, end: m.index + m[0].length });
+  }
+  // Inline code: `...`
+  const inlineRe = /`[^`]+`/g;
+  while ((m = inlineRe.exec(markdown)) !== null) {
+    ranges.push({ start: m.index, end: m.index + m[0].length });
+  }
+  return ranges;
+}
+
 export function normalizeMarkdownLinks(
   markdown: string,
   context: LinkPolicyContext = "article",
@@ -312,6 +333,9 @@ export function normalizeMarkdownLinks(
     };
   }
 
+  // Build fenced code block exclusion ranges so we never modify code content.
+  const codeRanges = fencedCodeRanges(markdown);
+
   let output = "";
   let cursor = 0;
   const links: NormalizedLink[] = [];
@@ -323,6 +347,8 @@ export function normalizeMarkdownLinks(
 
   for (const token of tokens) {
     if (token.start < cursor) continue;
+    // Skip any token that falls inside a fenced code block.
+    if (codeRanges.some((r) => token.start >= r.start && token.end <= r.end)) continue;
     let replacement: { text: string; normalized: NormalizedLink };
     if (token.type === "link") {
       const link = token.link;
@@ -346,7 +372,9 @@ export function normalizeMarkdownLinks(
       replacement = canonicalForLooseMarker(link);
     }
     links.push(replacement.normalized);
-    if (replacement.normalized.action === "rewrite") stats.rewritten += 1;
+    // Bare bracket expansions (bare→halu) are not counted as link rewrites since
+    // they expand rather than change an existing link.
+    if (replacement.normalized.action === "rewrite" && token.type !== "bare") stats.rewritten += 1;
     if (replacement.normalized.action === "strip") stats.stripped += 1;
     output += markdown.slice(cursor, token.start);
     if (token.type === "loose" && token.link.slug) {

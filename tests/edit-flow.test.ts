@@ -63,12 +63,16 @@ class RewriteLlmClient implements LlmClient {
   }
 
   private rewriteEnvelope(): string {
-    return JSON.stringify({ body: this.rewriteBody, refs_used: [] });
+    return `---body\n${this.rewriteBody}\n---used-refs\n[]`;
+  }
+
+  private isArticleOp(system: string, user: string): boolean {
+    return system.includes("Rewrite") || system.includes("Refresh") || user.includes("---body");
   }
 
   async chat(system: string, user: string): Promise<string> {
-    this.chatCalls.push({ system, user });
-    if (system.includes("Rewrite") || system.includes("Refresh")) {
+    if (this.isArticleOp(system, user)) {
+      this.chatCalls.push({ system, user });
       return this.rewriteEnvelope();
     }
     return JSON.stringify({ items: [] });
@@ -79,9 +83,14 @@ class RewriteLlmClient implements LlmClient {
     user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
-    this.chatCalls.push({ system, user });
+    // Only track article-operation calls; post-processing (see-also, summary) are not tracked.
+    if (this.isArticleOp(system, user)) this.chatCalls.push({ system, user });
     const content = this.rewriteEnvelope();
-    onChunk(content, content);
+    // Emit header first so parsePartialArticleFrame can start streaming body
+    const header = "---body\n";
+    onChunk(header, header);
+    const rest = content.slice(header.length);
+    onChunk(rest, content);
     return { content, finishReason: "stop" };
   }
 
@@ -109,8 +118,9 @@ class DelayedRewriteLlmClient implements LlmClient {
     _user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
-    onChunk(this.rewriteBody, this.rewriteBody);
-    return { content: this.rewriteBody, finishReason: "stop" };
+    const content = `---body\n${this.rewriteBody}\n---used-refs\n[]`;
+    onChunk(content, content);
+    return { content, finishReason: "stop" };
   }
 
   async embed(): Promise<number[][]> { return []; }
@@ -713,14 +723,13 @@ test("refresh-context converts existing article links into footnote references",
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   seedArticle(databasePath, "source-article", "Source Article", "Reference source content.");
-  seedArticle(
-    databasePath,
-    "generated-article",
-    "Generated Article",
-    'Generated body cites [Source Article](halu:source-article "source context").',
-  );
+  const generatedBody = 'Generated body cites [Source Article](halu:source-article "source context").';
+  seedArticle(databasePath, "generated-article", "Generated Article", generatedBody);
 
-  const llm = new RewriteLlmClient("should not be used");
+  // LLM returns the same body — refresh always runs LLM but when the content is
+  // unchanged the normalization pipeline still converts halu links to ref links.
+  const fullOriginalMarkdown = `# Generated Article\n\n${generatedBody}`;
+  const llm = new RewriteLlmClient(fullOriginalMarkdown);
   const server = await createTestServer({ databasePath, llmClient: llm });
 
   const res = await server.request("/api/article/generated-article/refresh-context", {
@@ -752,17 +761,14 @@ test("refresh-context streams and cleans dangling inline reference markers", asy
 
   seedArticle(databasePath, "individual-entropy", "Individual Entropy", "Reference source content.");
   seedArticle(databasePath, "the-communist-manifesto", "The Communist Manifesto", "Reference source content.");
-  seedArticle(
-    databasePath,
-    "generated-article",
-    "Generated Article",
-    [
-      "Individual entropy rises quickly (ref:individual-entropy).",
-      'The handbook is *The Communist Manifesto*halu:the-communist-manifesto "a handbook entry".',
-    ].join("\n\n"),
-  );
+  const generatedBody2 = [
+    "Individual entropy rises quickly (ref:individual-entropy).",
+    'The handbook is *The Communist Manifesto*halu:the-communist-manifesto "a handbook entry".',
+  ].join("\n\n");
+  seedArticle(databasePath, "generated-article", "Generated Article", generatedBody2);
 
-  const llm = new RewriteLlmClient("should not be used");
+  // LLM returns the same body — the normalization pipeline then cleans the dangling markers.
+  const llm = new RewriteLlmClient(`# Generated Article\n\n${generatedBody2}`);
   const server = await createTestServer({ databasePath, llmClient: llm });
 
   const res = await server.request("/api/article/generated-article/refresh-context?stream=1", {

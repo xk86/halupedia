@@ -293,7 +293,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           setSuggestions(hits.map((r: any) => ({ slug: r.slug, title: r.title })));
         })
-        .catch(() => {});
+        .catch(() => { });
     }, 180);
     return () => { clearTimeout(timer); ctrl.abort(); };
   }, [searchQuery]);
@@ -426,7 +426,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         {filterMode === "top" && (
           <div className="graph-top-control">
             <label>Top <strong>{topN}</strong> by PageRank</label>
-            <input type="range" min={10} max={200} step={10} value={topN}
+            <input type="range" min={10} max={2000} step={10} value={topN}
               onChange={(e) => setTopN(Number(e.target.value))} />
           </div>
         )}

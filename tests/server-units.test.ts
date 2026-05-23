@@ -2073,10 +2073,6 @@ test("stripFootnoteArtifacts: does not strip normal prose containing 'used'", ()
 
 // parseArticleFrameOutput / parsePartialArticleFrame
 
-const PROVIDED = new Set(["slug-a", "slug-b", "slug-c"]);
-const NO_PINNED = new Set<string>();
-const PINNED = new Set(["slug-a"]);
-
 test("parseArticleFrameOutput: canonical sections parsed correctly", () => {
   const raw = [
     "---halu-meta",
@@ -2088,56 +2084,17 @@ test("parseArticleFrameOutput: canonical sections parsed correctly", () => {
     "---halu-used-refs",
     '["slug-a","slug-b"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, "# Test Article\n\nBody text.");
-  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
-});
-
-test("parseArticleFrameOutput: refs filtered to provided slugs only", () => {
-  const raw = ["---halu-body", "Body.", "---halu-used-refs", '["slug-a","unknown-slug","slug-c"]'].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.refsUsed, ["slug-a", "slug-c"]);
-});
-
-test("parseArticleFrameOutput: refs derived from body ref links when section missing", () => {
-  const raw = ["---halu-body", "Body cites [B](ref:slug-b) and [C](ref:slug-c)."].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.refsUsed, ["slug-b", "slug-c"]);
-});
-
-test("parseArticleFrameOutput: refs merged from section and body links", () => {
-  const raw = ["---halu-body", "Body cites [B](ref:slug-b).", "---halu-used-refs", '["slug-a"]'].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
-});
-
-test("parseArticleFrameOutput: missing pinned ref returns ok=false", () => {
-  const raw = ["---halu-body", "Body.", "---halu-used-refs", '["slug-b"]'].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, PINNED);
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.missingPinned, ["slug-a"]);
-  assert.equal(result.body, "Body.");
-});
-
-test("parseArticleFrameOutput: all pinned refs present returns ok=true", () => {
-  const raw = ["---halu-body", "Body.", "---halu-used-refs", '["slug-a","slug-b"]'].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, PINNED);
-  assert.equal(result.ok, true);
 });
 
 test("parseArticleFrameOutput: no sections → treat whole raw as body", () => {
   const raw = "# Plain article\n\nNo section markers at all.";
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, raw);
 });
 
-test("parseArticleFrameOutput: single-dash -halu-used-refs is recognized (variable dash count)", () => {
-  // Model emits -halu-used-refs instead of ---halu-used-refs
+test("parseArticleFrameOutput: legacy used-refs sections are ignored", () => {
   const raw = [
     "---halu-body",
     "# Test Article",
@@ -2145,16 +2102,14 @@ test("parseArticleFrameOutput: single-dash -halu-used-refs is recognized (variab
     "Body content.",
     '-halu-used-refs ["slug-a","slug-b"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
-  assert.equal(result.body, "# Test Article\n\nBody content.");
-  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
+  const result = parseArticleFrameOutput(raw);
+  assert.doesNotMatch(result.body, /halu-used-refs/);
+  assert.doesNotMatch(result.body, /slug-a/);
 });
 
 test("parseArticleFrameOutput: two-dash --halu-body is recognized", () => {
   const raw = ["--halu-body", "# Two Dash", "", "Content."].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, "# Two Dash\n\nContent.");
 });
 
@@ -2167,8 +2122,7 @@ test("parseArticleFrameOutput: single-dash -halu-used-refs with trailing JSON on
     "Article body here.",
     '-halu-used-refs ["slug-a","slug-b","slug-c"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.doesNotMatch(result.body, /halu-used-refs/);
   assert.doesNotMatch(result.body, /slug-a/);
 });
@@ -2182,33 +2136,28 @@ test("parseArticleFrameOutput: equals-sign prefix ===used-refs is recognized", (
     "Body text.",
     '===halu-used-refs ["slug-a","slug-b"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.doesNotMatch(result.body, /===halu-used-refs/);
-  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
 });
 
 test("parseArticleFrameOutput: underscore-prefix ___body is recognized", () => {
   const raw = ["___body", "# Underscore Body", "", "Content."].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, "# Underscore Body\n\nContent.");
 });
 
-test("parseArticleFrameOutput: underscore-separated keyword halu_used_refs is recognized", () => {
+test("parseArticleFrameOutput: underscore-separated used-refs marker is ignored", () => {
   const raw = [
     "---halu-body",
     "# Test",
     "Body.",
     '---halu_used_refs ["slug-a"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.refsUsed, ["slug-a"]);
+  const result = parseArticleFrameOutput(raw);
+  assert.equal(result.body, "# Test\nBody.");
 });
 
-test("parseArticleFrameOutput: canonical new format ---body / ---used-refs", () => {
-  // Tests the updated prompt format (no halu- prefix)
+test("parseArticleFrameOutput: canonical body marker ignores used-refs", () => {
   const raw = [
     "---body",
     "# New Format Article",
@@ -2217,32 +2166,14 @@ test("parseArticleFrameOutput: canonical new format ---body / ---used-refs", () 
     "---used-refs",
     '["slug-a","slug-b"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, "# New Format Article\n\nArticle content.");
-  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b"]);
 });
 
-test("parseArticleFrameOutput: halu: prefix in ref entries is stripped", () => {
-  // Model emits ["halu:slug-a","halu:slug-b"] instead of ["slug-a","slug-b"]
-  const raw = [
-    "---body",
-    "# Test",
-    "Body.",
-    "---used-refs",
-    '["halu:slug-a","halu:slug-b","ref:slug-c"]',
-  ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.refsUsed, ["slug-a", "slug-b", "slug-c"]);
-});
-
-test("parseArticleFrameOutput: missing body section with other sections → missing-body", () => {
-  // Only meta JSON + usedRefs, no heading to extract body from
+test("parseArticleFrameOutput: missing body section falls back to raw output", () => {
   const raw = ["---halu-meta", '{"title":"Test"}', "---halu-used-refs", '["slug-a"]'].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, false);
-  assert.equal(result.reason, "missing-body");
+  const result = parseArticleFrameOutput(raw);
+  assert.match(result.body, /"title":"Test"/);
 });
 
 test("parseArticleFrameOutput: body absorbed into meta section is recovered via heading scan", () => {
@@ -2257,8 +2188,7 @@ test("parseArticleFrameOutput: body absorbed into meta section is recovered via 
     "---halu-used-refs",
     '["slug-a"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.match(result.body, /# Test Article/);
   assert.match(result.body, /Body content absorbed into meta/);
   assert.doesNotMatch(result.body, /"title"/);
@@ -2275,11 +2205,9 @@ test("parseArticleFrameOutput: inline meta marker (---halu-meta {...}) is recogn
     "---halu-used-refs",
     '["slug-b"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.match(result.body, /# Test Article/);
   assert.match(result.body, /Body after inline meta/);
-  assert.deepEqual(result.refsUsed, ["slug-b"]);
 });
 
 test("parseArticleFrameOutput: body content before first marker is recovered as pre-body", () => {
@@ -2291,18 +2219,9 @@ test("parseArticleFrameOutput: body content before first marker is recovered as 
     "---halu-used-refs",
     '["slug-c"]',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.match(result.body, /# No Markers Article/);
   assert.match(result.body, /Content before any marker/);
-  assert.deepEqual(result.refsUsed, ["slug-c"]);
-});
-
-test("parseArticleFrameOutput: malformed usedRefs JSON falls back to body link scan", () => {
-  const raw = ["---halu-body", "Body cites [A](ref:slug-a).", "---halu-used-refs", "not valid json"].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.refsUsed, ["slug-a"]);
 });
 
 test("parseArticleFrameOutput: section order may vary", () => {
@@ -2311,31 +2230,26 @@ test("parseArticleFrameOutput: section order may vary", () => {
     "---halu-meta", '{"title":"Test"}',
     "---halu-body", "# Test\n\nBody.",
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, "# Test\n\nBody.");
-  assert.deepEqual(result.refsUsed, ["slug-a"]);
 });
 
 test("parseArticleFrameOutput: tolerant alias ---body is recognized", () => {
   const raw = ["---body", "# Alt Marker", "", "Body content."].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, "# Alt Marker\n\nBody content.");
 });
 
 test("parseArticleFrameOutput: tolerant alias ## Body is recognized (case-insensitive)", () => {
   const raw = ["## body", "# Alt Marker", "", "Body content."].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, "# Alt Marker\n\nBody content.");
 });
 
-test("parseArticleFrameOutput: tolerant alias ## Used Refs is recognized", () => {
+test("parseArticleFrameOutput: tolerant used-refs heading stops body extraction", () => {
   const raw = ["---halu-body", "Body.", "## Used Refs", '["slug-b"]'].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.refsUsed, ["slug-b"]);
+  const result = parseArticleFrameOutput(raw);
+  assert.equal(result.body, "Body.");
 });
 
 test("parseArticleFrameOutput: body does not bleed into other sections", () => {
@@ -2344,23 +2258,20 @@ test("parseArticleFrameOutput: body does not bleed into other sections", () => {
     "---halu-used-refs", '["slug-a"]',
     "---halu-meta", '{"title":"Article"}',
   ].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.doesNotMatch(result.body, /slug-a/);
   assert.doesNotMatch(result.body, /halu-used-refs/);
 });
 
 test("parseArticleFrameOutput: body prose containing braces is fine", () => {
   const raw = ["---halu-body", "Some {nested} text here."].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.equal(result.body, "Some {nested} text here.");
 });
 
 test("parseArticleFrameOutput: double-quoted halu hints in body are preserved as-is", () => {
   const raw = ['---halu-body', '# Title', '', 'A [Copper Link](halu:copper-link "quoted hint") stays valid.'].join("\n");
-  const result = parseArticleFrameOutput(raw, PROVIDED, NO_PINNED);
-  assert.equal(result.ok, true);
+  const result = parseArticleFrameOutput(raw);
   assert.match(result.body, /halu:copper-link "quoted hint"/);
 });
 

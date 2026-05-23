@@ -21,6 +21,7 @@ import {
   saveArticleReferences,
   saveArticleSeeAlso,
   getLatestArticleReferences,
+  getArticleByLookup,
   type IncomingHint,
   listIncomingHints,
 } from "../../db";
@@ -36,7 +37,7 @@ import {
   linkMentionedReferencesInBody,
   loadPriorReferenceList,
   resolveRefLinks,
-  formatReferencesForPromptJson,
+  formatReferencesForPromptText,
 } from "../../referenceList";
 import {
   cleanLinkLabels,
@@ -104,11 +105,15 @@ export const readRecentEditHistoryNode = defineNode({
   reads: ["input"] as const,
   writes: ["recentEditHistory"] as const,
   run({ input }, deps: PipelineDeps) {
+    if (input.includeRecentEditHistory !== true) {
+      return { recentEditHistory: "" };
+    }
     if (!input.slug) return { recentEditHistory: "" };
     const revisions = listArticleRevisions(deps.db, input.slug);
     const recent = revisions
       .filter((r) => r.instructions && r.instructions.trim().length > 0)
-      .slice(0, 2);
+      .slice(0, 2)
+      .reverse();
     if (recent.length === 0) return { recentEditHistory: "" };
     return {
       recentEditHistory: recent
@@ -126,9 +131,9 @@ export const retrieveContextNode = defineNode({
   kind: "read",
   description:
     "Run RAG retrieval against article_chunks; merge direct-reference context.",
-  reads: ["input"] as const,
+  reads: ["input", "loadedArticle"] as const,
   writes: ["retrievedContext"] as const,
-  async run({ input }, deps: PipelineDeps) {
+  async run({ input, loadedArticle }, deps: PipelineDeps) {
     const slug = input.slug ?? "";
     const rag = deps.runtime.app.rag;
     const useEmbeddings =
@@ -138,7 +143,12 @@ export const retrieveContextNode = defineNode({
       ? listIncomingHints(deps.db, slug)
       : [];
     const hintStrings = hints.map((h) => h.hiddenHint);
-    const queryOverride = input.requestedTitle || slug;
+    const queryOverride = loadedArticle
+      ? [
+          loadedArticle.title || input.requestedTitle || slug,
+          loadedArticle.body.slice(0, 500),
+        ].filter(Boolean).join("\n\n")
+      : input.requestedTitle || slug;
 
     const primary = await retrieveContextLegacy(
       deps.db,
@@ -219,7 +229,11 @@ export const buildReferenceListNode = defineNode({
         articleSlug: slug,
         ragSources,
         priorReferences: priorRefs,
-        userAdditions: [],
+        userAdditions: slugsToUserAdditions(
+          deps.db,
+          input.userReferenceSlugs ?? [],
+          pinnedSet,
+        ),
         blacklistSlugs: input.blacklistSlugs ?? [],
         revisionId: "current",
         config: deps.runtime.app.rag,
@@ -233,6 +247,28 @@ export const buildReferenceListNode = defineNode({
       // pinned tagging happens inside buildReferenceList already; pinnedSet
       // here is only used to influence persisting pinned bits downstream.
       ...({} as Record<string, never>),
+    };
+  },
+});
+
+export const useRawMarkdownInputNode = defineNode({
+  name: "transform.use_raw_markdown_input",
+  kind: "transform",
+  description:
+    "Use caller-provided markdown as the raw body for deterministic save workflows.",
+  reads: ["input", "loadedArticle"] as const,
+  writes: ["rawArticleBody", "articleSummary"] as const,
+  run({ input, loadedArticle }) {
+    const raw = input.rawMarkdown ?? "";
+    if (!raw.trim()) {
+      throw new Error("raw markdown input is empty");
+    }
+    return {
+      rawArticleBody: raw,
+      articleSummary:
+        input.workflow === "article.add_link"
+          ? loadedArticle?.summary ?? ""
+          : undefined,
     };
   },
 });
@@ -265,6 +301,32 @@ function fromStateEntry(
   };
 }
 
+function slugsToUserAdditions(
+  db: PipelineDeps["db"],
+  slugs: string[],
+  pinnedSet: ReadonlySet<string>,
+): ReferenceListEntry[] {
+  const seen = new Set<string>();
+  const refs: ReferenceListEntry[] = [];
+  for (const raw of slugs) {
+    const slug = slugify(raw);
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    const article = getArticleByLookup(db, slug);
+    if (!article) continue;
+    refs.push({
+      slug: article.slug,
+      title: article.title,
+      content: article.summaryMarkdown || summaryMarkdownFromArticle(article.markdown),
+      kind: "summary",
+      source: pinnedSet.has(article.slug) ? "pinned" : "user",
+      pinned: pinnedSet.has(article.slug),
+      revisionId: "current",
+    });
+  }
+  return refs;
+}
+
 // ─── LLM nodes ───────────────────────────────────────────────────────────────
 
 export const renderArticlePromptNode = defineNode({
@@ -292,7 +354,7 @@ export const renderArticlePromptNode = defineNode({
     const rendered = deps.prompts.render("article", {
       slug: input.slug ?? "",
       requested_title: input.requestedTitle ?? "",
-      references_json: formatReferencesForPromptJson(
+      references_prompt_text: formatReferencesForPromptText(
         refs,
         deps.runtime.app.rag.prompt_ref_content_min_score,
         deps.runtime.app.rag.prompt_ref_content_top_k,
@@ -463,7 +525,7 @@ export const resolveLinksNode = defineNode({
   description:
     "Resolve ref:/halu: links, link exact title mentions, convert existing-article halu→ref, strip self-links.",
   reads: ["articleBody", "references", "canonicalSlug", "canonicalTitle"] as const,
-  writes: ["finalArticleBody"] as const,
+  writes: ["finalArticleBody", "references"] as const,
   run({ articleBody, references, canonicalSlug, canonicalTitle }, deps: PipelineDeps) {
     let body = articleBody ?? "";
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
@@ -481,7 +543,17 @@ export const resolveLinksNode = defineNode({
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
 
-    return { finalArticleBody: body };
+    const mergedRefs = new Map<string, ReferenceEntry>();
+    for (const ref of references ?? []) {
+      mergedRefs.set(ref.slug, ref);
+    }
+    for (const ref of findBodyReferencedArticles(deps.db, body, slug)) {
+      if (!mergedRefs.has(ref.slug)) {
+        mergedRefs.set(ref.slug, toStateEntry(ref));
+      }
+    }
+
+    return { finalArticleBody: body, references: [...mergedRefs.values()] };
   },
 });
 
@@ -628,7 +700,7 @@ export const persistArticleNode = defineNode({
 
     const aliases = Array.from(new Set([slug, slugify(input.slug ?? slug)]));
     saveArticle(deps.db, record, links, aliases, {
-      operation: input.workflow,
+      operation: revisionOperationForInput(input),
       instructions: input.instructions ?? "",
     });
 
@@ -667,3 +739,16 @@ export const persistArticleNode = defineNode({
     return { persistedAt: now };
   },
 });
+
+function revisionOperationForInput(input: { workflow: string; selectedText?: string; targetSectionId?: string }): string {
+  if (input.workflow === "article.generate") return "generate";
+  if (input.workflow === "article.refresh") return "refresh-context-rewrite";
+  if (input.workflow === "article.raw_save") return "raw-edit";
+  if (input.workflow === "article.add_link") return "add-link";
+  if (input.workflow === "article.rewrite") {
+    if (input.selectedText) return "selection-edit";
+    if (input.targetSectionId) return "section-rewrite";
+    return "rewrite";
+  }
+  return input.workflow;
+}

@@ -11,11 +11,19 @@ import { generateArticleWorkflow } from "./workflows/generateArticle";
 import { postProcessWorkflow } from "./workflows/postProcess";
 import { refreshArticleWorkflow } from "./workflows/refreshArticle";
 import { rewriteArticleWorkflow } from "./workflows/rewriteArticle";
+import {
+  addLinkArticleWorkflow,
+  rawSaveArticleWorkflow,
+} from "./workflows/deterministicArticleSave";
+import { homepageRefreshWorkflow } from "./workflows/homepageRefresh";
 
 export const ALL_WORKFLOWS: WorkflowDefinition<PipelineDeps>[] = [
   generateArticleWorkflow,
   refreshArticleWorkflow,
   rewriteArticleWorkflow,
+  rawSaveArticleWorkflow,
+  addLinkArticleWorkflow,
+  homepageRefreshWorkflow,
   postProcessWorkflow,
 ];
 

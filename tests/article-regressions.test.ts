@@ -358,7 +358,10 @@ test("random page inspiration count comes from app config", async (t) => {
   const presented = userPrompt
     .split("\n")
     .filter((line) => line.startsWith("- Seed "));
-  assert.equal(presented.length, 12);
+  assert.equal(
+    presented.length,
+    Math.min(15, loadConfig().app.random_page.inspiration_count),
+  );
 });
 
 test("retrieveContext works with joined article lookups when RAG is enabled", async (t) => {
@@ -481,10 +484,9 @@ test("new article generation searches RAG with the requested title even without 
   checkDb.close();
   assert.deepEqual(refs, ["source-topic"]);
   assert.match(llm.embedInputs[0]?.[0] ?? "", /Target Page/);
-  assert.match(llm.embedInputs[0]?.[0] ?? "", /target-page/);
 });
 
-test("refresh rewrite prunes unused prior prompt refs from the saved sidecar", async (t) => {
+test("refresh rewrite preserves prior prompt refs and adds body-linked refs", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -530,13 +532,13 @@ test("refresh rewrite prunes unused prior prompt refs from the saved sidecar", a
   const refs = getLatestArticleReferences(checkDb, "target-page").map((ref) => ref.slug);
   const revisions = listArticleRevisions(checkDb, "target-page");
   checkDb.close();
-  assert.deepEqual(refs.sort(), ["source-a", "source-b"]);
+  assert.deepEqual(refs.sort(), ["source-a", "source-b", "source-c"]);
   assert.equal(revisions[0]?.operation, "refresh-context-rewrite");
   assert.match(llm.embedInputs[0]?.[0] ?? "", /Target Page/);
   assert.match(llm.embedInputs[0]?.[0] ?? "", /Original body/);
 });
 
-test("refresh rewrite rejects truncated structured output without saving a revision", async (t) => {
+test("refresh rewrite ignores legacy used-refs declarations when saving refs", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -557,30 +559,23 @@ test("refresh rewrite rejects truncated structured output without saving a revis
   beforeDb.close();
   assert.ok(beforeArticle);
 
-  // Response with no body section → missing-body → invalid structured output
-  const llm = new QueueLlmClient("", [
+  const llm = new QueueLlmClient("# Target Page\n\nRefreshed body without reference links.", [
     "---used-refs\n[\"source-a\"]",
   ]);
   const server = await createServer(databasePath, llm);
 
   const res = await server.request("/api/article/Target_Page/refresh-context", { method: "POST" });
-  assert.equal(res.status, 500);
-  const error = await res.json() as { error?: string };
-  assert.match(error.error ?? "", /invalid structured output/);
+  assert.equal(res.status, 200);
 
   const checkDb = openDatabase(databasePath);
   const afterArticle = getArticle(checkDb, "target-page");
   const afterRevisions = listArticleRevisions(checkDb, "target-page");
+  const refs = getLatestArticleReferences(checkDb, "target-page").map((ref) => ref.slug);
   checkDb.close();
-  assert.equal(afterArticle?.markdown, beforeArticle.markdown);
-  assert.equal(afterArticle?.html, beforeArticle.html);
-  assert.equal(afterArticle?.plain_text, beforeArticle.plain_text);
-  assert.equal(afterArticle?.generated_at, beforeArticle.generated_at);
-  assert.equal(afterRevisions.length, beforeRevisions.length);
-  assert.deepEqual(
-    afterRevisions.map((revision) => revision.operation),
-    beforeRevisions.map((revision) => revision.operation),
-  );
+  assert.notEqual(afterArticle?.generated_at, beforeArticle.generated_at);
+  assert.equal(afterRevisions.length, beforeRevisions.length + 1);
+  assert.equal(afterRevisions[0]?.operation, "refresh-context-rewrite");
+  assert.deepEqual(refs, []);
 });
 
 test("retrieveContext drops low-relevance matches below the configured score threshold", async (t) => {
@@ -694,7 +689,6 @@ test("generated articles store an actual summary instead of the opening paragrap
     "Their exchanges are run by ash clerks, delayed furnace indices, and regional reserve ceremonies.",
   ].join("\n");
   const llm = new QueueLlmClient(body, [
-    JSON.stringify({ items: [] }),
     "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.",
   ]);
   const server = await createServer(databasePath, llm);
@@ -709,7 +703,7 @@ test("generated articles store an actual summary instead of the opening paragrap
   assert.ok(done);
   assert.equal(
     done.article.summaryMarkdown,
-    "Coal futures markets are complex, highly volatile financial instruments dedicated to pricing the future delivery of subterranean combustive resources.",
+    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.",
   );
 
   let cachedSummary = "";

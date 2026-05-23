@@ -24,8 +24,7 @@ import {
   buildReferenceList,
   loadPriorReferenceList,
   formatReferencesForPrompt,
-  formatReferencesForPromptJson,
-  extractRefLinksAsInternalLinks,
+  formatReferencesForPromptText,
 } from "../../referenceList";
 import { formatIncomingHintsForPrompt } from "../../linkHints";
 import {
@@ -39,6 +38,10 @@ import {
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
 } from "../../retrieval";
+import {
+  findFuzzyTitleMatchesInEditText,
+  findReferencedArticlesInEditText,
+} from "../../editReferences";
 import {
   normalizeMarkdown,
   renderMarkdown,
@@ -174,9 +177,39 @@ export const retrieveContextForRewriteNode = defineNode({
         rag.enabled, rag.mode, rag.max_results, rag.min_score,
         useEmbeddings, deps.logger, query || undefined,
       );
+      const editReferences = findReferencedArticlesInEditText(
+        deps.db,
+        `${ragQuery} ${instructionsText}`,
+        slug,
+      );
+      const fuzzyTitleMatches = findFuzzyTitleMatchesInEditText(
+        deps.db,
+        `${query} ${instructionsText}`,
+        slug,
+        rag.max_results,
+        editReferences.articles.map((a) => a.slug),
+      );
+      const directSlugs = [
+        ...new Set([
+          ...priorSlugs,
+          ...editReferences.articles.map((a) => a.slug),
+          ...fuzzyTitleMatches.map((a) => a.slug),
+        ]),
+      ];
+      const direct = directSlugs.length
+        ? retrieveDirectArticleContext(
+            deps.db,
+            slug,
+            directSlugs,
+            rag.mode,
+            rag.max_results,
+            deps.logger,
+          )
+        : { context: "", relatedTitles: [], sourceArticles: [] };
+      const merged = mergeRetrievedContextPackets(direct, packet);
       retrieved = {
-        sourceArticles: packet.sourceArticles,
-        ragTitles: packet.relatedTitles,
+        sourceArticles: merged.sourceArticles,
+        ragTitles: merged.relatedTitles,
         backlinks: backlinkSlugs.map((s) => {
           const a = getArticleByLookup(deps.db, s);
           return { slug: s, title: a?.title ?? s };
@@ -274,18 +307,22 @@ export const renderRewritePromptNode = defineNode({
     "references",
     "retrievedContext",
     "rewriteMode",
+    "recentEditHistory",
   ] as const,
   writes: ["renderedPrompt"] as const,
   run(
-    { input, loadedArticle, selectedMarkdown, references, retrievedContext, rewriteMode },
+    { input, loadedArticle, selectedMarkdown, references, retrievedContext, rewriteMode, recentEditHistory },
     deps: PipelineDeps,
   ) {
     const slug = slugify(input.slug ?? "");
     const title = loadedArticle?.title ?? input.requestedTitle ?? slug;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
     const hints = listIncomingHints(deps.db, slug);
-    const modeName = rewriteMode ?? input.rewriteModeName ?? "default";
-    const modePrompt = deps.runtime.prompts.rewriteModes?.[modeName]?.prompt ?? "";
+    const requestedMode = rewriteMode ?? input.rewriteModeName ?? "aggressive";
+    const modePrompt =
+      deps.runtime.prompts.rewriteModes?.[requestedMode]?.prompt ??
+      deps.runtime.prompts.rewriteModes?.aggressive?.prompt ??
+      "";
     const instructions = input.instructions ?? "";
 
     const rendered = deps.prompts.render("article_rewrite", {
@@ -299,11 +336,14 @@ export const renderRewritePromptNode = defineNode({
       rewrite_mode: modePrompt,
       link_hints: formatIncomingHintsForPrompt(hints, slug),
       references_list: formatReferencesForPrompt(refs),
-      references_json: formatReferencesForPromptJson(
+      references_prompt_text: formatReferencesForPromptText(
         refs,
         deps.runtime.app.rag.prompt_ref_content_min_score,
         deps.runtime.app.rag.prompt_ref_content_top_k,
       ),
+      recent_edit_history: recentEditHistory?.trim()
+        ? `Recent edit history, oldest to newest:\n${recentEditHistory}`
+        : "",
       rag_context: (retrievedContext?.sourceArticles ?? [])
         .map((s) => `## ${s.title}\n${s.content}`).join("\n\n") || "(none)",
       related_titles: (retrievedContext?.ragTitles ?? []).map((t) => `- ${t}`).join("\n"),
@@ -373,11 +413,16 @@ export const spliceRewriteResultNode = defineNode({
     "loadedArticle",
     "selectionRange",
     "sectionId",
+    "isProtected",
   ] as const,
   writes: ["rawArticleBody"] as const,
-  run({ rawArticleBody, loadedArticle, selectionRange, sectionId }) {
+  run({ rawArticleBody, loadedArticle, selectionRange, sectionId, isProtected }) {
     const generated = rawArticleBody ?? "";
     const fullMarkdown = loadedArticle?.body ?? "";
+
+    if (isProtected) {
+      return { rawArticleBody: fullMarkdown };
+    }
 
     if (selectionRange) {
       // Selection edit: replace the selected range in the full markdown.

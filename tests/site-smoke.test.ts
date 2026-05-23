@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -322,7 +322,7 @@ async function createServerForDatabase(
   databasePath: string,
   options: { logger?: Logger; llmClient?: LlmClient; homepagePrepare?: boolean } = {}
 ) {
-  const { app } = await createApp({
+  const { app, shutdown } = await createApp({
     databasePath,
     skipLlmProbe: true,
     skipHomepagePrepare: options.homepagePrepare !== true,
@@ -331,9 +331,32 @@ async function createServerForDatabase(
   });
   return {
     root,
+    shutdown,
     request: (path: string, init?: RequestInit) =>
       app.fetch(new Request(`http://halupedia.test${path}`, init)),
   };
+}
+
+function cleanupTestServer(t: TestContext, server: { root: string; shutdown?: () => Promise<void> }) {
+  t.after(async () => {
+    await server.shutdown?.();
+    rmSync(server.root, { recursive: true, force: true });
+  });
+}
+
+async function waitForLog(
+  entries: CapturedLogEntry[],
+  predicate: (entry: CapturedLogEntry) => boolean,
+  timeoutMs = 1000
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (entries.some(predicate)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(entries.some(predicate));
 }
 
 async function waitForHomepage(
@@ -362,9 +385,7 @@ function parseNdjson<T>(payload: string): T[] {
 
 test("site smoke tests cover core routes and API contracts", async (t) => {
   const server = await createTestServer();
-  t.after(() => {
-    rmSync(server.root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   await t.test("health endpoint returns runtime details", async () => {
     const res = await server.request("/api/health");
@@ -421,9 +442,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
   await t.test("cached article reads never regenerate existing pages", async (t) => {
     const llm = new CountingLlmClient();
     const cachedServer = await createTestServer({ llmClient: llm });
-    t.after(() => {
-      rmSync(cachedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, cachedServer);
 
     const res = await cachedServer.request("/api/page/Test_Article");
     assert.equal(res.status, 200);
@@ -436,7 +455,6 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 
   await t.test("cached article reports body references missing from metadata without LLM work", async (t) => {
     const root = mkdtempSync(join(tmpdir(), "halupedia-ref-status-"));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
     const databasePath = join(root, TEST_CONFIG.database_path);
     const db = openDatabase(databasePath);
     const sourceMarkdown = "# Source Article\n\nA stored source article.";
@@ -473,6 +491,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 
     const llm = new CountingLlmClient();
     const cachedServer = await createServerForDatabase(root, databasePath, { llmClient: llm });
+    cleanupTestServer(t, cachedServer);
 
     const res = await cachedServer.request("/api/page/Target_Article");
     assert.equal(res.status, 200);
@@ -488,7 +507,6 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 
   await t.test("cached article reports listed references that still use legacy halu links", async (t) => {
     const root = mkdtempSync(join(tmpdir(), "halupedia-ref-format-"));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
     const databasePath = join(root, TEST_CONFIG.database_path);
     const db = openDatabase(databasePath);
     const now = Date.now();
@@ -536,6 +554,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 
     const llm = new CountingLlmClient();
     const cachedServer = await createServerForDatabase(root, databasePath, { llmClient: llm });
+    cleanupTestServer(t, cachedServer);
 
     const res = await cachedServer.request("/api/page/Target_Article");
     assert.equal(res.status, 200);
@@ -550,7 +569,6 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 
   await t.test("cached article cleans inline References section without LLM work", async (t) => {
     const root = mkdtempSync(join(tmpdir(), "halupedia-ref-section-"));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
     const databasePath = join(root, TEST_CONFIG.database_path);
     const db = openDatabase(databasePath);
     const sourceMarkdown = "# Source Article\n\nA stored source article.";
@@ -595,6 +613,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 
     const llm = new CountingLlmClient();
     const cachedServer = await createServerForDatabase(root, databasePath, { llmClient: llm });
+    cleanupTestServer(t, cachedServer);
 
     const res = await cachedServer.request("/api/page/Target_Article");
     assert.equal(res.status, 200);
@@ -640,9 +659,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       logger: createMemoryLogger(entries),
       llmClient: llm,
     });
-    t.after(() => {
-      rmSync(cachedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, cachedServer);
 
     const res = await cachedServer.request("/api/page/Cache_Repair");
     assert.equal(res.status, 200);
@@ -693,9 +710,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       logger: createMemoryLogger(entries),
       llmClient: new CountingLlmClient(),
     });
-    t.after(() => {
-      rmSync(cachedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, cachedServer);
 
     const first = await cachedServer.request("/api/page/Diagnostic_Only");
     assert.equal(first.status, 200);
@@ -738,9 +753,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
   await t.test("highlight add-link updates markdown without regenerating the article", async (t) => {
     const llm = new CountingLlmClient();
     const linkServer = await createTestServer({ llmClient: llm });
-    t.after(() => {
-      rmSync(linkServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, linkServer);
 
     const res = await linkServer.request("/api/article/test-article/add-link", {
       method: "POST",
@@ -759,9 +772,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
   await t.test("core request paths emit structured page logs", async (t) => {
     const entries: CapturedLogEntry[] = [];
     const loggedServer = await createTestServer({ logger: createMemoryLogger(entries) });
-    t.after(() => {
-      rmSync(loggedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, loggedServer);
 
     await loggedServer.request("/api/page/Test_Article");
     await loggedServer.request("/test-article", { redirect: "manual" });
@@ -778,9 +789,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       logger: createMemoryLogger(entries),
       llmClient: new FakeLlmClient(),
     });
-    t.after(() => {
-      rmSync(generatedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, generatedServer);
 
     const res = await generatedServer.request("/api/page/Fresh_Page");
     assert.equal(res.status, 200);
@@ -797,7 +806,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       )
     );
     assert.ok(entries.some((entry) => entry.event === "page.generated" && entry.fields?.slug === "fresh-page"));
-    assert.ok(entries.some((entry) => entry.event === "rag.index_complete" && entry.fields?.slug === "fresh-page"));
+    await waitForLog(entries, (entry) => entry.event === "rag.index_complete" && entry.fields?.slug === "fresh-page");
   });
 
   await t.test("unicode wiki paths generate, cache, and log correctly", async (t) => {
@@ -812,9 +821,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
         "百科甲是一个多语言条目，引用了[甲](halu:甲)。",
       ].join("\n")),
     });
-    t.after(() => {
-      rmSync(unicodeServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, unicodeServer);
 
     const generatedRes = await unicodeServer.request(`/api/page/${unicodeSegment}`);
     assert.equal(generatedRes.status, 200);
@@ -865,9 +872,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     db.close();
 
     const server = await createServerForDatabase(root, databasePath);
-    t.after(() => {
-      rmSync(root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, server);
 
     const res = await server.request(`/api/page/${encodeURIComponent("Café_β_Registry")}`);
     assert.equal(res.status, 200);
@@ -915,9 +920,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       logger: createMemoryLogger(entries),
       llmClient: new FailingGenerationLlmClient(),
     });
-    t.after(() => {
-      rmSync(root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, server);
 
     const res = await server.request("/api/page/rgonewild-the-movie-starring-mitch-mcconnell");
     assert.equal(res.status, 200);
@@ -945,9 +948,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
   await t.test("unmatched paths emit not-found logs", async (t) => {
     const entries: CapturedLogEntry[] = [];
     const loggedServer = await createTestServer({ logger: createMemoryLogger(entries) });
-    t.after(() => {
-      rmSync(loggedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, loggedServer);
 
     const res = await loggedServer.request("/missing.txt");
     assert.equal(res.status, 404);
@@ -963,9 +964,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
         "A foundational postulate about pleasure vectors.",
       ].join("\n")),
     });
-    t.after(() => {
-      rmSync(generatedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, generatedServer);
 
     const res = await generatedServer.request("/api/page/archival_rotation_theorem");
     assert.equal(res.status, 200);
@@ -989,9 +988,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
         "A quiet registry metric for archival energy loss.",
       ].join("\n")),
     });
-    t.after(() => {
-      rmSync(generatedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, generatedServer);
 
     const res = await generatedServer.request("/api/page/cultural-dissipation-factor");
     assert.equal(res.status, 200);
@@ -1015,9 +1012,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
         "A multilingual registry entry.",
       ].join("\n")),
     });
-    t.after(() => {
-      rmSync(generatedServer.root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, generatedServer);
 
     const res = await generatedServer.request(`/api/page/${encodeURIComponent("Café_β_Registry")}`);
     assert.equal(res.status, 200);
@@ -1057,9 +1052,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     db.close();
 
     const cachedServer = await createServerForDatabase(root, databasePath);
-    t.after(() => {
-      rmSync(root, { recursive: true, force: true });
-    });
+    cleanupTestServer(t, cachedServer);
 
     const res = await cachedServer.request("/api/page/Archival_rotation_theorem");
     assert.equal(res.status, 200);
@@ -1077,9 +1070,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
 test("client disconnect mid-generation still saves the article to DB", async (t) => {
   const llm = new SlowLlmClient(30);
   const server = await createTestServer({ seed: false, llmClient: llm });
-  t.after(() => {
-    rmSync(server.root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   const controller = new AbortController();
   const resPromise = server.request("/api/page/Slow_Article", { signal: controller.signal });
@@ -1105,7 +1096,8 @@ test("client disconnect mid-generation still saves the article to DB", async (t)
 test("shutdown waits for in-flight generations then resolves", async (t) => {
   const llm = new SlowLlmClient(30);
   const server = await createTestServer({ seed: false, llmClient: llm });
-  t.after(() => {
+  t.after(async () => {
+    await server.shutdown();
     rmSync(server.root, { recursive: true, force: true });
   });
 
@@ -1140,7 +1132,9 @@ test("shutdown waits for in-flight generations then resolves", async (t) => {
 test("concurrent requests for the same uncached slug share a single generation", async (t) => {
   const llm = new GatedLlmClient();
   const server = await createTestServer({ seed: false, llmClient: llm });
-  t.after(() => {
+  t.after(async () => {
+    llm.gate.resolve();
+    await server.shutdown();
     rmSync(server.root, { recursive: true, force: true });
   });
 
@@ -1166,7 +1160,9 @@ test("concurrent requests for the same uncached slug share a single generation",
 test("admin generation queue reports active articles and waiter counts", async (t) => {
   const llm = new GatedLlmClient();
   const server = await createTestServer({ seed: false, llmClient: llm });
-  t.after(() => {
+  t.after(async () => {
+    llm.gate.resolve();
+    await server.shutdown();
     rmSync(server.root, { recursive: true, force: true });
   });
 
@@ -1230,9 +1226,7 @@ test("failed generation releases the slug so a retry can succeed", async (t) => 
   };
 
   const server = await createTestServer({ seed: false, llmClient: hybridLlm });
-  t.after(() => {
-    rmSync(server.root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   const res1 = await server.request("/api/page/Retry_Article");
   const text1 = await res1.text();
@@ -1267,8 +1261,9 @@ test("article is saved to DB immediately after streaming, before post-processing
   };
 
   const server = await createTestServer({ seed: false, llmClient: llm });
-  t.after(() => {
+  t.after(async () => {
     postProcessGate.resolve();
+    await server.shutdown();
     rmSync(server.root, { recursive: true, force: true });
   });
 
@@ -1308,8 +1303,9 @@ test("second request during post-processing gets cache hit, not cache miss", asy
   };
 
   const server = await createTestServer({ seed: false, llmClient: llm, logger });
-  t.after(() => {
+  t.after(async () => {
     postProcessGate.resolve();
+    await server.shutdown();
     rmSync(server.root, { recursive: true, force: true });
   });
 
@@ -1346,9 +1342,7 @@ test("homepage prepares DB-backed content in background and serves cached reques
   };
 
   const server = await createTestServer({ seed: true, llmClient: llm, homepagePrepare: true });
-  t.after(() => {
-    rmSync(server.root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
   await waitForHomepage(
     server,
     (payload) => payload.didYouKnow?.length === 2,
@@ -1371,9 +1365,7 @@ test("homepage prepares DB-backed content in background and serves cached reques
 
 test("homepage returns empty state when no articles exist", async (t) => {
   const server = await createTestServer({ seed: false, homepagePrepare: true });
-  t.after(() => {
-    rmSync(server.root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   const res = await server.request("/api/homepage");
   assert.equal(res.status, 200);
@@ -1428,9 +1420,7 @@ test("homepage featured article uses the literal first paragraph", async (t) => 
   };
 
   const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
-  t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   const body = await waitForHomepage(
     server,
@@ -1484,9 +1474,7 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
   };
 
   const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
-  t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   const body = await waitForHomepage(
     server,
@@ -1514,9 +1502,7 @@ test("homepage handles DYK generation failure gracefully", async (t) => {
   };
 
   const server = await createTestServer({ seed: true, llmClient: llm, homepagePrepare: true });
-  t.after(() => {
-    rmSync(server.root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   const body = await waitForHomepage(
     server,
@@ -1555,9 +1541,7 @@ test("homepage uses a current DB cache without regenerating at startup", async (
   };
 
   const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
-  t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   const res = await server.request("/api/homepage");
   const body = await res.json();
@@ -1618,9 +1602,7 @@ test("homepage request regenerates expired cache and logs refresh lifecycle", as
     logger: createMemoryLogger(logEntries),
     homepagePrepare: true,
   });
-  t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
+  cleanupTestServer(t, server);
 
   const body = await waitForHomepage(
     server,

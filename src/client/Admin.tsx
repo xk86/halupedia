@@ -33,6 +33,28 @@ interface GenerationQueueItem {
   waiting: number;
 }
 
+interface PipelineWorkflowSummary {
+  name: string;
+  description?: string;
+  summary: string;
+  nodes: Array<{
+    name: string;
+    kind: string;
+    conditional: boolean;
+  }>;
+}
+
+interface PipelineRunSummary {
+  run_id: string;
+  workflow: string;
+  slug: string | null;
+  started_at: number;
+  duration_ms: number;
+  status: string;
+  nodes_executed: number;
+  error_message: string | null;
+}
+
 interface Props {
   onNavigate: (slug: string) => void;
 }
@@ -51,6 +73,10 @@ export function Admin({ onNavigate }: Props) {
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
   const [generationQueue, setGenerationQueue] = useState<GenerationQueueItem[]>([]);
   const [savingPromptKey, setSavingPromptKey] = useState<string | null>(null);
+  const [pipelineWorkflows, setPipelineWorkflows] = useState<PipelineWorkflowSummary[]>([]);
+  const [pipelineRuns, setPipelineRuns] = useState<PipelineRunSummary[]>([]);
+  const [pipelineTraceEnabled, setPipelineTraceEnabled] = useState(false);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // Slug alias management
   const [aliasSearch, setAliasSearch] = useState("");
@@ -99,13 +125,36 @@ export function Admin({ onNavigate }: Props) {
     }
   }, []);
 
+  const loadPipelineStatus = useCallback(async () => {
+    setPipelineError(null);
+    try {
+      const [workflowsRes, runsRes] = await Promise.all([
+        fetch("/api/admin/pipeline/workflows"),
+        fetch("/api/admin/pipeline/runs?limit=12"),
+      ]);
+      if (!workflowsRes.ok) throw new Error(`workflows error ${workflowsRes.status}`);
+      if (!runsRes.ok) throw new Error(`runs error ${runsRes.status}`);
+      const workflowsPayload = await workflowsRes.json();
+      const runsPayload = await runsRes.json();
+      setPipelineWorkflows(workflowsPayload.workflows ?? []);
+      setPipelineRuns(runsPayload.runs ?? []);
+      setPipelineTraceEnabled(Boolean(runsPayload.traceEnabled));
+    } catch (err: any) {
+      setPipelineError(err?.message || "failed to load pipeline status");
+      setPipelineWorkflows([]);
+      setPipelineRuns([]);
+      setPipelineTraceEnabled(false);
+    }
+  }, []);
+
   useEffect(() => {
     document.title = "Admin - Halupedia";
     loadOverview();
     loadGenerationQueue();
+    loadPipelineStatus();
     const interval = window.setInterval(loadGenerationQueue, 1000);
     return () => window.clearInterval(interval);
-  }, [loadOverview, loadGenerationQueue]);
+  }, [loadOverview, loadGenerationQueue, loadPipelineStatus]);
 
   const reloadRuntime = useCallback(async () => {
     setReloading(true);
@@ -353,6 +402,67 @@ export function Admin({ onNavigate }: Props) {
           </ul>
         ) : (
           <p className="sb-copy">No active article generations.</p>
+        )}
+      </div>
+
+      <div className="sb-panel">
+        <div className="admin-section-title-row">
+          <h3 className="sb-heading">Pipelines</h3>
+          <button className="admin-btn" type="button" onClick={loadPipelineStatus}>
+            Refresh
+          </button>
+        </div>
+        {pipelineError ? <p className="search-error">{pipelineError}</p> : null}
+        <div className="admin-pipeline-grid">
+          {pipelineWorkflows.map((workflow) => (
+            <div key={workflow.name} className="admin-pipeline-workflow">
+              <div className="admin-pipeline-name">{workflow.name}</div>
+              <div className="admin-pipeline-summary">{workflow.summary}</div>
+              <div className="admin-pipeline-kinds">
+                {workflow.nodes.map((node) => (
+                  <span key={`${workflow.name}-${node.name}`} title={node.name}>
+                    {node.kind}{node.conditional ? "?" : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="admin-section-title-row admin-pipeline-runs-heading">
+          <h4 className="sb-heading">Recent Runs</h4>
+          <span className="all-entries-count">
+            {pipelineTraceEnabled ? `${pipelineRuns.length} recorded` : "trace off"}
+          </span>
+        </div>
+        {pipelineRuns.length ? (
+          <div className="admin-model-table-wrap">
+            <table className="admin-model-table">
+              <thead>
+                <tr>
+                  <th>Workflow</th>
+                  <th>Slug</th>
+                  <th>Status</th>
+                  <th>Nodes</th>
+                  <th>Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pipelineRuns.map((run) => (
+                  <tr key={run.run_id}>
+                    <td title={run.run_id}>{run.workflow}</td>
+                    <td>{run.slug ?? ""}</td>
+                    <td title={run.error_message ?? ""}>{run.status}</td>
+                    <td>{run.nodes_executed}</td>
+                    <td>{run.duration_ms} ms</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="sb-copy">
+            {pipelineTraceEnabled ? "No recorded pipeline runs." : "Pipeline trace storage is disabled."}
+          </p>
         )}
       </div>
 

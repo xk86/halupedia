@@ -3190,6 +3190,49 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--ink-fade);
 }
 
+.admin-pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.admin-pipeline-workflow {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.75rem;
+}
+
+.admin-pipeline-name {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.admin-pipeline-summary {
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  color: var(--ink-fade);
+}
+
+.admin-pipeline-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+
+.admin-pipeline-kinds span {
+  border: 1px solid var(--rule);
+  padding: 0.18rem 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--ink);
+}
+
+.admin-pipeline-runs-heading {
+  margin-top: 1.25rem;
+}
+
 .admin-model-table-wrap {
   margin-top: 0.85rem;
   overflow-x: auto;

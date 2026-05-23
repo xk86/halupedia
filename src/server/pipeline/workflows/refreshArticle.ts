@@ -28,10 +28,12 @@ import {
   readProtectionNode,
   renderRefreshPromptNode,
   callRefreshModelNode,
+  useStoredBodyForProtectedRefreshNode,
   spliceProtectedSectionsNode,
 } from "../nodes/refresh";
 
 const skipIfProtected = (state: PipelineState) => state.isProtected !== true;
+const onlyIfProtected = (state: PipelineState) => state.isProtected === true;
 
 export const refreshArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
   name: "article.refresh",
@@ -45,6 +47,7 @@ export const refreshArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: renderRefreshPromptNode, when: skipIfProtected },
     { node: callRefreshModelNode,    when: skipIfProtected },
     { node: extractArticleBodyNode,  when: skipIfProtected },
+    { node: useStoredBodyForProtectedRefreshNode, when: onlyIfProtected },
     { node: sanitizeBodyNode },
     { node: cleanLinkLabelsNode },
     { node: spliceProtectedSectionsNode },

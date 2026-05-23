@@ -39,6 +39,8 @@ Rewrite instructions:
 
 {{edit_instructions}}
 
+{{recent_edit_history}}
+
 Current article:
 
 {{current_article}}
@@ -47,7 +49,7 @@ References — link to these using [Visible Title](ref:slug) syntax.
 Pinned references should be prioritized and linked where relevant.
 You do not need to link all of them.
 
-{{references_json}}
+{{references_prompt_text}}
 
 Retrieved context:
 

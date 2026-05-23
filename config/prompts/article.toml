@@ -21,7 +21,7 @@ References — link to these using [Visible Title](ref:slug) syntax.
 You do not need to cite all of them. Pinned references should be prioritized
 and linked where relevant. Unlinked references are fine to omit from the article body.
 
-{{references_json}}
+{{references_prompt_text}}
 
 Retrieved context:
 

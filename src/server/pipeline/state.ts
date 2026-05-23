@@ -49,6 +49,8 @@ export const WorkflowInputSchema = z.object({
   instructions: z.string().optional(),
   /** Slugs the caller wants forcibly included in the reference list. */
   pinnedSlugs: z.array(SlugSchema).optional(),
+  /** Slugs the caller explicitly selected as user-added references. */
+  userReferenceSlugs: z.array(SlugSchema).optional(),
   /** Slugs the caller wants forcibly excluded from the reference list. */
   blacklistSlugs: z.array(SlugSchema).optional(),
   /** Caller-explicit reference selection (overrides RAG when present). */
@@ -69,6 +71,10 @@ export const WorkflowInputSchema = z.object({
   isManualEdit: z.boolean().optional(),
   /** Include recent edit history in the prompt. */
   includeRecentEditHistory: z.boolean().optional(),
+
+  // Deterministic save-specific options ─────────────────────────────────────
+  /** Caller-provided markdown for no-LLM save workflows. */
+  rawMarkdown: z.string().optional(),
 });
 export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
 
@@ -226,6 +232,10 @@ export const PipelineStateSchema = z.object({
   // RAG indexing ─────────────────────────────────────────────────────────────
   /** True once RAG chunks have been re-indexed for this article. */
   ragIndexed: z.boolean().optional(),
+
+  // Homepage ────────────────────────────────────────────────────────────────
+  /** Homepage cache payload produced by homepage.refresh. */
+  homepagePayload: z.unknown().optional(),
 });
 export type PipelineState = z.infer<typeof PipelineStateSchema>;
 

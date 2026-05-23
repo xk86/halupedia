@@ -21,7 +21,6 @@ import {
   getArticleRevision,
   getCanonicalSlugForTarget,
   getHomepageCache,
-  getRandomArticles,
   listArticleRevisions,
   listArticles,
   listBacklinks,
@@ -35,7 +34,6 @@ import {
   saveArticleSeeAlso,
   getLatestArticleReferences,
   type ArticleReference,
-  saveHomepageCache,
   getRandomSuggestions,
   searchCorpus,
   updateArticleSummary,
@@ -72,7 +70,6 @@ import {
   extractDisplayTitle,
   extractInternalLinks,
   extractTitle,
-  firstParagraphMarkdownFromArticle,
   fixSlugVisibleText,
   LINK_RE,
   listArticleSections,
@@ -109,21 +106,12 @@ import type {
   ArticleRecord,
   HomepagePayload,
   LinkSuggestion,
-  ReferenceList,
-  ReferenceListEntry,
   SeeAlsoCandidate,
 } from "./types";
 import {
-  buildReferenceList,
-  convertExistingArticleLinksToRefs,
   extractRefLinksAsInternalLinks,
-  findBodyReferencedArticles,
   findExistingArticleLinkReferences,
-  formatReferencesForPrompt,
-  formatReferencesForPromptJson,
-  linkMentionedReferencesInBody,
   loadPriorReferenceList,
-  resolveRefLinks,
 } from "./referenceList";
 import {
   loadArticle,
@@ -150,11 +138,7 @@ import {
   extractSelectionExcerpt,
 } from "./selectionUtils";
 export { findSelectionRangeInMarkdown } from "./selectionUtils";
-import {
-  ensureDykHasSourceLink,
-  normalizeHomepageFact,
-  generateDidYouKnowFact,
-} from "./dyk";
+import { ensureDykHasSourceLink } from "./dyk";
 export { ensureDykHasSourceLink } from "./dyk";
 import {
   parseArticleFrameOutput,
@@ -169,6 +153,11 @@ import { generateArticleWorkflow } from "./pipeline/workflows/generateArticle";
 import { refreshArticleWorkflow } from "./pipeline/workflows/refreshArticle";
 import { rewriteArticleWorkflow } from "./pipeline/workflows/rewriteArticle";
 import { postProcessWorkflow } from "./pipeline/workflows/postProcess";
+import {
+  addLinkArticleWorkflow,
+  rawSaveArticleWorkflow,
+} from "./pipeline/workflows/deterministicArticleSave";
+import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
 import type { PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
 
@@ -650,77 +639,28 @@ async function generateRandomPageChoice(
 }
 
 async function ensureHomepageCache(
-  db: ReturnType<typeof openDatabase>,
-  llm: LlmClient,
-  lightLlm: LlmClient,
-  promptConfig: ReturnType<typeof loadConfig>["prompts"],
-  ttlMs: number,
-  logger: Logger,
+  deps: PipelineDeps,
 ): Promise<HomepagePayload> {
-  const now = Date.now();
-  const cached = getHomepageCache(db);
-  if (cached && cached.generatedAt + ttlMs > now) {
-    return {
-      ...cached,
-      expiresAt: cached.generatedAt + ttlMs,
-    };
-  }
-
-  const sources = getRandomArticles(db, 5);
-  const generatedAt = Date.now();
-  if (sources.length === 0) {
-    const empty = {
-      featured: null,
-      didYouKnow: [],
-      generatedAt,
-      expiresAt: generatedAt + ttlMs,
-    };
-    saveHomepageCache(db, empty);
-    return empty;
-  }
-
-  const didYouKnow = [];
-  for (const article of sources) {
-    try {
-      const fact = await generateDidYouKnowFact(
-        llm,
-        lightLlm,
-        promptConfig,
-        article,
-      );
-      if (fact) {
-        // Guarantee every DYK fact links back to the source article.
-        // The LLM may or may not include a link natively; this is the fallback.
-        const linkedFact = ensureDykHasSourceLink(fact, article.slug, article.title);
-        didYouKnow.push({ slug: article.slug, title: article.title, fact: linkedFact });
-      }
-    } catch (error) {
-      logger.warn("homepage.dyk_generation_failed", {
-        slug: article.slug,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  const featured = sources[0]
-    ? {
-        slug: sources[0].slug,
-        title: sources[0].title,
-        summaryMarkdown: firstParagraphMarkdownFromArticle(sources[0].markdown),
-      }
-    : null;
-  const payload = {
-    featured,
-    didYouKnow,
-    generatedAt,
-    expiresAt: generatedAt + ttlMs,
-  };
-  saveHomepageCache(db, payload);
-  logger.info("homepage.cache_prepared", {
-    facts: didYouKnow.length,
-    featured: featured?.slug ?? "",
+  const recorder = getTraceRecorder(deps.runtime.app.pipeline.trace);
+  const result = await runWorkflow(homepageRefreshWorkflow, {
+    input: {
+      requestId: randomUUID(),
+      workflow: "homepage.refresh",
+      slug: "homepage",
+      instructions: "refresh homepage cache",
+    },
+    deps,
+    recorder,
+    logger: deps.logger,
   });
-  return payload;
+  if (result.status !== "ok") {
+    throw result.error ?? new Error("homepage refresh workflow failed");
+  }
+  const payload = result.state.homepagePayload;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("homepage refresh workflow returned no payload");
+  }
+  return payload as HomepagePayload;
 }
 
 function buildLinkedPromptSystem(
@@ -1048,25 +988,6 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   await reloadRuntime();
 
-  // Resolve a list of slugs to ReferenceListEntry objects for userAdditions.
-  function slugsToUserAdditions(slugs: string[], pinnedSet: ReadonlySet<string> = new Set()): ReferenceList {
-    const result: ReferenceList = [];
-    for (const s of slugs) {
-      const a = getArticleByLookup(db, s);
-      if (!a) continue;
-      result.push({
-        slug: a.slug,
-        title: a.title,
-        content: a.summaryMarkdown ?? "",
-        kind: "summary",
-        pinned: pinnedSet.has(a.slug),
-        revisionId: "current",
-        source: "user",
-      });
-    }
-    return result;
-  }
-
   function canonicalPathForArticle(article: {
     canonicalSlug: string;
     title: string;
@@ -1360,208 +1281,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     return [...haluLinks, ...refLinks];
   }
 
-
-    async function saveArticleImmediately(
-    slug: string,
-    requestedTitle: string,
-    bodyMarkdown: string,
-    retrieved: Awaited<ReturnType<typeof retrieveContext>>,
-    revision: {
-      operation?: string;
-      instructions?: string;
-      revertedFromRevisionId?: number | null;
-      skipRevision?: boolean;
-    } = {},
-    { userAdditionSlugs = [], pinnedSlugsSet = new Set<string>(), blacklistSlugs = [], scrapeExistingBodyLinks = true, selectedReferenceSlugs = null }: {
-      userAdditionSlugs?: string[];
-      pinnedSlugsSet?: ReadonlySet<string>;
-      blacklistSlugs?: string[];
-      scrapeExistingBodyLinks?: boolean;
-      selectedReferenceSlugs?: string[] | null;
-    } = {},
-  ) {
-    const selectedReferenceSet = selectedReferenceSlugs
-      ? new Set(selectedReferenceSlugs.map((s) => slugify(s)).filter(Boolean))
-      : null;
-    const parsedInput = normalizeMarkdownLinks(bodyMarkdown, "article");
-    logger.info("text.pipeline.start", {
-      slug,
-      source: revision.operation ?? "save",
-      chars: bodyMarkdown.length,
-      links: parsedInput.stats.total,
-      halu: parsedInput.stats.halu,
-      ref: parsedInput.stats.ref,
-      bare_ref: parsedInput.stats.bareRef,
-      bare_halu: parsedInput.stats.bareHalu,
-      loose_ref: parsedInput.stats.looseRef,
-      loose_halu: parsedInput.stats.looseHalu,
-      wiki: parsedInput.stats.wiki,
-      plain_slug: parsedInput.stats.plainSlug,
-      external: parsedInput.stats.external,
-      diagnostics: parsedInput.stats.diagnostics,
-      changed: parsedInput.changed,
-    });
-    bodyMarkdown = parsedInput.markdown;
-
-    const { canonicalTitle, canonicalSlug, displayTitle } =
-      deriveArticleIdentity(bodyMarkdown, requestedTitle, slug);
-
-    // (a) Strip any References/See-also the LLM produced; those are metadata,
-    //     not body, and are owned by sidecar tables.
-    const sanitizedBody = stripTopLevelSections(bodyMarkdown, [
-      "References",
-      "See also",
-    ]);
-    let normalizedBodyMarkdown = rewriteArticleTitleHeading(
-      sanitizedBody,
-      canonicalTitle,
-    );
-
-    // (b) Build the canonical reference list from validated sources.
-    // Use findBodyReferencedArticles (not findExistingArticleLinkReferences) so
-    // that ref:slug links already resolved from a preliminary ref list are
-    // included as user additions. Without this, body arrives with ref:slug from
-    // resolveRefLinks but those slugs never enter buildReferenceList and the
-    // sidecar ends up missing them, triggering the stale-refs notice.
-    const existingBodyReferences = scrapeExistingBodyLinks
-      ? findBodyReferencedArticles(
-          db,
-          normalizedBodyMarkdown,
-          canonicalSlug,
-        )
-      : [];
-    const explicitUserAdditions = slugsToUserAdditions(
-      userAdditionSlugs.map((s) => slugify(s)).filter(Boolean),
-      pinnedSlugsSet,
-    );
-    const userAdditionsBySlug = new Map<string, ReferenceListEntry>();
-    for (const ref of [...explicitUserAdditions, ...existingBodyReferences]) {
-      userAdditionsBySlug.set(ref.slug, ref);
-    }
-    const userAdditions = Array.from(userAdditionsBySlug.values());
-
-    const referenceList = buildReferenceList(
-      db,
-      {
-        articleSlug: canonicalSlug,
-        ragSources: selectedReferenceSet
-          ? retrieved.sourceArticles.filter((source) => selectedReferenceSet.has(source.slug))
-          : retrieved.sourceArticles,
-        priorReferences: selectedReferenceSet
-          ? (loadPriorReferenceList(db, canonicalSlug) ?? []).filter((ref) => selectedReferenceSet.has(ref.slug) || ref.pinned)
-          : loadPriorReferenceList(db, canonicalSlug),
-        userAdditions,
-        blacklistSlugs,
-        revisionId: "current",
-        config: runtime.app.rag,
-      },
-      logger,
-    );
-
-    normalizedBodyMarkdown = resolveRefLinks(
-      normalizedBodyMarkdown,
-      referenceList,
-    );
-    const linkedBodyMarkdown = linkMentionedReferencesInBody(
-      normalizedBodyMarkdown,
-      referenceList,
-    );
-    if (linkedBodyMarkdown !== normalizedBodyMarkdown) {
-      logger.debug("save.article_immediate.linked_reference_mentions", {
-        slug: canonicalSlug,
-      });
-      normalizedBodyMarkdown = linkedBodyMarkdown;
-    }
-    if (scrapeExistingBodyLinks) {
-      normalizedBodyMarkdown = convertExistingArticleLinksToRefs(
-        db,
-        normalizedBodyMarkdown,
-        canonicalSlug,
-      );
-    }
-    const finalParsed = normalizeMarkdownLinks(normalizedBodyMarkdown, "article");
-    if (finalParsed.changed) {
-      logger.info("text.pipeline.final_cleanup", {
-        slug: canonicalSlug,
-        links: finalParsed.stats.total,
-        halu: finalParsed.stats.halu,
-        ref: finalParsed.stats.ref,
-        bare_ref: finalParsed.stats.bareRef,
-        bare_halu: finalParsed.stats.bareHalu,
-        loose_ref: finalParsed.stats.looseRef,
-        loose_halu: finalParsed.stats.looseHalu,
-        rewritten: finalParsed.stats.rewritten,
-        stripped: finalParsed.stats.stripped,
-        diagnostics: finalParsed.stats.diagnostics,
-      });
-      normalizedBodyMarkdown = finalParsed.markdown;
-    }
-
-    const markdown = stripSelfLinks(normalizedBodyMarkdown.trim(), canonicalSlug);
-
-    const article = {
-      slug: canonicalSlug,
-      canonicalSlug,
-      title: canonicalTitle,
-      displayTitle,
-      markdown,
-      html: "",
-      summaryMarkdown: summaryMarkdownFromArticle(markdown),
-      plain_text: markdownToPlainText(markdown),
-      generated_at: Date.now(),
-    };
-    const links = extractAllBodyLinks(markdown, canonicalSlug);
-    article.html = rewriteArticleHtml(renderMarkdown(markdown), links);
-
-    logger.debug("save.article_immediate.starting", { slug: canonicalSlug });
-    saveArticle(
-      db,
-      article,
-      links,
-      Array.from(new Set([slug, canonicalSlug, article.canonicalSlug])),
-      revision,
-    );
-    if (!revision.skipRevision) {
-      logger.info("revision.saved", {
-        slug: canonicalSlug,
-        operation: revision.operation ?? "update",
-        ...(revision.instructions ? { instructions: revision.instructions } : {}),
-      });
-    }
-    logger.debug("save.article_immediate.saved_article", { slug: canonicalSlug });
-
-    // (d) Persist the reference list using the canonical ReferenceList shape.
-    saveArticleReferences(db, canonicalSlug, article.generated_at, referenceList);
-    logger.info("text.pipeline.done", {
-      slug: canonicalSlug,
-      clean_chars: markdown.length,
-      links: links.length,
-      references: referenceList.length,
-      changed: parsedInput.changed || markdown !== bodyMarkdown,
-    });
-    logger.debug("save.article_immediate.saved_references", {
-      slug: canonicalSlug,
-      reference_count: referenceList.length,
-      references: JSON.stringify(
-        referenceList.map((r) => ({
-          slug: r.slug,
-          title: r.title,
-          kind: r.kind,
-          source: r.source,
-          pinned: r.pinned,
-          revision: r.revisionId,
-        })),
-      ),
-    });
-
-    return {
-      article,
-      links,
-      normalizedTitle: canonicalTitle,
-      normalizedBodyMarkdown,
-    };
-  }
-
   function buildPipelineDeps(overrides: Partial<PipelineDeps> = {}): PipelineDeps {
     return {
       db,
@@ -1662,14 +1381,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         });
         try {
           await reloadRuntime();
-          const payload = await ensureHomepageCache(
-            db,
-            llm,
-            lightLlm,
-            runtime.prompts,
-            HOMEPAGE_TTL_MS,
-            logger,
-          );
+          const payload = await ensureHomepageCache(buildPipelineDeps());
           logger.info("homepage.refresh_done", {
             facts: payload.didYouKnow.length,
             featured: payload.featured?.slug ?? "",
@@ -2031,8 +1743,15 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!current.some((r) => r.slug === refSlug)) {
       return c.json({ error: "reference not found in current list" }, 404);
     }
+    const latestSavedAt = db
+      .prepare(
+        `SELECT COALESCE(MAX(saved_at), 0) AS savedAt
+         FROM article_references
+         WHERE article_slug = ?`,
+      )
+      .get(article.slug) as { savedAt: number };
     const updated = current.map((r) => (r.slug === refSlug ? { ...r, pinned } : r));
-    saveArticleReferences(db, article.slug, Date.now(), updated);
+    saveArticleReferences(db, article.slug, Math.max(Date.now(), latestSavedAt.savedAt + 1), updated);
     logger.info("references.pin_toggled", { slug: article.slug, ref_slug: refSlug, pinned });
     return c.json({ ok: true });
   });
@@ -2058,29 +1777,30 @@ export async function createApp(options: CreateAppOptions = {}) {
     const userSlugs = (body.referenceSlugs ?? []).map((s) => slugify(s)).filter(Boolean);
     const pinnedSet = new Set((body.pinnedSlugs ?? []).map((s) => slugify(s)).filter(Boolean));
 
-    // Empty retrieval — no RAG/LLM, just whatever the user provided.
-    const emptyRetrieved: Awaited<ReturnType<typeof retrieveContext>> = {
-      context: "",
-      sourceArticles: [],
-      relatedTitles: [],
-    };
-
     try {
-      const { article: updatedArticle } = await saveArticleImmediately(
-        article.slug,
-        article.title,
-        rawMarkdown,
-        emptyRetrieved,
-        { operation: "raw-edit" },
-        {
-          userAdditionSlugs: userSlugs,
-          pinnedSlugsSet: pinnedSet,
-          scrapeExistingBodyLinks: true,
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const result = await runWorkflow(rawSaveArticleWorkflow, {
+        input: {
+          requestId: randomUUID(),
+          workflow: "article.raw_save",
+          slug: article.slug,
+          requestedTitle: article.title,
+          rawMarkdown,
+          userReferenceSlugs: userSlugs,
+          pinnedSlugs: [...pinnedSet],
+          instructions: "raw-edit",
         },
-      );
-      invalidateArticleHtml(updatedArticle.slug);
-      logger.info("raw_edit.saved", { slug: updatedArticle.slug });
-      const response = buildArticleResponseFor(updatedArticle.slug);
+        deps: buildPipelineDeps(),
+        recorder,
+        logger,
+      });
+      if (result.status === "error") {
+        throw result.error ?? new Error("raw save workflow failed");
+      }
+      const savedSlug = result.state.canonicalSlug ?? article.slug;
+      invalidateArticleHtml(savedSlug);
+      logger.info("raw_edit.saved", { slug: savedSlug });
+      const response = buildArticleResponseFor(savedSlug);
       if (!response) return c.json({ error: "article not found after save" }, 500);
       return c.json({ article: response });
     } catch (err) {
@@ -2251,28 +1971,37 @@ export async function createApp(options: CreateAppOptions = {}) {
         article.markdown.slice(0, wrapRange.start) + refLink + article.markdown.slice(wrapRange.end),
         article.slug,
       );
-      const links = extractAllBodyLinks(nextMarkdown, article.slug);
-      const nextArticle = {
-        ...article,
-        markdown: nextMarkdown,
-        html: rewriteArticleHtml(renderMarkdown(nextMarkdown), links),
-        summaryMarkdown: article.summaryMarkdown || summaryMarkdownFromArticle(nextMarkdown),
-        plain_text: markdownToPlainText(nextMarkdown),
-        generated_at: Date.now(),
-      };
-      saveArticle(db, nextArticle, links, Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])), {
-        operation: "add-link",
-        instructions: `Linked selected text to existing article: ${existingArticle.slug}`,
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const result = await runWorkflow(addLinkArticleWorkflow, {
+        input: {
+          requestId: randomUUID(),
+          workflow: "article.add_link",
+          slug: article.slug,
+          requestedTitle: article.title,
+          rawMarkdown: nextMarkdown,
+          instructions: `Linked selected text to existing article: ${existingArticle.slug}`,
+          userReferenceSlugs: [existingArticle.slug],
+        },
+        deps: buildPipelineDeps(),
+        recorder,
+        logger,
       });
-      afterArticleSaved(nextArticle.slug, nextArticle.title, nextMarkdown, nextArticle.generated_at);
+      if (result.status === "error") {
+        throw result.error ?? new Error("add-link workflow failed");
+      }
+      const savedSlug = result.state.canonicalSlug ?? article.slug;
+      const saved = getArticleByLookup(db, savedSlug);
+      if (saved) {
+        afterArticleSaved(saved.slug, saved.title, saved.markdown, saved.generated_at);
+      }
       logger.info("add_link.resolved_existing", {
         slug: article.slug,
         target_slug: existingArticle.slug,
         visible_label: wrapRange.visibleLabel,
       });
-      const response = buildArticleResponseFor(nextArticle.slug);
+      const response = buildArticleResponseFor(savedSlug);
       if (!response) return c.json({ error: "failed to hydrate response" }, 500);
-      return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(nextArticle) }));
+      return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(response) }));
     }
 
     // ── Slow path: ask the LLM to suggest a link target ───────────────────────
@@ -2334,53 +2063,36 @@ export async function createApp(options: CreateAppOptions = {}) {
       article.slug,
     );
 
-    const nextArticle = {
-      ...article,
-      markdown: nextMarkdown,
-      html: "",
-      summaryMarkdown:
-        article.summaryMarkdown || summaryMarkdownFromArticle(nextMarkdown),
-      plain_text: markdownToPlainText(nextMarkdown),
-      generated_at: Date.now(),
-    };
-    const links = extractAllBodyLinks(nextMarkdown, nextArticle.slug);
-    nextArticle.html = rewriteArticleHtml(renderMarkdown(nextMarkdown), links);
-    saveArticle(
-      db,
-      nextArticle,
-      links,
-      Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])),
-      {
-        operation: "add-link",
+    const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+    const result = await runWorkflow(addLinkArticleWorkflow, {
+      input: {
+        requestId: randomUUID(),
+        workflow: "article.add_link",
+        slug: article.slug,
+        requestedTitle: article.title,
+        rawMarkdown: nextMarkdown,
         instructions: `Linked selected text: ${selectedText}`,
       },
-    );
-    // add-link only annotates existing text — content doesn't change so
-    // summary doesn't need re-generating; only re-index RAG chunks.
-    trackGeneration(
-      indexArticleChunks(
-        db,
-        llm,
-        nextArticle.slug,
-        nextMarkdown,
-        runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
-        runtime.app.rag.chunk_size,
-        logger,
-      ).catch((error) => {
-        logger.warn("article.reindex_failed", {
-          slug: nextArticle.slug,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }),
-    );
+      deps: buildPipelineDeps(),
+      recorder,
+      logger,
+    });
+    if (result.status === "error") {
+      throw result.error ?? new Error("add-link workflow failed");
+    }
+    const savedSlug = result.state.canonicalSlug ?? article.slug;
+    const saved = getArticleByLookup(db, savedSlug);
+    if (saved) {
+      afterArticleSaved(saved.slug, saved.title, saved.markdown, saved.generated_at);
+    }
 
-    invalidateArticleHtml(nextArticle.slug);
-    const response = buildArticleResponseFor(nextArticle.slug);
+    invalidateArticleHtml(savedSlug);
+    const response = buildArticleResponseFor(savedSlug);
     if (!response) return c.json({ error: "failed to hydrate response" }, 500);
     return c.json(
       buildPageResponse(response, {
         cached: true,
-        canonicalPath: canonicalPathForArticle(nextArticle),
+        canonicalPath: canonicalPathForArticle(response),
       }),
     );
   });

@@ -496,7 +496,7 @@ export function formatReferencesForPrompt(refs: ReferenceList): string {
  * Content (summary/chunk) is included for refs meeting the score threshold
  * so the model has factual grounding. Pinned refs always include content.
  */
-export function formatReferencesForPromptJson(refs: ReferenceList, contentMinScore = 0.0, contentTopK = 0): string {
+export function formatReferencesForPromptText(refs: ReferenceList, contentMinScore = 0.0, contentTopK = 0): string {
   if (refs.length === 0) return "(none)";
 
   const pinnedRefs = refs.filter((r) => r.pinned);
@@ -530,6 +530,8 @@ export function formatReferencesForPromptJson(refs: ReferenceList, contentMinSco
   }
   return parts.join("\n\n");
 }
+
+export const formatReferencesForPromptJson = formatReferencesForPromptText;
 
 /**
  * Resolve `ref:N` link shorthand in article body markdown into durable

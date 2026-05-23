@@ -21,7 +21,7 @@ import {
 } from "../../db";
 import {
   formatReferencesForPrompt,
-  formatReferencesForPromptJson,
+  formatReferencesForPromptText,
 } from "../../referenceList";
 import { formatIncomingHintsForPrompt } from "../../linkHints";
 import {
@@ -93,7 +93,7 @@ export const renderRefreshPromptNode = defineNode({
       link_hints: linkHints,
       rewrite_mode: subtleMode,
       references_list: formatReferencesForPrompt(refs),
-      references_json: formatReferencesForPromptJson(
+      references_prompt_text: formatReferencesForPromptText(
         refs,
         deps.runtime.app.rag.prompt_ref_content_min_score,
         deps.runtime.app.rag.prompt_ref_content_top_k,
@@ -159,6 +159,20 @@ export const callRefreshModelNode = defineNode({
         contentHash: hashValue(text),
       },
     };
+  },
+});
+
+// ─── TRANSFORM: pass stored body through when the article is protected ───────
+
+export const useStoredBodyForProtectedRefreshNode = defineNode({
+  name: "transform.use_stored_body_for_protected_refresh",
+  kind: "transform",
+  description: "Carry the existing article body forward when protected refresh skips the LLM.",
+  reads: ["loadedArticle", "isProtected"] as const,
+  writes: ["rawArticleBody"] as const,
+  run({ loadedArticle, isProtected }) {
+    if (!isProtected) return {};
+    return { rawArticleBody: loadedArticle?.body ?? "" };
   },
 });
 

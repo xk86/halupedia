@@ -419,6 +419,12 @@ export const updateArticleInPlaceNode = defineNode({
         expected: postProcessExpectedGeneratedAt,
         actual: current.generated_at,
       });
+      deps.logger.info("page.post_process_skipped", {
+        slug,
+        reason: "stale",
+        expected: postProcessExpectedGeneratedAt,
+        actual: current.generated_at,
+      });
       return { persistedAt: undefined };
     }
 

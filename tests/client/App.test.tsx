@@ -77,20 +77,25 @@ describe("App", () => {
   });
 
   it("random nav asks the server for a random page and redirects to it", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/homepage") {
+        return new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
           headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ path: "/wiki/Ledger_tariff" }), {
+        });
+      }
+      if (url === "/api/top-articles?limit=10") {
+        return new Response(JSON.stringify({ articles: [] }), {
           headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(pagePayload({
+        });
+      }
+      if (url === "/api/random-page") {
+        return new Response(JSON.stringify({ path: "/wiki/Ledger_tariff" }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/page/Ledger_tariff") {
+        return new Response(JSON.stringify(pagePayload({
           article: {
             ...pagePayload().article,
             slug: "ledger-tariff",
@@ -102,8 +107,10 @@ describe("App", () => {
           },
         })), {
           headers: { "content-type": "application/json" },
-        })
-      );
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
@@ -114,8 +121,8 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Ledger Tariff" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/wiki/Ledger_tariff");
     expect(window.location.search).toBe("");
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/random-page");
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/page/Ledger_tariff");
+    expect(fetchMock).toHaveBeenCalledWith("/api/random-page");
+    expect(fetchMock).toHaveBeenCalledWith("/api/page/Ledger_tariff");
   });
 
   it("admin can regenerate an article summary from a pasted wiki link", async () => {
@@ -139,6 +146,16 @@ describe("App", () => {
       }
       if (url === "/api/admin/generation-queue") {
         return new Response(JSON.stringify({ items: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/admin/pipeline/workflows") {
+        return new Response(JSON.stringify({ workflows: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/admin/pipeline/runs?limit=12") {
+        return new Response(JSON.stringify({ traceEnabled: true, runs: [] }), {
           headers: { "content-type": "application/json" },
         });
       }
@@ -218,6 +235,42 @@ describe("App", () => {
                   seq: 7,
                   startedAt: 1715000000000,
                   waiting: 3,
+                },
+              ],
+            }), {
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        }
+        if (url === "/api/admin/pipeline/workflows") {
+          return Promise.resolve(
+            new Response(JSON.stringify({
+              workflows: [
+                {
+                  name: "article.generate",
+                  summary: "article.generate (14 nodes, read=2)",
+                  nodes: [{ name: "read.article", kind: "read", conditional: false }],
+                },
+              ],
+            }), {
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        }
+        if (url === "/api/admin/pipeline/runs?limit=12") {
+          return Promise.resolve(
+            new Response(JSON.stringify({
+              traceEnabled: true,
+              runs: [
+                {
+                  run_id: "run-1",
+                  workflow: "article.generate",
+                  slug: "queued-article",
+                  started_at: 1715000000000,
+                  duration_ms: 12,
+                  status: "ok",
+                  nodes_executed: 14,
+                  error_message: null,
                 },
               ],
             }), {
@@ -314,14 +367,22 @@ describe("App", () => {
     expect(document.querySelector(".homepage-summary .math-inline")).not.toBeNull();
     expect(await screen.findByRole("link", { name: "Linked Article" })).toHaveAttribute("href", "/wiki/Linked_Article");
     expect(screen.getByText(/is filed under ceremonial ballast accounting\./)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/homepage");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/homepage");
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage")).toHaveLength(1);
   });
 
   it("refetches homepage when the cached payload expires", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
+    let homepageCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/top-articles?limit=10") {
+        return new Response(JSON.stringify({ articles: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      homepageCalls += 1;
+      if (homepageCalls === 1) {
+        return (
         new Response(JSON.stringify({
           featured: null,
           didYouKnow: [],
@@ -330,9 +391,9 @@ describe("App", () => {
         }), {
           headers: { "content-type": "application/json" },
         })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({
+        );
+      }
+      return new Response(JSON.stringify({
           featured: {
             slug: "refreshed-page",
             title: "Refreshed Page",
@@ -343,17 +404,17 @@ describe("App", () => {
           expiresAt: Date.now() + 3600010,
         }), {
           headers: { "content-type": "application/json" },
-        })
-      );
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
     render(<App />);
 
     expect(await screen.findByText("No articles yet. Search for a topic to generate your first entry.")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage")).toHaveLength(1);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage")).toHaveLength(2));
     expect(await screen.findByRole("link", { name: "Refreshed Page" })).toBeInTheDocument();
   });
 
@@ -378,15 +439,20 @@ describe("App", () => {
   });
 
   it("header Go accepts a bare wiki path without nesting wiki twice", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/homepage") {
+        return new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
           headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(pagePayload({
+        });
+      }
+      if (url === "/api/top-articles?limit=10") {
+        return new Response(JSON.stringify({ articles: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/page/Archive_scouts") {
+        return new Response(JSON.stringify(pagePayload({
           article: {
             ...pagePayload().article,
             slug: "archive-scouts",
@@ -398,8 +464,10 @@ describe("App", () => {
           },
         })), {
           headers: { "content-type": "application/json" },
-        })
-      );
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
@@ -411,19 +479,24 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Archive scouts" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/wiki/Archive_scouts");
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/page/Archive_scouts");
+    expect(fetchMock).toHaveBeenCalledWith("/api/page/Archive_scouts");
   });
 
   it("header Go accepts a full URL containing a wiki path", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/homepage") {
+        return new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
           headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(pagePayload({
+        });
+      }
+      if (url === "/api/top-articles?limit=10") {
+        return new Response(JSON.stringify({ articles: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/page/Ledger_tariff") {
+        return new Response(JSON.stringify(pagePayload({
           article: {
             ...pagePayload().article,
             slug: "ledger-tariff",
@@ -435,8 +508,10 @@ describe("App", () => {
           },
         })), {
           headers: { "content-type": "application/json" },
-        })
-      );
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
@@ -448,7 +523,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Ledger tariff" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/wiki/Ledger_tariff");
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/page/Ledger_tariff");
+    expect(fetchMock).toHaveBeenCalledWith("/api/page/Ledger_tariff");
   });
 
   it("copies the canonical slug from the article toolbar", async () => {

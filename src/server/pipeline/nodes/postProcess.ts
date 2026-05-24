@@ -27,6 +27,7 @@ import {
   convertExistingArticleLinksToRefs,
   extractRefLinksAsInternalLinks,
   findBodyReferencedArticles,
+  linkMentionedReferencesInBody,
   loadPriorReferenceList,
   resolveRefLinks,
 } from "../../referenceList";
@@ -266,6 +267,7 @@ export const resolveLinksPostProcessNode = defineNode({
     let body = normalizeMarkdownLinks(finalArticleBody ?? "", "article").markdown;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
     body = resolveRefLinks(body, refs);
+    body = linkMentionedReferencesInBody(body, refs);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
     return { finalArticleBody: body };

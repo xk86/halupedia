@@ -52,10 +52,6 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Output format — use this marker, no other text outside it:
-
----body
-
-After ---body: the full refreshed Markdown article, starting with # heading.
+Output the full refreshed Markdown article.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics."""

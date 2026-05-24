@@ -1,15 +1,10 @@
 /**
- * Article frame parsing — extracts structured sections from raw LLM output.
+ * Article frame parsing — extracts body markdown from raw LLM output.
  *
- * The article prompt instructs the model to delimit its output with markers:
- *
- *   ---body          (or ---halu-body, ---halu_body, ## Body, etc.)
- *   <article markdown>
- *   ---used-refs
- *   ["slug-a", "slug-b"]
- *
- * This module parses that framed output into typed sections without calling
- * any LLM or touching the database — purely deterministic.
+ * Prompts no longer instruct the model to use frame markers. The model is
+ * expected to output Markdown directly. This module handles that case as well
+ * as legacy `---body` / `---used-refs` markers that older model responses or
+ * cached prompts may still emit.
  *
  * Extracted from index.ts so that both route handlers and pipeline nodes can
  * import it without creating a circular dependency through the server entry

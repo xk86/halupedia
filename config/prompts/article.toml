@@ -31,10 +31,6 @@ Suggested related existing topics:
 
 {{related_titles}}
 
-Output format — use this marker, no other text outside it:
-
----body
-
-After ---body: the full article Markdown, starting with # heading.
+Output the full article Markdown.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics not in the reference list."""

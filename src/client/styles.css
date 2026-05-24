@@ -3214,11 +3214,54 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--ink-fade);
 }
 
-.admin-pipeline-kinds {
+.admin-pipeline-flow {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
   gap: 0.35rem;
   margin-top: 0.55rem;
+}
+
+.admin-pipeline-segment {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.admin-pipeline-segment--arrow::after {
+  content: "→";
+  margin-left: 0.15rem;
+  color: var(--ink-soft, #888);
+  font-size: 0.72rem;
+  align-self: center;
+}
+
+.admin-pipeline-branch {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-left: 2px solid var(--rule);
+  padding-left: 0.5rem;
+  align-self: stretch;
+}
+
+.admin-pipeline-branch-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.admin-pipeline-branch-label {
+  font: 0.6rem var(--mono);
+  color: var(--ink-soft, #888);
+  white-space: nowrap;
+  min-width: 5rem;
+  text-align: right;
+  padding-right: 0.3rem;
+  border-right: 1px solid var(--rule);
+  margin-right: 0.1rem;
 }
 
 .admin-pipeline-node {

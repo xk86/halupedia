@@ -27,6 +27,8 @@ export interface DescribedNode {
   index: number;
   /** True if this node has a `when` predicate (may be skipped at runtime). */
   conditional: boolean;
+  /** Name of the `when` predicate function, e.g. "skipIfProtected". */
+  whenLabel?: string;
 }
 
 export interface DescribedEdge {
@@ -56,6 +58,7 @@ export function describeWorkflow<Deps>(
     writes: edge.node.writes,
     index,
     conditional: Boolean(edge.when),
+    whenLabel: edge.when?.name || undefined,
   }));
 
   const controlEdges: DescribedEdge[] = [];

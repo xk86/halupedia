@@ -5,6 +5,33 @@ interface WorkflowNode {
   kind: string;
   description?: string;
   conditional: boolean;
+  whenLabel?: string;
+}
+
+type LinearSegment = { type: "linear"; nodes: WorkflowNode[] };
+type BranchSegment = { type: "branch"; branches: Map<string, WorkflowNode[]> };
+type Segment = LinearSegment | BranchSegment;
+
+function segmentNodes(nodes: WorkflowNode[]): Segment[] {
+  const segments: Segment[] = [];
+  let i = 0;
+  while (i < nodes.length) {
+    if (!nodes[i].conditional) {
+      const run: WorkflowNode[] = [];
+      while (i < nodes.length && !nodes[i].conditional) run.push(nodes[i++]);
+      segments.push({ type: "linear", nodes: run });
+    } else {
+      const branches = new Map<string, WorkflowNode[]>();
+      while (i < nodes.length && nodes[i].conditional) {
+        const node = nodes[i++];
+        const key = node.whenLabel ?? "conditional";
+        if (!branches.has(key)) branches.set(key, []);
+        branches.get(key)!.push(node);
+      }
+      segments.push({ type: "branch", branches });
+    }
+  }
+  return segments;
 }
 
 interface PipelineWorkflowSummary {
@@ -51,16 +78,44 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
           <div key={workflow.name} className="admin-pipeline-workflow">
             <div className="admin-pipeline-name">{workflow.name}</div>
             <div className="admin-pipeline-summary">{workflow.summary}</div>
-            <div className="admin-pipeline-kinds">
-              {workflow.nodes.map((node, i) => (
-                <span
-                  key={`${workflow.name}-${node.name}`}
-                  className={`admin-pipeline-node admin-pipeline-node--${node.kind}${node.conditional ? " admin-pipeline-node--conditional" : ""}${i < workflow.nodes.length - 1 ? " admin-pipeline-node--arrow" : ""}`}
-                  title={node.description ?? node.name}
-                >
-                  {node.name}{node.conditional ? "?" : ""}
-                </span>
-              ))}
+            <div className="admin-pipeline-flow">
+              {segmentNodes(workflow.nodes).map((seg, si, all) => {
+                const isLast = si === all.length - 1;
+                if (seg.type === "linear") {
+                  return (
+                    <span key={si} className={`admin-pipeline-segment${isLast ? "" : " admin-pipeline-segment--arrow"}`}>
+                      {seg.nodes.map((node, ni) => (
+                        <span
+                          key={node.name}
+                          className={`admin-pipeline-node admin-pipeline-node--${node.kind}${ni < seg.nodes.length - 1 ? " admin-pipeline-node--arrow" : ""}`}
+                          title={node.description ?? node.name}
+                        >
+                          {node.name}
+                        </span>
+                      ))}
+                    </span>
+                  );
+                }
+                const branchEntries = [...seg.branches.entries()];
+                return (
+                  <span key={si} className={`admin-pipeline-branch${isLast ? "" : " admin-pipeline-segment--arrow"}`}>
+                    {branchEntries.map(([label, nodes]) => (
+                      <span key={label} className="admin-pipeline-branch-row">
+                        <span className="admin-pipeline-branch-label" title={label}>{label}</span>
+                        {nodes.map((node, ni) => (
+                          <span
+                            key={node.name}
+                            className={`admin-pipeline-node admin-pipeline-node--${node.kind}${ni < nodes.length - 1 ? " admin-pipeline-node--arrow" : ""}`}
+                            title={node.description ?? node.name}
+                          >
+                            {node.name}
+                          </span>
+                        ))}
+                      </span>
+                    ))}
+                  </span>
+                );
+              })}
             </div>
           </div>
         ))}

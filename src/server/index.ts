@@ -158,11 +158,7 @@ import {
   rawSaveArticleWorkflow,
 } from "./pipeline/workflows/deterministicArticleSave";
 import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
-import {
-  previewMarkdownWorkflow,
-  findReferencesWorkflow,
-  regenerateSummaryWorkflow,
-} from "./pipeline/workflows/utilities";
+import { regenerateSummaryWorkflow } from "./pipeline/workflows/utilities";
 import type { PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
 
@@ -1828,23 +1824,26 @@ export async function createApp(options: CreateAppOptions = {}) {
     const rawMarkdown = (body.markdown ?? "").trim();
     if (!rawMarkdown) return c.json({ html: "", diagnostics: [] });
 
-    try {
-      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-      const result = await runWorkflow(previewMarkdownWorkflow, {
-        input: { requestId: randomUUID(), workflow: "preview.markdown", slug: article.slug, markdown: rawMarkdown },
-        deps: buildPipelineDeps(),
-        recorder,
-        logger,
-      });
-
-      if (result.status === "error") throw result.error ?? new Error("preview failed");
-      return c.json({ html: result.state.html, diagnostics: result.state.diagnostics });
-    } catch (error) {
-      return c.json(
-        { error: error instanceof Error ? error.message : String(error) },
-        422,
-      );
+    const normalized = normalizeMarkdownLinks(rawMarkdown, "article");
+    const brokenLinks: Array<{ slug: string; reason: string }> = [];
+    const checkedSlugs = new Set<string>();
+    for (const link of normalized.links) {
+      if (link.slug && link.slug !== lookupSlug && !checkedSlugs.has(link.slug)) {
+        checkedSlugs.add(link.slug);
+        const exists = getArticleByLookup(db, link.slug);
+        if (!exists) {
+          brokenLinks.push({ slug: link.slug, reason: `no article with slug "${link.slug}"` });
+        }
+      }
     }
+    const html = renderMarkdown(normalized.markdown);
+    const diagnostics = [
+      ...normalized.diagnostics
+        .filter((d) => d.severity === "warn" || d.severity === "error")
+        .map((d) => ({ severity: d.severity, message: d.message })),
+      ...brokenLinks.map((b) => ({ severity: "warn" as const, message: `Broken link to "${b.slug}": ${b.reason}` })),
+    ];
+    return c.json({ html, diagnostics });
   });
 
   /**
@@ -1865,29 +1864,38 @@ export async function createApp(options: CreateAppOptions = {}) {
       ragQuery?: string;
     };
 
-    try {
-      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-      const result = await runWorkflow(findReferencesWorkflow, {
-        input: {
-          requestId: randomUUID(),
-          workflow: "find.references",
-          slug: article.slug,
-          fuzzyTitles: body.fuzzyTitles,
-          ragQuery: body.ragQuery,
-        },
-        deps: buildPipelineDeps(),
-        recorder,
-        logger,
-      });
+    const seen = new Set<string>();
+    const articles: ArticleReference[] = [];
+    const addArticle = (a: { slug: string; title: string; summaryMarkdown?: string }) => {
+      const s = slugify(a.slug);
+      if (!s || s === article.slug || seen.has(s)) return;
+      seen.add(s);
+      articles.push({ slug: s, title: a.title, summaryMarkdown: a.summaryMarkdown ?? "" });
+    };
 
-      if (result.status === "error") throw result.error ?? new Error("find-references failed");
-      return c.json({ articles: result.state.articles });
-    } catch (error) {
-      return c.json(
-        { error: error instanceof Error ? error.message : String(error) },
-        422,
+    if (body.fuzzyTitles?.trim()) {
+      const { articles: matched } = findReferencedArticlesInEditText(db, body.fuzzyTitles, article.slug, 10);
+      for (const a of matched) addArticle({ ...a, summaryMarkdown: a.summaryMarkdown ?? "" });
+
+      const fuzzy = findFuzzyTitleMatchesInEditText(
+        db, body.fuzzyTitles, article.slug, 10, matched.map((a) => a.slug),
       );
+      for (const a of fuzzy) addArticle({ ...a, summaryMarkdown: a.summaryMarkdown ?? "" });
     }
+
+    if (body.ragQuery?.trim()) {
+      const retrieved = await retrieveContext(
+        db, llm, article.slug, [body.ragQuery.trim()],
+        runtime.app.rag.enabled, runtime.app.rag.mode, runtime.app.rag.max_results,
+        runtime.app.rag.min_score, runtime.llm.embeddings.enabled, logger,
+        body.ragQuery.trim(),
+      );
+      for (const src of retrieved.sourceArticles) {
+        addArticle({ slug: src.slug, title: src.title, summaryMarkdown: src.content?.slice(0, 360) ?? "" });
+      }
+    }
+
+    return c.json({ articles });
   });
 
   app.post("/api/article/:slug/add-link", async (c) => {

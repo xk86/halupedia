@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toWikiSegment } from "./wikiPath";
+import { RuntimePane } from "./admin/panes/RuntimePane";
+import { GenerationQueuePane } from "./admin/panes/GenerationQueuePane";
+import { PipelinesPane } from "./admin/panes/PipelinesPane";
+import { PromptModelsPane } from "./admin/panes/PromptModelsPane";
+import { PromptEditorPane } from "./admin/panes/PromptEditorPane";
+import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
+import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
+import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
 
 interface AdminOverview {
   articleCount: number;
@@ -371,312 +378,83 @@ export function Admin({ onNavigate }: Props) {
         <span className="all-entries-count">Model: {overview.model}</span>
       </div>
 
-      <div className="sb-panel" style={{ borderTop: "none", paddingTop: 0 }}>
-        <h3 className="sb-heading">Runtime</h3>
-        <p className="sb-copy">Database: {overview.databasePath}</p>
-        <p className="sb-copy">Prompts: {overview.promptConfigPath}</p>
-        <p className="sb-copy">RAG mode: {overview.ragMode}</p>
+      <div className="admin-grid">
+        <RuntimePane
+          databasePath={overview.databasePath}
+          promptConfigPath={overview.promptConfigPath}
+          ragMode={overview.ragMode}
+        />
+
+        <GenerationQueuePane
+          items={generationQueue}
+          onNavigate={onNavigate}
+        />
+
+        <EntrySurgeryPane
+          deleteSlug={deleteSlug}
+          onDeleteSlugChange={setDeleteSlug}
+          onDeleteArticle={deleteArticle}
+          deleting={deleting}
+          summarySlug={summarySlug}
+          onSummarySlugChange={setSummarySlug}
+          onRegenerateSummary={regenerateSummary}
+          regeneratingSummary={regeneratingSummary}
+          summaryResult={summaryResult}
+        />
+
+        <RecentArticlesPane
+          articles={overview.latestArticles}
+          onNavigate={onNavigate}
+        />
+
+        <PipelinesPane
+          workflows={pipelineWorkflows}
+          runs={pipelineRuns}
+          traceEnabled={pipelineTraceEnabled}
+          error={pipelineError}
+          onRefresh={loadPipelineStatus}
+        />
+
+        <PromptModelsPane
+          associations={overview.promptModelAssociations ?? []}
+          savingKey={savingPromptKey}
+          onUpdate={updatePromptModel}
+        />
+
+        <PromptEditorPane />
+
+        <SlugAliasPane
+          aliasSearch={aliasSearch}
+          onAliasSearchChange={setAliasSearch}
+          aliasResults={aliasResults}
+          aliasSearching={aliasSearching}
+          aliasSearchTimer={aliasSearchTimer}
+          onDoAliasSearch={doAliasSearch}
+          newAliasSlug={newAliasSlug}
+          onNewAliasSlugChange={setNewAliasSlug}
+          newAliasTarget={newAliasTarget}
+          onNewAliasTargetChange={setNewAliasTarget}
+          onAddAlias={addAlias}
+          onRemoveAlias={removeAlias}
+          aliasMsg={aliasMsg}
+          redirectSource={redirectSource}
+          onRedirectSourceChange={setRedirectSource}
+          redirectTarget={redirectTarget}
+          onRedirectTargetChange={setRedirectTarget}
+          redirectConfirmData={redirectConfirmData}
+          onCreateRedirect={createRedirect}
+          onClearRedirectConfirm={() => setRedirectConfirmData(null)}
+          redirectBusy={redirectBusy}
+          redirectMsg={redirectMsg}
+          archived={archived}
+          archivedLoading={archivedLoading}
+          onLoadArchived={loadArchived}
+          restoreConfirm={restoreConfirm}
+          onRestoreArchived={restoreArchived}
+          onClearRestoreConfirm={() => setRestoreConfirm(null)}
+          restoreMsg={restoreMsg}
+        />
       </div>
-
-      <div className="sb-panel">
-        <div className="admin-section-title-row">
-          <h3 className="sb-heading">Generation Queue</h3>
-          <span className="all-entries-count">{generationQueue.length} active</span>
-        </div>
-        {generationQueue.length ? (
-          <ul className="admin-queue-list">
-            {generationQueue.map((item) => (
-              <li key={`${item.slug}-${item.seq}`} className="admin-queue-item">
-                <a
-                  href={`/wiki/${toWikiSegment(item.title)}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onNavigate(toWikiSegment(item.title));
-                  }}
-                >
-                  {item.title}
-                </a>
-                <span>{item.waiting} waiting</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="sb-copy">No active article generations.</p>
-        )}
-      </div>
-
-      <div className="sb-panel">
-        <div className="admin-section-title-row">
-          <h3 className="sb-heading">Pipelines</h3>
-          <button className="admin-btn" type="button" onClick={loadPipelineStatus}>
-            Refresh
-          </button>
-        </div>
-        {pipelineError ? <p className="search-error">{pipelineError}</p> : null}
-        <div className="admin-pipeline-grid">
-          {pipelineWorkflows.map((workflow) => (
-            <div key={workflow.name} className="admin-pipeline-workflow">
-              <div className="admin-pipeline-name">{workflow.name}</div>
-              <div className="admin-pipeline-summary">{workflow.summary}</div>
-              <div className="admin-pipeline-kinds">
-                {workflow.nodes.map((node) => (
-                  <span key={`${workflow.name}-${node.name}`} title={node.name}>
-                    {node.kind}{node.conditional ? "?" : ""}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="admin-section-title-row admin-pipeline-runs-heading">
-          <h4 className="sb-heading">Recent Runs</h4>
-          <span className="all-entries-count">
-            {pipelineTraceEnabled ? `${pipelineRuns.length} recorded` : "trace off"}
-          </span>
-        </div>
-        {pipelineRuns.length ? (
-          <div className="admin-model-table-wrap">
-            <table className="admin-model-table">
-              <thead>
-                <tr>
-                  <th>Workflow</th>
-                  <th>Slug</th>
-                  <th>Status</th>
-                  <th>Nodes</th>
-                  <th>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pipelineRuns.map((run) => (
-                  <tr key={run.run_id}>
-                    <td title={run.run_id}>{run.workflow}</td>
-                    <td>{run.slug ?? ""}</td>
-                    <td title={run.error_message ?? ""}>{run.status}</td>
-                    <td>{run.nodes_executed}</td>
-                    <td>{run.duration_ms} ms</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="sb-copy">
-            {pipelineTraceEnabled ? "No recorded pipeline runs." : "Pipeline trace storage is disabled."}
-          </p>
-        )}
-      </div>
-
-      <div className="sb-panel">
-        <div className="admin-section-title-row">
-          <h3 className="sb-heading">Prompt Models</h3>
-          <span className="all-entries-count">{overview.promptModelAssociations?.length ?? 0} prompts</span>
-        </div>
-        {overview.promptModelAssociations?.length ? (
-          <div className="admin-model-table-wrap">
-            <table className="admin-model-table">
-              <thead>
-                <tr>
-                  <th>Prompt</th>
-                  <th>Role</th>
-                  <th>Model</th>
-                  <th>Thinking</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.promptModelAssociations.map((item) => (
-                  <tr key={item.key}>
-                    <td>{item.key}</td>
-                    <td>
-                      <select
-                        className="admin-model-select"
-                        value={item.model}
-                        disabled={savingPromptKey !== null}
-                        onChange={(e) => updatePromptModel(
-                          item.key,
-                          e.target.value as "heavy" | "light",
-                          item.thinking,
-                        )}
-                      >
-                        <option value="heavy">heavy</option>
-                        <option value="light">light</option>
-                      </select>
-                    </td>
-                    <td title={item.baseUrl}>{item.modelName}</td>
-                    <td>
-                      <label className="admin-thinking-toggle">
-                        <input
-                          type="checkbox"
-                          checked={item.thinking}
-                          disabled={savingPromptKey !== null}
-                          onChange={(e) => updatePromptModel(
-                            item.key,
-                            item.model,
-                            e.target.checked,
-                          )}
-                        />
-                        {item.thinking ? "on" : "off"}
-                      </label>
-                    </td>
-                    <td>{savingPromptKey === item.key ? "saving" : "saved"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="sb-copy">No prompt model configuration found.</p>
-        )}
-      </div>
-
-      <div className="sb-panel">
-        <h3 className="sb-heading">Entry Surgery</h3>
-        <div className="all-entries-toolbar">
-          <input
-            type="text"
-            className="all-entries-search"
-            placeholder="Delete article by slug"
-            value={deleteSlug}
-            onChange={(e) => setDeleteSlug(e.target.value)}
-          />
-          <button className="all-entries-more-btn" onClick={deleteArticle} disabled={deleting || !deleteSlug.trim()}>
-            {deleting ? "Deleting..." : "Delete article"}
-          </button>
-        </div>
-        <div className="all-entries-toolbar admin-action-row">
-          <input
-            type="text"
-            className="all-entries-search"
-            placeholder="Slug or /wiki/ link for summary"
-            value={summarySlug}
-            onChange={(e) => setSummarySlug(e.target.value)}
-          />
-          <button className="all-entries-more-btn" onClick={regenerateSummary} disabled={regeneratingSummary || !summarySlug.trim()}>
-            {regeneratingSummary ? "Regenerating..." : "Regenerate summary"}
-          </button>
-        </div>
-        {summaryResult ? <p className="admin-result-headline">{summaryResult}</p> : null}
-      </div>
-
-      <section className="search-section" style={{ marginTop: "1.5rem" }}>
-        <h2 className="search-section-title">Slug & Alias Management</h2>
-        <p style={{ fontSize: "0.875rem", color: "var(--color-muted, #888)", marginBottom: "1rem" }}>
-          <strong>Aliases</strong> let multiple slug paths resolve to the same article.
-          A <strong>canonical redirect</strong> makes a source slug silently rewrite to a target slug (useful for merging two articles — the displaced article is archived and restorable).
-        </p>
-
-        <h3 className="sb-heading" style={{ marginBottom: "0.5rem" }}>Find Aliases by Slug</h3>
-        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
-          <input
-            className="search-input"
-            placeholder="Search slug…"
-            value={aliasSearch}
-            onChange={(e) => {
-              setAliasSearch(e.target.value);
-              if (aliasSearchTimer.current) clearTimeout(aliasSearchTimer.current);
-              aliasSearchTimer.current = setTimeout(() => doAliasSearch(e.target.value), 300);
-            }}
-            style={{ flex: 1 }}
-          />
-          {aliasSearching && <span style={{ alignSelf: "center", fontSize: "0.8rem" }}>Searching…</span>}
-        </div>
-        {aliasResults.map((r) => (
-          <div key={r.slug} style={{ border: "1px solid var(--color-border, #ddd)", borderRadius: 6, padding: "0.75rem", marginBottom: "0.5rem" }}>
-            <strong>{r.title}</strong> <code style={{ fontSize: "0.8rem" }}>{r.slug}</code>
-            {r.aliases.length > 0 && (
-              <ul style={{ marginTop: "0.4rem", paddingLeft: "1.2rem" }}>
-                {r.aliases.map((a) => (
-                  <li key={a.aliasSlug} style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.2rem" }}>
-                    <code style={{ fontSize: "0.8rem" }}>{a.aliasSlug}</code>
-                    <button className="admin-btn" style={{ fontSize: "0.75rem", padding: "0.1rem 0.4rem" }} onClick={() => removeAlias(a.aliasSlug)}>Remove</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {r.aliases.length === 0 && <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginTop: "0.3rem" }}>No aliases.</p>}
-          </div>
-        ))}
-
-        <h3 className="sb-heading" style={{ marginTop: "1rem", marginBottom: "0.5rem" }}>Add Alias</h3>
-        <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
-          Alias slug → canonical slug. Visiting the alias will serve the canonical article.
-        </p>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-          <input className="search-input" placeholder="alias-slug" value={newAliasSlug} onChange={(e) => setNewAliasSlug(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-          <span style={{ alignSelf: "center" }}>→</span>
-          <input className="search-input" placeholder="canonical-slug" value={newAliasTarget} onChange={(e) => setNewAliasTarget(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-          <button className="admin-btn" onClick={addAlias} disabled={!newAliasSlug.trim() || !newAliasTarget.trim()}>Add Alias</button>
-        </div>
-        {aliasMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>{aliasMsg}</p>}
-
-        <h3 className="sb-heading" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>Canonical Slug Redirect</h3>
-        <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
-          All traffic to <em>source slug</em> will silently redirect to <em>canonical slug</em>. If an article exists at the source slug it will be archived (see below). Use this to merge two pages.
-        </p>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-          <input className="search-input" placeholder="source-slug (will redirect)" value={redirectSource} onChange={(e) => setRedirectSource(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-          <span style={{ alignSelf: "center" }}>→</span>
-          <input className="search-input" placeholder="canonical-slug (stays)" value={redirectTarget} onChange={(e) => setRedirectTarget(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-          <button className="admin-btn admin-danger-btn" onClick={() => createRedirect(false)} disabled={redirectBusy || !redirectSource.trim() || !redirectTarget.trim()}>Create Redirect</button>
-        </div>
-        {redirectConfirmData && (
-          <div style={{ background: "var(--color-warn-bg, #fff3cd)", border: "1px solid var(--color-warn, #f0ad4e)", borderRadius: 6, padding: "0.75rem", marginBottom: "0.5rem" }}>
-            <p style={{ marginBottom: "0.5rem" }}>{redirectConfirmData.message}</p>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button className="admin-btn admin-danger-btn" onClick={() => createRedirect(true)} disabled={redirectBusy}>Confirm & Archive</button>
-              <button className="admin-btn" onClick={() => setRedirectConfirmData(null)}>Cancel</button>
-            </div>
-          </div>
-        )}
-        {redirectMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>{redirectMsg}</p>}
-
-        <h3 className="sb-heading" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>
-          Archived Articles
-          <button className="admin-btn" style={{ marginLeft: "0.75rem", fontSize: "0.8rem" }} onClick={loadArchived} disabled={archivedLoading}>
-            {archivedLoading ? "Loading…" : "Load / Refresh"}
-          </button>
-        </h3>
-        <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
-          Articles displaced by canonical redirects. Restore to bring them back as a live article at their original slug.
-        </p>
-        {archived.length === 0 && !archivedLoading && <p style={{ fontSize: "0.85rem", color: "var(--color-muted, #888)" }}>No archived articles. Click Load to check.</p>}
-        {archived.map((a) => (
-          <div key={a.slug} style={{ display: "flex", gap: "0.75rem", alignItems: "center", padding: "0.5rem 0", borderBottom: "1px solid var(--color-border, #eee)" }}>
-            <div style={{ flex: 1 }}>
-              <strong>{a.title}</strong> <code style={{ fontSize: "0.8rem" }}>{a.slug}</code>
-              <div style={{ fontSize: "0.75rem", color: "var(--color-muted, #888)" }}>{a.reason} — archived {new Date(a.archivedAt).toLocaleString()}</div>
-            </div>
-            {restoreConfirm === a.slug ? (
-              <div style={{ display: "flex", gap: "0.4rem" }}>
-                <button className="admin-btn admin-danger-btn" onClick={() => restoreArchived(a.slug, true)}>Confirm Restore</button>
-                <button className="admin-btn" onClick={() => setRestoreConfirm(null)}>Cancel</button>
-              </div>
-            ) : (
-              <button className="admin-btn" onClick={() => restoreArchived(a.slug, false)}>Restore</button>
-            )}
-          </div>
-        ))}
-        {restoreMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>{restoreMsg}</p>}
-      </section>
-
-      <section className="search-section" style={{ marginTop: "1.5rem" }}>
-        <h2 className="search-section-title">Recent Articles</h2>
-        <ul className="search-list">
-          {overview.latestArticles.map((item) => (
-            <li key={`${item.slug}-${item.generatedAt}`} className="search-item">
-              <a
-                href={`/wiki/${toWikiSegment(item.title)}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onNavigate(toWikiSegment(item.title));
-                }}
-              >
-                {item.title}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </section>
     </div>
   );
 }

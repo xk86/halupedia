@@ -1094,6 +1094,86 @@ describe("App", () => {
     expect(await screen.findByText("Version restored.")).toBeInTheDocument();
   });
 
+  it("admin prompt editor: loads, edits, and saves a prompt", async () => {
+    const overview = {
+      articleCount: 0,
+      linkCount: 0,
+      aliasCount: 0,
+      latestArticles: [],
+      model: "test-model",
+      databasePath: "test.sqlite",
+      promptConfigPath: "config/prompts",
+      ragMode: "full",
+      promptModelAssociations: [],
+    };
+    const promptContent = {
+      key: "article",
+      scope: "runnable",
+      system: "original system text",
+      user: "original user text",
+      model: "heavy",
+      thinking: false,
+      json: false,
+      hasModes: false,
+      path: "config/prompts/article.toml",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/admin/overview") return new Response(JSON.stringify(overview), { headers: { "content-type": "application/json" } });
+      if (url === "/api/admin/generation-queue") return new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } });
+      if (url === "/api/admin/pipeline/workflows") return new Response(JSON.stringify({ workflows: [] }), { headers: { "content-type": "application/json" } });
+      if (url === "/api/admin/pipeline/runs?limit=12") return new Response(JSON.stringify({ traceEnabled: false, runs: [] }), { headers: { "content-type": "application/json" } });
+      if (url === "/api/admin/prompts") return new Response(JSON.stringify({ runnable: [{ key: "article", scope: "runnable", model: "heavy", thinking: false, json: false, hasModes: false }], shared: [] }), { headers: { "content-type": "application/json" } });
+      if (url === "/api/admin/prompt/runnable/article" && method === "GET") return new Response(JSON.stringify(promptContent), { headers: { "content-type": "application/json" } });
+      if (url === "/api/admin/prompt/runnable/article" && method === "PUT") {
+        const body = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ ok: true, prompt: { ...promptContent, system: body.system, user: body.user } }), { headers: { "content-type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/admin");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Admin" });
+
+    // Expand the Prompt Editor pane (collapsed by default)
+    const paneHeader = screen.getByRole("button", { name: /Prompt Editor/i, hidden: true });
+    await userEvent.click(paneHeader);
+
+    // Select the article prompt
+    const select = await screen.findByRole("combobox");
+    await userEvent.selectOptions(select, "runnable:article");
+
+    // Textareas load with existing content
+    const systemTA = await screen.findByDisplayValue("original system text");
+    expect(systemTA).toBeInTheDocument();
+
+    // Edit the system textarea
+    await userEvent.clear(systemTA);
+    await userEvent.type(systemTA, "updated system text");
+
+    // Save button becomes enabled and can be clicked
+    const saveBtn = screen.getByRole("button", { name: "Save" });
+    expect(saveBtn).not.toBeDisabled();
+    await userEvent.click(saveBtn);
+
+    // Confirm the PUT was called with edited content
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/prompt/runnable/article",
+        expect.objectContaining({
+          method: "PUT",
+          body: expect.stringContaining("updated system text"),
+        }),
+      );
+    });
+
+    expect(await screen.findByText("Saved — runtime reloaded.")).toBeInTheDocument();
+  });
+
   it("toggles night mode from the header", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ featured: null, didYouKnow: [], didYouKnowPending: false, expiresAt: Date.now() + 3600000 }), {

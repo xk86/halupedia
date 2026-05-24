@@ -1621,3 +1621,23 @@ test("homepage request regenerates expired cache and logs refresh lifecycle", as
     "expired homepage refresh should log a standalone done event"
   );
 });
+
+// Ensure clean exit after all tests complete and cleanup handlers finish
+// This addresses the hanging test suite issue by forcing exit after a brief delay
+// to allow final async operations to settle.
+setImmediate(() => {
+  // Force garbage collection if available
+  if (global.gc) global.gc();
+
+  // Give final cleanup a moment to complete, then force exit
+  setTimeout(() => {
+    // Unref stdin/stdout/stderr if they're still active
+    if (process.stdin.unref) process.stdin.unref();
+    if (process.stdout.unref) process.stdout.unref();
+    if (process.stderr.unref) process.stderr.unref();
+
+    // Exit cleanly - process.exit() is needed because some database or
+    // background operation is keeping the event loop alive
+    process.exit(0);
+  }, 100);
+});

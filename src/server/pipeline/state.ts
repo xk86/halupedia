@@ -75,6 +75,12 @@ export const WorkflowInputSchema = z.object({
   // Deterministic save-specific options ─────────────────────────────────────
   /** Caller-provided markdown for no-LLM save workflows. */
   rawMarkdown: z.string().optional(),
+
+  // Utility workflow inputs ──────────────────────────────────────────────────
+  /** Markdown content for preview workflow. */
+  markdown: z.string().optional(),
+  /** Comma-separated fuzzy titles/slugs for reference search. */
+  fuzzyTitles: z.string().optional(),
 });
 export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
 
@@ -236,6 +242,50 @@ export const PipelineStateSchema = z.object({
   // Homepage ────────────────────────────────────────────────────────────────
   /** Homepage cache payload produced by homepage.refresh. */
   homepagePayload: z.unknown().optional(),
+
+  // Utility workflows ────────────────────────────────────────────────────────
+  /** Preview markdown: normalized markdown with validated links. */
+  normalizedMarkdown: z.string().optional(),
+  /** Preview markdown: parsed link objects from markdown. */
+  normalizedLinks: z.array(z.object({
+    slug: z.string().optional(),
+    visibleText: z.string().optional(),
+  })).optional(),
+  /** Preview markdown: diagnostics from initial parsing. */
+  diagnosticsFromNormalize: z.array(z.object({
+    severity: z.enum(["info", "warn", "error"]),
+    message: z.string(),
+  })).optional(),
+  /** Preview markdown: rendered HTML output. */
+  html: z.string().optional(),
+  /** Preview markdown: final diagnostics (broken links + parse warnings). */
+  diagnostics: z.array(z.object({
+    severity: z.enum(["warn", "error"]),
+    message: z.string(),
+  })).optional(),
+  /** Broken links found during preview validation. */
+  brokenLinks: z.array(z.object({
+    slug: z.string(),
+    reason: z.string(),
+  })).optional(),
+  /** Find references: articles matched by fuzzy search. */
+  fuzzyMatches: z.array(z.object({
+    slug: z.string(),
+    title: z.string(),
+    summaryMarkdown: z.string(),
+  })).optional(),
+  /** Find references: articles matched by RAG search. */
+  ragMatches: z.array(z.object({
+    slug: z.string(),
+    title: z.string(),
+    summaryMarkdown: z.string(),
+  })).optional(),
+  /** Find references: final merged and deduped article list. */
+  articles: z.array(z.object({
+    slug: z.string(),
+    title: z.string(),
+    summaryMarkdown: z.string(),
+  })).optional(),
 });
 export type PipelineState = z.infer<typeof PipelineStateSchema>;
 

@@ -158,6 +158,11 @@ import {
   rawSaveArticleWorkflow,
 } from "./pipeline/workflows/deterministicArticleSave";
 import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
+import {
+  previewMarkdownWorkflow,
+  findReferencesWorkflow,
+  regenerateSummaryWorkflow,
+} from "./pipeline/workflows/utilities";
 import type { PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
 
@@ -1823,27 +1828,23 @@ export async function createApp(options: CreateAppOptions = {}) {
     const rawMarkdown = (body.markdown ?? "").trim();
     if (!rawMarkdown) return c.json({ html: "", diagnostics: [] });
 
-    const normalized = normalizeMarkdownLinks(rawMarkdown, "article");
-    // Check for broken halu:/ref: links (slugs that don't exist in the DB).
-    const brokenLinks: Array<{ slug: string; reason: string }> = [];
-    const checkedSlugs = new Set<string>();
-    for (const link of normalized.links) {
-      if (link.slug && link.slug !== lookupSlug && !checkedSlugs.has(link.slug)) {
-        checkedSlugs.add(link.slug);
-        const exists = getArticleByLookup(db, link.slug);
-        if (!exists) {
-          brokenLinks.push({ slug: link.slug, reason: `no article with slug "${link.slug}"` });
-        }
-      }
+    try {
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const result = await runWorkflow(previewMarkdownWorkflow, {
+        input: { requestId: randomUUID(), workflow: "preview.markdown", slug: article.slug, markdown: rawMarkdown },
+        deps: buildPipelineDeps(),
+        recorder,
+        logger,
+      });
+
+      if (result.status === "error") throw result.error ?? new Error("preview failed");
+      return c.json({ html: result.state.html, diagnostics: result.state.diagnostics });
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        422,
+      );
     }
-    const html = renderMarkdown(normalized.markdown);
-    const diagnostics = [
-      ...normalized.diagnostics
-        .filter((d) => d.severity === "warn" || d.severity === "error")
-        .map((d) => ({ severity: d.severity, message: d.message })),
-      ...brokenLinks.map((b) => ({ severity: "warn" as const, message: `Broken link to "${b.slug}": ${b.reason}` })),
-    ];
-    return c.json({ html, diagnostics });
   });
 
   /**
@@ -1864,58 +1865,29 @@ export async function createApp(options: CreateAppOptions = {}) {
       ragQuery?: string;
     };
 
-    const seen = new Set<string>();
-    const articles: ArticleReference[] = [];
-
-    const addArticle = (a: { slug: string; title: string; summaryMarkdown?: string }) => {
-      const s = slugify(a.slug);
-      if (!s || s === article.slug || seen.has(s)) return;
-      seen.add(s);
-      articles.push({ slug: s, title: a.title, summaryMarkdown: a.summaryMarkdown ?? "" });
-    };
-
-    // Fuzzy / wiki-path lookup (reuses existing CSV parsing + title matching)
-    if (body.fuzzyTitles?.trim()) {
-      const { articles: matched } = findReferencedArticlesInEditText(
-        db,
-        body.fuzzyTitles,
-        article.slug,
-        10,
-      );
-      for (const a of matched) addArticle({ ...a, summaryMarkdown: a.summaryMarkdown ?? "" });
-
-      // Also try fuzzy title scoring for whatever wasn't resolved above
-      const fuzzy = findFuzzyTitleMatchesInEditText(
-        db,
-        body.fuzzyTitles,
-        article.slug,
-        10,
-        matched.map((a) => a.slug),
-      );
-      for (const a of fuzzy) addArticle({ ...a, summaryMarkdown: a.summaryMarkdown ?? "" });
-    }
-
-    // RAG / vector search
-    if (body.ragQuery?.trim()) {
-      const retrieved = await retrieveContext(
-        db,
-        llm,
-        article.slug,
-        [body.ragQuery.trim()],
-        runtime.app.rag.enabled,
-        runtime.app.rag.mode,
-        runtime.app.rag.max_results,
-        runtime.app.rag.min_score,
-        runtime.llm.embeddings.enabled,
+    try {
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const result = await runWorkflow(findReferencesWorkflow, {
+        input: {
+          requestId: randomUUID(),
+          workflow: "find.references",
+          slug: article.slug,
+          fuzzyTitles: body.fuzzyTitles,
+          ragQuery: body.ragQuery,
+        },
+        deps: buildPipelineDeps(),
+        recorder,
         logger,
-        body.ragQuery.trim(),
-      );
-      for (const src of retrieved.sourceArticles) {
-        addArticle({ slug: src.slug, title: src.title, summaryMarkdown: src.content?.slice(0, 360) ?? "" });
-      }
-    }
+      });
 
-    return c.json({ articles });
+      if (result.status === "error") throw result.error ?? new Error("find-references failed");
+      return c.json({ articles: result.state.articles });
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : String(error) },
+        422,
+      );
+    }
   });
 
   app.post("/api/article/:slug/add-link", async (c) => {
@@ -2788,22 +2760,23 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as { slug?: string };
     const lookupSlug = articleLookupSlugFromInput(body.slug ?? "");
     if (!lookupSlug) return c.json({ error: "missing slug" }, 400);
-    const article = getArticleByLookup(db, lookupSlug);
-    if (!article) return c.json({ error: "article not found" }, 404);
 
     try {
       await reloadRuntime();
-      const summaryMarkdown = await generateArticleSummary(
-        llm,
-        lightLlm,
-        runtime.prompts,
-        article.title,
-        article.markdown,
-      );
-      const updated = updateArticleSummary(db, article.slug, summaryMarkdown, {
-        updateRevisionGeneratedAt: article.generated_at,
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const result = await runWorkflow(regenerateSummaryWorkflow, {
+        input: { requestId: randomUUID(), workflow: "regenerate.summary", slug: lookupSlug },
+        deps: buildPipelineDeps(),
+        recorder,
+        logger,
       });
+
+      if (result.status === "error") throw result.error ?? new Error("regenerate-summary failed");
+
+      const loadedArticle = (result.state as any).loadedArticle;
+      const updated = getArticleByLookup(db, loadedArticle?.slug);
       if (!updated) return c.json({ error: "article not found" }, 404);
+
       return c.json({
         ok: true,
         slug: updated.slug,

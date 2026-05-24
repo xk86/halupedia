@@ -164,7 +164,8 @@ export const repairLinksNode = defineNode({
       const ctxEnd = Math.min(result.length, p + 300);
       const context = result.slice(ctxStart, ctxEnd);
       try {
-        const repaired = await deps.lightLlm.chat(
+        const repaired = await deps.llm.chat(
+          "light",
           rendered.system,
           deps.prompts.render("link_repair", { context }).user,
           { thinking: false },
@@ -305,9 +306,9 @@ export const generateSeeAlsoNode = defineNode({
           ? `Already used or rejected (do not re-suggest):\n${forbiddenSlugs.map((s) => `- ${s}`).join("\n")}\n\n`
           : "",
       });
-      const client = rendered.role === "light" ? deps.lightLlm : deps.heavyLlm;
+      const seeAlsoRole = rendered.role ?? "heavy";
       try {
-        const raw = await client.chat(rendered.system, rendered.user, {
+        const raw = await deps.llm.chat(seeAlsoRole, rendered.system, rendered.user, {
           thinking: rendered.thinking,
           jsonMode: rendered.json,
         });
@@ -371,9 +372,9 @@ export const regenerateSummaryNode = defineNode({
       article_excerpt: trimmed,
       full_article: trimmed,
     });
-    const client = rendered.role === "light" ? deps.lightLlm : deps.heavyLlm;
+    const summaryRole = rendered.role ?? "heavy";
     try {
-      const raw = await client.chat(rendered.system, rendered.user, {
+      const raw = await deps.llm.chat(summaryRole, rendered.system, rendered.user, {
         thinking: rendered.thinking,
         jsonMode: rendered.json,
       });
@@ -491,7 +492,7 @@ export const indexRagChunksNode = defineNode({
     const useEmbeddings = rag.enabled && deps.runtime.llm.embeddings.enabled;
     await indexArticleChunks(
       deps.db,
-      deps.heavyLlm,
+      deps.llm,
       slug,
       body,
       useEmbeddings,

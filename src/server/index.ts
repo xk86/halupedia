@@ -12,6 +12,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { loadConfig } from "./config";
+import { listPromptFiles, readPromptFile, writePromptFile } from "./promptEditor";
 import {
   deleteArticleBySlug,
   getAdminOverview,
@@ -60,7 +61,7 @@ import {
   findFuzzyTitleMatchesInEditText,
   findReferencedArticlesInEditText,
 } from "./editReferences";
-import { OpenAICompatClient, type LlmClient } from "./llm";
+import { OpenAICompatRouter, type LlmRouter } from "./llm";
 import { createConsoleLogger, type Logger } from "./logger";
 import { formatIncomingHintsForPrompt } from "./linkHints";
 import { MaintenanceScheduler } from "./maintenance";
@@ -206,7 +207,7 @@ export interface CreateAppOptions {
   skipLlmProbe?: boolean;
   skipHomepagePrepare?: boolean;
   logger?: Logger;
-  llmClient?: LlmClient;
+  llmClient?: LlmRouter;
 }
 
 
@@ -514,14 +515,13 @@ function formatRecentEditHistoryForPrompt(
 }
 
 async function generateArticleSummary(
-  llm: LlmClient,
-  lightLlm: LlmClient,
+  llm: LlmRouter,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   articleMarkdown: string,
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "article_summary");
-  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const role = prompt.model ?? "heavy";
   const currentArticle = stripTopLevelSections(articleMarkdown, [
     "References",
     "See also",
@@ -530,7 +530,8 @@ async function generateArticleSummary(
   let summaryFeedback = "(none)";
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const raw = await selectedLlm.chat(
+    const raw = await llm.chat(
+      role,
       prompt.system,
       renderTemplate(prompt.user, {
         slug: slugify(requestedTitle),
@@ -604,14 +605,14 @@ function sampleRandomInspirationArticles(
 }
 
 async function generateRandomPageChoice(
-  llm: LlmClient,
-  lightLlm: LlmClient,
+  llm: LlmRouter,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   inspiration: Array<{ title: string; slug: string }> = [],
 ): Promise<{ title: string; slug: string }> {
   const prompt = getPrompt(promptConfig, "random_page");
-  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
-  const raw = await selectedLlm.chat(
+  const role = prompt.model ?? "heavy";
+  const raw = await llm.chat(
+    role,
     prompt.system,
     renderTemplate(prompt.user, {
       slug: "",
@@ -735,8 +736,7 @@ function normalizeSuggestedTargetSlug(
 }
 
 async function generateLinkSuggestion(
-  llm: LlmClient,
-  lightLlm: LlmClient,
+  llm: LlmRouter,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   requestedTitle: string,
   selectedText: string,
@@ -745,8 +745,9 @@ async function generateLinkSuggestion(
   relatedTitles: string[],
 ): Promise<LinkSuggestion> {
   const prompt = getPrompt(promptConfig, "link_suggestion");
-  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
-  const raw = await selectedLlm.chat(
+  const role = prompt.model ?? "heavy";
+  const raw = await llm.chat(
+    role,
     buildLinkedPromptSystem(promptConfig, "link_suggestion"),
     renderTemplate(prompt.user, {
       slug: slugify(requestedTitle),
@@ -796,21 +797,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
   const db = openDatabase(runtime.app.storage.database_path);
-  let llm: LlmClient =
+  let llm: LlmRouter =
     options.llmClient ??
-    new OpenAICompatClient(
+    new OpenAICompatRouter(
       runtime.llm.chat,
-      runtime.llm.embeddings,
-      logger,
-      "heavy",
-    );
-  let lightLlm: LlmClient =
-    options.llmClient ??
-    new OpenAICompatClient(
       runtime.llm.light,
       runtime.llm.embeddings,
       logger,
-      "light",
     );
   const app = new Hono();
   const distRoot = options.distRoot
@@ -913,7 +906,6 @@ export async function createApp(options: CreateAppOptions = {}) {
         );
         const summaryMarkdown = await generateArticleSummary(
           llm,
-          lightLlm,
           runtime.prompts,
           title,
           markdown,
@@ -957,17 +949,11 @@ export async function createApp(options: CreateAppOptions = {}) {
         }
       : nextRuntime;
     if (!options.llmClient) {
-      llm = new OpenAICompatClient(
+      llm = new OpenAICompatRouter(
         runtime.llm.chat,
-        runtime.llm.embeddings,
-        logger,
-        "heavy",
-      );
-      lightLlm = new OpenAICompatClient(
         runtime.llm.light,
         runtime.llm.embeddings,
         logger,
-        "light",
       );
     }
     logger.info("startup", {
@@ -1285,8 +1271,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   function buildPipelineDeps(overrides: Partial<PipelineDeps> = {}): PipelineDeps {
     return {
       db,
-      heavyLlm: llm,
-      lightLlm,
+      llm,
       prompts: buildPromptRegistry(runtime.prompts),
       logger,
       runtime,
@@ -1497,7 +1482,6 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
       const choice = await generateRandomPageChoice(
         llm,
-        lightLlm,
         runtime.prompts,
         inspiration,
       );
@@ -1995,7 +1979,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     try {
       suggestion = await generateLinkSuggestion(
         llm,
-        lightLlm,
         runtime.prompts,
         article.title,
         wrapRange.visibleLabel,
@@ -2351,7 +2334,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     const modePrompt = modeConfig?.prompt ?? "";
 
     const prompt = getPrompt(runtime.prompts, "article_rewrite");
-    const selectedLlm = prompt.model === "light" ? lightLlm : llm;
     const renderedSystemPrompt = renderTemplate(prompt.system, {
       rewrite_mode: modePrompt,
       link_hints: formatIncomingHintsForPrompt(hints, article.slug),
@@ -2653,8 +2635,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   registerPipelineAdminRoutes(app, () => runtime.app.pipeline.trace, () => ({
     db,
-    heavyLlm: llm,
-    lightLlm,
+    llm,
     prompts: buildPromptRegistry(runtime.prompts),
     logger,
     runtime,
@@ -2911,6 +2892,38 @@ export async function createApp(options: CreateAppOptions = {}) {
     removeSlugAlias(db, slug);
     logger.info("admin.article_restored", { slug });
     return c.json({ ok: true, slug });
+  });
+
+  app.get("/api/admin/prompts", (c) => {
+    return c.json(listPromptFiles());
+  });
+
+  app.get("/api/admin/prompt/:scope/:key", (c) => {
+    const scope = c.req.param("scope");
+    if (scope !== "runnable" && scope !== "shared") {
+      return c.json({ error: "scope must be runnable or shared" }, 400);
+    }
+    const key = c.req.param("key");
+    const prompt = readPromptFile(scope, key);
+    if (!prompt) return c.json({ error: "prompt not found" }, 404);
+    return c.json(prompt);
+  });
+
+  app.put("/api/admin/prompt/:scope/:key", async (c) => {
+    const scope = c.req.param("scope");
+    if (scope !== "runnable" && scope !== "shared") {
+      return c.json({ error: "scope must be runnable or shared" }, 400);
+    }
+    const key = c.req.param("key");
+    const body = await c.req.json().catch(() => ({})) as { system?: unknown; user?: unknown };
+    if (typeof body.system !== "string" || typeof body.user !== "string") {
+      return c.json({ error: "system and user must be strings" }, 400);
+    }
+    const err = writePromptFile(scope, key, body.system, body.user);
+    if (err) return c.json(err, 400);
+    await reloadRuntime();
+    const updated = readPromptFile(scope, key);
+    return c.json({ ok: true, prompt: updated });
   });
 
   app.post("/api/disambiguation", async (c) => {

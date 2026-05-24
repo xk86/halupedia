@@ -42,6 +42,7 @@ import {
 import { formatLogLine } from "../src/server/logger";
 import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
 import { getPrompt, getSharedPrompt, stripJsonFences } from "../src/server/prompts";
+import { replaceTomlTripleQuoted } from "../src/server/promptEditor";
 import {
   slugify,
   slugToTitle,
@@ -50,7 +51,7 @@ import {
   wikiSegmentToTitle,
   normalizeCanonicalTitle,
 } from "../src/server/slug";
-import { OpenAICompatClient, type LlmClient } from "../src/server/llm";
+import { OpenAICompatRouter, type LlmRouter } from "../src/server/llm";
 import type { Logger, LogFields } from "../src/server/logger";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 import {
@@ -84,7 +85,7 @@ import type { ReferenceList } from "../src/server/types";
 
 const TEST_CONFIG = loadConfig().app.tests;
 
-class NoopLlmClient implements LlmClient {
+class NoopLlmClient implements LlmRouter {
   async chat(): Promise<string> {
     throw new Error("chat should not be called in retrieval unit tests");
   }
@@ -162,13 +163,12 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
     api_key: "local",
     model: "nomic",
   };
-  const heavy = new OpenAICompatClient(chatConfig, embeddingsConfig, logger, "heavy");
-  const light = new OpenAICompatClient({ ...chatConfig, max_tokens: 3000 }, embeddingsConfig, logger, "light");
+  const router = new OpenAICompatRouter(chatConfig, { ...chatConfig, max_tokens: 3000 }, embeddingsConfig, logger);
 
-  await heavy.chat("system", "user");
-  await light.chat("system", "user", { thinking: true });
-  await heavy.chat("system", "user", { jsonMode: true });
-  await heavy.embed(["article chunk"]);
+  await router.chat("heavy", "system", "user");
+  await router.chat("light", "system", "user", { thinking: true });
+  await router.chat("heavy", "system", "user", { jsonMode: true });
+  await router.embed(["article chunk"]);
 
   assert.equal(logger.entries.find((entry) => entry.event === "llm.chat_request")?.fields.role, "heavy");
   assert.equal(logger.entries.find((entry) => entry.event === "llm.chat_response")?.fields.role, "heavy");
@@ -217,33 +217,15 @@ test("heavy and light OpenAI-compatible requests are sent independently", async 
     api_key: "local",
     model: "nomic",
   };
-  const heavy = new OpenAICompatClient(
-    {
-      base_url: "http://heavy.test/v1",
-      api_key: "local",
-      model: "heavy-model",
-      temperature: 1,
-      max_tokens: 9001,
-    },
+  const router = new OpenAICompatRouter(
+    { base_url: "http://heavy.test/v1", api_key: "local", model: "heavy-model", temperature: 1, max_tokens: 9001 },
+    { base_url: "http://light.test/v1", api_key: "local", model: "light-model", temperature: 1, max_tokens: 3000 },
     embeddingsConfig,
     logger,
-    "heavy",
-  );
-  const light = new OpenAICompatClient(
-    {
-      base_url: "http://light.test/v1",
-      api_key: "local",
-      model: "light-model",
-      temperature: 1,
-      max_tokens: 3000,
-    },
-    embeddingsConfig,
-    logger,
-    "light",
   );
 
-  const heavyRequest = heavy.chat("system", "user");
-  const lightResult = await light.chat("system", "user");
+  const heavyRequest = router.chat("heavy", "system", "user");
+  const lightResult = await router.chat("light", "system", "user");
 
   assert.equal(lightResult, "light done");
   assert.deepEqual(completed, ["light"]);
@@ -2510,4 +2492,34 @@ test("getGraphData deduplicates links", (t) => {
   assert.equal(links.length, 2);
   const pairs = links.map(l => `${l.source}→${l.target}`).sort();
   assert.deepEqual(pairs, ["a→b", "b→a"]);
+});
+
+test("replaceTomlTripleQuoted replaces existing block", () => {
+  const source = `model = "heavy"\nsystem = """\nold content\n"""\nuser = """\nold user\n"""\n`;
+  const result = replaceTomlTripleQuoted(source, "system", "new content");
+  assert.ok(result !== null);
+  assert.ok(result!.includes('system = """\nnew content\n"""'));
+  assert.ok(result!.includes('user = """\nold user\n"""'), "user block should be untouched");
+  assert.ok(result!.includes('model = "heavy"'), "scalars should be preserved");
+});
+
+test("replaceTomlTripleQuoted appends key when absent", () => {
+  const source = `model = "heavy"\n`;
+  const result = replaceTomlTripleQuoted(source, "system", "appended content");
+  assert.ok(result !== null);
+  assert.ok(result!.includes('system = """\nappended content\n"""'));
+  assert.ok(result!.includes('model = "heavy"'));
+});
+
+test("replaceTomlTripleQuoted returns null when value contains triple-quote", () => {
+  const source = `system = """\nfoo\n"""\n`;
+  const result = replaceTomlTripleQuoted(source, "system", 'bad """ value');
+  assert.equal(result, null);
+});
+
+test("replaceTomlTripleQuoted handles empty value", () => {
+  const source = `system = """\nsome text\n"""\n`;
+  const result = replaceTomlTripleQuoted(source, "system", "");
+  assert.ok(result !== null);
+  assert.ok(result!.includes('system = """\n\n"""'));
 });

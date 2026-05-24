@@ -53,8 +53,7 @@ export const refreshHomepageCacheNode = defineNode({
     for (const article of sources) {
       try {
         const fact = await generateDidYouKnowFact(
-          deps.heavyLlm,
-          deps.lightLlm,
+          deps.llm,
           deps.runtime.prompts,
           article,
         );

@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { LlmClient } from "./llm";
+import type { LlmRouter } from "./llm";
 import type { Logger } from "./logger";
 
 /**
@@ -71,7 +71,7 @@ function lexicalScore(queryWords: string[], content: string): number {
 
 export async function indexArticleChunks(
   db: DatabaseSync,
-  llm: LlmClient,
+  llm: LlmRouter,
   slug: string,
   markdown: string,
   useEmbeddings: boolean,
@@ -206,7 +206,7 @@ export function retrieveDirectArticleContext(
 
 export async function retrieveContext(
   db: DatabaseSync,
-  llm: LlmClient,
+  llm: LlmRouter,
   slug: string,
   hints: string[],
   enabled: boolean,

@@ -46,14 +46,15 @@ export const generateSummaryNode = defineNode({
     const article = loadedArticle as any;
     const entry = deps.prompts.get("article_summary");
     const prompt = entry.resolved;
-    const selectedLlm = prompt.model === "light" ? deps.lightLlm : deps.heavyLlm;
+    const role = prompt.model ?? "heavy";
     const currentArticle = stripTopLevelSections(article.body, ["References", "See also"]).slice(0, 12000);
 
     let previousSummary = "(none)";
     let summaryFeedback = "(none)";
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const raw = await selectedLlm.chat(
+      const raw = await deps.llm.chat(
+        role,
         prompt.system,
         renderTemplate(prompt.user, {
           slug: slugify(article.title),

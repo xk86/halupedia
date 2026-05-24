@@ -124,13 +124,14 @@ export const callRefreshModelNode = defineNode({
       throw new Error("llm.refresh_article: article is protected, should have been skipped");
     }
     if (!renderedPrompt) throw new Error("llm.refresh_article: missing renderedPrompt");
-    const client = renderedPrompt.role === "light" ? deps.lightLlm : deps.heavyLlm;
+    const role = renderedPrompt.role ?? "heavy";
     const startedAt = Date.now();
     let text: string;
     let finishReason = "stop";
 
     if (deps.onProgress) {
-      const result = await client.streamChat(
+      const result = await deps.llm.streamChat(
+        role,
         renderedPrompt.system,
         renderedPrompt.user,
         (_delta, accumulated) => {
@@ -144,7 +145,7 @@ export const callRefreshModelNode = defineNode({
       text = result.content;
       finishReason = result.finishReason;
     } else {
-      text = await client.chat(renderedPrompt.system, renderedPrompt.user, {
+      text = await deps.llm.chat(role, renderedPrompt.system, renderedPrompt.user, {
         thinking: renderedPrompt.thinking,
         jsonMode: renderedPrompt.json,
       });

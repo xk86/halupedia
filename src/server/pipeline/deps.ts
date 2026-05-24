@@ -16,15 +16,14 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
-import type { LlmClient } from "../llm";
+import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
 import type { loadConfig } from "../config";
 import type { PromptRegistry } from "./prompts/registry";
 
 export interface PipelineDeps {
   db: DatabaseSync;
-  heavyLlm: LlmClient;
-  lightLlm: LlmClient;
+  llm: LlmRouter;
   prompts: PromptRegistry;
   logger: Logger;
   runtime: ReturnType<typeof loadConfig>;

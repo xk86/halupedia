@@ -11,9 +11,12 @@ export interface ChatOptions {
   jsonMode?: boolean;
 }
 
-export interface LlmClient {
-  chat(system: string, user: string, options?: ChatOptions): Promise<string>;
+/** Unified LLM interface. Role (heavy/light) is the first argument to every
+ *  generative call so callers never need to hold two separate client handles. */
+export interface LlmRouter {
+  chat(role: "heavy" | "light", system: string, user: string, options?: ChatOptions): Promise<string>;
   streamChat(
+    role: "heavy" | "light",
     system: string,
     user: string,
     onChunk: (delta: string, accumulated: string) => void,
@@ -80,11 +83,12 @@ function embedResponseFields(config: EmbeddingsConfig, vectorCount: number, dura
   };
 }
 
-export class OpenAICompatClient implements LlmClient {
+/** Per-role chat/stream client. Internal to this module. */
+class OpenAICompatClient {
   constructor(
     private readonly chatConfig: ChatConfig,
     private readonly embeddingsConfig: EmbeddingsConfig,
-    private readonly logger: Logger = createConsoleLogger(),
+    private readonly logger: Logger,
     private readonly role: ChatLlmRole,
   ) {}
 
@@ -103,9 +107,6 @@ export class OpenAICompatClient implements LlmClient {
         temperature: this.chatConfig.temperature,
         max_tokens: this.chatConfig.max_tokens,
         think: options.thinking ?? false,
-        // format: "json" is the native Ollama API param; response_format is
-        // the OpenAI-compat param. Send both — Ollama's /v1/ endpoint honours
-        // whichever it recognises, so this covers both routing modes.
         ...(options.jsonMode ? {
           format: "json",
           response_format: { type: "json_object" },
@@ -228,7 +229,6 @@ export class OpenAICompatClient implements LlmClient {
         try {
           json = JSON.parse(payload) as typeof json;
         } catch {
-          // Ignore malformed chunks from local providers and continue.
           continue;
         }
         const choice = json?.choices?.[0];
@@ -293,42 +293,67 @@ export class OpenAICompatClient implements LlmClient {
     return (json.data ?? []).map((item) => item.embedding ?? []);
   }
 
-  async probeConnections(): Promise<void> {
-    await this.probeEndpoint(this.role, this.chatConfig.base_url, this.chatConfig.api_key);
-    if (this.embeddingsConfig.enabled) {
-      await this.probeEndpoint("embeddings", this.embeddingsConfig.base_url, this.embeddingsConfig.api_key);
-    } else {
-      this.logger.info("llm.embed_disabled", { role: "embeddings" });
-    }
-  }
-
-  private async probeEndpoint(role: LlmRole, baseUrl: string, apiKey: string): Promise<void> {
+  async probeEndpoint(role: LlmRole, baseUrl: string, apiKey: string): Promise<void> {
     const url = `${baseUrl.replace(/\/$/, "")}/models`;
     this.logger.info("llm.probe_start", { role, url });
     try {
-      const response = await fetch(url, {
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-        },
-      });
+      const response = await fetch(url, { headers: { authorization: `Bearer ${apiKey}` } });
       const text = await response.text().catch(() => "");
       if (!response.ok) {
-        this.logger.warn("llm.probe_failed", {
-          role,
-          status: response.status,
-          body: truncateForLog(text, 220),
-        });
+        this.logger.warn("llm.probe_failed", { role, status: response.status, body: truncateForLog(text, 220) });
         return;
       }
-      this.logger.info("llm.probe_ok", {
-        role,
-        body: truncateForLog(text, 220),
-      });
+      this.logger.info("llm.probe_ok", { role, body: truncateForLog(text, 220) });
     } catch (error) {
-      this.logger.warn("llm.probe_error", {
-        role,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.logger.warn("llm.probe_error", { role, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+}
+
+/** Production LlmRouter that holds separate heavy and light chat clients. */
+export class OpenAICompatRouter implements LlmRouter {
+  private readonly heavy: OpenAICompatClient;
+  private readonly light: OpenAICompatClient;
+
+  constructor(
+    private readonly heavyChatConfig: ChatConfig,
+    private readonly lightChatConfig: ChatConfig,
+    private readonly embeddingsConfig: EmbeddingsConfig,
+    private readonly logger: Logger = createConsoleLogger(),
+  ) {
+    this.heavy = new OpenAICompatClient(heavyChatConfig, embeddingsConfig, logger, "heavy");
+    this.light = new OpenAICompatClient(lightChatConfig, embeddingsConfig, logger, "light");
+  }
+
+  private client(role: "heavy" | "light"): OpenAICompatClient {
+    return role === "light" ? this.light : this.heavy;
+  }
+
+  chat(role: "heavy" | "light", system: string, user: string, options?: ChatOptions): Promise<string> {
+    return this.client(role).chat(system, user, options);
+  }
+
+  streamChat(
+    role: "heavy" | "light",
+    system: string,
+    user: string,
+    onChunk: (delta: string, accumulated: string) => void,
+    options?: ChatOptions,
+  ): Promise<{ content: string; finishReason: string }> {
+    return this.client(role).streamChat(system, user, onChunk, options);
+  }
+
+  embed(input: string[]): Promise<number[][]> {
+    return this.heavy.embed(input);
+  }
+
+  async probeConnections(): Promise<void> {
+    await this.heavy.probeEndpoint("heavy", this.heavyChatConfig.base_url, this.heavyChatConfig.api_key);
+    await this.light.probeEndpoint("light", this.lightChatConfig.base_url, this.lightChatConfig.api_key);
+    if (this.embeddingsConfig.enabled) {
+      await this.heavy.probeEndpoint("embeddings", this.embeddingsConfig.base_url, this.embeddingsConfig.api_key);
+    } else {
+      this.logger.info("llm.embed_disabled", { role: "embeddings" });
     }
   }
 }

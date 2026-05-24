@@ -2,7 +2,7 @@
  * Did You Know (DYK) fact generation and normalisation helpers.
  */
 
-import type { LlmClient } from "./llm";
+import type { LlmRouter } from "./llm";
 import { getPrompt, renderTemplate, stripJsonFences } from "./prompts";
 import { stripTopLevelSections } from "./markdown";
 import { slugify } from "./slug";
@@ -66,15 +66,15 @@ export function normalizeHomepageFact(raw: string): string {
 }
 
 export async function generateDidYouKnowFact(
-  llm: LlmClient,
-  lightLlm: LlmClient,
+  llm: LlmRouter,
   promptConfig: ReturnType<typeof loadConfig>["prompts"],
   article: { slug: string; title: string; markdown: string; plainText?: string },
 ): Promise<string> {
   const prompt = getPrompt(promptConfig, "did_you_know");
-  const selectedLlm = prompt.model === "light" ? lightLlm : llm;
+  const role = prompt.model ?? "heavy";
   const articleTitleMarkdown = buildHaluLink(article.title, article.slug, article.title);
-  const raw = await selectedLlm.chat(
+  const raw = await llm.chat(
+    role,
     prompt.system,
     renderTemplate(prompt.user, {
       article_title: articleTitleMarkdown,

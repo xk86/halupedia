@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { openDatabase, saveArticle, getArticleByLookup, listArticleRevisions } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
-import type { LlmClient } from "../src/server/llm";
+import type { LlmRouter } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 
@@ -54,7 +54,7 @@ function createTestDb() {
   return { root, databasePath };
 }
 
-class RewriteLlmClient implements LlmClient {
+class RewriteLlmClient implements LlmRouter {
   chatCalls: Array<{ system: string; user: string }> = [];
   private rewriteBody: string;
 
@@ -70,7 +70,7 @@ class RewriteLlmClient implements LlmClient {
     return system.includes("Rewrite") || system.includes("Refresh") || user.includes("---body");
   }
 
-  async chat(system: string, user: string): Promise<string> {
+  async chat(_r: "heavy" | "light", system: string, user: string): Promise<string> {
     if (this.isArticleOp(system, user)) {
       this.chatCalls.push({ system, user });
       return this.rewriteEnvelope();
@@ -79,18 +79,14 @@ class RewriteLlmClient implements LlmClient {
   }
 
   async streamChat(
+    _r: "heavy" | "light",
     system: string,
     user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
-    // Only track article-operation calls; post-processing (see-also, summary) are not tracked.
     if (this.isArticleOp(system, user)) this.chatCalls.push({ system, user });
-    const content = this.rewriteEnvelope();
-    // Emit header first so parsePartialArticleFrame can start streaming body
-    const header = "---body\n";
-    onChunk(header, header);
-    const rest = content.slice(header.length);
-    onChunk(rest, content);
+    const content = this.rewriteBody;
+    onChunk(content, content);
     return { content, finishReason: "stop" };
   }
 
@@ -98,7 +94,7 @@ class RewriteLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
-class DelayedRewriteLlmClient implements LlmClient {
+class DelayedRewriteLlmClient implements LlmRouter {
   chatCalls = 0;
   readonly gate = Promise.withResolvers<void>();
   private rewriteBody: string;
@@ -114,11 +110,12 @@ class DelayedRewriteLlmClient implements LlmClient {
   }
 
   async streamChat(
+    _r: "heavy" | "light",
     _system: string,
     _user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
-    const content = `---body\n${this.rewriteBody}\n---used-refs\n[]`;
+    const content = this.rewriteBody;
     onChunk(content, content);
     return { content, finishReason: "stop" };
   }
@@ -130,7 +127,7 @@ class DelayedRewriteLlmClient implements LlmClient {
 async function createTestServer(options: {
   databasePath: string;
   logger?: Logger;
-  llmClient?: LlmClient;
+  llmClient?: LlmRouter;
 }) {
   const { app, shutdown } = await createApp({
     databasePath: options.databasePath,
@@ -934,9 +931,9 @@ test("rewrite with explicit referenceSlugs passes them as context", async (t) =>
 
   // Capture what the LLM receives so we can verify reference context is present
   let capturedUser = "";
-  const llm: LlmClient = {
+  const llm: LlmRouter = {
     async chat() { return "{}"; },
-    async streamChat(_s: string, user: string, onChunk: (d: string, a: string) => void) {
+    async streamChat(_r: "heavy" | "light", _s: string, user: string, onChunk: (d: string, a: string) => void) {
       capturedUser = user;
       const content = "# Target\n\nRewritten with context.";
       onChunk(content, content);

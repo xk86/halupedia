@@ -152,7 +152,7 @@ export const retrieveContextNode = defineNode({
 
     const primary = await retrieveContextLegacy(
       deps.db,
-      deps.heavyLlm,
+      deps.llm,
       slug,
       hintStrings,
       rag.enabled,
@@ -382,13 +382,14 @@ export const callArticleModelNode = defineNode({
     if (!renderedPrompt) {
       throw new Error("llm.generate_article: renderedPrompt missing");
     }
-    const client = renderedPrompt.role === "light" ? deps.lightLlm : deps.heavyLlm;
+    const role = renderedPrompt.role ?? "heavy";
     const startedAt = Date.now();
     let text: string;
     let finishReason = "stop";
 
     if (deps.onProgress) {
-      const result = await client.streamChat(
+      const result = await deps.llm.streamChat(
+        role,
         renderedPrompt.system,
         renderedPrompt.user,
         (_delta, accumulated) => {
@@ -402,7 +403,7 @@ export const callArticleModelNode = defineNode({
       text = result.content;
       finishReason = result.finishReason;
     } else {
-      text = await client.chat(renderedPrompt.system, renderedPrompt.user, {
+      text = await deps.llm.chat(role, renderedPrompt.system, renderedPrompt.user, {
         thinking: renderedPrompt.thinking,
         jsonMode: renderedPrompt.json,
       });
@@ -581,9 +582,9 @@ export const generateSummaryNode = defineNode({
       article_excerpt: trimmed,
       full_article: trimmed,
     });
-    const client = rendered.role === "light" ? deps.lightLlm : deps.heavyLlm;
+    const summaryRole = rendered.role ?? "heavy";
     try {
-      const raw = await client.chat(rendered.system, rendered.user, {
+      const raw = await deps.llm.chat(summaryRole, rendered.system, rendered.user, {
         thinking: rendered.thinking,
         jsonMode: rendered.json,
       });

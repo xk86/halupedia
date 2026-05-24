@@ -172,7 +172,7 @@ export const retrieveContextForRewriteNode = defineNode({
       const query = ragQuery || instructionsText;
       const hintStrings = hints.map((h) => h.hiddenHint);
       const packet = await retrieveContextLegacy(
-        deps.db, deps.heavyLlm, slug,
+        deps.db, deps.llm, slug,
         query ? [query] : hintStrings,
         rag.enabled, rag.mode, rag.max_results, rag.min_score,
         useEmbeddings, deps.logger, query || undefined,
@@ -220,7 +220,7 @@ export const retrieveContextForRewriteNode = defineNode({
       const hintStrings = hints.map((h) => h.hiddenHint);
       const queryOverride = [loadedArticle?.title ?? "", loadedArticle?.body.slice(0, 500) ?? ""].filter(Boolean).join("\n\n");
       const primary = await retrieveContextLegacy(
-        deps.db, deps.heavyLlm, slug, hintStrings,
+        deps.db, deps.llm, slug, hintStrings,
         rag.enabled, rag.mode, rag.max_results, rag.min_score,
         useEmbeddings, deps.logger, queryOverride,
       );
@@ -364,13 +364,14 @@ export const callRewriteModelNode = defineNode({
   writes: ["llmOutput"] as const,
   async run({ renderedPrompt }, deps: PipelineDeps) {
     if (!renderedPrompt) throw new Error("llm.rewrite_article: missing renderedPrompt");
-    const client = renderedPrompt.role === "light" ? deps.lightLlm : deps.heavyLlm;
+    const role = renderedPrompt.role ?? "heavy";
     const startedAt = Date.now();
     let text: string;
     let finishReason = "stop";
 
     if (deps.onProgress) {
-      const result = await client.streamChat(
+      const result = await deps.llm.streamChat(
+        role,
         renderedPrompt.system,
         renderedPrompt.user,
         (_delta, accumulated) => {
@@ -384,7 +385,7 @@ export const callRewriteModelNode = defineNode({
       text = result.content;
       finishReason = result.finishReason;
     } else {
-      text = await client.chat(renderedPrompt.system, renderedPrompt.user, {
+      text = await deps.llm.chat(role, renderedPrompt.system, renderedPrompt.user, {
         thinking: renderedPrompt.thinking,
         jsonMode: renderedPrompt.json,
       });

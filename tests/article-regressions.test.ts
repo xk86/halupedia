@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { getArticle, getLatestArticleReferences, listArticleRevisions, openDatabase, saveArticle, saveArticleReferences } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
-import { OpenAICompatClient, type LlmClient } from "../src/server/llm";
+import { OpenAICompatRouter, type LlmRouter } from "../src/server/llm";
 import {
   extractInternalLinks,
   markdownToPlainText,
@@ -16,7 +16,7 @@ import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 
 const TEST_CONFIG = loadConfig().app.tests;
 
-class QueueLlmClient implements LlmClient {
+class QueueLlmClient implements LlmRouter {
   public streamedChunkCount = 0;
   public embedInputs: string[][] = [];
 
@@ -27,33 +27,24 @@ class QueueLlmClient implements LlmClient {
     private readonly embedVector: number[] = [],
   ) {}
 
-  async chat(system?: string, user?: string): Promise<string> {
-    const promptText = `${system ?? ""}\n${user ?? ""}`;
-    const structuredBody = this.streamContent || this.streamChunks?.join("") || "";
-    if (structuredBody && (promptText.includes("---body") || promptText.includes("---halu-body"))) {
-      return `---body\n${structuredBody}\n---used-refs\n[]`;
-    }
+  async chat(_role: "heavy" | "light", _system: string, _user: string): Promise<string> {
     if (this.chatResponses.length) {
       return this.chatResponses.shift()!;
     }
-    if ((system ?? "").includes("concise summary")) {
-      return "Fallback summary for the article as a whole.";
-    }
+    const body = this.streamContent || this.streamChunks?.join("") || "";
+    if (body) return body;
     return JSON.stringify({ items: [] });
   }
 
   async streamChat(
+    _role: "heavy" | "light",
     _system: string,
     _user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
     const chunks = this.streamChunks ?? [this.streamContent];
-    // Wrap article body chunks in the canonical frame format
-    const header = "---body\n";
-    const footer = "\n---used-refs\n[]";
-    const framedChunks = [header + chunks[0], ...chunks.slice(1), footer];
     let accumulated = "";
-    for (const delta of framedChunks) {
+    for (const delta of chunks) {
       accumulated += delta;
       this.streamedChunkCount += 1;
       onChunk(delta, accumulated);
@@ -69,18 +60,19 @@ class QueueLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
-class CapturingChatLlmClient implements LlmClient {
-  public calls: Array<{ system?: string; user?: string }> = [];
+class CapturingChatLlmClient implements LlmRouter {
+  public calls: Array<{ role: string; system: string; user: string }> = [];
   public embedInputs: string[][] = [];
 
   constructor(private readonly responses: string[]) {}
 
-  async chat(system?: string, user?: string): Promise<string> {
-    this.calls.push({ system, user });
+  async chat(role: "heavy" | "light", system: string, user: string): Promise<string> {
+    this.calls.push({ role, system, user });
     return this.responses.shift() ?? JSON.stringify({ items: [] });
   }
 
   async streamChat(
+    _role: "heavy" | "light",
     _system: string,
     _user: string,
     onChunk: (delta: string, accumulated: string) => void,
@@ -131,7 +123,7 @@ function saveMarkdownArticle(
   db.close();
 }
 
-async function createServer(databasePath: string, llmClient: LlmClient) {
+async function createServer(databasePath: string, llmClient: LlmRouter) {
   const { app } = await createApp({
     databasePath,
     skipLlmProbe: true,
@@ -1583,7 +1575,7 @@ test("generated article DB markdown contains no frame markers or model-emitted r
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
-  // Model leaks frame markers and a "Used References / None" section into the body
+  // Model leaks legacy frame-style sections into the body (hallucination or old prompt)
   const leakyBody = [
     "# Leaky Article",
     "",
@@ -1594,8 +1586,6 @@ test("generated article DB markdown contains no frame markers or model-emitted r
     "None",
     "",
     "---used-refs []",
-    "",
-    "---body leftover",
   ].join("\n");
 
   const llm = new QueueLlmClient(leakyBody, [
@@ -1616,7 +1606,6 @@ test("generated article DB markdown contains no frame markers or model-emitted r
   assert.ok(stored, "article should be saved");
   assert.doesNotMatch(stored!.markdown, /Used References/, "Used References heading must be stripped");
   assert.doesNotMatch(stored!.markdown, /^---used-refs/m, "---used-refs marker must be stripped");
-  assert.doesNotMatch(stored!.markdown, /^---body/m, "---body marker must be stripped");
   assert.doesNotMatch(stored!.markdown, /^None$/m, "lone None line must be stripped");
   assert.match(stored!.markdown, /Body content here/, "article body must be preserved");
 });
@@ -1817,14 +1806,10 @@ test("generated article uses ref:slug links when references are available", asyn
     model: "nomic",
   };
 
-  let llmClient: LlmClient;
+  let llmClient: LlmRouter;
+  const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
   try {
-    const client = new OpenAICompatClient(chatConfig, embeddingsConfig, {
-      debug() {},
-      info() {},
-      warn() {},
-      error() {},
-    }, "heavy");
+    const client = new OpenAICompatRouter(chatConfig, chatConfig, embeddingsConfig, noopLogger);
     await client.probeConnections();
     llmClient = client;
   } catch {
@@ -1900,32 +1885,25 @@ test("article body generation uses streamChat (not chat) and emits progress even
   const ARTICLE_BODY = "# Streamed Article\n\nThis body was streamed chunk by chunk.";
   const framedOutput = `---body\n${ARTICLE_BODY}\n---used-refs\n[]`;
 
-  class StreamingBodyTracker implements LlmClient {
+  class StreamingBodyTracker implements LlmRouter {
     public streamChatCalled = false;
     public chatCalledForBody = false;
 
-    async chat(system: string, user: string): Promise<string> {
-      if ((system + user).includes("---body") || (system + user).includes("---halu-body")) {
-        this.chatCalledForBody = true;
-        return framedOutput;
-      }
-      if (system.includes("concise summary")) return "Summary of streamed article.";
+    async chat(_r: "heavy" | "light", _system: string, _user: string): Promise<string> {
       return JSON.stringify({ items: [] });
     }
 
     async streamChat(
+      _r: "heavy" | "light",
       _system: string,
       _user: string,
       onChunk: (delta: string, accumulated: string) => void,
     ): Promise<{ content: string; finishReason: string }> {
       this.streamChatCalled = true;
-      // Emit header then body in chunks so onProgress fires mid-stream
-      const header = "---body\n";
-      const footer = "\n---used-refs\n[]";
-      onChunk(header, header);
-      onChunk(ARTICLE_BODY, header + ARTICLE_BODY);
-      onChunk(footer, framedOutput);
-      return { content: framedOutput, finishReason: "stop" };
+      // Emit body in two chunks so onProgress fires mid-stream
+      onChunk(ARTICLE_BODY.slice(0, 20), ARTICLE_BODY.slice(0, 20));
+      onChunk(ARTICLE_BODY.slice(20), ARTICLE_BODY);
+      return { content: ARTICLE_BODY, finishReason: "stop" };
     }
 
     async embed(input: string[]): Promise<number[][]> {

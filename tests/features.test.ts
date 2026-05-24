@@ -24,7 +24,7 @@ import {
 import { loadConfig } from "../src/server/config";
 import { createApp, findSelectionRangeInMarkdown, ensureDykHasSourceLink } from "../src/server/index";
 import { normalizeHomepageFact } from "../src/server/dyk";
-import type { LlmClient } from "../src/server/llm";
+import type { LlmRouter } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
 import {
   renderMarkdown,
@@ -79,7 +79,7 @@ function seedArticle(
 
 async function createTestServer(
   databasePath: string,
-  llmClient?: LlmClient,
+  llmClient?: LlmRouter,
 ) {
   const { app, shutdown } = await createApp({
     databasePath,
@@ -100,10 +100,11 @@ function parseNdjson<T>(text: string): T[] {
 }
 
 // Returns the LLM output verbatim (for selection-edit testing)
-class EchoRewriteLlm implements LlmClient {
+class EchoRewriteLlm implements LlmRouter {
   constructor(private readonly response: string) {}
   async chat(): Promise<string> { return "{}"; }
   async streamChat(
+    _r: "heavy" | "light",
     _s: string,
     _u: string,
     onChunk: (delta: string, acc: string) => void,

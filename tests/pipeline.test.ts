@@ -37,7 +37,7 @@ import {
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
-import type { LlmClient } from "../src/server/llm";
+import type { LlmRouter } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
 import {
   extractInternalLinks,
@@ -112,10 +112,10 @@ function makeRef(slug: string, title: string, pinned = false): ReferenceList[num
   return { slug, title, content: `${title} content.`, kind: "summary", pinned, revisionId: "current" };
 }
 
-class EchoLlm implements LlmClient {
+class EchoLlm implements LlmRouter {
   constructor(private readonly response: string = "# Generated\n\nGenerated body.") {}
   async chat(): Promise<string> { return "[]"; }
-  async streamChat(_s: string, _u: string, onChunk: (d: string, a: string) => void) {
+  async streamChat(_r: "heavy" | "light", _s: string, _u: string, onChunk: (d: string, a: string) => void) {
     onChunk(this.response, this.response);
     return { content: this.response, finishReason: "stop" };
   }
@@ -128,28 +128,27 @@ class EchoLlm implements LlmClient {
  * output so the frame parser produces real article bodies, and JSON arrays
  * for prompts that expect structured output (see-also, summary).
  */
-class PipelineLlm implements LlmClient {
+class PipelineLlm implements LlmRouter {
   private readonly articleBody: string;
   constructor(opts: { articleBody?: string } = {}) {
     this.articleBody = opts.articleBody ??
       "# Test Article\n\nThis is a test article about the topic.\n\nIt has [multiple](halu:multiple \"multiple things\") paragraphs.";
   }
-  async chat(system: string, _u: string): Promise<string> {
+  async chat(_r: "heavy" | "light", system: string, user: string): Promise<string> {
     // Summary prompt → return a short summary string.
-    if (system.includes("summary") || _u.includes("summary_feedback")) {
+    if (system.includes("summary") || user.includes("summary_feedback")) {
       return "A brief test summary.";
     }
     // See-also prompt → return empty array.
-    if (_u.includes("already_used_section") || _u.includes("article_excerpt")) {
+    if (user.includes("already_used_section") || user.includes("article_excerpt")) {
       return "[]";
     }
     // Link repair → return context unchanged.
-    return _u;
+    return user;
   }
-  async streamChat(_s: string, _u: string, onChunk: (d: string, a: string) => void) {
-    const framed = `---body\n${this.articleBody}\n---used-refs\n[]`;
-    onChunk(framed, framed);
-    return { content: framed, finishReason: "stop" };
+  async streamChat(_r: "heavy" | "light", _s: string, _u: string, onChunk: (d: string, a: string) => void) {
+    onChunk(this.articleBody, this.articleBody);
+    return { content: this.articleBody, finishReason: "stop" };
   }
   async embed(): Promise<number[][]> { return []; }
   async probeConnections(): Promise<void> {}
@@ -998,7 +997,7 @@ async function readNdjsonDone(res: Response): Promise<Record<string, unknown>> {
   return {};
 }
 
-async function makeTestApp(databasePath: string, llm?: LlmClient) {
+async function makeTestApp(databasePath: string, llm?: LlmRouter) {
   const client = llm ?? new EchoLlm();
   const { app, shutdown } = await createApp({
     databasePath,

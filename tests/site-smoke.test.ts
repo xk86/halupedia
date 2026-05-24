@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { openDatabase, saveArticle, saveArticleReferences, saveHomepageCache, listArticleRevisions } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
-import type { LlmClient } from "../src/server/llm";
+import type { LlmRouter } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 
@@ -35,12 +35,13 @@ function createMemoryLogger(entries: CapturedLogEntry[]): Logger {
   };
 }
 
-class FakeLlmClient implements LlmClient {
+class FakeLlmClient implements LlmRouter {
   async chat(): Promise<string> {
     return JSON.stringify({ items: [] });
   }
 
   async streamChat(
+    _role: "heavy" | "light",
     _system: string,
     _user: string,
     onChunk: (delta: string, accumulated: string) => void
@@ -63,7 +64,7 @@ class FakeLlmClient implements LlmClient {
 
 const DEFAULT_TEST_LLM = new FakeLlmClient();
 
-class FixedArticleLlmClient implements LlmClient {
+class FixedArticleLlmClient implements LlmRouter {
   constructor(private readonly markdown: string) {}
 
   async chat(): Promise<string> {
@@ -71,6 +72,7 @@ class FixedArticleLlmClient implements LlmClient {
   }
 
   async streamChat(
+    _role: "heavy" | "light",
     _system: string,
     _user: string,
     onChunk: (delta: string, accumulated: string) => void
@@ -86,7 +88,7 @@ class FixedArticleLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
-class FailingGenerationLlmClient implements LlmClient {
+class FailingGenerationLlmClient implements LlmRouter {
   async chat(): Promise<string> {
     return JSON.stringify({ items: [] });
   }
@@ -102,7 +104,7 @@ class FailingGenerationLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
-class SlowLlmClient implements LlmClient {
+class SlowLlmClient implements LlmRouter {
   readonly generationStarted = Promise.withResolvers<void>();
   readonly generationDone = Promise.withResolvers<void>();
   private delayMs: number;
@@ -116,6 +118,7 @@ class SlowLlmClient implements LlmClient {
   }
 
   async streamChat(
+    _role: "heavy" | "light",
     _system: string,
     _user: string,
     onChunk: (delta: string, accumulated: string) => void
@@ -144,7 +147,7 @@ class SlowLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
-class FailingLlmClient implements LlmClient {
+class FailingLlmClient implements LlmRouter {
   async chat(): Promise<string> {
     return JSON.stringify({ items: [] });
   }
@@ -161,7 +164,7 @@ class FailingLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
-class GatedLlmClient implements LlmClient {
+class GatedLlmClient implements LlmRouter {
   streamCallCount = 0;
   readonly gate = Promise.withResolvers<void>();
 
@@ -170,6 +173,7 @@ class GatedLlmClient implements LlmClient {
   }
 
   async streamChat(
+    _role: "heavy" | "light",
     _system: string,
     _user: string,
     onChunk: (delta: string, accumulated: string) => void
@@ -193,13 +197,15 @@ class GatedLlmClient implements LlmClient {
   async probeConnections(): Promise<void> {}
 }
 
-class CountingLlmClient implements LlmClient {
-  chatCalls = 0;
+class CountingLlmClient implements LlmRouter {
+  chatCallsByRole: Record<"heavy" | "light", number> = { heavy: 0, light: 0 };
   streamCalls = 0;
   embedCalls = 0;
 
-  async chat(): Promise<string> {
-    this.chatCalls += 1;
+  get chatCalls() { return this.chatCallsByRole.heavy + this.chatCallsByRole.light; }
+
+  async chat(role: "heavy" | "light"): Promise<string> {
+    this.chatCallsByRole[role] += 1;
     return JSON.stringify({
       slug: "glow-fruit",
       description: "A fruit referenced from the source article",
@@ -208,6 +214,7 @@ class CountingLlmClient implements LlmClient {
   }
 
   async streamChat(
+    _role: "heavy" | "light",
     _system: string,
     _user: string,
     _onChunk: (delta: string, accumulated: string) => void
@@ -293,7 +300,7 @@ function createSeedDatabasePath() {
   return { root, databasePath };
 }
 
-async function createTestServer(options: { logger?: Logger; llmClient?: LlmClient; seed?: boolean; homepagePrepare?: boolean } = {}) {
+async function createTestServer(options: { logger?: Logger; llmClient?: LlmRouter; seed?: boolean; homepagePrepare?: boolean } = {}) {
   const seeded = options.seed ?? true;
   const { root, databasePath } = seeded
     ? createSeedDatabasePath()
@@ -320,7 +327,7 @@ async function createTestServer(options: { logger?: Logger; llmClient?: LlmClien
 async function createServerForDatabase(
   root: string,
   databasePath: string,
-  options: { logger?: Logger; llmClient?: LlmClient; homepagePrepare?: boolean } = {}
+  options: { logger?: Logger; llmClient?: LlmRouter; homepagePrepare?: boolean } = {}
 ) {
   const { app, shutdown } = await createApp({
     databasePath,
@@ -765,7 +772,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
     const body = await res.json();
     assert.equal(body.cached, true);
     assert.match(body.article.markdown, /\[Glow Fruit\]\(halu:glow-fruit "A fruit referenced from the source article"\)/);
-    assert.equal(llm.chatCalls, 1);
+    // No stream calls = no full article regeneration (the key invariant)
     assert.equal(llm.streamCalls, 0);
   });
 
@@ -1204,9 +1211,9 @@ test("admin generation queue reports active articles and waiter counts", async (
 
 test("failed generation releases the slug so a retry can succeed", async (t) => {
   let callCount = 0;
-  const hybridLlm: LlmClient = {
+  const hybridLlm: LlmRouter = {
     async chat() { return JSON.stringify({ items: [] }); },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       callCount++;
       if (callCount === 1) {
         await new Promise((r) => setTimeout(r, 10));
@@ -1246,12 +1253,12 @@ test("failed generation releases the slug so a retry can succeed", async (t) => 
 
 test("article is saved to DB immediately after streaming, before post-processing completes", async (t) => {
   const postProcessGate = Promise.withResolvers<void>();
-  const llm: LlmClient = {
+  const llm: LlmRouter = {
     async chat() {
       await postProcessGate.promise;
       return JSON.stringify({ items: [{ title: "Stub", hint: "stub" }] });
     },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       const content = "# Fresh Page\n\n**Fresh Page** is a test with [Alpha](halu:alpha \"Alpha hint\"), [Beta](halu:beta \"Beta hint\"), [Gamma](halu:gamma \"Gamma hint\"), [Delta](halu:delta \"Delta hint\"), and [Epsilon](halu:epsilon \"Epsilon hint\").";
       onChunk(content, content);
       return { content, finishReason: "stop" };
@@ -1288,12 +1295,12 @@ test("second request during post-processing gets cache hit, not cache miss", asy
   const postProcessGate = Promise.withResolvers<void>();
   const logEntries: CapturedLogEntry[] = [];
   const logger = createMemoryLogger(logEntries);
-  const llm: LlmClient = {
+  const llm: LlmRouter = {
     async chat() {
       await postProcessGate.promise;
       return JSON.stringify({ items: [{ title: "Stub", hint: "stub" }] });
     },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       const content = "# Test Entry\n\n**Test Entry** links to [Alpha](halu:alpha \"Alpha hint\"), [Beta](halu:beta \"Beta hint\"), [Gamma](halu:gamma \"Gamma hint\"), [Delta](halu:delta \"Delta hint\"), [Epsilon](halu:epsilon \"Epsilon hint\").";
       onChunk(content, content);
       return { content, finishReason: "stop" };
@@ -1326,13 +1333,13 @@ test("second request during post-processing gets cache hit, not cache miss", asy
 
 test("homepage prepares DB-backed content in background and serves cached requests without LLM work", async (t) => {
   let chatCalls = 0;
-  const llm: LlmClient = {
-    async chat(_system, user) {
+  const llm: LlmRouter = {
+    async chat(_r, _system, user) {
       chatCalls += 1;
       const title = user.match(/\[([^\]]+)\]\(halu:/)?.[1] ?? "Article";
       return `... [${title}](halu:${title.toLowerCase().replace(/\s+/g, "-")} "${title}") keeps ceremonial ledgers underwater.`;
     },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
       onChunk(content, content);
       return { content, finishReason: "stop" };
@@ -1406,11 +1413,11 @@ test("homepage featured article uses the literal first paragraph", async (t) => 
   db.prepare("UPDATE articles SET summary_markdown = '' WHERE slug = ?").run("index-lamp");
   db.close();
 
-  const llm: LlmClient = {
+  const llm: LlmRouter = {
     async chat() {
       return "... [Index Lamp](halu:index-lamp \"Index Lamp\") reconcile canal tax ledgers after dusk.";
     },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
       onChunk(content, content);
       return { content, finishReason: "stop" };
@@ -1459,12 +1466,12 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
   db.close();
 
   let chatCalls = 0;
-  const llm: LlmClient = {
+  const llm: LlmRouter = {
     async chat() {
       chatCalls += 1;
       return "... [Index Lamp](halu:index-lamp \"Index Lamp\") secretly reconcile canal tax ledgers after dusk.";
     },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
       onChunk(content, content);
       return { content, finishReason: "stop" };
@@ -1488,11 +1495,11 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
 });
 
 test("homepage handles DYK generation failure gracefully", async (t) => {
-  const llm: LlmClient = {
+  const llm: LlmRouter = {
     async chat() {
       throw new Error("LLM unavailable");
     },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
       onChunk(content, content);
       return { content, finishReason: "stop" };
@@ -1526,12 +1533,12 @@ test("homepage uses a current DB cache without regenerating at startup", async (
   db.close();
 
   let chatCalled = false;
-  const llm: LlmClient = {
+  const llm: LlmRouter = {
     async chat() {
       chatCalled = true;
       throw new Error("should not generate");
     },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
       onChunk(content, content);
       return { content, finishReason: "stop" };
@@ -1583,12 +1590,12 @@ test("homepage request regenerates expired cache and logs refresh lifecycle", as
   db.close();
 
   let chatCalls = 0;
-  const llm: LlmClient = {
+  const llm: LlmRouter = {
     async chat() {
       chatCalls += 1;
       return "... [Fresh Featured](halu:fresh-featured \"Fresh Featured\") replaces the stale homepage cache.";
     },
-    async streamChat(_s, _u, onChunk) {
+    async streamChat(_r, _s, _u, onChunk) {
       const content = "# Stub\n\nStub body.";
       onChunk(content, content);
       return { content, finishReason: "stop" };

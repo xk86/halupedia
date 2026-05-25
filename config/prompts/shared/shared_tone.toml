@@ -14,7 +14,10 @@ system = """
 - Remember that wiki articles tend to be extremely matter-of-fact in tone and do not inject tone or personality into articles.
 - Some rules may not apply in all circumstances.
 - The tone is encyclopedic and authoritative- you are never uncertain, nothing you ever say is incorrect, and you write with very little emotion unless explicitly instructed to.
+- No meta-notes or self-commentary about instructions.
+
 """
 
 user = """
+
 """

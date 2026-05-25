@@ -44,6 +44,11 @@ import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
 import { getPrompt, getSharedPrompt, stripJsonFences } from "../src/server/prompts";
 import { replaceTomlTripleQuoted } from "../src/server/promptEditor";
 import {
+  recordPromptRevision,
+  listPromptRevisions,
+  reconstructPromptRevision,
+} from "../src/server/db";
+import {
   slugify,
   slugToTitle,
   titleToWikiSegment,
@@ -1994,6 +1999,18 @@ test("normalizeMarkdownLinks: already-canonical ref slug is unchanged", () => {
   assert.match(result.markdown, /ref:the-american-trade-bloc/);
 });
 
+test("normalizeMarkdownLinks: ref link whose label is a ref-slug is rewritten to a human title", () => {
+  // [ref:public-transport](ref:public-transport) — label is a raw ref marker, not a title
+  const result = normalizeMarkdownLinks(`[ref:public-transport](ref:public-transport)`, "article");
+  assert.equal(result.markdown, `[Public Transport](ref:public-transport)`);
+});
+
+test("normalizeMarkdownLinks: ref link whose label is a plain slug is rewritten to a human title", () => {
+  // [public-transport](ref:public-transport) — label is a raw slug, not a title
+  const result = normalizeMarkdownLinks(`[public-transport](ref:public-transport)`, "article");
+  assert.equal(result.markdown, `[Public Transport](ref:public-transport)`);
+});
+
 // Slug metadata leakage stripping
 
 test("stripFootnoteArtifacts: strips Slug: metadata line from article body", () => {
@@ -2522,4 +2539,88 @@ test("replaceTomlTripleQuoted handles empty value", () => {
   const result = replaceTomlTripleQuoted(source, "system", "");
   assert.ok(result !== null);
   assert.ok(result!.includes('system = """\n\n"""'));
+});
+
+// ── Prompt revisions ─────────────────────────────────────────────────────────
+
+test("prompt revisions: save twice, list, reconstruct both prior states", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-prompt-rev-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const v0System = "You are a helpful assistant.";
+  const v0User = "Write a summary.";
+  const v1System = "You are an expert editor.";
+  const v1User = "Write a detailed summary.";
+  const v2System = "You are an expert editor. Be concise.";
+  const v2User = "Write a one-sentence summary.";
+
+  // First save: v0 → v1
+  const id1 = recordPromptRevision(db, "runnable", "article", v0System, v0User, v1System, v1User, "save");
+  assert.ok(id1 !== null, "first save should produce a revision id");
+
+  // Second save: v1 → v2
+  const id2 = recordPromptRevision(db, "runnable", "article", v1System, v1User, v2System, v2User, "save");
+  assert.ok(id2 !== null, "second save should produce a revision id");
+
+  const revisions = listPromptRevisions(db, "runnable", "article");
+  assert.equal(revisions.length, 2, "two revision rows");
+  assert.equal(revisions[0].source, "save");
+  assert.equal(revisions[1].source, "save");
+
+  // Reconstruct: disk is v2; revision id2 → pre-id2 state = v1
+  const atId2 = reconstructPromptRevision(db, "runnable", "article", id2!, v2System, v2User);
+  assert.ok(atId2 !== null);
+  assert.equal(atId2!.system, v1System, "reconstruct id2 should yield v1 system");
+  assert.equal(atId2!.user, v1User, "reconstruct id2 should yield v1 user");
+
+  // Reconstruct: revision id1 → pre-id1 state = v0
+  const atId1 = reconstructPromptRevision(db, "runnable", "article", id1!, v2System, v2User);
+  assert.ok(atId1 !== null);
+  assert.equal(atId1!.system, v0System, "reconstruct id1 should yield v0 system");
+  assert.equal(atId1!.user, v0User, "reconstruct id1 should yield v0 user");
+});
+
+test("prompt revisions: revert is recorded as its own revision and is itself undoable", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-prompt-revert-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const v0System = "Original system.";
+  const v0User = "Original user.";
+  const v1System = "Edited system.";
+  const v1User = "Edited user.";
+
+  // Save v0 → v1
+  const id1 = recordPromptRevision(db, "runnable", "article", v0System, v0User, v1System, v1User, "save");
+  assert.ok(id1 !== null);
+
+  // Revert: apply reverse patches to get v0, write to disk (simulate), then record revert row (v1 → v0)
+  const reverted = reconstructPromptRevision(db, "runnable", "article", id1!, v1System, v1User);
+  assert.ok(reverted !== null);
+  assert.equal(reverted!.system, v0System);
+
+  const id2 = recordPromptRevision(db, "runnable", "article", v1System, v1User, reverted!.system, reverted!.user, "revert", id1!);
+  assert.ok(id2 !== null);
+
+  const revisions = listPromptRevisions(db, "runnable", "article");
+  assert.equal(revisions.length, 2, "two revision rows after revert");
+  assert.equal(revisions[0].source, "revert", "newest row is the revert");
+  assert.equal(revisions[0].sourceRevisionId, id1, "revert row references original revision");
+
+  // The revert itself should be undoable: reconstruct id2 (pre-revert state = v1)
+  const undoneRevert = reconstructPromptRevision(db, "runnable", "article", id2!, v0System, v0User);
+  assert.ok(undoneRevert !== null);
+  assert.equal(undoneRevert!.system, v1System, "undoing the revert yields v1 system");
+  assert.equal(undoneRevert!.user, v1User, "undoing the revert yields v1 user");
+});
+
+test("prompt revisions: no-op save is skipped", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-prompt-noop-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const id = recordPromptRevision(db, "runnable", "article", "same", "same", "same", "same", "save");
+  assert.equal(id, null, "no-op save should return null and not insert a row");
+  assert.equal(listPromptRevisions(db, "runnable", "article").length, 0);
 });

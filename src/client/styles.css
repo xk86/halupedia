@@ -4019,3 +4019,62 @@ button.admin-danger-btn:hover:not(:disabled) {
 .admin-prompt-save-error {
   font-size: 0.8rem;
 }
+
+.admin-prompt-history {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.6rem;
+}
+
+.admin-prompt-history-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: 0.82rem var(--sans, sans-serif);
+  color: var(--ink-soft);
+  padding: 0;
+}
+
+.admin-prompt-history-toggle:hover {
+  color: var(--ink);
+}
+
+.admin-prompt-history-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.admin-prompt-history-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+}
+
+.admin-prompt-history-time {
+  color: var(--ink-soft);
+  font: 0.8rem var(--mono);
+}
+
+.admin-prompt-history-badge {
+  font-size: 0.72rem;
+  padding: 0.1em 0.45em;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.admin-prompt-history-badge--save {
+  background: var(--color-info-bg, #dbeafe);
+  color: var(--color-info, #1d4ed8);
+}
+
+.admin-prompt-history-badge--revert {
+  background: var(--color-warn-bg, #fff3cd);
+  color: var(--color-warn-text, #92400e);
+}

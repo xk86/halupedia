@@ -56,6 +56,9 @@ import {
   isArticleSectionProtected,
   setArticleSectionProtection,
   updateArticleTitle,
+  recordPromptRevision,
+  listPromptRevisions,
+  reconstructPromptRevision,
 } from "./db";
 import {
   findFuzzyTitleMatchesInEditText,
@@ -2349,7 +2352,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       slug: article.slug,
       requestedTitle: article.title,
       instructions,
-      pinnedSlugs: explicitSlugs,
+      pinnedSlugs: Array.from(pinnedSlugsSet),
+      userReferenceSlugs: explicitSlugs,
       blacklistSlugs: effectiveBlacklistSlugs,
       selectedText: selectedText || undefined,
       targetSectionId: sectionId || undefined,
@@ -2919,8 +2923,56 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
     }
+    const existing = readPromptFile(scope, key);
     const err = writePromptFile(scope, key, body.system, body.user);
     if (err) return c.json(err, 400);
+    if (existing) {
+      recordPromptRevision(db, scope, key, existing.system, existing.user, body.system, body.user, "save");
+    }
+    await reloadRuntime();
+    const updated = readPromptFile(scope, key);
+    return c.json({ ok: true, prompt: updated });
+  });
+
+  app.get("/api/admin/prompt/:scope/:key/revisions", (c) => {
+    const scope = c.req.param("scope");
+    if (scope !== "runnable" && scope !== "shared") {
+      return c.json({ error: "scope must be runnable or shared" }, 400);
+    }
+    const key = c.req.param("key");
+    return c.json({ revisions: listPromptRevisions(db, scope, key) });
+  });
+
+  app.get("/api/admin/prompt/:scope/:key/revisions/:id", (c) => {
+    const scope = c.req.param("scope");
+    if (scope !== "runnable" && scope !== "shared") {
+      return c.json({ error: "scope must be runnable or shared" }, 400);
+    }
+    const key = c.req.param("key");
+    const id = parseInt(c.req.param("id"), 10);
+    if (isNaN(id)) return c.json({ error: "invalid id" }, 400);
+    const current = readPromptFile(scope, key);
+    if (!current) return c.json({ error: "prompt not found" }, 404);
+    const result = reconstructPromptRevision(db, scope, key, id, current.system, current.user);
+    if (!result) return c.json({ error: "revision not found or patch failed" }, 404);
+    return c.json({ id, system: result.system, user: result.user });
+  });
+
+  app.post("/api/admin/prompt/:scope/:key/revisions/:id/revert", async (c) => {
+    const scope = c.req.param("scope");
+    if (scope !== "runnable" && scope !== "shared") {
+      return c.json({ error: "scope must be runnable or shared" }, 400);
+    }
+    const key = c.req.param("key");
+    const id = parseInt(c.req.param("id"), 10);
+    if (isNaN(id)) return c.json({ error: "invalid id" }, 400);
+    const current = readPromptFile(scope, key);
+    if (!current) return c.json({ error: "prompt not found" }, 404);
+    const target = reconstructPromptRevision(db, scope, key, id, current.system, current.user);
+    if (!target) return c.json({ error: "revision not found or patch failed" }, 404);
+    const err = writePromptFile(scope, key, target.system, target.user);
+    if (err) return c.json(err, 400);
+    recordPromptRevision(db, scope, key, current.system, current.user, target.system, target.user, "revert", id);
     await reloadRuntime();
     const updated = readPromptFile(scope, key);
     return c.json({ ok: true, prompt: updated });

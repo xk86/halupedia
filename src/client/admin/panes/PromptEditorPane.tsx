@@ -21,6 +21,15 @@ interface PromptList {
   shared: PromptMeta[];
 }
 
+interface PromptRevision {
+  id: number;
+  scope: string;
+  key: string;
+  createdAt: number;
+  source: string;
+  sourceRevisionId: number | null;
+}
+
 export function PromptEditorPane() {
   const [promptList, setPromptList] = useState<PromptList | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -34,6 +43,12 @@ export function PromptEditorPane() {
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const baselineRef = useRef<{ system: string; user: string } | null>(null);
+
+  const [revisions, setRevisions] = useState<PromptRevision[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [previewingId, setPreviewingId] = useState<number | null>(null);
+  const [revertingId, setRevertingId] = useState<number | null>(null);
+  const [revertError, setRevertError] = useState<string | null>(null);
 
   const isDirty =
     baselineRef.current !== null &&
@@ -52,11 +67,25 @@ export function PromptEditorPane() {
 
   useEffect(() => { loadList(); }, [loadList]);
 
+  const loadRevisions = useCallback(async (scope: string, key: string) => {
+    try {
+      const res = await fetch(`/api/admin/prompt/${scope}/${key}/revisions`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setRevisions(data.revisions ?? []);
+    } catch {
+      // history is non-critical
+    }
+  }, []);
+
   const loadContent = useCallback(async (scope: "runnable" | "shared", key: string) => {
     setLoading(true);
     setLoadError(null);
     setSaveMsg(null);
     setSaveError(null);
+    setPreviewingId(null);
+    setRevertError(null);
+    setRevisions([]);
     try {
       const res = await fetch(`/api/admin/prompt/${scope}/${key}`);
       if (!res.ok) throw new Error(`error ${res.status}`);
@@ -71,7 +100,8 @@ export function PromptEditorPane() {
     } finally {
       setLoading(false);
     }
-  }, []);
+    loadRevisions(scope, key);
+  }, [loadRevisions]);
 
   const handleSelect = useCallback((value: string) => {
     if (!value) { setSelected(null); setContent(null); return; }
@@ -97,13 +127,15 @@ export function PromptEditorPane() {
       if (!res.ok) { setSaveError(data?.error ?? `error ${res.status}`); return; }
       setSaveMsg("Saved — runtime reloaded.");
       baselineRef.current = { system, user };
+      setPreviewingId(null);
       if (data.prompt) setContent(data.prompt);
+      loadRevisions(selected.scope, selected.key);
     } catch (err: any) {
       setSaveError(err?.message ?? "save failed");
     } finally {
       setSaving(false);
     }
-  }, [selected, system, user]);
+  }, [selected, system, user, loadRevisions]);
 
   const handleReset = useCallback(() => {
     if (!baselineRef.current) return;
@@ -111,6 +143,7 @@ export function PromptEditorPane() {
     setUser(baselineRef.current.user);
     setSaveMsg(null);
     setSaveError(null);
+    setPreviewingId(null);
   }, []);
 
   const handleReload = useCallback(() => {
@@ -118,12 +151,56 @@ export function PromptEditorPane() {
     loadContent(selected.scope, selected.key);
   }, [selected, loadContent]);
 
+  const handlePreview = useCallback(async (id: number) => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`/api/admin/prompt/${selected.scope}/${selected.key}/revisions/${id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setSystem(data.system);
+      setUser(data.user);
+      setPreviewingId(id);
+      setSaveMsg(null);
+      setSaveError(null);
+    } catch {
+      // ignore
+    }
+  }, [selected]);
+
+  const handleRevert = useCallback(async (id: number) => {
+    if (!selected) return;
+    setRevertingId(id);
+    setRevertError(null);
+    try {
+      const res = await fetch(`/api/admin/prompt/${selected.scope}/${selected.key}/revisions/${id}/revert`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setRevertError(data?.error ?? `error ${res.status}`); return; }
+      setSaveMsg("Reverted — runtime reloaded.");
+      setPreviewingId(null);
+      if (data.prompt) {
+        const p: PromptContent = data.prompt;
+        setContent(p);
+        setSystem(p.system);
+        setUser(p.user);
+        baselineRef.current = { system: p.system, user: p.user };
+      }
+      loadRevisions(selected.scope, selected.key);
+    } catch (err: any) {
+      setRevertError(err?.message ?? "revert failed");
+    } finally {
+      setRevertingId(null);
+    }
+  }, [selected, loadRevisions]);
+
   const allPrompts: Array<{ scope: "runnable" | "shared"; key: string }> = promptList
     ? [
         ...promptList.runnable.map((p) => ({ scope: "runnable" as const, key: p.key })),
         ...promptList.shared.map((p) => ({ scope: "shared" as const, key: p.key })),
       ]
     : [];
+  void allPrompts;
 
   return (
     <Pane id="prompt-editor" title="Prompt Editor" wide defaultCollapsed>
@@ -186,7 +263,7 @@ export function PromptEditorPane() {
               <textarea
                 className="admin-prompt-textarea"
                 value={system}
-                onChange={(e) => { setSystem(e.target.value); setSaveMsg(null); }}
+                onChange={(e) => { setSystem(e.target.value); setSaveMsg(null); setPreviewingId(null); }}
                 spellCheck={false}
                 rows={14}
               />
@@ -197,7 +274,7 @@ export function PromptEditorPane() {
               <textarea
                 className="admin-prompt-textarea"
                 value={user}
-                onChange={(e) => { setUser(e.target.value); setSaveMsg(null); }}
+                onChange={(e) => { setUser(e.target.value); setSaveMsg(null); setPreviewingId(null); }}
                 spellCheck={false}
                 rows={8}
               />
@@ -220,10 +297,55 @@ export function PromptEditorPane() {
               >
                 Reset
               </button>
-              {isDirty && <span className="admin-prompt-dirty">unsaved changes</span>}
+              {isDirty && <span className="admin-prompt-dirty">
+                {previewingId !== null ? `previewing revision #${previewingId} — save to apply` : "unsaved changes"}
+              </span>}
               {saveMsg && <span className="admin-prompt-saved">{saveMsg}</span>}
               {saveError && <span className="search-error admin-prompt-save-error">{saveError}</span>}
             </div>
+
+            {revisions.length > 0 && (
+              <div className="admin-prompt-history">
+                <button
+                  className="admin-prompt-history-toggle"
+                  type="button"
+                  onClick={() => setHistoryOpen((o) => !o)}
+                >
+                  {historyOpen ? "▾" : "▸"} History ({revisions.length})
+                </button>
+                {historyOpen && (
+                  <ul className="admin-prompt-history-list">
+                    {revisions.map((rev) => (
+                      <li key={rev.id} className="admin-prompt-history-row">
+                        <span className="admin-prompt-history-time">
+                          {new Date(rev.createdAt).toLocaleString()}
+                        </span>
+                        <span className={`admin-prompt-history-badge admin-prompt-history-badge--${rev.source}`}>
+                          {rev.source}
+                        </span>
+                        <button
+                          className="admin-btn"
+                          type="button"
+                          onClick={() => handlePreview(rev.id)}
+                          disabled={previewingId === rev.id}
+                        >
+                          {previewingId === rev.id ? "Previewing" : "Preview"}
+                        </button>
+                        <button
+                          className="admin-btn"
+                          type="button"
+                          onClick={() => handleRevert(rev.id)}
+                          disabled={revertingId === rev.id}
+                        >
+                          {revertingId === rev.id ? "Reverting…" : "Revert"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {revertError && <p className="search-error" style={{ marginTop: "0.4rem" }}>{revertError}</p>}
+              </div>
+            )}
           </>
         )}
       </div>

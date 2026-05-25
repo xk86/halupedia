@@ -71,8 +71,17 @@ function emptyStats(): LinkStats {
   };
 }
 
+function isSlugLikeLabel(label: string): boolean {
+  // Label is a raw slug or a ref:/halu: marker — not a human-readable title.
+  if (/^(ref|halu):/i.test(label)) return true;
+  if (/^[a-z0-9][a-z0-9-]*$/.test(label) && label.includes("-")) return true;
+  return false;
+}
+
 function displayLabel(link: ParsedMarkdownLink): string {
-  return link.label.trim() || (link.slug ? slugToTitle(link.slug) : "");
+  const label = link.label.trim();
+  if (!label || isSlugLikeLabel(label)) return link.slug ? slugToTitle(link.slug) : "";
+  return label;
 }
 
 function fallbackHint(link: ParsedMarkdownLink): string {

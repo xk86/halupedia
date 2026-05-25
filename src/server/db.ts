@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import type { ArticleRecord, ArticleRevision, BacklinkItem, DisambiguationEntry, HomepagePayload, ParsedInternalLink } from "./types";
 import { summaryMarkdownFromArticle } from "./markdown";
 import { slugify } from "./slug";
+import { makeReversePatch, applyPatch } from "./promptDiff";
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -190,6 +191,20 @@ export function openDatabase(databasePath: string): DatabaseSync {
       generated_at INTEGER NOT NULL,
       reason TEXT NOT NULL DEFAULT ''
     );
+
+    CREATE TABLE IF NOT EXISTS prompt_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope TEXT NOT NULL,
+      key TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      system_reverse_patch TEXT NOT NULL,
+      user_reverse_patch TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'save',
+      source_revision_id INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_prompt_revisions_key
+      ON prompt_revisions(scope, key, created_at DESC, id DESC);
   `);
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {
@@ -1409,4 +1424,97 @@ export function setArticleSectionProtection(
 export function updateArticleTitle(db: DatabaseSync, slug: string, title: string): ArticleRecord | null {
   db.prepare(`UPDATE articles SET title = ? WHERE slug = ?`).run(title, slug);
   return getArticle(db, slug);
+}
+
+// ── Prompt revisions ─────────────────────────────────────────────────────────
+
+export interface PromptRevisionRow {
+  id: number;
+  scope: string;
+  key: string;
+  createdAt: number;
+  source: string;
+  sourceRevisionId: number | null;
+}
+
+/**
+ * Records a save transition. Stores reverse patches so the pre-save state can
+ * be reconstructed later. Skips insertion when nothing changed.
+ * Returns the new revision id, or null if skipped.
+ */
+export function recordPromptRevision(
+  db: DatabaseSync,
+  scope: string,
+  key: string,
+  oldSystem: string,
+  oldUser: string,
+  newSystem: string,
+  newUser: string,
+  source: "save" | "revert",
+  sourceRevisionId?: number,
+): number | null {
+  const systemPatch = makeReversePatch(oldSystem, newSystem);
+  const userPatch = makeReversePatch(oldUser, newUser);
+  if (!systemPatch && !userPatch) return null;
+  const result = db
+    .prepare(
+      `INSERT INTO prompt_revisions (scope, key, created_at, system_reverse_patch, user_reverse_patch, source, source_revision_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(scope, key, Date.now(), systemPatch, userPatch, source, sourceRevisionId ?? null);
+  return result.lastInsertRowid as number;
+}
+
+/** Returns all revisions for a prompt newest-first. */
+export function listPromptRevisions(
+  db: DatabaseSync,
+  scope: string,
+  key: string,
+): PromptRevisionRow[] {
+  return db
+    .prepare(
+      `SELECT id, scope, key,
+              created_at AS createdAt,
+              source,
+              source_revision_id AS sourceRevisionId
+       FROM prompt_revisions
+       WHERE scope = ? AND key = ?
+       ORDER BY created_at DESC, id DESC`,
+    )
+    .all(scope, key) as unknown as PromptRevisionRow[];
+}
+
+/**
+ * Reconstructs the content that existed just before revision `targetId` was
+ * saved, by walking backwards from the current disk state.
+ * Returns null if the revision is not found or a patch fails to apply.
+ */
+export function reconstructPromptRevision(
+  db: DatabaseSync,
+  scope: string,
+  key: string,
+  targetId: number,
+  currentSystem: string,
+  currentUser: string,
+): { system: string; user: string } | null {
+  const rows = db
+    .prepare(
+      `SELECT id, system_reverse_patch AS systemPatch, user_reverse_patch AS userPatch
+       FROM prompt_revisions
+       WHERE scope = ? AND key = ?
+       ORDER BY created_at DESC, id DESC`,
+    )
+    .all(scope, key) as Array<{ id: number; systemPatch: string; userPatch: string }>;
+
+  let system = currentSystem;
+  let user = currentUser;
+  for (const row of rows) {
+    const nextSystem = applyPatch(row.systemPatch, system);
+    const nextUser = applyPatch(row.userPatch, user);
+    if (nextSystem === null || nextUser === null) return null;
+    system = nextSystem;
+    user = nextUser;
+    if (row.id === targetId) return { system, user };
+  }
+  return null;
 }

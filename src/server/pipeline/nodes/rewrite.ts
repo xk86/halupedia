@@ -144,7 +144,7 @@ export const retrieveContextForRewriteNode = defineNode({
     const useEmbeddings = rag.enabled && deps.runtime.llm.embeddings.enabled;
 
     // Decode rewrite-specific options from instructions encoding.
-    const explicitSlugs = (input.pinnedSlugs ?? []);
+    const explicitSlugs = [...(input.pinnedSlugs ?? []), ...(input.userReferenceSlugs ?? [])];
     const ragEnabled = input.ragEnabled === true;
     const ragQuery = input.ragQuery ?? "";
     const instructionsText = input.instructions ?? "";
@@ -254,8 +254,8 @@ export const buildRewriteReferenceListNode = defineNode({
     const slug = slugify(input.slug ?? "");
     if (!slug) return { references: [] };
 
-    const explicitSlugs = (input.pinnedSlugs ?? []).map(slugify).filter(Boolean);
-    const pinnedSet = new Set(explicitSlugs);
+    const pinnedSet = new Set((input.pinnedSlugs ?? []).map(slugify).filter(Boolean));
+    const explicitSlugs = [...(input.pinnedSlugs ?? []), ...(input.userReferenceSlugs ?? [])].map(slugify).filter(Boolean);
     const blacklistSlugs = (input.blacklistSlugs ?? []).map(slugify).filter(Boolean);
     const isPartial = !!(selectionRange || sectionId);
     const priorRefs = loadPriorReferenceList(deps.db, slug) ?? [];

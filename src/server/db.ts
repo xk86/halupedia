@@ -205,6 +205,18 @@ export function openDatabase(databasePath: string): DatabaseSync {
 
     CREATE INDEX IF NOT EXISTS idx_prompt_revisions_key
       ON prompt_revisions(scope, key, created_at DESC, id DESC);
+
+    -- Authoritative current content for each prompt. TOML files are derived
+    -- from this table; edits made directly to TOML are ingested into this
+    -- table on startup so the DB always reflects the latest state.
+    CREATE TABLE IF NOT EXISTS prompt_current (
+      scope TEXT NOT NULL,
+      key TEXT NOT NULL,
+      system TEXT NOT NULL DEFAULT '',
+      user TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (scope, key)
+    );
   `);
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {
@@ -1450,7 +1462,7 @@ export function recordPromptRevision(
   oldUser: string,
   newSystem: string,
   newUser: string,
-  source: "save" | "revert",
+  source: "save" | "revert" | "startup",
   sourceRevisionId?: number,
 ): number | null {
   const systemPatch = makeReversePatch(oldSystem, newSystem);
@@ -1517,4 +1529,42 @@ export function reconstructPromptRevision(
     if (row.id === targetId) return { system, user };
   }
   return null;
+}
+
+// ── Prompt current content ────────────────────────────────────────────────────
+
+export function getPromptCurrent(
+  db: DatabaseSync,
+  scope: string,
+  key: string,
+): { system: string; user: string } | null {
+  const row = db
+    .prepare(`SELECT system, user FROM prompt_current WHERE scope = ? AND key = ?`)
+    .get(scope, key) as { system: string; user: string } | undefined;
+  return row ?? null;
+}
+
+export function setPromptCurrent(
+  db: DatabaseSync,
+  scope: string,
+  key: string,
+  system: string,
+  user: string,
+): void {
+  db.prepare(
+    `INSERT INTO prompt_current (scope, key, system, user, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(scope, key) DO UPDATE SET
+       system = excluded.system,
+       user = excluded.user,
+       updated_at = excluded.updated_at`,
+  ).run(scope, key, system, user, Date.now());
+}
+
+export function listAllPromptCurrents(
+  db: DatabaseSync,
+): Array<{ scope: string; key: string; system: string; user: string }> {
+  return db
+    .prepare(`SELECT scope, key, system, user FROM prompt_current`)
+    .all() as unknown as Array<{ scope: string; key: string; system: string; user: string }>;
 }

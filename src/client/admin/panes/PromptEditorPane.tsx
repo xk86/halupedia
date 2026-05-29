@@ -232,7 +232,7 @@ export function PromptEditorPane() {
           </select>
           {selected && (
             <button className="admin-btn" type="button" onClick={handleReload} disabled={loading}>
-              Reload from disk
+              Reload
             </button>
           )}
         </div>

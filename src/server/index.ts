@@ -59,6 +59,9 @@ import {
   recordPromptRevision,
   listPromptRevisions,
   reconstructPromptRevision,
+  getPromptCurrent,
+  setPromptCurrent,
+  listAllPromptCurrents,
 } from "./db";
 import {
   findFuzzyTitleMatchesInEditText,
@@ -800,6 +803,39 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
   const db = openDatabase(runtime.app.storage.database_path);
+
+  // Startup sync: ingest any TOML edits made outside the UI into DB, and write
+  // TOML for any DB-current entries whose files are missing.
+  {
+    const { runnable, shared } = listPromptFiles();
+    const tomlKeys = new Set<string>();
+    for (const { scope, key } of [
+      ...runnable.map((p) => ({ scope: "runnable" as const, key: p.key })),
+      ...shared.map((p) => ({ scope: "shared" as const, key: p.key })),
+    ]) {
+      tomlKeys.add(`${scope}:${key}`);
+      const file = readPromptFile(scope, key);
+      if (!file) continue;
+      const dbCurrent = getPromptCurrent(db, scope, key);
+      if (!dbCurrent) {
+        // First time seeing this prompt — seed DB from TOML.
+        setPromptCurrent(db, scope, key, file.system, file.user);
+      } else if (dbCurrent.system !== file.system || dbCurrent.user !== file.user) {
+        // TOML was edited directly — ingest into DB as a recorded change.
+        recordPromptRevision(db, scope, key, dbCurrent.system, dbCurrent.user, file.system, file.user, "startup");
+        setPromptCurrent(db, scope, key, file.system, file.user);
+        logger.info("prompt.startup_ingest", { scope, key });
+      }
+    }
+    // For DB entries whose TOML file is missing, recreate it.
+    for (const { scope: rawScope, key, system, user } of listAllPromptCurrents(db)) {
+      if (tomlKeys.has(`${rawScope}:${key}`)) continue;
+      const scope = rawScope as "runnable" | "shared";
+      const err = writePromptFile(scope, key, system, user);
+      if (!err) logger.info("prompt.startup_restore_toml", { scope, key });
+    }
+  }
+
   let llm: LlmRouter =
     options.llmClient ??
     new OpenAICompatRouter(
@@ -2857,6 +2893,30 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({ ok: true, sourceSlug, canonicalSlug, archived: displaced ? displaced.slug : null });
   });
 
+  // ── Database backup download ──────────────────────────────────────────────
+
+  app.get("/api/admin/db-backup/latest", async (c) => {
+    const dbPath = resolve(process.cwd(), runtime.app.storage.database_path);
+    const backupDir = dirname(dbPath);
+    const prefix = basename(dbPath) + ".backup-";
+    if (!existsSync(backupDir)) return c.json({ error: "no backups found" }, 404);
+    const latest = readdirSync(backupDir)
+      .filter((f) => f.startsWith(prefix) && f.endsWith(".gz"))
+      .sort()
+      .reverse()[0];
+    if (!latest) return c.json({ error: "no backups found" }, 404);
+    const latestPath = resolve(backupDir, latest);
+    const { size } = await fsStat(latestPath);
+    const stream = (await import("node:fs")).createReadStream(latestPath);
+    return new Response(stream as any, {
+      headers: {
+        "Content-Type": "application/gzip",
+        "Content-Disposition": `attachment; filename="${latest}"`,
+        "Content-Length": String(size),
+      },
+    });
+  });
+
   // ── Archived articles ─────────────────────────────────────────────────────
 
   app.get("/api/admin/archived", (c) => {
@@ -2908,9 +2968,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       return c.json({ error: "scope must be runnable or shared" }, 400);
     }
     const key = c.req.param("key");
-    const prompt = readPromptFile(scope, key);
-    if (!prompt) return c.json({ error: "prompt not found" }, 404);
-    return c.json(prompt);
+    const meta = readPromptFile(scope, key);
+    if (!meta) return c.json({ error: "prompt not found" }, 404);
+    // DB is authoritative for content; TOML file provides metadata (model, thinking, etc.)
+    const dbCurrent = getPromptCurrent(db, scope, key);
+    return c.json({ ...meta, ...(dbCurrent ?? {}) });
   });
 
   app.put("/api/admin/prompt/:scope/:key", async (c) => {
@@ -2923,15 +2985,17 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
     }
-    const existing = readPromptFile(scope, key);
+    const existing = getPromptCurrent(db, scope, key) ?? readPromptFile(scope, key);
+    // Write TOML first so writePromptFile can verify the file exists.
     const err = writePromptFile(scope, key, body.system, body.user);
     if (err) return c.json(err, 400);
     if (existing) {
       recordPromptRevision(db, scope, key, existing.system, existing.user, body.system, body.user, "save");
     }
+    setPromptCurrent(db, scope, key, body.system, body.user);
     await reloadRuntime();
-    const updated = readPromptFile(scope, key);
-    return c.json({ ok: true, prompt: updated });
+    const meta = readPromptFile(scope, key);
+    return c.json({ ok: true, prompt: meta ? { ...meta, system: body.system, user: body.user } : null });
   });
 
   app.get("/api/admin/prompt/:scope/:key/revisions", (c) => {
@@ -2951,7 +3015,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const key = c.req.param("key");
     const id = parseInt(c.req.param("id"), 10);
     if (isNaN(id)) return c.json({ error: "invalid id" }, 400);
-    const current = readPromptFile(scope, key);
+    const current = getPromptCurrent(db, scope, key) ?? readPromptFile(scope, key);
     if (!current) return c.json({ error: "prompt not found" }, 404);
     const result = reconstructPromptRevision(db, scope, key, id, current.system, current.user);
     if (!result) return c.json({ error: "revision not found or patch failed" }, 404);
@@ -2966,16 +3030,17 @@ export async function createApp(options: CreateAppOptions = {}) {
     const key = c.req.param("key");
     const id = parseInt(c.req.param("id"), 10);
     if (isNaN(id)) return c.json({ error: "invalid id" }, 400);
-    const current = readPromptFile(scope, key);
+    const current = getPromptCurrent(db, scope, key) ?? readPromptFile(scope, key);
     if (!current) return c.json({ error: "prompt not found" }, 404);
     const target = reconstructPromptRevision(db, scope, key, id, current.system, current.user);
     if (!target) return c.json({ error: "revision not found or patch failed" }, 404);
     const err = writePromptFile(scope, key, target.system, target.user);
     if (err) return c.json(err, 400);
     recordPromptRevision(db, scope, key, current.system, current.user, target.system, target.user, "revert", id);
+    setPromptCurrent(db, scope, key, target.system, target.user);
     await reloadRuntime();
-    const updated = readPromptFile(scope, key);
-    return c.json({ ok: true, prompt: updated });
+    const meta = readPromptFile(scope, key);
+    return c.json({ ok: true, prompt: meta ? { ...meta, system: target.system, user: target.user } : null });
   });
 
   app.post("/api/disambiguation", async (c) => {

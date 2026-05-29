@@ -878,6 +878,12 @@ button.admin-danger-btn:hover:not(:disabled) {
   margin: 2rem 0;
 }
 
+.article img {
+  max-width: calc(100% - 2rem);
+  height: auto;
+  margin: 1.25rem 1rem;
+}
+
 ::selection {
   background: var(--selection-bg);
 }

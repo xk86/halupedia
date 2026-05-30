@@ -9,17 +9,18 @@ Constraints:
 - Return only one fact.
 - Give one fun fact from the article that completes the sentence "Did you know...".
 - Do not include "Did you know" in your response.
-- Start your completion with "... ".
+- Your response MUST start with "... that".
 - End the fact with a question mark.
-- Include the provided Markdown link naturally in the fact.
+- The provided Markdown link MUST appear as the grammatical subject of the sentence, embedded within the text — not prepended before it with a colon. The link IS the topic being discussed.
+- Good example: "... that [Silken worms](link) produce silk with a metallic sheen that defies spider silk classifications?"
+- Bad example: "[Silken worms](link): that the silk has a metallic sheen?"
 - Preserve the Markdown link exactly as provided.
 - Facts should highlight a surprising, amusing, or absurd detail from the article.
 - Prefer specific, concrete claims over vague descriptions.
 - Keep the fact under 220 characters.
 - Do not add headings, bullets, JSON, code fences, commentary, or extra facts.
 - Do not link to any thing other than the one single link provided as "Article link".
-- Maintain the confident, matter-of-factual encyclopedic tone, staying true to the information presented in the article.
-- Optionally, your response should start with "... that", or any other word that makes sense to complete the sentence "Did you know..." """
+- Maintain the confident, matter-of-factual encyclopedic tone, staying true to the information presented in the article. """
 
 user = """
 Article link:

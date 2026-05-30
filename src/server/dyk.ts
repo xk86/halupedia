@@ -48,10 +48,39 @@ export function ensureDykHasSourceLink(
   if (hasSourceLink) return normalized;
 
   const sourceLink = buildHaluLink(title, sourceSlug, title);
-  if (fact.startsWith("... ")) {
-    return `... ${sourceLink}: ${normalized.slice("... ".length)}`;
+
+  // Try to wrap the first unlinked occurrence of the title in the text.
+  const titleEscaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const titlePattern = new RegExp(
+    `(?<![\\p{L}\\p{N}])(${titleEscaped})(?![\\p{L}\\p{N}])`,
+    "iu",
+  );
+  const existingLinkRanges = parseMarkdownLinks(normalized).links.map((l) => ({
+    start: l.start,
+    end: l.end,
+  }));
+  const titleMatch = titlePattern.exec(normalized);
+  if (
+    titleMatch &&
+    !existingLinkRanges.some(
+      (r) => titleMatch.index >= r.start && titleMatch.index < r.end,
+    )
+  ) {
+    return (
+      normalized.slice(0, titleMatch.index) +
+      buildHaluLink(title, sourceSlug, title) +
+      normalized.slice(titleMatch.index + titleMatch[0].length)
+    );
   }
-  return `${sourceLink} - ${normalized}`;
+
+  // Title not in text — restructure as "... that [Title] — rest of fact?"
+  // so the link is always the grammatical subject, never prepended with a colon.
+  const stripped = normalized
+    .replace(/^\.\.\.\s*that\s+/i, "")
+    .replace(/^\.\.\.\s*/i, "")
+    .replace(/[.?!\s]+$/, "")
+    .trim();
+  return `... that ${sourceLink} — ${stripped}?`;
 }
 
 export function normalizeHomepageFact(raw: string): string {
@@ -60,9 +89,11 @@ export function normalizeHomepageFact(raw: string): string {
     .replace(/\s+/g, " ")
     .trim();
   fact = fact.replace(/^did you know(?:\.\.\.|\s+that|\s*)/i, "");
+  fact = fact.replace(/^\.\.\.\s*/i, "");
+  fact = fact.replace(/^that\s+/i, "");
   fact = fact.replace(/^[.?!\s]+/, "");
   fact = fact.replace(/[.?!\s]+$/, "");
-  return fact ? `... ${fact}?` : "";
+  return fact ? `... that ${fact}?` : "";
 }
 
 export async function generateDidYouKnowFact(

@@ -2143,7 +2143,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const newMarkdown = updated.markdown.replace(/^#\s+.+?$/m, `# ${newTitle}`);
     const links = extractInternalLinks(newMarkdown);
     const newHtml = renderMarkdown(newMarkdown);
-    db.prepare(`UPDATE articles SET markdown = ?, html = ?, plain_text = ? WHERE slug = ?`)
+    db.prepare(`UPDATE articles SET markdown = ?, html = ?, plain_text = ?, display_title = '' WHERE slug = ?`)
       .run(newMarkdown, newHtml, markdownToPlainText(newMarkdown), article.slug);
     // Save revision
     db.prepare(
@@ -3120,6 +3120,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/search", (c) => {
     const q = (c.req.query("q") ?? "").trim().slice(0, 100);
+    const offset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
     if (!q) {
       const random = getRandomSuggestions(db, 5).map((r) => ({
         slug: r.slug,
@@ -3134,24 +3135,26 @@ export async function createApp(options: CreateAppOptions = {}) {
         hallucinated_count: 0,
         rate_limited: false,
         retry_after: null,
+        has_more: false,
       });
     }
 
-    const results = searchCorpus(db, q, runtime.app.search.limit).map(
-      (item) => ({
-        slug: item.canonicalSlug,
-        title: item.title === item.slug ? slugToTitle(item.slug) : item.title,
-        summary: item.summary,
-        exists: Boolean(item.existsFlag),
-      }),
-    );
+    const { results: rawResults, hasMore } = searchCorpus(db, q, runtime.app.search.limit, offset);
+    const results = rawResults.map((item) => ({
+      slug: item.canonicalSlug,
+      title: item.title === item.slug ? slugToTitle(item.slug) : item.title,
+      summary: item.summary,
+      exists: Boolean(item.existsFlag),
+    }));
 
     const resultSlugs = results.map((r) => r.slug);
-    const random = getRandomSuggestions(db, 5, resultSlugs).map((r) => ({
-      slug: r.slug,
-      title: r.title,
-      summary: r.summaryMarkdown?.trim() || summaryMarkdownFromArticle(r.markdown),
-    }));
+    const random = offset === 0
+      ? getRandomSuggestions(db, 5, resultSlugs).map((r) => ({
+          slug: r.slug,
+          title: r.title,
+          summary: r.summaryMarkdown?.trim() || summaryMarkdownFromArticle(r.markdown),
+        }))
+      : [];
 
     return c.json({
       query: q,
@@ -3161,6 +3164,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       hallucinated_count: results.filter((item) => !item.exists).length,
       rate_limited: false,
       retry_after: null,
+      has_more: hasMore,
     });
   });
 

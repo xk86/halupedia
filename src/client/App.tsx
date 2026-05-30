@@ -1508,8 +1508,21 @@ export function App() {
                     });
                     const data = await res.json() as any;
                     if (!res.ok) { setEditTitleError(data.error ?? "Failed to update title"); return; }
-                    setPage(data);
                     setEditTitleDraft("");
+                    // Navigate to the new canonical path so the page re-fetches with the updated title.
+                    if (data.canonicalPath) {
+                      const target = route.kind === "history"
+                        ? `${data.canonicalPath}/history`
+                        : data.canonicalPath;
+                      const clean = target.replace(/^\/wiki\//, "").replace(/\/history$/, "");
+                      if (route.kind === "history") {
+                        navigateToHistory(clean);
+                      } else {
+                        navigateToArticle(clean);
+                      }
+                    } else {
+                      setPage(data);
+                    }
                   } catch {
                     setEditTitleError("Network error");
                   } finally {
@@ -2085,14 +2098,16 @@ export function App() {
         </form>
       </header>
 
-      <section className="layout">
+      <section className={`layout${route.kind === "graph" ? " layout--graph" : ""}`}>
         <main className="layout-main">{mainView}</main>
-        <Sidebar
-          articleSlug={articleSlug}
-          articleTitle={articleTitle}
-          backlinks={page?.backlinks ?? null}
-          onNavigate={navigateToArticle}
-        />
+        {route.kind !== "graph" && (
+          <Sidebar
+            articleSlug={articleSlug}
+            articleTitle={articleTitle}
+            backlinks={page?.backlinks ?? null}
+            onNavigate={navigateToArticle}
+          />
+        )}
       </section>
 
       {linkMenu ? (

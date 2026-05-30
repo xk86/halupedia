@@ -16,6 +16,7 @@ export function openDatabase(databasePath: string): DatabaseSync {
   mkdirSync(dirname(absolutePath), { recursive: true });
   const db = new DatabaseSync(absolutePath);
   db.exec("PRAGMA journal_mode = WAL;");
+  db.exec("PRAGMA busy_timeout = 5000;");
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(`
     CREATE TABLE IF NOT EXISTS articles (
@@ -951,9 +952,13 @@ export function listArticles(db: DatabaseSync, offset: number, limit: number) {
   };
 }
 
-export function searchCorpus(db: DatabaseSync, query: string, limit: number) {
-  const like = `%${query.toLowerCase()}%`;
-  const existing = db
+export function searchCorpus(db: DatabaseSync, query: string, limit: number, offset: number = 0): { results: Array<{ slug: string; canonicalSlug: string; title: string; summary: string; existsFlag: number }>; hasMore: boolean } {
+  const q = query.toLowerCase();
+  const likeContains = `%${q}%`;
+  const likeStarts = `${q}%`;
+
+  // Fetch limit+1 to determine if another page exists
+  const rawExisting = db
     .prepare(
       `SELECT slug,
               COALESCE(canonical_slug, slug) AS canonicalSlug,
@@ -963,12 +968,21 @@ export function searchCorpus(db: DatabaseSync, query: string, limit: number) {
               1 AS existsFlag
        FROM articles
        WHERE lower(title) LIKE ? OR lower(slug) LIKE ?
-       ORDER BY title COLLATE NOCASE ASC
-       LIMIT ?`
+       ORDER BY
+         CASE
+           WHEN lower(title) = ?       THEN 0
+           WHEN lower(title) LIKE ?    THEN 1
+           ELSE 2
+         END,
+         title COLLATE NOCASE ASC
+       LIMIT ? OFFSET ?`
     )
-    .all(like, like, limit) as Array<{ slug: string; canonicalSlug: string; title: string; summaryMarkdown: string; markdown: string; existsFlag: number }>;
+    .all(likeContains, likeContains, q, likeStarts, limit + 1, offset) as Array<{ slug: string; canonicalSlug: string; title: string; summaryMarkdown: string; markdown: string; existsFlag: number }>;
 
-  const existingWithSummary = existing.map((row) => ({
+  const hasMore = rawExisting.length > limit;
+  const pageExisting = rawExisting.slice(0, limit);
+
+  const existingWithSummary = pageExisting.map((row) => ({
     slug: row.slug,
     canonicalSlug: row.canonicalSlug,
     title: row.title,
@@ -976,9 +990,12 @@ export function searchCorpus(db: DatabaseSync, query: string, limit: number) {
     existsFlag: row.existsFlag,
   }));
 
-  const remaining = Math.max(0, limit - existing.length);
-  const unwritten = remaining
-    ? (db
+  // Only fill with unwritten results on the first page
+  const unwrittenWithSummary: Array<{ slug: string; canonicalSlug: string; title: string; summary: string; existsFlag: number }> = [];
+  if (offset === 0) {
+    const remaining = Math.max(0, limit - pageExisting.length);
+    if (remaining > 0) {
+      const unwritten = db
         .prepare(
           `SELECT DISTINCT l.target_slug AS slug,
                   l.target_slug AS canonicalSlug,
@@ -991,15 +1008,14 @@ export function searchCorpus(db: DatabaseSync, query: string, limit: number) {
            ORDER BY l.created_at DESC
            LIMIT ?`
         )
-        .all(like, like, like, remaining) as Array<{ slug: string; canonicalSlug: string; title: string; existsFlag: number }>)
-    : [];
+        .all(likeContains, likeContains, likeContains, remaining) as Array<{ slug: string; canonicalSlug: string; title: string; existsFlag: number }>;
+      for (const row of unwritten) {
+        unwrittenWithSummary.push({ ...row, summary: "" });
+      }
+    }
+  }
 
-  const unwrittenWithSummary = unwritten.map((row) => ({
-    ...row,
-    summary: "",
-  }));
-
-  return [...existingWithSummary, ...unwrittenWithSummary];
+  return { results: [...existingWithSummary, ...unwrittenWithSummary], hasMore };
 }
 
 export function getAdminOverview(db: DatabaseSync) {

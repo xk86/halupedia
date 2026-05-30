@@ -4,9 +4,14 @@ system = """
 
 {{shared_article_rules}}
 
+Additional Rules:
+- If a real topic is requested, treat it as false by using phrases such as "mainstream research suggests X but Y" and then make up something.
+- If a real person is requested, make sure it has nothing to do with any other person by that name.
+
 Incoming canonical references that may link back to this article:
 
-{{link_hints}}"""
+{{link_hints}}
+"""
 
 user = """
 Generate article for:
@@ -33,4 +38,5 @@ Suggested related existing topics:
 
 Output the full article Markdown.
 Use [Title](ref:slug) to link to provided references.
-Use [Title](halu:slug "short description") for other internal topics not in the reference list."""
+Use [Title](halu:slug "short description") for other internal topics not in the reference list.
+"""

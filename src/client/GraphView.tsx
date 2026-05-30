@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Graph from "graphology";
-import pagerank from "graphology-pagerank";
+import pagerank from "graphology-metrics/centrality/pagerank";
+import betweenness from "graphology-metrics/centrality/betweenness";
+import closeness from "graphology-metrics/centrality/closeness";
+import eigenvector from "graphology-metrics/centrality/eigenvector";
+import { degreeCentrality, inDegreeCentrality, outDegreeCentrality } from "graphology-metrics/centrality/degree";
+import hits from "graphology-metrics/centrality/hits";
+import { eccentricity } from "graphology-metrics/node";
+import { density } from "graphology-metrics/graph";
+import { singleSourceLength, bidirectional as unweightedPath } from "graphology-shortest-path/unweighted";
+import { connectedComponents, largestConnectedComponent } from "graphology-components";
 import louvain from "graphology-communities-louvain";
 import { toWikiSegment } from "./wikiPath";
 
@@ -12,19 +21,79 @@ interface FgNode {
   id: string;
   title: string;
   exists: boolean;
-  pagerank: number;
+  score: number;
+  scoreNorm: number;
   community: number;
+  componentId: number;
   inDegree: number;
   outDegree: number;
   visibleInDegree: number;
   visibleOutDegree: number;
 }
 
+type ColorMode = "community" | "component";
+
 type FilterMode = "top" | "search";
 type NeighborhoodMode = "refs" | "backlinks" | "both";
+type Metric =
+  | "pagerank" | "betweenness" | "closeness" | "eigenvector"
+  | "degree" | "inDegree" | "outDegree"
+  | "hitsAuthority" | "hitsHub"
+  | "eccentricity" | "distanceFromSeed";
+
+const METRICS: { value: Metric; label: string; needsSeeds?: true }[] = [
+  { value: "pagerank",         label: "PageRank" },
+  { value: "betweenness",      label: "Betweenness" },
+  { value: "closeness",        label: "Closeness" },
+  { value: "eigenvector",      label: "Eigenvector" },
+  { value: "degree",           label: "Degree" },
+  { value: "inDegree",         label: "In-degree" },
+  { value: "outDegree",        label: "Out-degree" },
+  { value: "hitsAuthority",    label: "HITS authority" },
+  { value: "hitsHub",          label: "HITS hub" },
+  { value: "eccentricity",     label: "Eccentricity" },
+  { value: "distanceFromSeed", label: "Seed distance", needsSeeds: true },
+];
+
+interface Seed { slug: string; title: string; }
+
+function computeMetric(g: Graph, metric: Metric, seeds?: Seed[]): Record<string, number> {
+  const zero = () => { const z: Record<string, number> = {}; for (const n of g.nodes()) z[n] = 0; return z; };
+  try {
+    switch (metric) {
+      case "pagerank":    return pagerank(g, { getEdgeWeight: null });
+      case "betweenness": return betweenness(g);
+      case "closeness":   return closeness(g);
+      case "eigenvector": return eigenvector(g);
+      case "degree":      return degreeCentrality(g);
+      case "inDegree":    return inDegreeCentrality(g);
+      case "outDegree":   return outDegreeCentrality(g);
+      case "hitsAuthority": return hits(g).authorities;
+      case "hitsHub":       return hits(g).hubs;
+      case "eccentricity": {
+        const result: Record<string, number> = {};
+        for (const n of g.nodes()) { try { result[n] = eccentricity(g, n); } catch { result[n] = 0; } }
+        return result;
+      }
+      case "distanceFromSeed": {
+        const validSeeds = (seeds ?? []).filter(s => g.hasNode(s.slug));
+        if (!validSeeds.length) return computeMetric(g, "pagerank");
+        const distMaps = validSeeds.map(s => singleSourceLength(g, s.slug));
+        const result: Record<string, number> = {};
+        for (const n of g.nodes()) {
+          const minDist = Math.min(...distMaps.map(dm => dm[n] ?? Infinity));
+          // invert so closer = higher score; unreachable = 0
+          result[n] = isFinite(minDist) ? 1 / (minDist + 1) : 0;
+        }
+        return result;
+      }
+    }
+  } catch {
+    return zero();
+  }
+}
 
 interface Suggestion { slug: string; title: string; }
-interface Seed { slug: string; title: string; }
 
 // ── Render settings ──────────────────────────────────────────────────────────
 
@@ -49,6 +118,7 @@ interface RenderSettings {
   // Appearance
   bgColor: string;
   labelThreshold: number;   // inDegree >= this shows a persistent label: 0–20
+  directionalParticles: boolean;
 }
 
 const DEFAULT_SETTINGS: RenderSettings = {
@@ -68,6 +138,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   velocityDecay: 0.4,
   bgColor: "#080810",
   labelThreshold: 999, // off by default
+  directionalParticles: false,
 };
 
 const BG_PRESETS = [
@@ -129,6 +200,9 @@ interface SavedPrefs {
   topN: number;
   filterMode: FilterMode;
   neighborMode: NeighborhoodMode;
+  metric: Metric;
+  colorMode: ColorMode;
+  largestComponentOnly: boolean;
 }
 
 function loadPrefs(): Partial<SavedPrefs> {
@@ -157,28 +231,50 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const [searchQuery, setSearchQuery] = useState("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestHasMore, setSuggestHasMore] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const suggestOffsetRef = useRef(0);
+  const suggestQueryRef = useRef("");
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [showHalu, setShowHalu] = useState(() => loadPrefs().showHalu ?? false);
+  const [metric, setMetric] = useState<Metric>(() => loadPrefs().metric ?? "pagerank");
+  const [colorMode, setColorMode] = useState<ColorMode>(() => loadPrefs().colorMode ?? "community");
+  const [largestComponentOnly, setLargestComponentOnly] = useState(() => loadPrefs().largestComponentOnly ?? false);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<RenderSettings>(() => ({ ...DEFAULT_SETTINGS, ...loadPrefs().settings }));
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
+  const seedsRef = useRef(seeds);
+  const colorModeRef = useRef(colorMode);
+  const pathEdgeSetRef = useRef(new Set<string>());
 
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
   }, []);
 
+  // Keep refs current so accessors always read fresh values without triggering re-renders
+  useEffect(() => { seedsRef.current = seeds; }, [seeds]);
+  useEffect(() => { colorModeRef.current = colorMode; }, [colorMode]);
+
   // Persist preferences whenever any user-controlled value changes (seeds are transient, not saved)
   useEffect(() => {
-    savePrefs({ settings, showHalu, topN, filterMode, neighborMode });
-  }, [settings, showHalu, topN, filterMode, neighborMode]);
+    savePrefs({ settings, showHalu, topN, filterMode, neighborMode, metric, colorMode, largestComponentOnly });
+  }, [settings, showHalu, topN, filterMode, neighborMode, metric, colorMode, largestComponentOnly]);
 
   // ── Graphology: build directed graph + stats ────────────────────────────────
 
-  const { gInstance, nodeStats } = useMemo(() => {
-    if (!rawData) return { gInstance: null, nodeStats: new Map<string, { pr: number; community: number }>() };
+  type NodeStat = { score: number; scoreNorm: number; community: number; componentId: number };
+  type GraphStat = { density: number; componentCount: number };
+
+  const { gInstance, nodeStats, graphStats } = useMemo(() => {
+    const empty = {
+      gInstance: null,
+      nodeStats: new Map<string, NodeStat>(),
+      graphStats: { density: 0, componentCount: 0 } as GraphStat,
+    };
+    if (!rawData) return empty;
 
     const g = new Graph({ type: "directed", multi: false });
     for (const n of rawData.nodes) {
@@ -190,17 +286,56 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       }
     }
 
-    const pr = pagerank(g);
+    const rawScores = computeMetric(g, metric, seeds);
+    const scoreValues = Object.values(rawScores);
+    const maxScore = scoreValues.length > 0 ? Math.max(...scoreValues) : 1;
+    const safeMax = maxScore > 0 ? maxScore : 1;
+
     let communities: Record<string, number> = {};
     try { communities = louvain(g); } catch { /* needs edges */ }
 
-    const stats = new Map<string, { pr: number; community: number }>();
+    const nodeComponentId = new Map<string, number>();
+    let componentCount = 0;
+    try {
+      const comps = connectedComponents(g);
+      componentCount = comps.length;
+      comps.forEach((comp, idx) => comp.forEach(n => nodeComponentId.set(n, idx)));
+    } catch { /* ignore */ }
+
+    let graphDensity = 0;
+    try { graphDensity = density(g); } catch { /* ignore */ }
+
+    const stats = new Map<string, NodeStat>();
     for (const slug of g.nodes()) {
-      stats.set(slug, { pr: pr[slug] ?? 0, community: communities[slug] ?? 0 });
+      const score = rawScores[slug] ?? 0;
+      stats.set(slug, {
+        score,
+        scoreNorm: score / safeMax,
+        community: communities[slug] ?? 0,
+        componentId: nodeComponentId.get(slug) ?? 0,
+      });
     }
 
-    return { gInstance: g, nodeStats: stats };
-  }, [rawData]);
+    return { gInstance: g, nodeStats: stats, graphStats: { density: graphDensity, componentCount } };
+  }, [rawData, metric, seeds]);
+
+  // ── Shortest paths between all seed pairs ────────────────────────────────────
+
+  const pathEdgeSet = useMemo(() => {
+    if (!gInstance || seeds.length < 2) return new Set<string>();
+    const edgeSet = new Set<string>();
+    for (let i = 0; i < seeds.length; i++) {
+      for (let j = i + 1; j < seeds.length; j++) {
+        if (!gInstance.hasNode(seeds[i].slug) || !gInstance.hasNode(seeds[j].slug)) continue;
+        try {
+          const path = unweightedPath(gInstance, seeds[i].slug, seeds[j].slug);
+          if (!path) continue;
+          for (let k = 0; k < path.length - 1; k++) edgeSet.add(`${path[k]}>${path[k + 1]}`);
+        } catch { /* unreachable pair */ }
+      }
+    }
+    return edgeSet;
+  }, [gInstance, seeds]);
 
   // ── Filtered subgraph for the renderer ─────────────────────────────────────
 
@@ -211,7 +346,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     if (filterMode === "top") {
       const sorted = [...gInstance.nodes()]
-        .sort((a, b) => (nodeStats.get(b)?.pr ?? 0) - (nodeStats.get(a)?.pr ?? 0))
+        .sort((a, b) => (nodeStats.get(b)?.score ?? 0) - (nodeStats.get(a)?.score ?? 0))
         .slice(0, topN);
       slugSet = new Set(sorted);
     } else {
@@ -228,18 +363,27 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       }
       if (slugSet.size === 0) {
         [...gInstance.nodes()]
-          .sort((a, b) => (nodeStats.get(b)?.pr ?? 0) - (nodeStats.get(a)?.pr ?? 0))
+          .sort((a, b) => (nodeStats.get(b)?.score ?? 0) - (nodeStats.get(a)?.score ?? 0))
           .slice(0, 20)
           .forEach((s) => slugSet.add(s));
       }
+    }
+
+    if (largestComponentOnly) {
+      try {
+        const largest = new Set(largestConnectedComponent(gInstance));
+        slugSet = new Set([...slugSet].filter(s => largest.has(s)));
+      } catch { /* ignore */ }
     }
 
     const allNodes: FgNode[] = [...slugSet].map((slug) => ({
       id: slug,
       title: (gInstance.getNodeAttribute(slug, "title") as string) || slug,
       exists: (gInstance.getNodeAttribute(slug, "exists") as boolean) ?? false,
-      pagerank: nodeStats.get(slug)?.pr ?? 0,
+      score: nodeStats.get(slug)?.score ?? 0,
+      scoreNorm: nodeStats.get(slug)?.scoreNorm ?? 0,
       community: nodeStats.get(slug)?.community ?? 0,
+      componentId: nodeStats.get(slug)?.componentId ?? 0,
       inDegree: gInstance.inDegree(slug),
       outDegree: gInstance.outDegree(slug),
       visibleInDegree: 0,
@@ -268,7 +412,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     }
 
     return { nodes, links, haluCount };
-  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu]);
+  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu, largestComponentOnly]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -279,24 +423,55 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       .catch(() => setLoadError(true));
   }, []);
 
-  // Debounced article search
+  // Debounced article search — resets on query change
   useEffect(() => {
-    if (!searchQuery.trim()) { setSuggestions([]); return; }
+    if (!searchQuery.trim()) {
+      setSuggestions([]);
+      setSuggestHasMore(false);
+      suggestOffsetRef.current = 0;
+      suggestQueryRef.current = "";
+      return;
+    }
+    suggestQueryRef.current = searchQuery;
+    suggestOffsetRef.current = 0;
+    setSuggestions([]);
+    setSuggestHasMore(false);
+
     const ctrl = new AbortController();
-    const timer = setTimeout(() => {
-      fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`, { signal: ctrl.signal })
-        .then((r) => r.json())
+    const timer = setTimeout(async () => {
+      try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .then((d: any) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const hits = (d.results ?? []).filter((r: any) => r.exists).slice(0, 7);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setSuggestions(hits.map((r: any) => ({ slug: r.slug, title: r.title })));
-        })
-        .catch(() => { });
+        const d: any = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&offset=0`, { signal: ctrl.signal }).then((r) => r.json());
+        if (ctrl.signal.aborted) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const hits = (d.results ?? []).filter((r: any) => r.exists);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setSuggestions(hits.map((r: any) => ({ slug: r.slug, title: r.title })));
+        setSuggestHasMore(d.has_more ?? false);
+        suggestOffsetRef.current = hits.length;
+      } catch { /* aborted or network error */ }
     }, 180);
     return () => { clearTimeout(timer); ctrl.abort(); };
   }, [searchQuery]);
+
+  const loadMoreSuggestions = useCallback(async () => {
+    if (suggestLoading || !suggestHasMore || !suggestQueryRef.current.trim()) return;
+    setSuggestLoading(true);
+    const q = suggestQueryRef.current;
+    const offset = suggestOffsetRef.current;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d: any = await fetch(`/api/search?q=${encodeURIComponent(q)}&offset=${offset}`).then((r) => r.json());
+      if (suggestQueryRef.current !== q) return; // query changed while loading
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const hits = (d.results ?? []).filter((r: any) => r.exists);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setSuggestions((prev) => [...prev, ...hits.map((r: any) => ({ slug: r.slug, title: r.title }))]);
+      setSuggestHasMore(d.has_more ?? false);
+      suggestOffsetRef.current = offset + hits.length;
+    } catch { /* network error */ }
+    setSuggestLoading(false);
+  }, [suggestLoading, suggestHasMore]);
 
   // ── 3d-force-graph: initialize once ────────────────────────────────────────
 
@@ -314,9 +489,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       fg
         .nodeId("id")
         .nodeLabel((n: FgNode) => `${n.title}\n↑ ${n.visibleInDegree} in  ↓ ${n.visibleOutDegree} out`)
-        .nodeColor((n: FgNode) => n.exists ? communityColor(n.community) : "#555566")
-        .nodeVal((n: FgNode) => Math.max(1, n.inDegree * 0.5 + n.pagerank * 4000))
-        .linkColor(() => "#ffffff")
+        .nodeVal((n: FgNode) => Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6))
         .onNodeClick((n: FgNode) => {
           if (n.exists) onNavigate(toWikiSegment(n.title));
         });
@@ -360,6 +533,17 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       .linkDirectionalParticles(settings.particles)
       .linkDirectionalParticleSpeed(settings.particleSpeed)
       .linkDirectionalParticleWidth(settings.particleWidth)
+      .linkDirectionalParticleColor((l: { source: FgNode | string; target: FgNode | string }) => {
+        if (!settings.directionalParticles) return "#ffffff";
+        const src = typeof l.source === "object" ? l.source.id : l.source;
+        const tgt = typeof l.target === "object" ? l.target.id : l.target;
+        const currentSeeds = seedsRef.current;
+        // Seed-relative: into a seed = green, out of a seed = red
+        if (currentSeeds.some((s) => s.slug === tgt)) return "#3ddc84";
+        if (currentSeeds.some((s) => s.slug === src)) return "#ff4d4d";
+        // No seed match: particle is traveling in the forward direction = green ("in")
+        return "#3ddc84";
+      })
       .backgroundColor(settings.bgColor)
       .d3AlphaDecay(settings.alphaDecay)
       .d3VelocityDecay(settings.velocityDecay);
@@ -372,6 +556,26 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     fg.d3ReheatSimulation();
   }, [settings, initialized]);
+
+  // ── Node colour + path highlighting (no physics re-heat) ─────────────────────
+
+  useEffect(() => {
+    pathEdgeSetRef.current = pathEdgeSet;
+    if (!fgRef.current || !initialized) return;
+    fgRef.current
+      .nodeColor((n: FgNode) => {
+        if (!n.exists) return "#555566";
+        return colorModeRef.current === "component"
+          ? communityColor(n.componentId)
+          : communityColor(n.community);
+      })
+      .linkColor((l: { source: FgNode | string; target: FgNode | string }) => {
+        const src = typeof l.source === "object" ? l.source.id : l.source;
+        const tgt = typeof l.target === "object" ? l.target.id : l.target;
+        return pathEdgeSetRef.current.has(`${src}>${tgt}`) ? "#ffd700" : "#ffffff";
+      })
+      .refresh();
+  }, [colorMode, pathEdgeSet, initialized]);
 
   // ── Resize observer ─────────────────────────────────────────────────────────
 
@@ -423,9 +627,30 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           </button>
         </div>
 
+        <select
+          className="graph-metric-select"
+          value={metric}
+          onChange={(e) => setMetric(e.target.value as Metric)}
+          title="Node size and Top-N ranking metric"
+        >
+          {METRICS.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}{m.needsSeeds ? " *" : ""}</option>
+          ))}
+        </select>
+
+        <select
+          className="graph-metric-select"
+          value={colorMode}
+          onChange={(e) => setColorMode(e.target.value as ColorMode)}
+          title="Node color mode"
+        >
+          <option value="community">Community</option>
+          <option value="component">Component</option>
+        </select>
+
         {filterMode === "top" && (
           <div className="graph-top-control">
-            <label>Top <strong>{topN}</strong> by PageRank</label>
+            <label>Top <strong>{topN}</strong> by {METRICS.find((m) => m.value === metric)?.label}</label>
             <input type="range" min={10}
               max={Math.max(10, rawData?.nodes.filter((n) => n.exists).length ?? 10)}
               step={10} value={topN}
@@ -454,12 +679,25 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
               />
               {suggestOpen && suggestions.length > 0 && (
-                <ul className="graph-suggest">
+                <ul
+                  className="graph-suggest"
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) {
+                      loadMoreSuggestions();
+                    }
+                  }}
+                >
                   {suggestions.map((s) => (
                     <li key={s.slug}>
                       <button type="button" onMouseDown={() => addSeed(s)}>{s.title}</button>
                     </li>
                   ))}
+                  {suggestHasMore && (
+                    <li className="graph-suggest-more">
+                      {suggestLoading ? "Loading…" : "Scroll for more"}
+                    </li>
+                  )}
                 </ul>
               )}
             </div>
@@ -480,10 +718,21 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
               {nodeCount} nodes
               {!showHalu && haluCount > 0 && <span className="graph-halu-hidden"> ({haluCount} halu hidden)</span>}
               {" · "}{edgeCount} edges · {totalArticles} total
+              {" · "}{graphStats.componentCount} components
+              {" · "}density {graphStats.density < 0.001 ? graphStats.density.toExponential(1) : graphStats.density.toFixed(4)}
+              {pathEdgeSet.size > 0 && <span className="graph-path-info"> · {pathEdgeSet.size} path edges</span>}
             </span>
           )}
           {!loadError && !gInstance && <span>Loading graph…</span>}
         </div>
+
+        <button
+          type="button"
+          className={`graph-settings-btn${largestComponentOnly ? " active" : ""}`}
+          onClick={() => setLargestComponentOnly((v) => !v)}
+        >
+          {largestComponentOnly ? "All components" : "Largest only"}
+        </button>
 
         <button
           type="button"
@@ -502,79 +751,90 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         </button>
       </div>
 
-      {/* ── Render settings panel ── */}
-      {settingsOpen && (
-        <div className="grs-panel">
+      {/* ── Body: canvas + settings side panel ── */}
+      <div className="graph-body">
+        <div className="graph-canvas" ref={containerRef} />
 
-          <div className="grs-section">
-            <div className="grs-section-label">Nodes</div>
-            <Knob label="Resolution" value={settings.nodeResolution} min={4} max={32} step={2}
-              onChange={(v) => set("nodeResolution", v)} />
-            <Knob label="Base size" value={settings.nodeRelSize} min={1} max={12} step={0.5}
-              format={(v) => v.toFixed(1)} onChange={(v) => set("nodeRelSize", v)} />
-            <Knob label="Opacity" value={settings.nodeOpacity} min={0.1} max={1} step={0.05}
-              format={(v) => v.toFixed(2)} onChange={(v) => set("nodeOpacity", v)} />
-          </div>
+        {settingsOpen && (
+          <div className="grs-panel">
 
-          <div className="grs-section">
-            <div className="grs-section-label">Links</div>
-            <Knob label="Opacity" value={settings.linkOpacity} min={0.01} max={0.6} step={0.01}
-              format={(v) => v.toFixed(2)} onChange={(v) => set("linkOpacity", v)} />
-            <Knob label="Width" value={settings.linkWidth} min={0.1} max={4} step={0.1}
-              format={(v) => v.toFixed(1)} onChange={(v) => set("linkWidth", v)} />
-            <Knob label="Arrow size" value={settings.arrowLength} min={0} max={10} step={0.5}
-              format={(v) => v.toFixed(1)} onChange={(v) => set("arrowLength", v)} />
-            <Knob label="Curvature" value={settings.linkCurvature} min={0} max={0.8} step={0.05}
-              format={(v) => v.toFixed(2)} onChange={(v) => set("linkCurvature", v)} />
-            <Knob label="Particles" value={settings.particles} min={0} max={8} step={1}
-              onChange={(v) => set("particles", v)} />
-            <Knob label="Particle speed" value={settings.particleSpeed} min={0.001} max={0.02} step={0.001}
-              format={(v) => v.toFixed(3)} onChange={(v) => set("particleSpeed", v)} />
-            <Knob label="Particle size" value={settings.particleWidth} min={0.5} max={6} step={0.5}
-              format={(v) => v.toFixed(1)} onChange={(v) => set("particleWidth", v)} />
-          </div>
-
-          <div className="grs-section">
-            <div className="grs-section-label">Physics</div>
-            <Knob label="Repulsion" value={settings.chargeStrength} min={-1200} max={-20} step={20}
-              onChange={(v) => set("chargeStrength", v)} />
-            <Knob label="Link distance" value={settings.linkDistance} min={5} max={400} step={5}
-              onChange={(v) => set("linkDistance", v)} />
-            <Knob label="Alpha decay" value={settings.alphaDecay} min={0.001} max={0.06} step={0.001}
-              format={(v) => v.toFixed(3)} onChange={(v) => set("alphaDecay", v)} />
-            <Knob label="Velocity decay" value={settings.velocityDecay} min={0.1} max={0.99} step={0.01}
-              format={(v) => v.toFixed(2)} onChange={(v) => set("velocityDecay", v)} />
-          </div>
-
-          <div className="grs-section">
-            <div className="grs-section-label">Background</div>
-            <div className="grs-bg-presets">
-              {BG_PRESETS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  className={`grs-bg-swatch${settings.bgColor === p.value ? " active" : ""}`}
-                  style={{ background: p.value }}
-                  title={p.label}
-                  onClick={() => set("bgColor", p.value)}
-                >
-                  {p.label}
-                </button>
-              ))}
+            <div className="grs-section">
+              <div className="grs-section-label">Nodes</div>
+              <Knob label="Resolution" value={settings.nodeResolution} min={4} max={32} step={2}
+                onChange={(v) => set("nodeResolution", v)} />
+              <Knob label="Base size" value={settings.nodeRelSize} min={1} max={12} step={0.5}
+                format={(v) => v.toFixed(1)} onChange={(v) => set("nodeRelSize", v)} />
+              <Knob label="Opacity" value={settings.nodeOpacity} min={0.1} max={1} step={0.05}
+                format={(v) => v.toFixed(2)} onChange={(v) => set("nodeOpacity", v)} />
             </div>
+
+            <div className="grs-section">
+              <div className="grs-section-label">Links</div>
+              <Knob label="Opacity" value={settings.linkOpacity} min={0.01} max={0.6} step={0.01}
+                format={(v) => v.toFixed(2)} onChange={(v) => set("linkOpacity", v)} />
+              <Knob label="Width" value={settings.linkWidth} min={0.1} max={4} step={0.1}
+                format={(v) => v.toFixed(1)} onChange={(v) => set("linkWidth", v)} />
+              <Knob label="Arrow size" value={settings.arrowLength} min={0} max={10} step={0.5}
+                format={(v) => v.toFixed(1)} onChange={(v) => set("arrowLength", v)} />
+              <Knob label="Curvature" value={settings.linkCurvature} min={0} max={0.8} step={0.05}
+                format={(v) => v.toFixed(2)} onChange={(v) => set("linkCurvature", v)} />
+              <Knob label="Particles" value={settings.particles} min={0} max={8} step={1}
+                onChange={(v) => set("particles", v)} />
+              <Knob label="Particle speed" value={settings.particleSpeed} min={0.001} max={0.02} step={0.001}
+                format={(v) => v.toFixed(3)} onChange={(v) => set("particleSpeed", v)} />
+              <Knob label="Particle size" value={settings.particleWidth} min={0.5} max={6} step={0.5}
+                format={(v) => v.toFixed(1)} onChange={(v) => set("particleWidth", v)} />
+              <label className="grs-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.directionalParticles}
+                  onChange={(e) => set("directionalParticles", e.target.checked)}
+                />
+                <span>Color by direction</span>
+                <span className="grs-toggle-hint">green=in red=out (needs seeds + particles)</span>
+              </label>
+            </div>
+
+            <div className="grs-section">
+              <div className="grs-section-label">Physics</div>
+              <Knob label="Repulsion" value={settings.chargeStrength} min={-1200} max={-20} step={20}
+                onChange={(v) => set("chargeStrength", v)} />
+              <Knob label="Link distance" value={settings.linkDistance} min={5} max={400} step={5}
+                onChange={(v) => set("linkDistance", v)} />
+              <Knob label="Alpha decay" value={settings.alphaDecay} min={0.001} max={0.06} step={0.001}
+                format={(v) => v.toFixed(3)} onChange={(v) => set("alphaDecay", v)} />
+              <Knob label="Velocity decay" value={settings.velocityDecay} min={0.1} max={0.99} step={0.01}
+                format={(v) => v.toFixed(2)} onChange={(v) => set("velocityDecay", v)} />
+            </div>
+
+            <div className="grs-section">
+              <div className="grs-section-label">Background</div>
+              <div className="grs-bg-presets">
+                {BG_PRESETS.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    className={`grs-bg-swatch${settings.bgColor === p.value ? " active" : ""}`}
+                    style={{ background: p.value }}
+                    title={p.label}
+                    onClick={() => set("bgColor", p.value)}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="grs-reset"
+              onClick={() => setSettings(DEFAULT_SETTINGS)}
+            >
+              Reset to defaults
+            </button>
           </div>
-
-          <button
-            type="button"
-            className="grs-reset"
-            onClick={() => setSettings(DEFAULT_SETTINGS)}
-          >
-            Reset to defaults
-          </button>
-        </div>
-      )}
-
-      <div className="graph-canvas" ref={containerRef} />
+        )}
+      </div>
     </div>
   );
 }

@@ -2324,6 +2324,11 @@ button.admin-danger-btn:hover:not(:disabled) {
   grid-row: 1;
 }
 
+.layout--graph .layout-main {
+  grid-column: 1 / -1;
+  max-width: none;
+}
+
 .layout > .comments {
   grid-column: 1;
   grid-row: 2;
@@ -3747,7 +3752,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   padding: 0.25rem 0.55rem;
   border: 1px solid var(--rule);
   border-radius: 3px;
-  background: var(--bg);
+  background: var(--input-surface-strong);
   color: var(--ink);
   font-size: 0.82rem;
   width: 200px;
@@ -3758,13 +3763,15 @@ button.admin-danger-btn:hover:not(:disabled) {
   top: calc(100% + 3px);
   left: 0;
   z-index: 100;
-  background: var(--bg);
+  background: var(--parchment);
   border: 1px solid var(--rule);
   border-radius: 4px;
   list-style: none;
   margin: 0;
   padding: 0.25rem 0;
   min-width: 220px;
+  max-height: 260px;
+  overflow-y: auto;
   box-shadow: 0 4px 14px rgba(0,0,0,0.12);
 }
 
@@ -3786,6 +3793,14 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--accent);
 }
 
+.graph-suggest-more {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.72rem;
+  color: var(--ink-fade);
+  font-style: italic;
+  text-align: center;
+}
+
 .graph-stats {
   margin-left: auto;
   font-family: var(--mono);
@@ -3797,9 +3812,18 @@ button.admin-danger-btn:hover:not(:disabled) {
 .graph-error-inline { color: #b22; }
 .graph-halu-hidden { color: var(--ink-fade); font-style: italic; }
 
-.graph-canvas {
+.graph-body {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.graph-canvas {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
   background: #080810;
 }
 
@@ -3831,21 +3855,26 @@ button.admin-danger-btn:hover:not(:disabled) {
 /* ── Render settings panel ─────────────────────────────────── */
 
 .grs-panel {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1.5rem;
-  align-items: flex-start;
-  padding: 0.65rem 0.9rem;
-  border-bottom: 1px solid var(--rule);
-  background: var(--parchment-deep);
   flex-shrink: 0;
+  width: 340px;
+  /* height is set by the flex-row parent's cross-axis stretch */
+  align-self: stretch;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-left: 1px solid var(--rule);
+  background: var(--parchment-deep);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 .grs-section {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  min-width: 160px;
 }
 
 .grs-section-label {
@@ -3861,7 +3890,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .grs-knob {
   display: grid;
-  grid-template-columns: 7rem 1fr 2.8rem;
+  grid-template-columns: 7rem 1fr 3.5rem;
   align-items: center;
   gap: 0.4rem;
   font-size: 0.75rem;
@@ -3914,10 +3943,52 @@ button.admin-danger-btn:hover:not(:disabled) {
   border-color: rgba(255,255,255,0.4);
 }
 
+.graph-path-info {
+  color: #ffd700;
+  font-weight: 600;
+}
+
+.graph-metric-select {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.graph-metric-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.grs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  margin-top: 0.2rem;
+}
+
+.grs-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.grs-toggle-hint {
+  font-size: 0.62rem;
+  color: var(--ink-fade);
+  font-style: italic;
+}
+
 .grs-reset {
-  align-self: flex-end;
-  margin-left: auto;
-  margin-top: auto;
+  align-self: flex-start;
+  margin-top: 0.25rem;
   font-family: var(--mono);
   font-size: 0.68rem;
   text-transform: uppercase;

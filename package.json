@@ -34,7 +34,6 @@
     "graphology-communities-louvain": "^2.0.2",
     "graphology-components": "^1.5.4",
     "graphology-metrics": "^2.4.0",
-    "graphology-pagerank": "^1.1.0",
     "graphology-shortest-path": "^2.1.0",
     "graphology-types": "^0.24.8",
     "hono": "^4.6.14",

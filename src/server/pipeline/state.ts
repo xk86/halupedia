@@ -238,6 +238,10 @@ export const PipelineStateSchema = z.object({
   /** Homepage cache payload produced by homepage.refresh. */
   homepagePayload: z.unknown().optional(),
 
+  // Infobox ────────────────────────────────────────────────────────────────
+  /** LLM-generated infobox data (post-process only). */
+  infobox: z.unknown().optional(),
+
 });
 export type PipelineState = z.infer<typeof PipelineStateSchema>;
 

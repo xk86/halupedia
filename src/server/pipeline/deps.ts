@@ -23,6 +23,9 @@ import type { PromptRegistry } from "./prompts/registry";
 
 export interface PipelineDeps {
   db: DatabaseSync;
+  /** Media database (separate SQLite for image blobs). Optional so test
+   *  harnesses that don't exercise image paths can omit it. */
+  mediaDb?: DatabaseSync;
   llm: LlmRouter;
   prompts: PromptRegistry;
   logger: Logger;

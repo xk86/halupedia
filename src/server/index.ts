@@ -62,7 +62,15 @@ import {
   getPromptCurrent,
   setPromptCurrent,
   listAllPromptCurrents,
+  getArticleHeadlineMedia,
+  getArticleInfobox,
+  upsertArticleHeadlineMedia,
+  updateArticleMediaCaption,
+  removeArticleMedia,
 } from "./db";
+import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription } from "./mediaDb";
+import { ingestImageFromUrl } from "./media";
+import { renderInfoboxHtml } from "./articleRender";
 import {
   findFuzzyTitleMatchesInEditText,
   findReferencedArticlesInEditText,
@@ -803,6 +811,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
   const db = openDatabase(runtime.app.storage.database_path);
+  const mediaDb = openMediaDatabase(runtime.app.images.media_database_path);
 
   // Startup sync: ingest any TOML edits made outside the UI into DB, and write
   // TOML for any DB-current entries whose files are missing.
@@ -970,6 +979,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     logger.info("shutdown.closing_database");
     db.close();
+    mediaDb.close();
     logger.info("shutdown.complete");
   }
 
@@ -1167,7 +1177,17 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (cached) {
       html = cached;
     } else {
-      const rendered = renderArticleDisplayHtml(article);
+      const headlineMedia = getArticleHeadlineMedia(db, article.slug);
+      const infobox = getArticleInfobox(db, article.slug);
+      let mediaDescription = "";
+      if (headlineMedia) {
+        mediaDescription = getMediaById(mediaDb, headlineMedia.mediaId)?.description ?? "";
+      }
+      const rendered = renderArticleDisplayHtml(article, {
+        infobox,
+        headlineMedia,
+        mediaDescription,
+      });
       const links = extractInternalLinks(combined);
       html = rewriteArticleHtml(rendered, links);
       rememberArticleHtml(article.slug, article.generatedAt, html);
@@ -1310,6 +1330,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   function buildPipelineDeps(overrides: Partial<PipelineDeps> = {}): PipelineDeps {
     return {
       db,
+      mediaDb,
       llm,
       prompts: buildPromptRegistry(runtime.prompts),
       logger,
@@ -3200,6 +3221,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       path === "/all-entries" ||
       path === "/admin" ||
       path === "/graph" ||
+      path.startsWith("/media/") ||
       routeSlug(path)
     ) {
       return c.html(await readFile(resolve(distRoot, "index.html"), "utf8"));
@@ -3224,6 +3246,120 @@ export async function createApp(options: CreateAppOptions = {}) {
     } catch {
       return c.notFound();
     }
+  });
+
+  // ── Media routes ─────────────────────────────────────────────────────────────
+
+  // Serve raw image bytes
+  app.get("/api/media/:id", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const result = getMediaBytesById(mediaDb, id);
+    if (!result) return c.notFound();
+    return new Response(result.bytes as unknown as BodyInit, {
+      headers: {
+        "content-type": result.mime,
+        "cache-control": "public, max-age=31536000, immutable",
+      },
+    });
+  });
+
+  // Media metadata (for media page)
+  app.get("/api/media/:id/info", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+    const { model_b64: _b64, ...safe } = record as any;
+    return c.json(safe);
+  });
+
+  // Update description (user edit)
+  app.patch("/api/media/:id/description", async (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const body = await c.req.json().catch(() => ({})) as { description?: string };
+    const description = typeof body.description === "string" ? body.description.trim() : null;
+    if (description === null) return c.json({ error: "description required" }, 400);
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+    updateMediaDescription(mediaDb, id, description);
+    return c.json({ ok: true });
+  });
+
+  // Attach headline image to an article
+  app.post("/api/article/:slug/image", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const body = await c.req.json().catch(() => ({})) as { url?: string };
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    if (!url) return c.json({ error: "url required" }, 400);
+
+    let result: Awaited<ReturnType<typeof ingestImageFromUrl>>;
+    try {
+      result = await ingestImageFromUrl(url, {
+        mediaDb,
+        mainDb: db,
+        llm,
+        config: runtime.app.images,
+        articleSlug: slug,
+        logger,
+      });
+    } catch (err: any) {
+      return c.json({ error: err?.message || "Image ingestion failed" }, 400);
+    }
+
+    upsertArticleHeadlineMedia(db, slug, result.mediaId, result.caption);
+    invalidateArticleHtml(slug);
+
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({
+      mediaId: result.mediaId,
+      isNew: result.isNew,
+      description: result.description,
+      caption: result.caption,
+      width: result.width,
+      height: result.height,
+      article: response,
+    });
+  });
+
+  // Remove headline image
+  app.delete("/api/article/:slug/image", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    removeArticleMedia(db, slug, 1);
+    invalidateArticleHtml(slug);
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({ article: response });
+  });
+
+  // Update image caption for this article
+  app.patch("/api/article/:slug/image/caption", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const body = await c.req.json().catch(() => ({})) as { caption?: string };
+    const caption = typeof body.caption === "string" ? body.caption : null;
+    if (caption === null) return c.json({ error: "caption required" }, 400);
+    updateArticleMediaCaption(db, slug, 1, caption);
+    invalidateArticleHtml(slug);
+    return c.json({ ok: true });
+  });
+
+  // Get image info for an article's headline image
+  app.get("/api/article/:slug/image", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    const headlineMedia = getArticleHeadlineMedia(db, slug);
+    if (!headlineMedia) return c.json({ image: null });
+    const record = getMediaById(mediaDb, headlineMedia.mediaId);
+    if (!record) return c.json({ image: null });
+    const { model_b64: _b64, ...safe } = record as any;
+    return c.json({
+      image: {
+        ...safe,
+        caption: headlineMedia.caption || record.description,
+        articleCaption: headlineMedia.caption,
+      },
+    });
   });
 
   app.post("/api/maintenance/trigger", async (c) => {

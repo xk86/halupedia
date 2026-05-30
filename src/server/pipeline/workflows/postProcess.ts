@@ -21,6 +21,8 @@ import {
   regenerateSummaryNode,
   updateArticleInPlaceNode,
   indexRagChunksNode,
+  generateInfoboxNode,
+  persistInfoboxNode,
 } from "../nodes/postProcess";
 
 export const postProcessWorkflow: WorkflowDefinition<PipelineDeps> = {
@@ -36,5 +38,7 @@ export const postProcessWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: regenerateSummaryNode },
     { node: updateArticleInPlaceNode },
     { node: indexRagChunksNode },
+    { node: generateInfoboxNode },
+    { node: persistInfoboxNode },
   ],
 };

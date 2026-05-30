@@ -185,6 +185,15 @@ export interface PipelineConfig {
   trace: PipelineTraceConfig;
 }
 
+export interface ImagesConfig {
+  model_max_edge: number;
+  jpeg_quality: number;
+  max_bytes: number;
+  fetch_timeout_ms: number;
+  media_database_path: string;
+  allow_private_hosts: boolean;
+}
+
 export interface AppConfig {
   server: ServerConfig;
   storage: StorageConfig;
@@ -194,6 +203,7 @@ export interface AppConfig {
   random_page: RandomPageConfig;
   tests: TestConfig;
   pipeline: PipelineConfig;
+  images: ImagesConfig;
 }
 
 export interface ChatConfig {

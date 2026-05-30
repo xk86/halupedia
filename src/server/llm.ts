@@ -4,17 +4,26 @@ import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 export type LlmRole = "heavy" | "light" | "embeddings";
 type ChatLlmRole = Exclude<LlmRole, "embeddings">;
 
+export interface ChatImageAttachment {
+  mime: string;
+  b64: string;
+}
+
 export interface ChatOptions {
   thinking?: boolean;
   /** Request JSON-mode output — passes `format:"json"` to the API so the
    *  model is constrained to emit valid JSON. Use for structured-output prompts. */
   jsonMode?: boolean;
+  /** Attach images to the user turn (multimodal). OpenAI-compatible format. */
+  images?: ChatImageAttachment[];
 }
 
 /** Unified LLM interface. Role (heavy/light) is the first argument to every
  *  generative call so callers never need to hold two separate client handles. */
 export interface LlmRouter {
   chat(role: "heavy" | "light", system: string, user: string, options?: ChatOptions): Promise<string>;
+  /** True when the model at the given role accepted a test vision payload at startup. */
+  supportsVision(role: "heavy" | "light"): boolean;
   streamChat(
     role: "heavy" | "light",
     system: string,
@@ -113,7 +122,18 @@ class OpenAICompatClient {
         } : {}),
         messages: [
           { role: "system", content: system },
-          { role: "user", content: user },
+          {
+            role: "user",
+            content: options.images?.length
+              ? [
+                  { type: "text", text: user },
+                  ...options.images.map((img) => ({
+                    type: "image_url",
+                    image_url: { url: `data:${img.mime};base64,${img.b64}` },
+                  })),
+                ]
+              : user,
+          },
         ],
       }),
     });
@@ -314,6 +334,7 @@ class OpenAICompatClient {
 export class OpenAICompatRouter implements LlmRouter {
   private readonly heavy: OpenAICompatClient;
   private readonly light: OpenAICompatClient;
+  private readonly visionSupport = new Map<"heavy" | "light", boolean>();
 
   constructor(
     private readonly heavyChatConfig: ChatConfig,
@@ -327,6 +348,10 @@ export class OpenAICompatRouter implements LlmRouter {
 
   private client(role: "heavy" | "light"): OpenAICompatClient {
     return role === "light" ? this.light : this.heavy;
+  }
+
+  supportsVision(role: "heavy" | "light"): boolean {
+    return this.visionSupport.get(role) ?? false;
   }
 
   chat(role: "heavy" | "light", system: string, user: string, options?: ChatOptions): Promise<string> {
@@ -354,6 +379,23 @@ export class OpenAICompatRouter implements LlmRouter {
       await this.heavy.probeEndpoint("embeddings", this.embeddingsConfig.base_url, this.embeddingsConfig.api_key);
     } else {
       this.logger.info("llm.embed_disabled", { role: "embeddings" });
+    }
+    // Probe vision support: send a minimal 1×1 PNG as base64. Log result but never throw.
+    const tiny1x1Png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    for (const role of ["light", "heavy"] as const) {
+      const cfg = role === "light" ? this.lightChatConfig : this.heavyChatConfig;
+      try {
+        await this.client(role).chat(
+          "Reply with the single word OK.",
+          "What color is this image?",
+          { images: [{ mime: "image/png", b64: tiny1x1Png }] },
+        );
+        this.visionSupport.set(role, true);
+        this.logger.info("llm.vision_ok", { role, model: cfg.model });
+      } catch {
+        this.visionSupport.set(role, false);
+        this.logger.info("llm.vision_unsupported", { role, model: cfg.model });
+      }
     }
   }
 }

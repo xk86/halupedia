@@ -20,7 +20,10 @@ import {
   getArticleByLookup,
   listIncomingHints,
   saveArticleSeeAlso,
+  setArticleInfobox,
+  getArticleHeadlineMedia,
   updateArticleInPlace,
+  type InfoboxData,
 } from "../../db";
 import {
   buildReferenceList,
@@ -473,6 +476,78 @@ export const updateArticleInPlaceNode = defineNode({
     });
 
     return { persistedAt: now };
+  },
+});
+
+// ─── LLM: infobox generation ────────────────────────────────────────────────
+
+export const generateInfoboxNode = defineNode({
+  name: "llm.generate_infobox",
+  kind: "llm",
+  description:
+    "Generate structured infobox rows (heavy, JSON). Skipped when article has no headline image.",
+  reads: ["finalArticleBody", "canonicalTitle", "input"] as const,
+  writes: ["infobox"] as const,
+  async run({ finalArticleBody, canonicalTitle, input }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    const body = finalArticleBody ?? "";
+    if (!slug || !body) return { infobox: undefined };
+
+    // Only generate when a headline image is attached
+    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
+    if (!headlineMedia) return { infobox: undefined };
+
+    const title = canonicalTitle ?? input.requestedTitle ?? slug;
+    const excerpt = stripTopLevelSections(body, ["References", "See also"]).slice(0, 6000);
+
+    const rendered = deps.prompts.render("infobox", {
+      requested_title: title,
+      article_excerpt: excerpt,
+    });
+
+    try {
+      const raw = await deps.llm.chat(
+        rendered.role ?? "heavy",
+        rendered.system,
+        rendered.user,
+        { jsonMode: true, thinking: rendered.thinking },
+      );
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("no JSON in infobox response");
+      const parsed = JSON.parse(match[0]) as InfoboxData;
+      if (!parsed.title || !Array.isArray(parsed.groups)) throw new Error("invalid infobox shape");
+      return { infobox: parsed };
+    } catch (err) {
+      deps.logger.warn("pipeline.infobox.failed", {
+        slug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { infobox: undefined };
+    }
+  },
+});
+
+// ─── WRITE: persist infobox ───────────────────────────────────────────────────
+
+export const persistInfoboxNode = defineNode({
+  name: "write.persist_infobox",
+  kind: "write",
+  description: "Save generated infobox data to article_infobox sidecar.",
+  reads: ["input", "infobox"] as const,
+  writes: [] as const,
+  run({ input, infobox }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    if (!slug || !infobox) return {};
+    try {
+      setArticleInfobox(deps.db, slug, infobox as InfoboxData);
+      deps.logger.info("pipeline.infobox.saved", { slug });
+    } catch (err) {
+      deps.logger.warn("pipeline.infobox.save_failed", {
+        slug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return {};
   },
 });
 

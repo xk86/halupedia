@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
-import type { AppConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
+import type { AppConfig, ImagesConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
 
 const ROOT = process.cwd();
 
@@ -109,6 +109,14 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
         level: app.pipeline?.trace?.level ?? "normal",
         retention_days: app.pipeline?.trace?.retention_days ?? 14,
       },
+    },
+    images: {
+      model_max_edge: (app.images as Partial<ImagesConfig> | undefined)?.model_max_edge ?? 256,
+      jpeg_quality: (app.images as Partial<ImagesConfig> | undefined)?.jpeg_quality ?? 70,
+      max_bytes: (app.images as Partial<ImagesConfig> | undefined)?.max_bytes ?? 15 * 1024 * 1024,
+      fetch_timeout_ms: (app.images as Partial<ImagesConfig> | undefined)?.fetch_timeout_ms ?? 10_000,
+      media_database_path: (app.images as Partial<ImagesConfig> | undefined)?.media_database_path ?? "data/halupedia-media.sqlite",
+      allow_private_hosts: (app.images as Partial<ImagesConfig> | undefined)?.allow_private_hosts ?? false,
     },
   };
 }

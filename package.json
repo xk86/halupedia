@@ -40,6 +40,7 @@
     "jsonrepair": "^3.14.0",
     "katex": "^0.16.46",
     "markdown-it": "^14.1.1",
+    "markdown-it-container": "^4.0.0",
     "markdown-it-footnote": "^4.0.0",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-to-markdown": "^2.1.2",

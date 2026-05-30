@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it";
+import markdownItContainer from "markdown-it-container";
 import katex from "katex";
 import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
 import type { ArticleSection, ParsedInternalLink } from "./types";
@@ -66,6 +67,33 @@ const md = new MarkdownIt({
   linkify: false,
   breaks: false,
 });
+
+// :::sidebar … ::: → <aside class="sidebar-block">
+md.use(markdownItContainer, "sidebar", {
+  render(tokens: any[], idx: number) {
+    return tokens[idx].nesting === 1
+      ? '<aside class="sidebar-block">\n'
+      : "</aside>\n";
+  },
+});
+
+// media: image scheme — render as click-to-media-page linked image
+const defaultImageRule =
+  (md.renderer.rules.image as ((...args: any[]) => string) | undefined) ??
+  ((tokens: any[], idx: number, options: any, _env: any, self: any) =>
+    self.renderToken(tokens, idx, options) as string);
+
+md.renderer.rules.image = (tokens: any[], idx: number, options: any, env: any, self: any) => {
+  const token = tokens[idx];
+  const srcIdx = token.attrIndex("src");
+  const src: string = srcIdx >= 0 ? (token.attrs[srcIdx][1] as string) : "";
+  if (src.startsWith("media:")) {
+    const imageSlug = encodeURIComponent(src.slice("media:".length));
+    const alt = escapeHtml(token.content as string);
+    return `<a href="/media/${imageSlug}" class="media-image-link"><img src="/api/media/${imageSlug}" alt="${alt}" class="article-image"></a>`;
+  }
+  return defaultImageRule(tokens, idx, options, env, self);
+};
 
 function escapeHtml(value: string): string {
   return value

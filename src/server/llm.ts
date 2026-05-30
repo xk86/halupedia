@@ -330,6 +330,52 @@ class OpenAICompatClient {
   }
 }
 
+/**
+ * Check whether a model supports vision by querying the provider's capabilities
+ * endpoint. Works natively with Ollama via POST /api/show; degrades to false
+ * for providers that don't expose this endpoint.
+ */
+async function probeVisionSupport(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  logger: Logger,
+): Promise<boolean> {
+  // Derive the Ollama-native base URL by stripping the /v1 suffix.
+  const ollamaBase = baseUrl.replace(/\/v1\/?$/, "");
+  try {
+    const response = await fetch(`${ollamaBase}/api/show`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ name: model }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return false;
+    const json = await response.json() as Record<string, unknown>;
+    // Ollama returns model_info with a "clip" sub-object for vision models.
+    // It may also appear under projector_info or as a top-level "projector_type".
+    const modelInfo = json.model_info as Record<string, unknown> | undefined;
+    if (modelInfo && typeof modelInfo === "object") {
+      if ("clip.vision_encoder" in modelInfo || "clip.projector_type" in modelInfo) return true;
+      // Older Ollama versions encode it differently
+      for (const key of Object.keys(modelInfo)) {
+        if (key.startsWith("clip.")) return true;
+      }
+    }
+    // Some providers expose a top-level families or capabilities array
+    const details = json.details as Record<string, unknown> | undefined;
+    const families = (details?.families ?? json.families) as string[] | undefined;
+    if (Array.isArray(families) && families.some((f) => f === "clip" || f === "mllama")) return true;
+    return false;
+  } catch {
+    logger.info("llm.vision_probe_skipped", { model, reason: "provider endpoint unavailable" });
+    return false;
+  }
+}
+
 /** Production LlmRouter that holds separate heavy and light chat clients. */
 export class OpenAICompatRouter implements LlmRouter {
   private readonly heavy: OpenAICompatClient;
@@ -380,22 +426,15 @@ export class OpenAICompatRouter implements LlmRouter {
     } else {
       this.logger.info("llm.embed_disabled", { role: "embeddings" });
     }
-    // Probe vision support: send a minimal 1×1 PNG as base64. Log result but never throw.
-    const tiny1x1Png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    // Probe vision support via provider capabilities. We try the Ollama-native
+    // POST /api/show endpoint (derived by stripping /v1 from the base URL).
+    // If the provider is not Ollama or the endpoint is unreachable, we fall back
+    // to false rather than making a real chat call.
     for (const role of ["light", "heavy"] as const) {
       const cfg = role === "light" ? this.lightChatConfig : this.heavyChatConfig;
-      try {
-        await this.client(role).chat(
-          "Reply with the single word OK.",
-          "What color is this image?",
-          { images: [{ mime: "image/png", b64: tiny1x1Png }] },
-        );
-        this.visionSupport.set(role, true);
-        this.logger.info("llm.vision_ok", { role, model: cfg.model });
-      } catch {
-        this.visionSupport.set(role, false);
-        this.logger.info("llm.vision_unsupported", { role, model: cfg.model });
-      }
+      const hasVision = await probeVisionSupport(cfg.base_url, cfg.api_key, cfg.model, this.logger);
+      this.visionSupport.set(role, hasVision);
+      this.logger.info("llm.vision_capability", { role, model: cfg.model, vision: hasVision });
     }
   }
 }

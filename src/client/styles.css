@@ -1276,6 +1276,28 @@ button.admin-danger-btn:hover:not(:disabled) {
   padding: 0.3rem 0.5rem;
 }
 
+.edit-image-file-label {
+  background: var(--control-surface);
+  border: 1px solid var(--control-border);
+  border-radius: 3px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  line-height: 1;
+  min-width: 2rem;
+  padding: 0.28rem 0.5rem;
+  transition: background 100ms;
+}
+.edit-image-file-label:hover {
+  background: var(--control-surface-strong);
+}
+.edit-image-file-input {
+  display: none;
+}
+
 ::selection {
   background: var(--selection-bg);
 }

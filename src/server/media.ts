@@ -362,4 +362,91 @@ export async function ingestImageFromUrl(
   }
 }
 
+/**
+ * Ingest an already-fetched image buffer (from a file upload or paste).
+ * Skips URL fetch and SSRF checks — caller is responsible for the bytes.
+ */
+export async function ingestImageFromBuffer(
+  bytes: Buffer,
+  mime: string,
+  {
+    mediaDb,
+    mainDb,
+    llm,
+    config,
+    articleSlug,
+    logger,
+    sourceLabel = "upload",
+  }: {
+    mediaDb: DatabaseSync;
+    mainDb: DatabaseSync;
+    llm: LlmRouter;
+    config: ImagesConfig;
+    articleSlug: string;
+    logger: Logger;
+    sourceLabel?: string;
+  },
+): Promise<IngestResult> {
+  if (bytes.length > config.max_bytes) {
+    throw new Error(`Image too large (${bytes.length} bytes, max ${config.max_bytes})`);
+  }
+  if (!mime.startsWith("image/")) {
+    throw new Error(`Not an image (mime: ${mime})`);
+  }
+
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+
+  // Dedup
+  const existing = getMediaBySha256(mediaDb, sha256);
+  if (existing) {
+    logger.info("media.dedup", { id: existing.id, sha256: sha256.slice(0, 12), source: sourceLabel });
+    const article = getArticleByLookup(mainDb, articleSlug);
+    let caption = existing.description;
+    if (article && llm.supportsVision("light")) {
+      const res = await generateCaption(llm, existing.model_b64, existing.model_mime, article.title, article.markdown.slice(0, 1500), logger);
+      caption = res.caption || existing.description;
+    }
+    return { mediaId: existing.id, isNew: false, description: existing.description, caption, width: existing.width, height: existing.height };
+  }
+
+  const tmpId = randomBytes(8).toString("hex");
+  const ext = mime.replace("image/", "").replace("jpeg", "jpg").split(";")[0] || "jpg";
+  const inputPath = join(tmpdir(), `halu-img-${tmpId}.${ext}`);
+  const thumbPath = `${inputPath}-thumb.jpg`;
+
+  try {
+    await writeFile(inputPath, bytes);
+    const origDims = await getDims(inputPath);
+    const thumb = await makeThumbnail(inputPath, config.model_max_edge, config.jpeg_quality);
+    const thumbBytes = await readFile(thumbPath);
+    const modelB64 = thumbBytes.toString("base64");
+
+    const article = getArticleByLookup(mainDb, articleSlug);
+    let captionResult: CaptionResult = { titleSlug: "", description: "", caption: "" };
+    if (llm.supportsVision("light")) {
+      captionResult = await generateCaption(llm, modelB64, "image/jpeg", article?.title ?? articleSlug, article?.markdown ?? "", logger);
+    }
+
+    const tempId = `img-${sha256.slice(0, 12)}`;
+    insertMedia(mediaDb, {
+      id: tempId, sha256, sourceUrl: null, mime,
+      width: origDims.width, height: origDims.height, bytes, byteSize: bytes.length,
+      modelB64, modelMime: "image/jpeg", modelWidth: thumb.width, modelHeight: thumb.height,
+      description: captionResult.description,
+    });
+
+    let finalId = tempId;
+    if (captionResult.titleSlug) {
+      const niceId = uniqueSlug(mediaDb, captionResult.titleSlug, sha256);
+      if (niceId !== tempId && updateMediaId(mediaDb, tempId, niceId)) finalId = niceId;
+    }
+
+    logger.info("media.ingested", { id: finalId, sha256: sha256.slice(0, 12), source: sourceLabel, width: origDims.width, height: origDims.height });
+    return { mediaId: finalId, isNew: true, description: captionResult.description, caption: captionResult.caption, width: origDims.width, height: origDims.height };
+  } finally {
+    await rm(inputPath, { force: true });
+    await rm(thumbPath, { force: true });
+  }
+}
+
 export type { MediaRecord };

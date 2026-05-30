@@ -69,7 +69,7 @@ import {
   removeArticleMedia,
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription } from "./mediaDb";
-import { ingestImageFromUrl } from "./media";
+import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
 import { renderInfoboxHtml } from "./articleRender";
 import {
   findFuzzyTitleMatchesInEditText,
@@ -3320,6 +3320,45 @@ export async function createApp(options: CreateAppOptions = {}) {
       height: result.height,
       article: response,
     });
+  });
+
+  // Upload image bytes directly (multipart/form-data or raw binary with content-type)
+  app.post("/api/article/:slug/image/upload", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+
+    let bytes: Buffer;
+    let mime: string;
+    const contentType = c.req.header("content-type") ?? "";
+
+    if (contentType.includes("multipart/form-data")) {
+      const form = await c.req.formData().catch(() => null);
+      const file = form?.get("image") as File | null;
+      if (!file) return c.json({ error: "no image field in form" }, 400);
+      bytes = Buffer.from(await file.arrayBuffer());
+      mime = file.type || "image/jpeg";
+    } else if (contentType.startsWith("image/")) {
+      bytes = Buffer.from(await c.req.arrayBuffer());
+      mime = contentType.split(";")[0].trim();
+    } else {
+      return c.json({ error: "send multipart/form-data with an 'image' field, or raw bytes with an image/* content-type" }, 400);
+    }
+
+    let result: Awaited<ReturnType<typeof ingestImageFromBuffer>>;
+    try {
+      result = await ingestImageFromBuffer(bytes, mime, {
+        mediaDb, mainDb: db, llm, config: runtime.app.images, articleSlug: slug, logger,
+      });
+    } catch (err: any) {
+      return c.json({ error: err?.message || "Image processing failed" }, 400);
+    }
+
+    upsertArticleHeadlineMedia(db, slug, result.mediaId, result.caption);
+    invalidateArticleHtml(slug);
+
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({ mediaId: result.mediaId, isNew: result.isNew, description: result.description, caption: result.caption, width: result.width, height: result.height, article: response });
   });
 
   // Remove headline image

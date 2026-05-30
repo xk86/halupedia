@@ -748,6 +748,19 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editOpen, page?.article.slug]);
 
+  const applyImageResult = useCallback((payload: any) => {
+    setImageInfo({
+      mediaId: payload.mediaId,
+      caption: payload.caption ?? "",
+      description: payload.description ?? "",
+      width: payload.width,
+      height: payload.height,
+    });
+    if (payload.article) {
+      setPage((current) => current ? { ...current, article: payload.article } : current);
+    }
+  }, []);
+
   const uploadImage = useCallback(async () => {
     if (!page?.article.slug || !imageUrlDraft.trim() || imageUploadBusy) return;
     setImageUploadBusy(true);
@@ -760,23 +773,35 @@ export function App() {
       });
       const payload = await res.json().catch(() => ({})) as any;
       if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      setImageInfo({
-        mediaId: payload.mediaId,
-        caption: payload.caption,
-        description: payload.description,
-        width: payload.width,
-        height: payload.height,
-      });
+      applyImageResult(payload);
       setImageUrlDraft("");
-      if (payload.article) {
-        setPage((current) => current ? { ...current, article: payload.article } : current);
-      }
     } catch (err: any) {
       setImageUploadError(err?.message || "Image upload failed.");
     } finally {
       setImageUploadBusy(false);
     }
-  }, [page?.article.slug, imageUrlDraft, imageUploadBusy]);
+  }, [page?.article.slug, imageUrlDraft, imageUploadBusy, applyImageResult]);
+
+  const uploadImageFile = useCallback(async (file: File) => {
+    if (!page?.article.slug || imageUploadBusy) return;
+    setImageUploadBusy(true);
+    setImageUploadError(null);
+    try {
+      const form = new FormData();
+      form.append("image", file);
+      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/image/upload`, {
+        method: "POST",
+        body: form,
+      });
+      const payload = await res.json().catch(() => ({})) as any;
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      applyImageResult(payload);
+    } catch (err: any) {
+      setImageUploadError(err?.message || "Image upload failed.");
+    } finally {
+      setImageUploadBusy(false);
+    }
+  }, [page?.article.slug, imageUploadBusy, applyImageResult]);
 
   const removeImage = useCallback(async () => {
     if (!page?.article.slug) return;
@@ -1653,11 +1678,23 @@ export function App() {
                   <input
                     type="url"
                     className="search-input edit-image-url-input"
-                    placeholder="Paste image URL…"
+                    placeholder="Paste image URL or image…"
                     value={imageUrlDraft}
                     onChange={(e) => { setImageUrlDraft(e.target.value); setImageUploadError(null); }}
                     disabled={imageUploadBusy}
-                    onKeyDown={(e) => { if (e.key === "Enter") void uploadImage(); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && imageUrlDraft.trim()) void uploadImage(); }}
+                    onPaste={(e) => {
+                      const items = e.clipboardData?.items;
+                      if (!items) return;
+                      for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.startsWith("image/")) {
+                          e.preventDefault();
+                          const file = items[i].getAsFile();
+                          if (file) void uploadImageFile(file);
+                          return;
+                        }
+                      }
+                    }}
                   />
                   <button
                     type="button"
@@ -1667,6 +1704,19 @@ export function App() {
                   >
                     {imageUploadBusy ? "Fetching…" : "Attach"}
                   </button>
+                  <label className="edit-image-file-label" title="Upload from disk">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="edit-image-file-input"
+                      disabled={imageUploadBusy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) { e.target.value = ""; void uploadImageFile(file); }
+                      }}
+                    />
+                    {imageUploadBusy ? "…" : "↑"}
+                  </label>
                 </div>
               )}
               {imageUploadError && <p className="edit-modal-error" style={{ marginTop: "0.25rem" }}>{imageUploadError}</p>}

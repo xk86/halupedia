@@ -367,9 +367,12 @@ describe("markdown", () => {
     assert.match(html, /alt="Caption here"/);
   });
 
-  test("media: image slug is URL-encoded", () => {
-    const html = renderMarkdown("![C](media:has spaces)");
-    assert.match(html, /has%20spaces/);
+  test("media: both src and href contain the exact slug", () => {
+    const html = renderMarkdown("![Caption](media:specific-slug-value)");
+    assert.match(html, /\/api\/media\/specific-slug-value/);
+    assert.match(html, /\/media\/specific-slug-value/);
+    // Slug must appear exactly once in each attribute (no doubling or trimming)
+    assert.equal((html.match(/specific-slug-value/g) ?? []).length, 2);
   });
 
   test("external image does not get media-image-link treatment", () => {

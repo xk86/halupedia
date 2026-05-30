@@ -32,6 +32,7 @@ export function openMediaDatabase(databasePath: string): DatabaseSync {
       mime TEXT NOT NULL,
       width INTEGER NOT NULL,
       height INTEGER NOT NULL,
+      bytes TEXT NOT NULL DEFAULT '',
       byte_size INTEGER NOT NULL,
       model_b64 TEXT NOT NULL,
       model_mime TEXT NOT NULL,
@@ -58,8 +59,9 @@ export function getMediaById(mediaDb: DatabaseSync, id: string): MediaRecord | n
 export function getMediaBytesById(mediaDb: DatabaseSync, id: string): { bytes: Buffer; mime: string } | null {
   const row = mediaDb
     .prepare(`SELECT bytes, mime FROM media WHERE id = ?`)
-    .get(id) as { bytes: Buffer; mime: string } | undefined;
-  return row ?? null;
+    .get(id) as { bytes: string; mime: string } | undefined;
+  if (!row) return null;
+  return { bytes: Buffer.from(row.bytes, "base64"), mime: row.mime };
 }
 
 export function getMediaBySha256(mediaDb: DatabaseSync, sha256: string): MediaRecord | null {
@@ -104,7 +106,7 @@ export function insertMedia(
       record.mime,
       record.width,
       record.height,
-      record.bytes,
+      record.bytes.toString("base64"),
       record.byteSize,
       record.modelB64,
       record.modelMime,

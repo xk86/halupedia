@@ -3190,6 +3190,128 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   });
 
+  // ── Media routes ─────────────────────────────────────────────────────────────
+  // These must be registered BEFORE the app.get("*") SPA catch-all because
+  // that wildcard intercepts all GET requests that aren't matched first.
+
+  app.get("/api/media/:id", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const result = getMediaBytesById(mediaDb, id);
+    if (!result) return c.notFound();
+    return new Response(result.bytes as unknown as BodyInit, {
+      headers: {
+        "content-type": result.mime,
+        "cache-control": "public, max-age=31536000, immutable",
+      },
+    });
+  });
+
+  app.get("/api/media/:id/info", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+    const { model_b64: _b64, ...safe } = record as any;
+    return c.json(safe);
+  });
+
+  app.patch("/api/media/:id/description", async (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const body = await c.req.json().catch(() => ({})) as { description?: string };
+    const description = typeof body.description === "string" ? body.description.trim() : null;
+    if (description === null) return c.json({ error: "description required" }, 400);
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+    updateMediaDescription(mediaDb, id, description);
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/article/:slug/image", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    const headlineMedia = getArticleHeadlineMedia(db, slug);
+    if (!headlineMedia) return c.json({ image: null });
+    const record = getMediaById(mediaDb, headlineMedia.mediaId);
+    if (!record) return c.json({ image: null });
+    const { model_b64: _b64, ...safe } = record as any;
+    return c.json({
+      image: {
+        ...safe,
+        caption: headlineMedia.caption || record.description,
+        articleCaption: headlineMedia.caption,
+      },
+    });
+  });
+
+  app.post("/api/article/:slug/image", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const body = await c.req.json().catch(() => ({})) as { url?: string };
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    if (!url) return c.json({ error: "url required" }, 400);
+    let result: Awaited<ReturnType<typeof ingestImageFromUrl>>;
+    try {
+      result = await ingestImageFromUrl(url, { mediaDb, mainDb: db, llm, config: runtime.app.images, articleSlug: slug, logger });
+    } catch (err: any) {
+      return c.json({ error: err?.message || "Image ingestion failed" }, 400);
+    }
+    upsertArticleHeadlineMedia(db, slug, result.mediaId, result.caption);
+    invalidateArticleHtml(slug);
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({ mediaId: result.mediaId, isNew: result.isNew, description: result.description, caption: result.caption, width: result.width, height: result.height, article: response });
+  });
+
+  app.post("/api/article/:slug/image/upload", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    let bytes: Buffer;
+    let mime: string;
+    const contentType = c.req.header("content-type") ?? "";
+    if (contentType.includes("multipart/form-data")) {
+      const form = await c.req.formData().catch(() => null);
+      const file = form?.get("image") as File | null;
+      if (!file) return c.json({ error: "no image field in form" }, 400);
+      bytes = Buffer.from(await file.arrayBuffer());
+      mime = file.type || "image/jpeg";
+    } else if (contentType.startsWith("image/")) {
+      bytes = Buffer.from(await c.req.arrayBuffer());
+      mime = contentType.split(";")[0].trim();
+    } else {
+      return c.json({ error: "send multipart/form-data with an 'image' field, or raw bytes with an image/* content-type" }, 400);
+    }
+    let result: Awaited<ReturnType<typeof ingestImageFromBuffer>>;
+    try {
+      result = await ingestImageFromBuffer(bytes, mime, { mediaDb, mainDb: db, llm, config: runtime.app.images, articleSlug: slug, logger });
+    } catch (err: any) {
+      return c.json({ error: err?.message || "Image processing failed" }, 400);
+    }
+    upsertArticleHeadlineMedia(db, slug, result.mediaId, result.caption);
+    invalidateArticleHtml(slug);
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({ mediaId: result.mediaId, isNew: result.isNew, description: result.description, caption: result.caption, width: result.width, height: result.height, article: response });
+  });
+
+  app.delete("/api/article/:slug/image", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    removeArticleMedia(db, slug, 1);
+    invalidateArticleHtml(slug);
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({ article: response });
+  });
+
+  app.patch("/api/article/:slug/image/caption", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const body = await c.req.json().catch(() => ({})) as { caption?: string };
+    const caption = typeof body.caption === "string" ? body.caption : null;
+    if (caption === null) return c.json({ error: "caption required" }, 400);
+    updateArticleMediaCaption(db, slug, 1, caption);
+    invalidateArticleHtml(slug);
+    return c.json({ ok: true });
+  });
+
   // Comments are intentionally disabled from the active application path for now.
   // Keep the implementation on disk, but do not mount the routes until the feature returns.
   app.use("/assets/*", serveStatic({ root: distRoot }));
@@ -3247,159 +3369,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     } catch {
       return c.notFound();
     }
-  });
-
-  // ── Media routes ─────────────────────────────────────────────────────────────
-
-  // Serve raw image bytes
-  app.get("/api/media/:id", (c) => {
-    const id = decodeURIComponent(c.req.param("id"));
-    const result = getMediaBytesById(mediaDb, id);
-    if (!result) return c.notFound();
-    return new Response(result.bytes as unknown as BodyInit, {
-      headers: {
-        "content-type": result.mime,
-        "cache-control": "public, max-age=31536000, immutable",
-      },
-    });
-  });
-
-  // Media metadata (for media page)
-  app.get("/api/media/:id/info", (c) => {
-    const id = decodeURIComponent(c.req.param("id"));
-    const record = getMediaById(mediaDb, id);
-    if (!record) return c.json({ error: "not found" }, 404);
-    const { model_b64: _b64, ...safe } = record as any;
-    return c.json(safe);
-  });
-
-  // Update description (user edit)
-  app.patch("/api/media/:id/description", async (c) => {
-    const id = decodeURIComponent(c.req.param("id"));
-    const body = await c.req.json().catch(() => ({})) as { description?: string };
-    const description = typeof body.description === "string" ? body.description.trim() : null;
-    if (description === null) return c.json({ error: "description required" }, 400);
-    const record = getMediaById(mediaDb, id);
-    if (!record) return c.json({ error: "not found" }, 404);
-    updateMediaDescription(mediaDb, id, description);
-    return c.json({ ok: true });
-  });
-
-  // Attach headline image to an article
-  app.post("/api/article/:slug/image", async (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const body = await c.req.json().catch(() => ({})) as { url?: string };
-    const url = typeof body.url === "string" ? body.url.trim() : "";
-    if (!url) return c.json({ error: "url required" }, 400);
-
-    let result: Awaited<ReturnType<typeof ingestImageFromUrl>>;
-    try {
-      result = await ingestImageFromUrl(url, {
-        mediaDb,
-        mainDb: db,
-        llm,
-        config: runtime.app.images,
-        articleSlug: slug,
-        logger,
-      });
-    } catch (err: any) {
-      return c.json({ error: err?.message || "Image ingestion failed" }, 400);
-    }
-
-    upsertArticleHeadlineMedia(db, slug, result.mediaId, result.caption);
-    invalidateArticleHtml(slug);
-
-    const response = buildArticleResponseFor(slug);
-    if (!response) return c.json({ error: "article not found" }, 404);
-    return c.json({
-      mediaId: result.mediaId,
-      isNew: result.isNew,
-      description: result.description,
-      caption: result.caption,
-      width: result.width,
-      height: result.height,
-      article: response,
-    });
-  });
-
-  // Upload image bytes directly (multipart/form-data or raw binary with content-type)
-  app.post("/api/article/:slug/image/upload", async (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
-
-    let bytes: Buffer;
-    let mime: string;
-    const contentType = c.req.header("content-type") ?? "";
-
-    if (contentType.includes("multipart/form-data")) {
-      const form = await c.req.formData().catch(() => null);
-      const file = form?.get("image") as File | null;
-      if (!file) return c.json({ error: "no image field in form" }, 400);
-      bytes = Buffer.from(await file.arrayBuffer());
-      mime = file.type || "image/jpeg";
-    } else if (contentType.startsWith("image/")) {
-      bytes = Buffer.from(await c.req.arrayBuffer());
-      mime = contentType.split(";")[0].trim();
-    } else {
-      return c.json({ error: "send multipart/form-data with an 'image' field, or raw bytes with an image/* content-type" }, 400);
-    }
-
-    let result: Awaited<ReturnType<typeof ingestImageFromBuffer>>;
-    try {
-      result = await ingestImageFromBuffer(bytes, mime, {
-        mediaDb, mainDb: db, llm, config: runtime.app.images, articleSlug: slug, logger,
-      });
-    } catch (err: any) {
-      return c.json({ error: err?.message || "Image processing failed" }, 400);
-    }
-
-    upsertArticleHeadlineMedia(db, slug, result.mediaId, result.caption);
-    invalidateArticleHtml(slug);
-
-    const response = buildArticleResponseFor(slug);
-    if (!response) return c.json({ error: "article not found" }, 404);
-    return c.json({ mediaId: result.mediaId, isNew: result.isNew, description: result.description, caption: result.caption, width: result.width, height: result.height, article: response });
-  });
-
-  // Remove headline image
-  app.delete("/api/article/:slug/image", (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
-    removeArticleMedia(db, slug, 1);
-    invalidateArticleHtml(slug);
-    const response = buildArticleResponseFor(slug);
-    if (!response) return c.json({ error: "article not found" }, 404);
-    return c.json({ article: response });
-  });
-
-  // Update image caption for this article
-  app.patch("/api/article/:slug/image/caption", async (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const body = await c.req.json().catch(() => ({})) as { caption?: string };
-    const caption = typeof body.caption === "string" ? body.caption : null;
-    if (caption === null) return c.json({ error: "caption required" }, 400);
-    updateArticleMediaCaption(db, slug, 1, caption);
-    invalidateArticleHtml(slug);
-    return c.json({ ok: true });
-  });
-
-  // Get image info for an article's headline image
-  app.get("/api/article/:slug/image", (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    const headlineMedia = getArticleHeadlineMedia(db, slug);
-    if (!headlineMedia) return c.json({ image: null });
-    const record = getMediaById(mediaDb, headlineMedia.mediaId);
-    if (!record) return c.json({ image: null });
-    const { model_b64: _b64, ...safe } = record as any;
-    return c.json({
-      image: {
-        ...safe,
-        caption: headlineMedia.caption || record.description,
-        articleCaption: headlineMedia.caption,
-      },
-    });
   });
 
   app.post("/api/maintenance/trigger", async (c) => {

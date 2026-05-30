@@ -217,6 +217,7 @@ function articleLookupSlugFromInput(input: string): string {
 
 export interface CreateAppOptions {
   databasePath?: string;
+  mediaDatabasePath?: string;
   distRoot?: string;
   skipLlmProbe?: boolean;
   skipHomepagePrepare?: boolean;
@@ -811,7 +812,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
   const db = openDatabase(runtime.app.storage.database_path);
-  const mediaDb = openMediaDatabase(runtime.app.images.media_database_path);
+  const mediaDb = openMediaDatabase(options.mediaDatabasePath ?? runtime.app.images.media_database_path);
 
   // Startup sync: ingest any TOML edits made outside the UI into DB, and write
   // TOML for any DB-current entries whose files are missing.

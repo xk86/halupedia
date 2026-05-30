@@ -18,6 +18,7 @@
     "test": "npm run test:server && npm run test:client",
     "test:client": "vitest run",
     "test:server": "node --import tsx --test tests/**/*.test.ts",
+    "test:media": "node --import tsx --test tests/media.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.vitest.json",
     "rag:audit": "node --import tsx/esm scripts/rag-audit.ts",
     "rag:audit:dry": "node --import tsx/esm scripts/rag-audit.ts --dry-run"

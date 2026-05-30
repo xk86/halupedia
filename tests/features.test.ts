@@ -193,43 +193,44 @@ test("ensureDykHasSourceLink: fact with halu link keeps canonical markdown sourc
   assert.match(result, /was discovered in the craters/, "content should be preserved");
 });
 
-test("ensureDykHasSourceLink: fact with an existing non-source link strips it and prepends source", () => {
+test("ensureDykHasSourceLink: fact with an existing non-source link strips it and wraps title in text", () => {
   const fact = "... [Lantern Index](/lantern-index) describes the southern craters near Glow Fruit.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
   assert.equal(
     result,
-    '... [Glow Fruit](halu:glow-fruit "Glow Fruit"): Lantern Index describes the southern craters near Glow Fruit.',
+    '... Lantern Index describes the southern craters near [Glow Fruit](halu:glow-fruit "Glow Fruit").',
   );
 });
 
-test("ensureDykHasSourceLink: fact mentions title as plain text but has no link → source link prepended", () => {
+test("ensureDykHasSourceLink: fact mentions title as plain text but has no link → title is wrapped as link", () => {
   const fact = "... Glow Fruit was discovered in the southern craters.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
   assert.equal(
     result,
-    '... [Glow Fruit](halu:glow-fruit "Glow Fruit"): Glow Fruit was discovered in the southern craters.',
-    "should add one source fallback link without rewriting fact text",
+    '... [Glow Fruit](halu:glow-fruit "Glow Fruit") was discovered in the southern craters.',
+    "should wrap first title occurrence as link",
   );
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
 });
 
-test("ensureDykHasSourceLink: fact does not mention title → slug link prepended", () => {
+test("ensureDykHasSourceLink: fact does not mention title → restructured as '... that [Title] — fact?'", () => {
   const fact = "... the craters glow at night due to bioluminescent fungi.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
+  assert.match(result, /\.\.\. that \[Glow Fruit\]/);
   assert.match(result, /\(halu:glow-fruit "Glow Fruit"\)/);
-  assert.match(result, /\[Glow Fruit\]/, "should use title as link label");
+  assert.match(result, /craters glow at night/, "original fact content preserved");
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
 });
 
 test("ensureDykHasSourceLink: case-insensitive title match", () => {
   const fact = "... glow fruit was first catalogued in the old crater ledger.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.equal(result, '... [Glow Fruit](halu:glow-fruit "Glow Fruit"): glow fruit was first catalogued in the old crater ledger.');
+  assert.equal(result, '... [Glow Fruit](halu:glow-fruit "Glow Fruit") was first catalogued in the old crater ledger.');
 });
 
 test("normalizeHomepageFact: preserves fact wording and ends as a question", () => {
   const result = normalizeHomepageFact("Did you know... [Glow Fruit](/glow-fruit) was catalogued at dusk.");
-  assert.equal(result, "... [Glow Fruit](/glow-fruit) was catalogued at dusk?");
+  assert.equal(result, "... that [Glow Fruit](/glow-fruit) was catalogued at dusk?");
 });
 
 /* ─────────────────────────────────────────────────────────────────
@@ -420,32 +421,98 @@ test("ensureDykHasSourceLink: fact already has slug link to source becomes canon
   assert.equal(result, '... [Glow Fruit](halu:glow-fruit "Glow Fruit") was discovered in the craters.');
 });
 
-test("ensureDykHasSourceLink: title in plain text → source link is prepended", () => {
+test("ensureDykHasSourceLink: title in plain text → title is wrapped as link", () => {
   const fact = "... Glow Fruit was discovered in the southern craters.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.equal(result, '... [Glow Fruit](halu:glow-fruit "Glow Fruit"): Glow Fruit was discovered in the southern craters.');
+  assert.equal(result, '... [Glow Fruit](halu:glow-fruit "Glow Fruit") was discovered in the southern craters.');
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
   assert.match(result, /was discovered/, "rest of fact preserved");
 });
 
 /* ─────────────────────────────────────────────────────────────────
-   6. Halu link parsing: spaces in slug, single-quote hints
+   6. update-title endpoint
+   ───────────────────────────────────────────────────────────────── */
+
+test("update-title: PATCH response and subsequent GET both reflect new title", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  seedArticle(databasePath, "test-article", "Test article", "Body text.");
+  const server = await createTestServer(databasePath);
+  t.after(() => server.shutdown());
+
+  const patchRes = await server.request("/api/article/test-article/update-title", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "A Proper New Title" }),
+  });
+  const patchData = await patchRes.json() as any;
+  assert.equal(patchRes.status, 200, `PATCH failed: ${JSON.stringify(patchData)}`);
+
+  assert.equal(patchData.article.title, "A Proper New Title", "PATCH response must have updated title");
+  assert.doesNotMatch(patchData.article.title, /test.article/i, "title must not be slug-derived");
+
+  // Subsequent GET must also return the updated title.
+  const getRes = await server.request("/api/page/test-article");
+  assert.equal(getRes.status, 200, "GET after title update must succeed");
+  const getData = await getRes.json() as any;
+  assert.equal(getData.article.title, "A Proper New Title", "GET after update must have new title");
+});
+
+test("update-title: display_title override does not shadow new title", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Seed with a non-empty displayTitle to simulate an article whose LLM-generated
+  // title had a formatted variant stored in the display_title column.
+  const db = openDatabase(databasePath);
+  const markdown = "# Old Slug Title\n\nBody text.";
+  saveArticle(db, {
+    slug: "display-title-test",
+    canonicalSlug: "display-title-test",
+    title: "Old Slug Title",
+    displayTitle: "Old Slug Title",  // non-empty — shadows the title column
+    markdown,
+    html: renderMarkdown(markdown),
+    plain_text: markdownToPlainText(markdown),
+    generated_at: Date.now(),
+  }, [], ["display-title-test"]);
+  db.close();
+
+  const server = await createTestServer(databasePath);
+  t.after(() => server.shutdown());
+
+  const patchRes = await server.request("/api/article/display-title-test/update-title", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "Completely New Title" }),
+  });
+  assert.equal(patchRes.status, 200);
+  const data = await patchRes.json() as any;
+  assert.equal(data.article.title, "Completely New Title", "title column must be updated");
+  assert.ok(
+    !data.article.displayTitle || data.article.displayTitle === "Completely New Title",
+    `display_title must not shadow new title; got displayTitle=${data.article.displayTitle}`,
+  );
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   7. Halu link parsing: spaces in slug, single-quote hints
    ───────────────────────────────────────────────────────────────── */
 
 test("normalizeHaluLinks: slug with space before quote is parsed correctly", () => {
   // The slug extends to the first quote, not the first space.
-  // 'human-person- Junctional-Trauma-Mechanics "hint"' → slug captures everything before '"'
-  const md = `[Junctional Trauma Mechanics](halu:human-person- Junctional-Trauma-Mechanics "The academic study of structural inadequacy")`;
+  // 'example-topic- Extra-Words "hint"' → slug captures everything before '"'
+  const md = `[Extra Words](halu:example-topic- Extra-Words "A hint about the topic")`;
   const normalized = normalizeHaluLinks(md);
   // After normalization the link must be in proper [label](halu:slug "hint") form with no spaces in slug
   assert.match(normalized, /\(halu:[a-z0-9-]+ "/, "slug must be normalized with space removed");
-  assert.doesNotMatch(normalized, /halu:human-person-\s+Junctional/, "space must not remain in slug");
+  assert.doesNotMatch(normalized, /halu:example-topic-\s+Extra/, "space must not remain in slug");
 
   // extractInternalLinks must successfully extract this link
   const links = extractInternalLinks(md);
   assert.equal(links.length, 1, "should extract exactly one link");
-  assert.match(links[0].targetSlug, /human-person/, "slug should contain the main identifier");
-  assert.equal(links[0].hiddenHint, "The academic study of structural inadequacy");
+  assert.match(links[0].targetSlug, /example-topic/, "slug should contain the main identifier");
+  assert.equal(links[0].hiddenHint, "A hint about the topic");
 });
 
 test("normalizeHaluLinks: single-quote hint is accepted", () => {

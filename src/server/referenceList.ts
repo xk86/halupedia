@@ -643,7 +643,10 @@ export function linkMentionedReferencesInBody(
   let nextBody = body;
   let linked = collectReferenceLinkSlugs(nextBody);
 
-  for (const ref of refs) {
+  // Process longest titles first so "The X Industry" beats the substring "X".
+  const sortedRefs = [...refs].sort((a, b) => b.title.length - a.title.length);
+
+  for (const ref of sortedRefs) {
     if (linked.has(ref.slug)) continue;
     const pattern = titleMentionPattern(ref.title);
     if (!pattern) continue;

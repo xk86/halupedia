@@ -917,6 +917,36 @@ test("linkMentionedReferencesInBody: partial title match not linked", () => {
   assert.doesNotMatch(linked, /ref:glow-fruit/);
 });
 
+test("linkMentionedReferencesInBody: longest title matched first (substring disambiguation)", () => {
+  const refs: ReferenceList = [
+    makeRef("x-industry", "The X Industry"),
+    makeRef("x", "X"),
+  ];
+  const body = "We discuss The X Industry in detail.";
+  const linked = linkMentionedReferencesInBody(body, refs);
+  // Longer title wins and the text contains exactly one ref link (the full phrase).
+  assert.equal(linked, "We discuss [The X Industry](ref:x-industry) in detail.");
+});
+
+test("linkMentionedReferencesInBody: title with parenthetical suffix is linked", () => {
+  // Titles like "Foo (disambiguation note)" must be matched as a whole phrase.
+  const refs: ReferenceList = [makeRef("vector-space-real", "Vector Space (real numbers)")];
+  const body = "The theory relies on Vector Space (real numbers) as its foundation.";
+  const linked = linkMentionedReferencesInBody(body, refs);
+  assert.equal(
+    linked,
+    "The theory relies on [Vector Space (real numbers)](ref:vector-space-real) as its foundation.",
+  );
+});
+
+test("linkMentionedReferencesInBody: parenthetical title does not match bare substring", () => {
+  // "Vector Space" alone must NOT match "Vector Space (real numbers)".
+  const refs: ReferenceList = [makeRef("vector-space-real", "Vector Space (real numbers)")];
+  const body = "We use the Vector Space definition here.";
+  const linked = linkMentionedReferencesInBody(body, refs);
+  assert.doesNotMatch(linked, /ref:vector-space-real/);
+});
+
 /* ─────────────────────────────────────────────────────────────────
    convertExistingArticleLinksToRefs
    ───────────────────────────────────────────────────────────────── */

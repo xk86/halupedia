@@ -87,7 +87,9 @@ interface LinkMenuState {
 }
 
 function stripLeadingH1(html: string): string {
-  return html.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, "");
+  // Remove the first h1 regardless of position — an infobox <aside> may
+  // now precede it, so a start-of-string anchor no longer works.
+  return html.replace(/<h1[^>]*>[\s\S]*?<\/h1>\s*/i, "");
 }
 
 function countInternalLinks(markdown: string): number {

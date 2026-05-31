@@ -2,6 +2,11 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 
+function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === column);
+}
+
 export interface MediaRecord {
   id: string;
   sha256: string;
@@ -43,6 +48,10 @@ export function openMediaDatabase(databasePath: string): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
   `);
+  // Migrate: add bytes column to databases created before it was added.
+  if (!hasColumn(db, "media", "bytes")) {
+    db.exec(`ALTER TABLE media ADD COLUMN bytes TEXT NOT NULL DEFAULT ''`);
+  }
   return db;
 }
 

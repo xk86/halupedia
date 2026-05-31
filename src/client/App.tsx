@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
 import { GraphView } from "./GraphView";
+import { HeadlineImagePanel } from "./HeadlineImagePanel";
 import { Homepage } from "./Homepage";
 import { MediaPage } from "./MediaPage";
 import { SearchResults } from "./SearchResults";
@@ -188,11 +189,6 @@ export function App() {
   const [editTitleDraft, setEditTitleDraft] = useState("");
   const [editTitleBusy, setEditTitleBusy] = useState(false);
   const [editTitleError, setEditTitleError] = useState<string | null>(null);
-  // Image attachment
-  const [imageUrlDraft, setImageUrlDraft] = useState("");
-  const [imageUploadBusy, setImageUploadBusy] = useState(false);
-  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
-  const [imageInfo, setImageInfo] = useState<{ mediaId: string; caption: string; description: string; width: number; height: number } | null>(null);
   // Protection
   const [protectionBusy, setProtectionBusy] = useState(false);
   const [rawEditOpen, setRawEditOpen] = useState(false);
@@ -722,99 +718,6 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editOpen, page?.article.slug]);
 
-  // Load headline image info when edit tray opens
-  const loadImageInfo = useCallback((slug: string) => {
-    fetch(`/api/article/${encodeURIComponent(slug)}/image`)
-      .then((r) => r.json())
-      .then((body: { image: { id: string; description: string; caption?: string; articleCaption?: string; width: number; height: number } | null }) => {
-        if (body.image) {
-          setImageInfo({
-            mediaId: body.image.id,
-            caption: body.image.articleCaption ?? body.image.description,
-            description: body.image.description,
-            width: body.image.width,
-            height: body.image.height,
-          });
-        } else {
-          setImageInfo(null);
-        }
-      })
-      .catch(() => setImageInfo(null));
-  }, []);
-
-  useEffect(() => {
-    if (!editOpen || !page?.article.slug) return;
-    loadImageInfo(page.article.slug);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editOpen, page?.article.slug]);
-
-  const applyImageResult = useCallback((payload: any) => {
-    setImageInfo({
-      mediaId: payload.mediaId,
-      caption: payload.caption ?? "",
-      description: payload.description ?? "",
-      width: payload.width,
-      height: payload.height,
-    });
-    if (payload.article) {
-      setPage((current) => current ? { ...current, article: payload.article } : current);
-    }
-  }, []);
-
-  const uploadImage = useCallback(async () => {
-    if (!page?.article.slug || !imageUrlDraft.trim() || imageUploadBusy) return;
-    setImageUploadBusy(true);
-    setImageUploadError(null);
-    try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/image`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: imageUrlDraft.trim() }),
-      });
-      const payload = await res.json().catch(() => ({})) as any;
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      applyImageResult(payload);
-      setImageUrlDraft("");
-    } catch (err: any) {
-      setImageUploadError(err?.message || "Image upload failed.");
-    } finally {
-      setImageUploadBusy(false);
-    }
-  }, [page?.article.slug, imageUrlDraft, imageUploadBusy, applyImageResult]);
-
-  const uploadImageFile = useCallback(async (file: File) => {
-    if (!page?.article.slug || imageUploadBusy) return;
-    setImageUploadBusy(true);
-    setImageUploadError(null);
-    try {
-      const form = new FormData();
-      form.append("image", file);
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/image/upload`, {
-        method: "POST",
-        body: form,
-      });
-      const payload = await res.json().catch(() => ({})) as any;
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      applyImageResult(payload);
-    } catch (err: any) {
-      setImageUploadError(err?.message || "Image upload failed.");
-    } finally {
-      setImageUploadBusy(false);
-    }
-  }, [page?.article.slug, imageUploadBusy, applyImageResult]);
-
-  const removeImage = useCallback(async () => {
-    if (!page?.article.slug) return;
-    try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/image`, { method: "DELETE" });
-      const payload = await res.json().catch(() => ({})) as any;
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      setImageInfo(null);
-      if (payload.article) {
-        setPage((current) => current ? { ...current, article: payload.article } : current);
-      }
-    } catch { /* silent */ }
-  }, [page?.article.slug]);
 
   // Search for references: runs both fuzzy and RAG queries against find-references endpoint
   const searchEditRefs = useCallback(async (mode: "fuzzy" | "rag") => {
@@ -1645,82 +1548,12 @@ export function App() {
             </div>
             {editTitleError && <p style={{ color: "red", fontSize: "0.85rem", marginBottom: "0.5rem" }}>{editTitleError}</p>}
 
-            {/* Headline image panel */}
-            <div className="edit-image-panel">
-              <div className="edit-image-panel-header">
-                <span className="edit-image-panel-label">Headline image</span>
-                {imageInfo && (
-                  <button type="button" className="edit-image-remove-btn" onClick={removeImage} title="Remove image">
-                    Remove
-                  </button>
-                )}
-              </div>
-              {imageInfo ? (
-                <div className="edit-image-current">
-                  <a
-                    href={`/media/${encodeURIComponent(imageInfo.mediaId)}`}
-                    onClick={(e) => { e.preventDefault(); navigateToMedia(imageInfo.mediaId); }}
-                    className="edit-image-thumb-link"
-                  >
-                    <img
-                      src={`/api/media/${encodeURIComponent(imageInfo.mediaId)}`}
-                      alt={imageInfo.caption || imageInfo.description}
-                      className="edit-image-thumb"
-                    />
-                  </a>
-                  <div className="edit-image-info">
-                    <code className="edit-image-id">{imageInfo.mediaId}</code>
-                    {imageInfo.caption && <p className="edit-image-caption">{imageInfo.caption}</p>}
-                  </div>
-                </div>
-              ) : (
-                <div className="edit-image-upload">
-                  <input
-                    type="url"
-                    className="search-input edit-image-url-input"
-                    placeholder="Paste image URL or image…"
-                    value={imageUrlDraft}
-                    onChange={(e) => { setImageUrlDraft(e.target.value); setImageUploadError(null); }}
-                    disabled={imageUploadBusy}
-                    onKeyDown={(e) => { if (e.key === "Enter" && imageUrlDraft.trim()) void uploadImage(); }}
-                    onPaste={(e) => {
-                      const items = e.clipboardData?.items;
-                      if (!items) return;
-                      for (let i = 0; i < items.length; i++) {
-                        if (items[i].type.startsWith("image/")) {
-                          e.preventDefault();
-                          const file = items[i].getAsFile();
-                          if (file) void uploadImageFile(file);
-                          return;
-                        }
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="edit-modal-close"
-                    onClick={uploadImage}
-                    disabled={imageUploadBusy || !imageUrlDraft.trim()}
-                  >
-                    {imageUploadBusy ? "Fetching…" : "Attach"}
-                  </button>
-                  <label className="edit-image-file-label" title="Upload from disk">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="edit-image-file-input"
-                      disabled={imageUploadBusy}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) { e.target.value = ""; void uploadImageFile(file); }
-                      }}
-                    />
-                    {imageUploadBusy ? "…" : "↑"}
-                  </label>
-                </div>
-              )}
-              {imageUploadError && <p className="edit-modal-error" style={{ marginTop: "0.25rem" }}>{imageUploadError}</p>}
-            </div>
+            {/* Headline image panel — owns its own state, lives outside mainView's memo */}
+            <HeadlineImagePanel
+              articleSlug={page.article.slug}
+              onArticleUpdate={(article) => setPage((cur) => cur ? { ...cur, article: article as typeof cur.article } : cur)}
+              onNavigateToMedia={navigateToMedia}
+            />
 
             <div className="edit-tray-row">
               <label>

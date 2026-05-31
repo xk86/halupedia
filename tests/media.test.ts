@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, insertMedia, updateMediaDescription, updateMediaId } from "../src/server/mediaDb";
-import { openDatabase, saveArticle, getArticleHeadlineMedia, upsertArticleHeadlineMedia, updateArticleMediaCaption, removeArticleMedia, getArticleMediaRows, getArticleInfobox, setArticleInfobox, type InfoboxData } from "../src/server/db";
+import { openDatabase, saveArticle, getArticleHeadlineMedia, upsertArticleHeadlineMedia, updateArticleMediaCaption, removeArticleMedia, getArticleMediaRows, getArticleInfobox, setArticleInfobox, listImageBacklinks, type InfoboxData } from "../src/server/db";
 import { renderInfoboxHtml } from "../src/server/articleRender";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 import { OpenAICompatRouter, type LlmRouter, type ChatOptions } from "../src/server/llm";
@@ -202,6 +202,74 @@ describe("mediaDb", () => {
     assert.equal(updateMediaId(db, "aa", "bb"), false);
     assert.ok(getMediaById(db, "aa"), "original unchanged");
     db.close();
+  });
+});
+
+// ── image backlinks ───────────────────────────────────────────────────────────
+
+describe("image backlinks", () => {
+  function seedArticleWithImage(db: ReturnType<typeof makeArticleDb>, slug: string, title: string, imageSlug: string) {
+    const md = `# ${title}\n\nSee the structure: ![A caption](media:${imageSlug})\n\nBody text.`;
+    saveArticle(db, { slug, canonicalSlug: slug, title, markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now() }, [], [slug]);
+  }
+
+  test("listImageBacklinks: finds articles referencing the image", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir); // seeds test-article
+    seedArticleWithImage(db, "article-a", "Article A", "crystal-img");
+    seedArticleWithImage(db, "article-b", "Article B", "crystal-img");
+
+    const results = listImageBacklinks(db, "crystal-img");
+    assert.equal(results.length, 2);
+    assert.ok(results.some((r) => r.slug === "article-a"));
+    assert.ok(results.some((r) => r.slug === "article-b"));
+    db.close();
+  });
+
+  test("listImageBacklinks: excludes articles that don't reference the image", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    seedArticleWithImage(db, "article-a", "Article A", "crystal-img");
+    // test-article (seeded by makeArticleDb) does not reference crystal-img
+
+    const results = listImageBacklinks(db, "crystal-img");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].slug, "article-a");
+    db.close();
+  });
+
+  test("listImageBacklinks: no false positives from slug prefix matches", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    // This references "crystal-img-extra", not "crystal-img"
+    seedArticleWithImage(db, "article-a", "Article A", "crystal-img-extra");
+
+    const results = listImageBacklinks(db, "crystal-img");
+    assert.equal(results.length, 0);
+    db.close();
+  });
+
+  test("listImageBacklinks: returns empty array when no references", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    assert.deepEqual(listImageBacklinks(db, "nonexistent-img"), []);
+    db.close();
+  });
+
+  test("GET /api/media/:id/backlinks: returns backlinks from server", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    seedMedia(s.mediaDatabasePath, "ref-img");
+
+    // Seed an article that references the image
+    const db = openDatabase(s.databasePath);
+    const md = "# Aspirin\n\nSee ![tablet photo](media:ref-img) for details.";
+    saveArticle(db, { slug: "aspirin", canonicalSlug: "aspirin", title: "Aspirin", markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now() + 1 }, [], ["aspirin"]);
+    db.close();
+
+    const res = await s.go("/api/media/ref-img/backlinks");
+    assert.equal(res.status, 200);
+    const body = await res.json() as { backlinks: Array<{ slug: string; title: string }> };
+    assert.ok(body.backlinks.some((b) => b.slug === "aspirin"));
   });
 });
 

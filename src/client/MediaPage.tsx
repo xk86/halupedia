@@ -20,6 +20,7 @@ interface Props {
 
 export function MediaPage({ imageSlug, onNavigate }: Props) {
   const [info, setInfo] = useState<MediaInfo | null>(null);
+  const [backlinks, setBacklinks] = useState<Array<{ slug: string; title: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +43,15 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
     setEditMode(null);
     setAiPreview(null);
     setAiNewId(null);
+    setBacklinks([]);
+
+    fetch(`/api/media/${encodeURIComponent(imageSlug)}/backlinks`)
+      .then((r) => r.json())
+      .then((d: { backlinks?: Array<{ slug: string; title: string }> }) => {
+        if (cancelled) return;
+        setBacklinks(d.backlinks ?? []);
+      })
+      .catch(() => {});
 
     fetch(`/api/media/${encodeURIComponent(imageSlug)}/info`)
       .then((r) => {
@@ -302,6 +312,25 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
             <p className="media-page-usage-hint">
               To embed in an article: <code>![your caption](media:{imageSlug})</code>
             </p>
+          )}
+
+          {/* Backlinks */}
+          {backlinks.length > 0 && (
+            <div className="media-page-backlinks">
+              <h3 className="media-page-backlinks-heading">Referenced by</h3>
+              <ul className="media-page-backlinks-list">
+                {backlinks.map((a) => (
+                  <li key={a.slug}>
+                    <a
+                      href={`/wiki/${a.title.replace(/\s+/g, "_")}`}
+                      onClick={(e) => { e.preventDefault(); onNavigate(a.title.replace(/\s+/g, "_")); }}
+                    >
+                      {a.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       </div>

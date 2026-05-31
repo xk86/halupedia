@@ -15,6 +15,7 @@ import { loadConfig } from "./config";
 import { listPromptFiles, readPromptFile, writePromptFile } from "./promptEditor";
 import {
   deleteArticleBySlug,
+  listImageBacklinks,
   getAdminOverview,
   getArticleByLookup,
   getArticleByTitle,
@@ -3231,6 +3232,11 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!record) return c.json({ error: "not found" }, 404);
     updateMediaDescription(mediaDb, id, description);
     return c.json({ ok: true });
+  });
+
+  app.get("/api/media/:id/backlinks", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    return c.json({ backlinks: listImageBacklinks(db, id) });
   });
 
   // Regenerate image description via LLM. Accepts optional instructions that

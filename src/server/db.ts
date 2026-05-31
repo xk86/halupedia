@@ -1383,6 +1383,25 @@ export function deleteArchivedArticle(db: DatabaseSync, slug: string): void {
   db.prepare(`DELETE FROM archived_articles WHERE slug = ?`).run(slug);
 }
 
+/**
+ * Return articles whose markdown body references the given image slug via
+ * the media: scheme (e.g. ![caption](media:some-slug)).
+ */
+export function listImageBacklinks(
+  db: DatabaseSync,
+  imageSlug: string,
+): Array<{ slug: string; title: string }> {
+  return (db
+    .prepare(
+      `SELECT slug, title
+       FROM articles
+       WHERE is_disambiguation = 0
+         AND markdown LIKE ?
+       ORDER BY title COLLATE NOCASE ASC`,
+    )
+    .all(`%(media:${imageSlug})%`) as unknown) as Array<{ slug: string; title: string }>;
+}
+
 export function listTopArticles(db: DatabaseSync, limit: number): { slug: string; title: string; inboundCount: number }[] {
   return db
     .prepare(

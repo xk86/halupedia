@@ -257,7 +257,6 @@ export const PipelineStateSchema = z.object({
     .object({
       titleSlug: z.string(),
       description: z.string(),
-      caption: z.string(),
     })
     .optional(),
 

@@ -682,12 +682,11 @@ describe("pipeline-nodes", () => {
     // Seed a media record so the node can find it
     insertMedia(mediaDb, { ...baseMediaRecord("cap-img"), sha256: "cap".padEnd(64, "0") });
 
-    const captionJson = JSON.stringify({
+    const descJson = JSON.stringify({
       title_slug: "test-image-slug",
       description: "A fictional compound used in metallurgy.",
-      caption: "Structural diagram",
     });
-    const llm = new FakeLlm(captionJson);
+    const llm = new FakeLlm(descJson);
     const deps = makeDeps(db, llm);
     const depsWithMedia = { ...deps, mediaDb };
 
@@ -700,7 +699,6 @@ describe("pipeline-nodes", () => {
     assert.ok(patch.imageCaptionResult);
     assert.equal(patch.imageCaptionResult.titleSlug, "test-image-slug");
     assert.equal(patch.imageCaptionResult.description, "A fictional compound used in metallurgy.");
-    assert.equal(patch.imageCaptionResult.caption, "Structural diagram");
 
     // Verify no vision images were attached (text-only model)
     assert.equal(llm.capturedOptions[0]?.images, undefined);
@@ -718,7 +716,7 @@ describe("pipeline-nodes", () => {
     const deps = { ...makeDeps(db, new FakeLlm()), mediaDb };
     const state = {
       ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "img-aabbcc112233" }),
-      imageCaptionResult: { titleSlug: "nice-slug", description: "A nice image.", caption: "Nice photo" },
+      imageCaptionResult: { titleSlug: "nice-slug", description: "A nice image." },
     };
 
     persistImageCaptionNode.run(state as any, deps as any);
@@ -729,10 +727,10 @@ describe("pipeline-nodes", () => {
     assert.ok(renamed);
     assert.equal(renamed.description, "A nice image.");
 
-    // Article media caption was updated
+    // article_media caption is NOT set by the pipeline — left for the article model
     const headline = getArticleHeadlineMedia(db, "test-article");
-    assert.equal(headline?.caption, "Nice photo");
     assert.equal(headline?.mediaId, "nice-slug");
+    assert.equal(headline?.caption, ""); // pipeline doesn't touch per-article captions
 
     mediaDb.close(); db.close();
   });

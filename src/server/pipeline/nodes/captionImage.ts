@@ -9,7 +9,10 @@
 
 import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps } from "../deps";
-import { getArticleByLookup } from "../../db";
+import {
+  getArticleByLookup,
+  upsertArticleHeadlineMedia,
+} from "../../db";
 import {
   getMediaById,
   updateMediaDescription,
@@ -17,10 +20,6 @@ import {
 } from "../../mediaDb";
 import { slugify } from "../../slug";
 import { stripTopLevelSections } from "../../markdown";
-import {
-  upsertArticleHeadlineMedia,
-  updateArticleMediaCaption,
-} from "../../db";
 
 // ─── READ ─────────────────────────────────────────────────────────────────────
 
@@ -57,8 +56,9 @@ export const generateImageCaptionNode = defineNode({
   name: "llm.generate_image_caption",
   kind: "llm",
   description:
-    "Generate title_slug, description, and caption via the image_caption prompt. " +
-    "Attaches the downscaled image when the light model supports vision.",
+    "Generate title_slug and description via the image_description prompt. " +
+    "Attaches the downscaled image when the light model supports vision. " +
+    "Description is image-centric (what the image shows), not article-context-driven.",
   reads: ["input", "loadedArticle"] as const,
   writes: ["imageCaptionResult"] as const,
   async run({ input, loadedArticle }, deps: PipelineDeps) {
@@ -66,15 +66,13 @@ export const generateImageCaptionNode = defineNode({
     if (!imageId) return { imageCaptionResult: undefined };
 
     const mediaRecord = deps.mediaDb ? getMediaById(deps.mediaDb, imageId) : null;
-
     const title = loadedArticle?.title ?? input.requestedTitle ?? imageId;
-    const excerpt = loadedArticle
-      ? stripTopLevelSections(loadedArticle.body, ["References", "See also"]).slice(0, 2000)
-      : "";
+    const instructions = input.instructions ?? "";
 
-    const rendered = deps.prompts.render("image_caption", {
+    // image_description prompt: image-centric, uses title for universe grounding only.
+    const rendered = deps.prompts.render("image_description", {
       requested_title: title,
-      article_excerpt: excerpt,
+      instructions: instructions.trim() ? `Additional guidance: ${instructions.trim()}` : "",
     });
 
     const visionImages =
@@ -90,7 +88,7 @@ export const generateImageCaptionNode = defineNode({
         { jsonMode: true, images: visionImages.length ? visionImages : undefined },
       );
       const match = raw.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error("no JSON in caption response");
+      if (!match) throw new Error("no JSON in description response");
       const parsed = JSON.parse(match[0]) as Partial<Record<string, string>>;
 
       const titleSlug = String(parsed.title_slug ?? "")
@@ -99,13 +97,12 @@ export const generateImageCaptionNode = defineNode({
         .replace(/^-+|-+$/g, "")
         .slice(0, 80);
       const description = String(parsed.description ?? "").replace(/\s+/g, " ").trim();
-      const caption = String(parsed.caption ?? "").replace(/\s+/g, " ").trim();
 
-      if (!titleSlug && !description) throw new Error("caption response missing fields");
+      if (!titleSlug && !description) throw new Error("description response missing fields");
 
-      return { imageCaptionResult: { titleSlug, description, caption } };
+      return { imageCaptionResult: { titleSlug, description } };
     } catch (err) {
-      deps.logger.warn("pipeline.image_caption.failed", {
+      deps.logger.warn("pipeline.image_description.failed", {
         imageId,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -120,8 +117,8 @@ export const persistImageCaptionNode = defineNode({
   name: "write.persist_image_caption",
   kind: "write",
   description:
-    "Save description to media DB; rename media id to title_slug when available; " +
-    "update per-article caption in article_media.",
+    "Save canonical description to media DB; rename media id to title_slug when available. " +
+    "Does NOT set per-article captions — those are written by the article model inline.",
   reads: ["input", "imageCaptionResult"] as const,
   writes: [] as const,
   run({ input, imageCaptionResult }, deps: PipelineDeps) {
@@ -129,7 +126,7 @@ export const persistImageCaptionNode = defineNode({
     const articleSlug = input.slug ?? "";
     if (!imageId || !imageCaptionResult || !deps.mediaDb) return {};
 
-    const { titleSlug, description, caption } = imageCaptionResult;
+    const { titleSlug, description } = imageCaptionResult;
 
     // Update canonical description on the media record.
     if (description) {
@@ -142,28 +139,22 @@ export const persistImageCaptionNode = defineNode({
       const renamed = updateMediaId(deps.mediaDb, imageId, titleSlug);
       if (renamed) {
         finalId = titleSlug;
-        deps.logger.info("pipeline.image_caption.renamed", {
+        deps.logger.info("pipeline.image_description.renamed", {
           from: imageId,
           to: finalId,
         });
-        // Keep the article_media reference in sync.
+        // Keep the article_media reference in sync after rename.
         if (articleSlug) {
-          upsertArticleHeadlineMedia(deps.db, articleSlug, finalId, caption || description);
+          upsertArticleHeadlineMedia(deps.db, articleSlug, finalId, "");
         }
       }
     }
 
-    // Update the per-article visible caption.
-    if (articleSlug && caption) {
-      updateArticleMediaCaption(deps.db, articleSlug, 1, caption);
-    }
-
-    deps.logger.info("pipeline.image_caption.saved", {
+    deps.logger.info("pipeline.image_description.saved", {
       mediaId: finalId,
       articleSlug,
       hasDescription: Boolean(description),
-      hasCaption: Boolean(caption),
-      usedVision: deps.llm.supportsVision("light") && Boolean(deps.mediaDb ? getMediaById(deps.mediaDb, imageId)?.model_b64 : false),
+      usedVision: deps.llm.supportsVision("light"),
     });
 
     return {};

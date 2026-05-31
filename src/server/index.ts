@@ -3233,6 +3233,45 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({ ok: true });
   });
 
+  // Regenerate image description via LLM. Accepts optional instructions that
+  // are forwarded to the image_description prompt.
+  app.post("/api/media/:id/describe", async (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({})) as { instructions?: string; articleSlug?: string };
+    const instructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
+    const articleSlug = typeof body.articleSlug === "string" ? slugify(body.articleSlug) : "";
+
+    const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+    const result = await runWorkflow(captionImageWorkflow, {
+      input: {
+        requestId: randomUUID(),
+        workflow: "image.caption",
+        slug: articleSlug || undefined,
+        requestedTitle: (articleSlug ? getArticleByLookup(db, articleSlug)?.title : undefined) ?? id,
+        imageId: id,
+        instructions: instructions || undefined,
+      },
+      deps: buildPipelineDeps(),
+      recorder,
+      logger,
+    });
+
+    if (result.status !== "ok") {
+      return c.json({ error: result.error?.message ?? "description generation failed" }, 500);
+    }
+
+    // Reload the record to get the updated description (and possibly new id after rename).
+    const updated = getMediaById(mediaDb, result.state.imageCaptionResult?.titleSlug ?? id)
+      ?? getMediaById(mediaDb, id);
+    if (!updated) return c.json({ error: "media record missing after describe" }, 500);
+
+    const { model_b64: _b64, ...safe } = updated as any;
+    return c.json({ ok: true, media: safe });
+  });
+
   app.get("/api/article/:slug/image", (c) => {
     const slug = slugify(decodeURIComponent(c.req.param("slug")));
     const headlineMedia = getArticleHeadlineMedia(db, slug);

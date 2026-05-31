@@ -1,0 +1,34 @@
+model = "light"
+thinking = false
+json = true
+
+system = """
+{{shared_tone}}
+
+You are generating metadata for an image that belongs to a fictional encyclopedia article.
+Return a single JSON object with exactly these three fields:
+
+{
+  "title_slug": "kebab-case-memorable-slug",
+  "description": "1-2 sentences describing the image as part of this fictional world.",
+  "caption": "Brief visible caption shown alongside the image in the article (under 12 words)."
+}
+
+Rules:
+- Return ONLY valid JSON. No fences, no explanation.
+- title_slug: lowercase, hyphens only, no prefix. Example: "benzodiazepine-structural-formula".
+- description: in-universe voice. Treat the article subject as real. Use the article context.
+- caption: short, factual, fits inline under the image.
+- If an image is attached, describe it directly. Otherwise infer from article context what a
+  representative image for this article would depict.
+- Never mention that the image may or may not exist. Write confidently.
+"""
+
+user = """
+Article title: {{requested_title}}
+
+Article excerpt:
+{{article_excerpt}}
+
+Generate the image metadata JSON.
+"""

@@ -31,6 +31,11 @@ import { createApp } from "../src/server/index";
 import { loadConfig } from "../src/server/config";
 import type { Logger } from "../src/server/logger";
 import { generateInfoboxNode, persistInfoboxNode } from "../src/server/pipeline/nodes/postProcess";
+import {
+  loadArticleAndImageNode,
+  generateImageCaptionNode,
+  persistImageCaptionNode,
+} from "../src/server/pipeline/nodes/captionImage";
 import { initialPipelineState } from "../src/server/pipeline/state";
 import { buildPromptRegistry } from "../src/server/pipeline/prompts/registry";
 import { ingestImageFromBuffer } from "../src/server/media";
@@ -90,9 +95,6 @@ class FakeLlm implements LlmRouter {
   supportsVision(_: "heavy" | "light") { return false; }
 }
 
-class VisionFakeLlm extends FakeLlm {
-  override supportsVision(_: "heavy" | "light") { return true; }
-}
 
 async function makeTestServer(llm: LlmRouter = new FakeLlm()) {
   const { dir, cleanup } = tmpDir();
@@ -667,6 +669,71 @@ describe("pipeline-nodes", () => {
     db.close();
   });
 
+  // ── image.caption pipeline nodes ──────────────────────────────────────────
+
+  test("generateImageCaptionNode: generates caption from article context (text-only model)", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+
+    // Seed a media record so the node can find it
+    insertMedia(mediaDb, { ...baseMediaRecord("cap-img"), sha256: "cap".padEnd(64, "0") });
+
+    const captionJson = JSON.stringify({
+      title_slug: "test-image-slug",
+      description: "A fictional compound used in metallurgy.",
+      caption: "Structural diagram",
+    });
+    const llm = new FakeLlm(captionJson);
+    const deps = makeDeps(db, llm);
+    const depsWithMedia = { ...deps, mediaDb };
+
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "cap-img" }),
+      loadedArticle: { slug: "test-article", canonicalSlug: "test-article", title: "Test Article", body: "# Test Article\n\nBody.", summary: "", generatedAt: Date.now() },
+    };
+
+    const patch = await generateImageCaptionNode.run(state as any, depsWithMedia as any);
+    assert.ok(patch.imageCaptionResult);
+    assert.equal(patch.imageCaptionResult.titleSlug, "test-image-slug");
+    assert.equal(patch.imageCaptionResult.description, "A fictional compound used in metallurgy.");
+    assert.equal(patch.imageCaptionResult.caption, "Structural diagram");
+
+    // Verify no vision images were attached (text-only model)
+    assert.equal(llm.capturedOptions[0]?.images, undefined);
+    mediaDb.close(); db.close();
+  });
+
+  test("persistImageCaptionNode: updates description and renames media id", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+
+    insertMedia(mediaDb, { ...baseMediaRecord("img-aabbcc112233"), sha256: "aa".padEnd(64, "a") });
+    upsertArticleHeadlineMedia(db, "test-article", "img-aabbcc112233", "");
+
+    const deps = { ...makeDeps(db, new FakeLlm()), mediaDb };
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "img-aabbcc112233" }),
+      imageCaptionResult: { titleSlug: "nice-slug", description: "A nice image.", caption: "Nice photo" },
+    };
+
+    persistImageCaptionNode.run(state as any, deps as any);
+
+    // Media id was renamed to the nice slug
+    assert.equal(getMediaById(mediaDb, "img-aabbcc112233"), null);
+    const renamed = getMediaById(mediaDb, "nice-slug");
+    assert.ok(renamed);
+    assert.equal(renamed.description, "A nice image.");
+
+    // Article media caption was updated
+    const headline = getArticleHeadlineMedia(db, "test-article");
+    assert.equal(headline?.caption, "Nice photo");
+    assert.equal(headline?.mediaId, "nice-slug");
+
+    mediaDb.close(); db.close();
+  });
+
   test("persistInfoboxNode: no-ops silently when infobox undefined", (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
@@ -677,13 +744,19 @@ describe("pipeline-nodes", () => {
 });
 
 // ── ingest ────────────────────────────────────────────────────────────────────
+// Caption / description generation is now the image.caption pipeline workflow;
+// ingest is pure I/O (fetch + vips + DB write). The pipeline-nodes suite above
+// already covers caption generation end-to-end.
 
 describe("ingest", () => {
   test("ingestImageFromBuffer: processes tiny PNG, stores dims and model copy", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
-    const mainDb = makeArticleDb(dir);
-    const result = await ingestImageFromBuffer(TINY_PNG, "image/png", { mediaDb, mainDb, llm: new FakeLlm(), config: { ...defaultIngestConfig, media_database_path: join(dir, "m.sqlite") }, articleSlug: "test-article", logger: noop() });
+    const result = await ingestImageFromBuffer(TINY_PNG, "image/png", {
+      mediaDb,
+      config: defaultIngestConfig,
+      logger: noop(),
+    });
     assert.ok(result.mediaId);
     assert.equal(result.isNew, true);
     assert.equal(result.width, 1);
@@ -692,52 +765,39 @@ describe("ingest", () => {
     assert.ok(rec);
     assert.equal(rec.width, 1);
     assert.ok(rec.model_b64.length > 0);
-    mediaDb.close(); mainDb.close();
+    // Description starts empty — the image.caption pipeline fills it in async.
+    assert.equal(rec.description, "");
+    mediaDb.close();
   });
 
   test("ingestImageFromBuffer: deduplicates by sha256", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
-    const mainDb = makeArticleDb(dir);
-    const cfg = { ...defaultIngestConfig, media_database_path: join(dir, "m.sqlite") };
-    const r1 = await ingestImageFromBuffer(TINY_PNG, "image/png", { mediaDb, mainDb, llm: new FakeLlm(), config: cfg, articleSlug: "test-article", logger: noop() });
-    const r2 = await ingestImageFromBuffer(TINY_PNG, "image/png", { mediaDb, mainDb, llm: new FakeLlm(), config: cfg, articleSlug: "test-article", logger: noop() });
+    const cfg = defaultIngestConfig;
+    const r1 = await ingestImageFromBuffer(TINY_PNG, "image/png", { mediaDb, config: cfg, logger: noop() });
+    const r2 = await ingestImageFromBuffer(TINY_PNG, "image/png", { mediaDb, config: cfg, logger: noop() });
     assert.equal(r1.mediaId, r2.mediaId);
     assert.equal(r2.isNew, false);
-    mediaDb.close(); mainDb.close();
+    mediaDb.close();
   });
 
   test("ingestImageFromBuffer: rejects non-image mime type", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
-    const mainDb = makeArticleDb(dir);
     await assert.rejects(
-      () => ingestImageFromBuffer(Buffer.from("text"), "text/html", { mediaDb, mainDb, llm: new FakeLlm(), config: defaultIngestConfig, articleSlug: "test-article", logger: noop() }),
+      () => ingestImageFromBuffer(Buffer.from("text"), "text/html", { mediaDb, config: defaultIngestConfig, logger: noop() }),
       /Not an image/,
     );
-    mediaDb.close(); mainDb.close();
+    mediaDb.close();
   });
 
   test("ingestImageFromBuffer: rejects bytes over max_bytes limit", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
-    const mainDb = makeArticleDb(dir);
     await assert.rejects(
-      () => ingestImageFromBuffer(Buffer.alloc(200), "image/png", { mediaDb, mainDb, llm: new FakeLlm(), config: { ...defaultIngestConfig, max_bytes: 10 }, articleSlug: "test-article", logger: noop() }),
+      () => ingestImageFromBuffer(Buffer.alloc(200), "image/png", { mediaDb, config: { ...defaultIngestConfig, max_bytes: 10 }, logger: noop() }),
       /too large/,
     );
-    mediaDb.close(); mainDb.close();
-  });
-
-  test("ingestImageFromBuffer: vision LLM caption result drives title slug", async (t) => {
-    const { dir, cleanup } = tmpDir(); t.after(cleanup);
-    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
-    const mainDb = makeArticleDb(dir);
-    const llm = new VisionFakeLlm('{"title_slug":"my-nice-slug","description":"A desc","caption":"Short cap"}');
-    const result = await ingestImageFromBuffer(TINY_PNG, "image/png", { mediaDb, mainDb, llm, config: { ...defaultIngestConfig, media_database_path: join(dir, "m.sqlite") }, articleSlug: "test-article", logger: noop() });
-    assert.equal(result.mediaId, "my-nice-slug");
-    assert.equal(result.description, "A desc");
-    assert.equal(result.caption, "Short cap");
-    mediaDb.close(); mainDb.close();
+    mediaDb.close();
   });
 });

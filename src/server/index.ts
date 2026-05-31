@@ -70,6 +70,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription } from "./mediaDb";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
+import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
 import { renderInfoboxHtml } from "./articleRender";
 import {
   findFuzzyTitleMatchesInEditText,
@@ -3241,6 +3242,49 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   });
 
+  /** Shared helper: attach a just-ingested image, fire caption pipeline async. */
+  function attachAndCaption(
+    articleSlug: string,
+    mediaId: string,
+    isNew: boolean,
+    width: number,
+    height: number,
+  ) {
+    upsertArticleHeadlineMedia(db, articleSlug, mediaId, "");
+    invalidateArticleHtml(articleSlug);
+
+    // Fire the caption pipeline regardless of vision support —
+    // text-only models still generate a useful description from article context.
+    trackGeneration(
+      runWorkflow(captionImageWorkflow, {
+        input: {
+          requestId: randomUUID(),
+          workflow: "image.caption",
+          slug: articleSlug,
+          requestedTitle: getArticleByLookup(db, articleSlug)?.title ?? articleSlug,
+          imageId: mediaId,
+        },
+        deps: buildPipelineDeps(),
+        recorder: getTraceRecorder(runtime.app.pipeline.trace),
+        logger,
+      })
+        .then((result) => {
+          if (result.status === "ok") {
+            invalidateArticleHtml(articleSlug);
+          } else {
+            logger.warn("image.caption_workflow_failed", {
+              slug: articleSlug,
+              mediaId,
+              error: result.error?.message ?? "unknown",
+            });
+          }
+        })
+        .catch(() => {}),
+    );
+
+    return { mediaId, isNew, width, height };
+  }
+
   app.post("/api/article/:slug/image", async (c) => {
     const slug = slugify(decodeURIComponent(c.req.param("slug")));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
@@ -3249,15 +3293,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!url) return c.json({ error: "url required" }, 400);
     let result: Awaited<ReturnType<typeof ingestImageFromUrl>>;
     try {
-      result = await ingestImageFromUrl(url, { mediaDb, mainDb: db, llm, config: runtime.app.images, articleSlug: slug, logger });
+      result = await ingestImageFromUrl(url, { mediaDb, config: runtime.app.images, logger });
     } catch (err: any) {
       return c.json({ error: err?.message || "Image ingestion failed" }, 400);
     }
-    upsertArticleHeadlineMedia(db, slug, result.mediaId, result.caption);
-    invalidateArticleHtml(slug);
+    const attached = attachAndCaption(slug, result.mediaId, result.isNew, result.width, result.height);
     const response = buildArticleResponseFor(slug);
     if (!response) return c.json({ error: "article not found" }, 404);
-    return c.json({ mediaId: result.mediaId, isNew: result.isNew, description: result.description, caption: result.caption, width: result.width, height: result.height, article: response });
+    return c.json({ ...attached, article: response });
   });
 
   app.post("/api/article/:slug/image/upload", async (c) => {
@@ -3280,15 +3323,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     let result: Awaited<ReturnType<typeof ingestImageFromBuffer>>;
     try {
-      result = await ingestImageFromBuffer(bytes, mime, { mediaDb, mainDb: db, llm, config: runtime.app.images, articleSlug: slug, logger });
+      result = await ingestImageFromBuffer(bytes, mime, { mediaDb, config: runtime.app.images, logger });
     } catch (err: any) {
       return c.json({ error: err?.message || "Image processing failed" }, 400);
     }
-    upsertArticleHeadlineMedia(db, slug, result.mediaId, result.caption);
-    invalidateArticleHtml(slug);
+    const attached = attachAndCaption(slug, result.mediaId, result.isNew, result.width, result.height);
     const response = buildArticleResponseFor(slug);
     if (!response) return c.json({ error: "article not found" }, 404);
-    return c.json({ mediaId: result.mediaId, isNew: result.isNew, description: result.description, caption: result.caption, width: result.width, height: result.height, article: response });
+    return c.json({ ...attached, article: response });
   });
 
   app.delete("/api/article/:slug/image", (c) => {

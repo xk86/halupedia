@@ -16,6 +16,7 @@ import {
   rawSaveArticleWorkflow,
 } from "./workflows/deterministicArticleSave";
 import { homepageRefreshWorkflow } from "./workflows/homepageRefresh";
+import { captionImageWorkflow } from "./workflows/captionImage";
 
 export const ALL_WORKFLOWS: WorkflowDefinition<PipelineDeps>[] = [
   generateArticleWorkflow,
@@ -25,6 +26,7 @@ export const ALL_WORKFLOWS: WorkflowDefinition<PipelineDeps>[] = [
   addLinkArticleWorkflow,
   homepageRefreshWorkflow,
   postProcessWorkflow,
+  captionImageWorkflow,
 ];
 
 export function findWorkflow(

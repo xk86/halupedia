@@ -246,6 +246,11 @@ export const PipelineStateSchema = z.object({
   /** LLM-generated infobox data (post-process only). */
   infobox: z.unknown().optional(),
 
+  // Headline image context (for prompt injection) ──────────────────────────
+  /** Formatted description of the current article's headline image, or ""
+   *  if none attached. Injected into generation/rewrite/refresh prompts. */
+  headlineImageContext: z.string().optional(),
+
   // Image caption ──────────────────────────────────────────────────────────
   /** LLM-generated caption result for the image.caption workflow. */
   imageCaptionResult: z

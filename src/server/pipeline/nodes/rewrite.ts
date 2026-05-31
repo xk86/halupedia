@@ -308,10 +308,11 @@ export const renderRewritePromptNode = defineNode({
     "retrievedContext",
     "rewriteMode",
     "recentEditHistory",
+    "headlineImageContext",
   ] as const,
   writes: ["renderedPrompt"] as const,
   run(
-    { input, loadedArticle, selectedMarkdown, references, retrievedContext, rewriteMode, recentEditHistory },
+    { input, loadedArticle, selectedMarkdown, references, retrievedContext, rewriteMode, recentEditHistory, headlineImageContext },
     deps: PipelineDeps,
   ) {
     const slug = slugify(input.slug ?? "");
@@ -349,6 +350,7 @@ export const renderRewritePromptNode = defineNode({
       related_titles: (retrievedContext?.ragTitles ?? []).map((t) => `- ${t}`).join("\n"),
       article_excerpt: selectedMarkdown?.slice(0, 2000) ?? "",
       parent_comment: "",
+      headline_image: headlineImageContext ?? "",
     });
     return { renderedPrompt: rendered };
   },

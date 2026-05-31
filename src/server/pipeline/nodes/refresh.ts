@@ -72,9 +72,10 @@ export const renderRefreshPromptNode = defineNode({
     "loadedArticle",
     "references",
     "retrievedContext",
+    "headlineImageContext",
   ] as const,
   writes: ["renderedPrompt"] as const,
-  run({ input, loadedArticle, references, retrievedContext }, deps: PipelineDeps) {
+  run({ input, loadedArticle, references, retrievedContext, headlineImageContext }, deps: PipelineDeps) {
     const slug = input.slug ?? "";
     const title = loadedArticle?.title ?? input.requestedTitle ?? slug;
     const currentBody = loadedArticle
@@ -106,6 +107,7 @@ export const renderRefreshPromptNode = defineNode({
       parent_comment: "",
       selected_text: "",
       edit_instructions: "",
+      headline_image: headlineImageContext ?? "",
     });
     return { renderedPrompt: rendered };
   },

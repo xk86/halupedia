@@ -12,6 +12,7 @@
  *   multimodal       — image_url content-block construction in chat
  *   http             — HTTP API routes (media serve, article image CRUD)
  *   pipeline-nodes   — generateInfoboxNode + persistInfoboxNode
+ *   image-context    — readHeadlineImageNode + RAG image chunk indexing
  *   ingest           — ingestImageFromBuffer with real vips
  */
 
@@ -36,8 +37,10 @@ import {
   generateImageCaptionNode,
   persistImageCaptionNode,
 } from "../src/server/pipeline/nodes/captionImage";
+import { readHeadlineImageNode, renderArticlePromptNode } from "../src/server/pipeline/nodes/articleGeneration";
 import { initialPipelineState } from "../src/server/pipeline/state";
 import { buildPromptRegistry } from "../src/server/pipeline/prompts/registry";
+import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -739,6 +742,195 @@ describe("pipeline-nodes", () => {
     const db = makeArticleDb(dir);
     assert.doesNotThrow(() => persistInfoboxNode.run({ ...makeInput(), infobox: undefined } as any, makeDeps(db, new FakeLlm()) as any));
     assert.equal(getArticleInfobox(db, "test-article"), null);
+    db.close();
+  });
+});
+
+// ── image-context ─────────────────────────────────────────────────────────────
+
+describe("image-context", () => {
+  function makeDepsWithMedia(
+    db: ReturnType<typeof makeArticleDb>,
+    mediaDb: ReturnType<typeof openMediaDatabase>,
+    llm: LlmRouter = new FakeLlm(),
+  ) {
+    return {
+      db,
+      mediaDb,
+      llm,
+      prompts: buildPromptRegistry(TEST_CONFIG.prompts),
+      logger: noop(),
+      runtime: TEST_CONFIG,
+    };
+  }
+
+  // ── readHeadlineImageNode ────────────────────────────────────────────────
+
+  test("readHeadlineImageNode: returns empty string when no image attached", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+    const deps = makeDepsWithMedia(db, mediaDb);
+    const state = initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article" });
+    const patch = readHeadlineImageNode.run(state as any, deps as any);
+    assert.equal(patch.headlineImageContext, "");
+    db.close(); mediaDb.close();
+  });
+
+  test("readHeadlineImageNode: returns empty string when image has no description yet", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(mediaDb, { ...baseMediaRecord("img-no-desc"), sha256: "nd".padEnd(64, "0"), description: "" } as any);
+    (baseMediaRecord as any); // suppress unused warning
+    upsertArticleHeadlineMedia(db, "test-article", "img-no-desc", "");
+    // Override description to empty
+    const rec = getMediaById(mediaDb, "img-no-desc");
+    assert.ok(rec);
+
+    const deps = makeDepsWithMedia(db, mediaDb);
+    const state = initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article" });
+    const patch = readHeadlineImageNode.run(state as any, deps as any);
+    assert.equal(patch.headlineImageContext, "");
+    db.close(); mediaDb.close();
+  });
+
+  test("readHeadlineImageNode: formats context block when image has description", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+
+    // Insert media with a real description
+    const rec = { ...baseMediaRecord("test-crystal"), sha256: "tc".padEnd(64, "t"), description: "A shimmering crystalline formation." };
+    insertMedia(mediaDb, rec as any);
+    upsertArticleHeadlineMedia(db, "test-article", "test-crystal", "The crystal");
+
+    const deps = makeDepsWithMedia(db, mediaDb);
+    const state = initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article" });
+    const patch = readHeadlineImageNode.run(state as any, deps as any);
+
+    assert.ok(patch.headlineImageContext, "context string is non-empty");
+    assert.match(patch.headlineImageContext!, /img:test-crystal/, "slug in context");
+    assert.match(patch.headlineImageContext!, /shimmering crystalline/, "description in context");
+    assert.match(patch.headlineImageContext!, /The crystal/, "caption in context");
+    assert.match(patch.headlineImageContext!, /media:test-crystal/, "image syntax shown");
+    db.close(); mediaDb.close();
+  });
+
+  test("readHeadlineImageNode: uses description as caption when caption is empty", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+
+    insertMedia(mediaDb, { ...baseMediaRecord("img-capless"), sha256: "cl".padEnd(64, "0"), description: "A lunar silt formation." } as any);
+    upsertArticleHeadlineMedia(db, "test-article", "img-capless", ""); // empty caption
+
+    const deps = makeDepsWithMedia(db, mediaDb);
+    const state = initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article" });
+    const patch = readHeadlineImageNode.run(state as any, deps as any);
+
+    // Caption should fall back to description
+    assert.match(patch.headlineImageContext!, /A lunar silt formation/);
+    db.close(); mediaDb.close();
+  });
+
+  // ── renderArticlePromptNode includes headline_image ──────────────────────
+
+  test("renderArticlePromptNode: headline_image appears in rendered user prompt", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+    const deps = makeDepsWithMedia(db, mediaDb);
+
+    const imageContext = "This article has a headline image attached:\n  Slug: img:crystal-test\n  Description: A shimmering crystal.";
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article", requestedTitle: "Test Article" }),
+      references: [],
+      retrievedContext: { sourceArticles: [], ragTitles: [], backlinks: [] },
+      recentEditHistory: "",
+      headlineImageContext: imageContext,
+    };
+    const patch = renderArticlePromptNode.run(state as any, deps as any);
+    assert.ok(patch.renderedPrompt, "prompt was rendered");
+    assert.match(patch.renderedPrompt!.user, /shimmering crystal/, "image description in rendered user prompt");
+    db.close(); mediaDb.close();
+  });
+
+  test("renderArticlePromptNode: headline_image is empty string when no image", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+    const deps = makeDepsWithMedia(db, mediaDb);
+
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article", requestedTitle: "Test Article" }),
+      references: [],
+      retrievedContext: { sourceArticles: [], ragTitles: [], backlinks: [] },
+      recentEditHistory: "",
+      headlineImageContext: "",
+    };
+    const patch = renderArticlePromptNode.run(state as any, deps as any);
+    assert.ok(patch.renderedPrompt);
+    // Should not crash; user prompt renders fine without image context
+    assert.equal(typeof patch.renderedPrompt!.user, "string");
+    db.close(); mediaDb.close();
+  });
+
+  // ── indexArticleChunks includes image description chunk ──────────────────
+
+  test("indexArticleChunks: image description added as extra chunk", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openDatabase(join(dir, "articles.sqlite"));
+    const llm = new FakeLlm();
+
+    await indexArticleChunks(
+      db, llm as any, "test-slug", "# Test\n\nSome body text.", false, 500, noop(),
+      [{ id: "my-image", description: "A shimmering crystalline formation used in metallurgy." }],
+    );
+
+    const chunks = db.prepare("SELECT content FROM article_chunks WHERE slug = ? ORDER BY chunk_index").all("test-slug") as Array<{ content: string }>;
+    assert.ok(chunks.length >= 2, "at least body chunk + image chunk");
+
+    const imageChunk = chunks.find((c) => c.content.includes("[img:my-image]"));
+    assert.ok(imageChunk, "image chunk present");
+    assert.match(imageChunk!.content, /shimmering crystalline formation/);
+    db.close();
+  });
+
+  test("indexArticleChunks: no image chunk when description is empty", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openDatabase(join(dir, "articles.sqlite"));
+    const llm = new FakeLlm();
+
+    await indexArticleChunks(
+      db, llm as any, "test-slug", "# Test\n\nBody.", false, 500, noop(),
+      [{ id: "no-desc-img", description: "" }],
+    );
+
+    const chunks = db.prepare("SELECT content FROM article_chunks WHERE slug = ? ORDER BY chunk_index").all("test-slug") as Array<{ content: string }>;
+    const imageChunk = chunks.find((c) => c.content.includes("[img:"));
+    assert.equal(imageChunk, undefined, "no image chunk for empty description");
+    db.close();
+  });
+
+  test("indexArticleChunks: multiple image descriptions produce multiple chunks", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openDatabase(join(dir, "articles.sqlite"));
+    const llm = new FakeLlm();
+
+    await indexArticleChunks(
+      db, llm as any, "test-slug", "# Test\n\nBody.", false, 500, noop(),
+      [
+        { id: "img-a", description: "First image description." },
+        { id: "img-b", description: "Second image description." },
+      ],
+    );
+
+    const chunks = db.prepare("SELECT content FROM article_chunks WHERE slug = ? ORDER BY chunk_index").all("test-slug") as Array<{ content: string }>;
+    const imgChunks = chunks.filter((c) => c.content.startsWith("[img:"));
+    assert.equal(imgChunks.length, 2, "two image chunks");
+    assert.ok(imgChunks.some((c) => c.content.includes("img-a")));
+    assert.ok(imgChunks.some((c) => c.content.includes("img-b")));
     db.close();
   });
 });

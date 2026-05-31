@@ -76,9 +76,19 @@ export async function indexArticleChunks(
   markdown: string,
   useEmbeddings: boolean,
   chunkSize: number,
-  logger?: Logger
+  logger?: Logger,
+  /** Image descriptions to index alongside the text chunks.
+   *  Each entry becomes a searchable chunk so other articles can discover
+   *  and reference the image via its description during RAG retrieval. */
+  imageDescriptions: Array<{ id: string; description: string }> = [],
 ) {
-  const chunks = chunkText(markdown, chunkSize);
+  const textChunks = chunkText(markdown, chunkSize);
+  // Append one chunk per attached image that has a description.
+  const imgChunks = imageDescriptions
+    .filter((img) => img.description.trim())
+    .map((img) => `[img:${img.id}]\n${img.description.trim()}`);
+  const chunks = [...textChunks, ...imgChunks];
+
   const embeddings = useEmbeddings && chunks.length ? await llm.embed(chunks) : [];
   const deleteStmt = db.prepare(`DELETE FROM article_chunks WHERE slug = ?`);
   const insertStmt = db.prepare(`
@@ -99,7 +109,8 @@ export async function indexArticleChunks(
   }
   logger?.info("rag.index_complete", {
     slug,
-    chunks: chunks.length,
+    text_chunks: textChunks.length,
+    image_chunks: imgChunks.length,
     embeddings_enabled: useEmbeddings,
     embedded_chunks: embeddings.length,
   });

@@ -22,9 +22,11 @@ import {
   saveArticleSeeAlso,
   getLatestArticleReferences,
   getArticleByLookup,
+  getArticleHeadlineMedia,
   type IncomingHint,
   listIncomingHints,
 } from "../../db";
+import { getMediaById } from "../../mediaDb";
 import {
   retrieveContext as retrieveContextLegacy,
   retrieveDirectArticleContext,
@@ -327,6 +329,41 @@ function slugsToUserAdditions(
   return refs;
 }
 
+// ─── READ: headline image context ────────────────────────────────────────────
+
+export const readHeadlineImageNode = defineNode({
+  name: "read.headline_image",
+  kind: "read",
+  description:
+    "Load the current article's headline image description from article_media + media DB. " +
+    "Formats a context block injected into the generation/rewrite/refresh prompts.",
+  reads: ["input"] as const,
+  writes: ["headlineImageContext"] as const,
+  run({ input }, deps: PipelineDeps) {
+    const slug = input.slug ?? "";
+    if (!slug || !deps.mediaDb) return { headlineImageContext: "" };
+
+    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
+    if (!headlineMedia) return { headlineImageContext: "" };
+
+    const record = getMediaById(deps.mediaDb, headlineMedia.mediaId);
+    if (!record || !record.description) return { headlineImageContext: "" };
+
+    const caption = headlineMedia.caption || record.description;
+    const lines = [
+      `This article has a headline image attached:`,
+      `  Slug: img:${record.id}`,
+      `  Description: ${record.description}`,
+      `  Caption: ${caption}`,
+      ``,
+      `To embed this image in the article body use: ![your caption here](media:${record.id})`,
+      `If the context above mentions images from other articles (lines starting with [img:...]),`,
+      `you may also reference those using the same syntax: ![caption](media:their-slug)`,
+    ];
+    return { headlineImageContext: lines.join("\n") };
+  },
+});
+
 // ─── LLM nodes ───────────────────────────────────────────────────────────────
 
 export const renderArticlePromptNode = defineNode({
@@ -338,10 +375,11 @@ export const renderArticlePromptNode = defineNode({
     "references",
     "retrievedContext",
     "recentEditHistory",
+    "headlineImageContext",
   ] as const,
   writes: ["renderedPrompt"] as const,
   run(
-    { input, references, retrievedContext, recentEditHistory },
+    { input, references, retrievedContext, recentEditHistory, headlineImageContext },
     deps: PipelineDeps,
   ) {
     const refs = (references ?? []).map((r) =>
@@ -367,6 +405,7 @@ export const renderArticlePromptNode = defineNode({
         .join("\n"),
       recent_edit_history: recentEditHistory ?? "",
       link_hints: linkHints || "(none)",
+      headline_image: headlineImageContext ?? "",
     });
     return { renderedPrompt: rendered };
   },

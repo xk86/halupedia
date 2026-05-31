@@ -52,6 +52,8 @@ Suggested related existing topics:
 
 {{related_titles}}
 
+{{headline_image}}
+
 Output the full refreshed Markdown article.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics.

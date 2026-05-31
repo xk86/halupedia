@@ -945,6 +945,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   function afterArticleSaved(slug: string, title: string, markdown: string, generatedAt: number): void {
     trackGeneration(
       (async () => {
+        const headlineMedia = getArticleHeadlineMedia(db, slug);
+        const imageDescriptions: Array<{ id: string; description: string }> = [];
+        if (headlineMedia) {
+          const rec = getMediaById(mediaDb, headlineMedia.mediaId);
+          if (rec?.description) imageDescriptions.push({ id: rec.id, description: rec.description });
+        }
         await indexArticleChunks(
           db,
           llm,
@@ -953,6 +959,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
           runtime.app.rag.chunk_size,
           logger,
+          imageDescriptions,
         );
         const summaryMarkdown = await generateArticleSummary(
           llm,

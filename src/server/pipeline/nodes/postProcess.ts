@@ -25,6 +25,7 @@ import {
   updateArticleInPlace,
   type InfoboxData,
 } from "../../db";
+import { getMediaById } from "../../mediaDb";
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
@@ -565,6 +566,18 @@ export const indexRagChunksNode = defineNode({
     if (!slug || !body) return { ragIndexed: false };
     const rag = deps.runtime.app.rag;
     const useEmbeddings = rag.enabled && deps.runtime.llm.embeddings.enabled;
+
+    // Include image description as a searchable chunk so other articles
+    // can discover and reference this article's image via RAG.
+    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
+    const imageDescriptions: Array<{ id: string; description: string }> = [];
+    if (headlineMedia && deps.mediaDb) {
+      const rec = getMediaById(deps.mediaDb, headlineMedia.mediaId);
+      if (rec?.description) {
+        imageDescriptions.push({ id: rec.id, description: rec.description });
+      }
+    }
+
     await indexArticleChunks(
       deps.db,
       deps.llm,
@@ -573,6 +586,7 @@ export const indexRagChunksNode = defineNode({
       useEmbeddings,
       rag.chunk_size,
       deps.logger,
+      imageDescriptions,
     );
     return { ragIndexed: true };
   },

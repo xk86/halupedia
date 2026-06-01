@@ -11,6 +11,14 @@ interface MediaInfo {
   created_at: number;
 }
 
+interface MediaRevision {
+  id: number;
+  media_id: string;
+  description: string;
+  operation: string;
+  changed_at: number;
+}
+
 type EditMode = "ai" | "raw" | null;
 
 interface Props {
@@ -21,10 +29,10 @@ interface Props {
 export function MediaPage({ imageSlug, onNavigate }: Props) {
   const [info, setInfo] = useState<MediaInfo | null>(null);
   const [backlinks, setBacklinks] = useState<Array<{ slug: string; title: string }>>([]);
+  const [history, setHistory] = useState<MediaRevision[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Description edit state
   const [editMode, setEditMode] = useState<EditMode>(null);
   const [rawDraft, setRawDraft] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -34,6 +42,13 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
 
   const imgRef = useRef<HTMLImageElement>(null);
 
+  const refreshHistory = () => {
+    fetch(`/api/media/${encodeURIComponent(imageSlug)}/history`)
+      .then((r) => r.json())
+      .then((d: { history?: MediaRevision[] }) => setHistory(d.history ?? []))
+      .catch(() => {});
+  };
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -42,32 +57,34 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
     setEditMode(null);
     setAiPreview(null);
     setBacklinks([]);
+    setHistory([]);
 
-    fetch(`/api/media/${encodeURIComponent(imageSlug)}/backlinks`)
-      .then((r) => r.json())
-      .then((d: { backlinks?: Array<{ slug: string; title: string }> }) => {
-        if (cancelled) return;
-        setBacklinks(d.backlinks ?? []);
-      })
-      .catch(() => {});
-
-    fetch(`/api/media/${encodeURIComponent(imageSlug)}/info`)
-      .then((r) => {
+    Promise.all([
+      fetch(`/api/media/${encodeURIComponent(imageSlug)}/info`).then((r) => {
         if (!r.ok) throw new Error(`${r.status}`);
         return r.json() as Promise<MediaInfo>;
-      })
-      .then((data) => {
+      }),
+      fetch(`/api/media/${encodeURIComponent(imageSlug)}/backlinks`)
+        .then((r) => r.json())
+        .then((d: { backlinks?: Array<{ slug: string; title: string }> }) => d.backlinks ?? [])
+        .catch(() => [] as Array<{ slug: string; title: string }>),
+      fetch(`/api/media/${encodeURIComponent(imageSlug)}/history`)
+        .then((r) => r.json())
+        .then((d: { history?: MediaRevision[] }) => d.history ?? [])
+        .catch(() => [] as MediaRevision[]),
+    ])
+      .then(([data, bl, hist]) => {
         if (cancelled) return;
         setInfo(data);
         setRawDraft(data.description);
+        setBacklinks(bl);
+        setHistory(hist);
       })
       .catch((err: any) => {
         if (cancelled) return;
         setError(err?.message || "Could not load image info.");
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [imageSlug]);
 
@@ -79,13 +96,8 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
     if (mode === "ai") setInstructions("");
   };
 
-  const cancelEdit = () => {
-    setEditMode(null);
-    setEditError(null);
-    setAiPreview(null);
-  };
+  const cancelEdit = () => { setEditMode(null); setEditError(null); setAiPreview(null); };
 
-  // AI mode: regenerate description (ID never changes on regeneration)
   const regenerate = async () => {
     if (!info || busy) return;
     setBusy(true);
@@ -107,13 +119,19 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
     }
   };
 
-  const applyAi = () => {
-    setInfo((prev) => prev ? { ...prev, description: aiPreview ?? prev.description } : prev);
+  const applyAi = async () => {
+    if (!info || !aiPreview) return;
+    await fetch(`/api/media/${encodeURIComponent(imageSlug)}/description`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ description: aiPreview }),
+    }).catch(() => {});
+    setInfo((prev) => prev ? { ...prev, description: aiPreview } : prev);
+    refreshHistory();
     setEditMode(null);
     setAiPreview(null);
   };
 
-  // Raw mode: save description directly
   const saveRaw = async () => {
     if (!info || busy) return;
     setBusy(true);
@@ -126,6 +144,7 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
       });
       if (!res.ok) throw new Error(`${res.status}`);
       setInfo((prev) => prev ? { ...prev, description: rawDraft } : prev);
+      refreshHistory();
       setEditMode(null);
     } catch (err: any) {
       setEditError(err?.message || "Could not save description.");
@@ -135,19 +154,10 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
   };
 
   if (loading) {
-    return (
-      <div className="media-page">
-        <div className="status"><span className="dot" /><span>Loading…</span></div>
-      </div>
-    );
+    return <div className="media-page"><div className="status"><span className="dot" /><span>Loading…</span></div></div>;
   }
-
   if (error || !info) {
-    return (
-      <div className="media-page">
-        <div className="error">Image not found or could not be loaded.</div>
-      </div>
-    );
+    return <div className="media-page"><div className="error">Image not found or could not be loaded.</div></div>;
   }
 
   const imgUrl = `/api/media/${encodeURIComponent(imageSlug)}`;
@@ -162,15 +172,10 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
       </div>
 
       <div className="media-page-layout">
-        {/* ── Image + metadata ───────────────────────────────── */}
+        {/* ── Image + metadata ──────────────────────────────── */}
         <div className="media-page-image-col">
           <a href={imgUrl} target="_blank" rel="noreferrer" className="media-page-image-link">
-            <img
-              ref={imgRef}
-              src={imgUrl}
-              alt={info.description || imageSlug}
-              className="media-page-image"
-            />
+            <img ref={imgRef} src={imgUrl} alt={info.description || imageSlug} className="media-page-image" />
           </a>
           <div className="media-page-meta">
             <table>
@@ -194,7 +199,7 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
           </div>
         </div>
 
-        {/* ── Description ────────────────────────────────────── */}
+        {/* ── Description ───────────────────────────────────── */}
         <div className="media-page-desc-col">
           <div className="media-page-desc-header">
             <h2 className="media-page-desc-heading">Description</h2>
@@ -210,14 +215,12 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
             )}
           </div>
 
-          {/* Current description display */}
           {editMode === null && (
             info.description
               ? <p className="media-page-desc-text">{info.description}</p>
               : <p className="media-page-desc-empty">No description yet. Use AI regenerate or Raw edit to add one.</p>
           )}
 
-          {/* AI regenerate mode */}
           {editMode === "ai" && (
             <div className="media-desc-edit-panel">
               {aiPreview === null ? (
@@ -227,7 +230,7 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
                   </label>
                   <textarea
                     className="edit-modal-textarea media-desc-textarea"
-                    placeholder="e.g. focus on the geometric structure, use more technical language, mention the colour..."
+                    placeholder="e.g. focus on the geometric structure, use more technical language…"
                     value={instructions}
                     onChange={(e) => setInstructions(e.target.value)}
                     rows={3}
@@ -239,9 +242,7 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
                     <button type="button" className="edit-modal-submit" onClick={regenerate} disabled={busy}>
                       {busy ? "Generating…" : "Generate description"}
                     </button>
-                    <button type="button" className="edit-modal-close" onClick={cancelEdit} disabled={busy}>
-                      Cancel
-                    </button>
+                    <button type="button" className="edit-modal-close" onClick={cancelEdit} disabled={busy}>Cancel</button>
                   </div>
                 </>
               ) : (
@@ -249,22 +250,15 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
                   <p className="media-desc-label">Generated description — review before applying:</p>
                   <blockquote className="media-desc-preview">{aiPreview}</blockquote>
                   <div className="media-desc-btn-row">
-                    <button type="button" className="edit-modal-submit" onClick={applyAi}>
-                      Apply
-                    </button>
-                    <button type="button" className="edit-modal-close" onClick={() => setAiPreview(null)}>
-                      Regenerate again
-                    </button>
-                    <button type="button" className="edit-modal-close" onClick={cancelEdit}>
-                      Cancel
-                    </button>
+                    <button type="button" className="edit-modal-submit" onClick={applyAi}>Apply</button>
+                    <button type="button" className="edit-modal-close" onClick={() => setAiPreview(null)}>Regenerate again</button>
+                    <button type="button" className="edit-modal-close" onClick={cancelEdit}>Cancel</button>
                   </div>
                 </>
               )}
             </div>
           )}
 
-          {/* Raw edit mode */}
           {editMode === "raw" && (
             <div className="media-desc-edit-panel">
               <label className="media-desc-label">Edit description directly:</label>
@@ -281,21 +275,17 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
                 <button type="button" className="edit-modal-submit" onClick={saveRaw} disabled={busy}>
                   {busy ? "Saving…" : "Save"}
                 </button>
-                <button type="button" className="edit-modal-close" onClick={cancelEdit} disabled={busy}>
-                  Cancel
-                </button>
+                <button type="button" className="edit-modal-close" onClick={cancelEdit} disabled={busy}>Cancel</button>
               </div>
             </div>
           )}
 
-          {/* Usage hint */}
           {editMode === null && (
             <p className="media-page-usage-hint">
               To embed in an article: <code>![your caption](media:{imageSlug})</code>
             </p>
           )}
 
-          {/* Backlinks */}
           {backlinks.length > 0 && (
             <div className="media-page-backlinks">
               <h3 className="media-page-backlinks-heading">Referenced by</h3>
@@ -315,6 +305,45 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
           )}
         </div>
       </div>
+
+      {/* ── File history ─────────────────────────────────────── */}
+      {history.length > 0 && (
+        <div className="media-history">
+          <h2 className="media-history-heading">File history</h2>
+          <p className="media-history-subheading">
+            Click on a date/time to view the description as it appeared at that time.
+          </p>
+          <table className="media-history-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Date/Time</th>
+                <th>Operation</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((rev, i) => (
+                <tr key={rev.id} className={i === 0 ? "media-history-current" : ""}>
+                  <td className="media-history-current-label">{i === 0 ? "current" : ""}</td>
+                  <td className="media-history-date">
+                    {new Date(rev.changed_at).toLocaleString(undefined, {
+                      hour: "2-digit", minute: "2-digit",
+                      day: "numeric", month: "long", year: "numeric",
+                    })}
+                  </td>
+                  <td className="media-history-op">
+                    <span className={`media-history-op-badge media-history-op-badge--${rev.operation}`}>
+                      {rev.operation}
+                    </span>
+                  </td>
+                  <td className="media-history-desc">{rev.description || <em>—</em>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

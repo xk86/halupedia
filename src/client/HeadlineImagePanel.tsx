@@ -8,6 +8,14 @@ interface ImageInfo {
   height: number;
 }
 
+interface MediaSearchResult {
+  id: string;
+  description: string;
+  width: number;
+  height: number;
+  byte_size: number;
+}
+
 interface Props {
   articleSlug: string;
   onArticleUpdate: (article: unknown) => void;
@@ -19,7 +27,12 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
   const [urlDraft, setUrlDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Track the last slug we loaded so a slug change resets and reloads
+
+  // Search-existing state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<MediaSearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+
   const loadedSlugRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -28,6 +41,8 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
     setImageInfo(null);
     setUrlDraft("");
     setError(null);
+    setSearchQuery("");
+    setSearchResults(null);
 
     fetch(`/api/article/${encodeURIComponent(articleSlug)}/image`)
       .then((r) => r.json())
@@ -54,6 +69,8 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
       height: payload.height,
     });
     if (payload.article) onArticleUpdate(payload.article);
+    setSearchResults(null);
+    setSearchQuery("");
   }, [onArticleUpdate]);
 
   const uploadUrl = useCallback(async () => {
@@ -98,6 +115,39 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
     }
   }, [articleSlug, busy, applyResult]);
 
+  const searchExisting = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/media?q=${encodeURIComponent(searchQuery.trim())}`);
+      const data = await res.json() as { media?: MediaSearchResult[] };
+      setSearchResults(data.media ?? []);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }, [searchQuery]);
+
+  const attachExisting = useCallback(async (mediaId: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/image`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mediaId }),
+      });
+      const payload = await res.json().catch(() => ({})) as any;
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      applyResult(payload);
+    } catch (err: any) {
+      setError(err?.message || "Could not attach image.");
+    } finally {
+      setBusy(false);
+    }
+  }, [articleSlug, applyResult]);
+
   const remove = useCallback(async () => {
     try {
       const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/image`, { method: "DELETE" });
@@ -139,48 +189,97 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
         </div>
       ) : (
         <div className="edit-image-upload">
-          <input
-            type="url"
-            className="search-input edit-image-url-input"
-            placeholder="Paste image URL or image…"
-            value={urlDraft}
-            onChange={(e) => { setUrlDraft(e.target.value); setError(null); }}
-            disabled={busy}
-            onKeyDown={(e) => { if (e.key === "Enter" && urlDraft.trim()) void uploadUrl(); }}
-            onPaste={(e) => {
-              const items = e.clipboardData?.items;
-              if (!items) return;
-              for (let i = 0; i < items.length; i++) {
-                if (items[i].type.startsWith("image/")) {
-                  e.preventDefault();
-                  const file = items[i].getAsFile();
-                  if (file) void uploadFile(file);
-                  return;
-                }
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="edit-modal-close"
-            onClick={uploadUrl}
-            disabled={busy || !urlDraft.trim()}
-          >
-            {busy ? "Fetching…" : "Attach"}
-          </button>
-          <label className="edit-image-file-label" title="Upload from disk">
+          {/* Search existing */}
+          <div className="edit-image-search-row">
             <input
-              type="file"
-              accept="image/*"
-              className="edit-image-file-input"
+              type="search"
+              className="search-input edit-image-search-input"
+              placeholder="Search existing images…"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setSearchResults(null); }}
               disabled={busy}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) { e.target.value = ""; void uploadFile(file); }
+              onKeyDown={(e) => { if (e.key === "Enter" && searchQuery.trim()) void searchExisting(); }}
+            />
+            <button
+              type="button"
+              className="edit-modal-close"
+              onClick={searchExisting}
+              disabled={busy || searching || !searchQuery.trim()}
+            >
+              {searching ? "…" : "Search"}
+            </button>
+          </div>
+
+          {/* Search results */}
+          {searchResults !== null && (
+            <div className="edit-image-search-results">
+              {searchResults.length === 0 ? (
+                <p className="edit-image-search-empty">No existing images match. Upload one below.</p>
+              ) : (
+                <div className="edit-image-search-grid">
+                  {searchResults.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className="edit-image-search-card"
+                      onClick={() => void attachExisting(r.id)}
+                      disabled={busy}
+                      title={r.description}
+                    >
+                      <img src={`/api/media/${encodeURIComponent(r.id)}`} alt={r.description} />
+                      <span className="edit-image-search-card-id">{r.id}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* URL / file upload */}
+          <div className="edit-image-upload-row">
+            <input
+              type="url"
+              className="search-input edit-image-url-input"
+              placeholder="Paste image URL or image…"
+              value={urlDraft}
+              onChange={(e) => { setUrlDraft(e.target.value); setError(null); }}
+              disabled={busy}
+              onKeyDown={(e) => { if (e.key === "Enter" && urlDraft.trim()) void uploadUrl(); }}
+              onPaste={(e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                for (let i = 0; i < items.length; i++) {
+                  if (items[i].type.startsWith("image/")) {
+                    e.preventDefault();
+                    const file = items[i].getAsFile();
+                    if (file) void uploadFile(file);
+                    return;
+                  }
+                }
               }}
             />
-            {busy ? "…" : "↑"}
-          </label>
+            <button
+              type="button"
+              className="edit-modal-close"
+              onClick={uploadUrl}
+              disabled={busy || !urlDraft.trim()}
+            >
+              {busy ? "Fetching…" : "Attach"}
+            </button>
+            <label className="edit-image-file-label" title="Upload from disk">
+              <input
+                type="file"
+                accept="image/*"
+                className="edit-image-file-input"
+                disabled={busy}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) { e.target.value = ""; void uploadFile(file); }
+                }}
+              />
+              {busy ? "…" : "↑"}
+            </label>
+          </div>
         </div>
       )}
 

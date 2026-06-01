@@ -1,13 +1,63 @@
 /**
- * Post-process workflow — runs asynchronously after any article write.
+ * article.post_process workflow — runs asynchronously after any article write.
  *
- * Sequence:
- *   reload → repair links → rebuild refs → re-resolve links
- *   → see-also (LLM) → summary (LLM) → update in place → index RAG
+ * Pipeline stages
+ * ───────────────
+ * 1. read.reload_saved_article
+ *    Re-loads the article from DB so all subsequent nodes see the final
+ *    persisted state, not stale in-memory values.
  *
- * The staleness guard in `write.update_article_in_place` ensures a
- * concurrent edit that happened between the triggering save and this
- * workflow completing will cause this pass to abort without overwriting.
+ * 2. write.repair_links
+ *    Deterministic link repair: fixes malformed halu: links, normalises
+ *    casing, removes self-links. Light model optional assist.
+ *
+ * 3. write.rebuild_reference_list
+ *    Rebuilds the references sidecar from RAG + body scan (algorithmic).
+ *
+ * 4. write.resolve_links_post_process
+ *    Converts halu: links that now point at existing articles to ref: links.
+ *
+ * 5. llm.generate_see_also  [heavy]
+ *    Suggests see-also slugs that are not already in the reference list.
+ *
+ * 6. llm.regenerate_summary  [light]
+ *    Re-generates the summary_markdown sidecar from the final body.
+ *
+ * 7. llm.generate_infobox  [heavy, JSON]
+ *    Prompt: infobox
+ *    Input:  article title + first ~6000 chars of body
+ *    Output: structured { title, subtitle, groups[] } saved to article_infobox
+ *    Runs for every article regardless of whether an image is attached.
+ *
+ * 8. write.persist_infobox
+ *    Saves the infobox JSON to article_infobox sidecar table.
+ *
+ * 9. llm.generate_sidebar_caption  [images model, text-only]
+ *    Prompt: image_caption
+ *    Input:  headline image description (from media DB) + first ~1500 chars of body
+ *    Output: short per-article caption written to article_media.caption sidecar
+ *    Skipped when the article has no headline image.
+ *    This keeps the sidepane caption in sync after every article rewrite/refresh.
+ *
+ * 10. write.update_article_in_place
+ *    Splices the link-repaired body and updated summary back into the DB row.
+ *    Staleness guard: aborts if a concurrent edit landed since this pass started.
+ *
+ * 11. write.index_rag_chunks
+ *    Re-indexes article body (and image description if present) as RAG chunks.
+ *
+ * Sidebar rendering:
+ *    The sidebar (sidepane) is assembled server-side from two sidecars:
+ *      - article_infobox  — structured rows (title, subtitle, key/value groups)
+ *      - article_media    — headline image + per-article caption
+ *    renderInfoboxHtml() in articleRender.ts combines both into the <aside>
+ *    that appears to the right of the article body. The article markdown body
+ *    never contains image markdown.
+ *
+ * Auto-sidebar:
+ *    When /api/page/:slug is served for an article that has no infobox yet,
+ *    post-process is fired in the background so the sidebar is generated on
+ *    first view without requiring a manual refresh.
  */
 
 import type { WorkflowDefinition } from "../runtime/graph";
@@ -23,12 +73,14 @@ import {
   indexRagChunksNode,
   generateInfoboxNode,
   persistInfoboxNode,
+  generateSidebarCaptionNode,
 } from "../nodes/postProcess";
 
 export const postProcessWorkflow: WorkflowDefinition<PipelineDeps> = {
   name: "article.post_process",
   description:
-    "Async enrichment after any article save: link repair, see-also, summary, RAG index.",
+    "Async enrichment after any article save: link repair, see-also, summary, " +
+    "infobox generation, sidebar caption refresh, RAG indexing.",
   edges: [
     { node: reloadSavedArticleNode },
     { node: repairLinksNode },
@@ -38,6 +90,7 @@ export const postProcessWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: regenerateSummaryNode },
     { node: generateInfoboxNode },
     { node: persistInfoboxNode },
+    { node: generateSidebarCaptionNode },
     { node: updateArticleInPlaceNode },
     { node: indexRagChunksNode },
   ],

@@ -5,6 +5,7 @@ import { GraphView } from "./GraphView";
 import { HeadlineImagePanel } from "./HeadlineImagePanel";
 import { Homepage } from "./Homepage";
 import { MediaPage } from "./MediaPage";
+import { MediaListPage } from "./MediaListPage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
 import { renderSummaryHtml } from "./summaryHtml";
@@ -20,7 +21,8 @@ type Route =
   | { kind: "article"; slug: string; title?: string }
   | { kind: "history"; slug: string }
   | { kind: "disambiguation"; slug: string }
-  | { kind: "media"; imageSlug: string };
+  | { kind: "media"; imageSlug: string }
+  | { kind: "media-list" };
 
 interface BacklinkItem {
   slug: string;
@@ -140,6 +142,7 @@ function parseRoute(): Route {
   if (pathname === "/search") {
     return { kind: "search", query: new URLSearchParams(search).get("q") ?? "" };
   }
+  if (pathname === "/media") return { kind: "media-list" };
   if (pathname.startsWith("/media/")) {
     return { kind: "media", imageSlug: decodeURIComponent(pathname.slice("/media/".length)) };
   }
@@ -646,6 +649,12 @@ export function App() {
     window.history.pushState({}, "", `/media/${encodeURIComponent(imageSlug)}`);
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     setRoute({ kind: "media", imageSlug });
+  }, []);
+
+  const navigateToMediaList = useCallback(() => {
+    window.history.pushState({}, "", "/media");
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "media-list" });
   }, []);
 
   const interceptArticleLinks = useCallback(
@@ -1267,6 +1276,10 @@ export function App() {
   const mainView = useMemo(() => {
     if (route.kind === "media") {
       return <MediaPage imageSlug={route.imageSlug} onNavigate={navigateToArticle} />;
+    }
+
+    if (route.kind === "media-list") {
+      return <MediaListPage onNavigateToMedia={navigateToMedia} />;
     }
 
     if (route.kind === "home") {
@@ -2061,6 +2074,15 @@ export function App() {
             }}
           >
             All entries
+          </a>
+          <a
+            href="/media"
+            onClick={(e) => {
+              e.preventDefault();
+              navigateToMediaList();
+            }}
+          >
+            Media
           </a>
           <a
             href="/Random"

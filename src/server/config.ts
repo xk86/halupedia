@@ -140,6 +140,15 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       temperature: llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
       max_tokens: llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
     },
+    images: llm.images
+      ? {
+          base_url: llm.images.base_url ?? llm.light?.base_url ?? llm.chat?.base_url ?? "http://127.0.0.1:11434/v1",
+          api_key: llm.images.api_key ?? llm.light?.api_key ?? llm.chat?.api_key ?? "local",
+          model: llm.images.model ?? llm.light?.model ?? llm.chat?.model ?? "local-model",
+          temperature: llm.images.temperature ?? llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
+          max_tokens: llm.images.max_tokens ?? llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
+        }
+      : undefined,
     embeddings: {
       enabled: llm.embeddings?.enabled ?? false,
       base_url:

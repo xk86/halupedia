@@ -224,6 +224,8 @@ export interface EmbeddingsConfig {
 export interface LlmConfig {
   chat: ChatConfig;
   light: ChatConfig;
+  /** Dedicated vision model for image captioning. Falls back to light if unset. */
+  images?: ChatConfig;
   embeddings: EmbeddingsConfig;
 }
 

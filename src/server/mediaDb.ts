@@ -7,6 +7,12 @@ function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
   return rows.some((row) => row.name === column);
 }
 
+function hasTable(db: DatabaseSync, table: string): boolean {
+  return !!(db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(table) as { name: string } | undefined);
+}
+
 export interface MediaRecord {
   id: string;
   sha256: string;
@@ -21,6 +27,14 @@ export interface MediaRecord {
   model_height: number;
   description: string;
   created_at: number;
+}
+
+export interface MediaRevision {
+  id: number;
+  media_id: string;
+  description: string;
+  operation: string;
+  changed_at: number;
 }
 
 export function openMediaDatabase(databasePath: string): DatabaseSync {
@@ -47,10 +61,32 @@ export function openMediaDatabase(databasePath: string): DatabaseSync {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
+    CREATE TABLE IF NOT EXISTS media_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      media_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      operation TEXT NOT NULL DEFAULT 'update',
+      changed_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_revisions_media_id
+      ON media_revisions(media_id, changed_at DESC);
   `);
-  // Migrate: add bytes column to databases created before it was added.
+  // Migrations
   if (!hasColumn(db, "media", "bytes")) {
     db.exec(`ALTER TABLE media ADD COLUMN bytes TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!hasTable(db, "media_revisions")) {
+    db.exec(`
+      CREATE TABLE media_revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        media_id TEXT NOT NULL,
+        description TEXT NOT NULL,
+        operation TEXT NOT NULL DEFAULT 'update',
+        changed_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_media_revisions_media_id
+        ON media_revisions(media_id, changed_at DESC);
+    `);
   }
   return db;
 }
@@ -124,22 +160,54 @@ export function insertMedia(
       record.description,
       Date.now(),
     );
+  // Record the initial upload revision
+  mediaDb
+    .prepare(`INSERT INTO media_revisions (media_id, description, operation, changed_at) VALUES (?, ?, ?, ?)`)
+    .run(record.id, record.description, "uploaded", Date.now());
 }
 
-export function updateMediaDescription(mediaDb: DatabaseSync, id: string, description: string): void {
+export function updateMediaDescription(
+  mediaDb: DatabaseSync,
+  id: string,
+  description: string,
+  operation: string = "update",
+): void {
   mediaDb.prepare(`UPDATE media SET description = ? WHERE id = ?`).run(description, id);
+  mediaDb
+    .prepare(`INSERT INTO media_revisions (media_id, description, operation, changed_at) VALUES (?, ?, ?, ?)`)
+    .run(id, description, operation, Date.now());
 }
 
 export function updateMediaId(mediaDb: DatabaseSync, oldId: string, newId: string): boolean {
   try {
     mediaDb.prepare(`UPDATE media SET id = ? WHERE id = ?`).run(newId, oldId);
+    mediaDb.prepare(`UPDATE media_revisions SET media_id = ? WHERE media_id = ?`).run(newId, oldId);
     return true;
   } catch {
     return false;
   }
 }
 
-export function listMedia(mediaDb: DatabaseSync): MediaRecord[] {
+export function listMediaRevisions(mediaDb: DatabaseSync, id: string): MediaRevision[] {
+  return mediaDb
+    .prepare(
+      `SELECT id, media_id, description, operation, changed_at
+       FROM media_revisions WHERE media_id = ? ORDER BY changed_at DESC`,
+    )
+    .all(id) as unknown as MediaRevision[];
+}
+
+export function listMedia(mediaDb: DatabaseSync, query?: string): MediaRecord[] {
+  if (query && query.trim()) {
+    const pattern = `%${query.trim()}%`;
+    return mediaDb
+      .prepare(
+        `SELECT id, sha256, source_url, mime, width, height, byte_size,
+                model_b64, model_mime, model_width, model_height, description, created_at
+         FROM media WHERE description LIKE ? ORDER BY created_at DESC`,
+      )
+      .all(pattern) as unknown as MediaRecord[];
+  }
   return mediaDb
     .prepare(
       `SELECT id, sha256, source_url, mime, width, height, byte_size,

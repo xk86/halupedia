@@ -69,7 +69,7 @@ import {
   updateArticleMediaCaption,
   removeArticleMedia,
 } from "./db";
-import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaId } from "./mediaDb";
+import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
 import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
 import { renderInfoboxHtml } from "./articleRender";
@@ -855,6 +855,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.llm.light,
       runtime.llm.embeddings,
       logger,
+      runtime.llm.images,
     );
   const app = new Hono();
   const distRoot = options.distRoot
@@ -1013,6 +1014,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.llm.light,
         runtime.llm.embeddings,
         logger,
+        runtime.llm.images,
       );
     }
     logger.info("startup", {
@@ -1022,6 +1024,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       heavy_model: runtime.llm.chat.model,
       light_base_url: runtime.llm.light.base_url,
       light_model: runtime.llm.light.model,
+      images_base_url: runtime.llm.images?.base_url ?? "(none)",
+      images_model: runtime.llm.images?.model ?? "(none)",
       embeddings_enabled: runtime.llm.embeddings.enabled,
       embeddings_base_url: runtime.llm.embeddings.base_url,
       embeddings_model: runtime.llm.embeddings.model,
@@ -1624,6 +1628,30 @@ export async function createApp(options: CreateAppOptions = {}) {
       if (response) {
         const canonicalPath = canonicalPathForArticle(record);
         logger.info("page.hit", { slug: lookupSlug, in_flight_edit: hasInFlightEdit });
+
+        // Auto-sidebar: fire post-process in the background on first view if
+        // the article has no infobox yet (e.g. imported or created before
+        // post-process ran). Tracked so it only fires once per server session.
+        if (!getArticleInfobox(db, record.slug)) {
+          const already = slugGenerations.has(record.slug);
+          if (!already) {
+            logger.info("page.auto_post_process", { slug: record.slug });
+            trackGeneration(
+              runWorkflow(postProcessWorkflow, {
+                input: {
+                  requestId: randomUUID(),
+                  workflow: "article.post_process",
+                  slug: record.slug,
+                  requestedTitle: record.title,
+                },
+                deps: buildPipelineDeps(),
+                recorder: getTraceRecorder(runtime.app.pipeline.trace),
+                logger,
+              }).catch(() => {}),
+            );
+          }
+        }
+
         return c.json(
           buildPageResponse(response, {
             cached: true,
@@ -3232,8 +3260,22 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (description === null) return c.json({ error: "description required" }, 400);
     const record = getMediaById(mediaDb, id);
     if (!record) return c.json({ error: "not found" }, 404);
-    updateMediaDescription(mediaDb, id, description);
+    updateMediaDescription(mediaDb, id, description, "user-edit");
     return c.json({ ok: true });
+  });
+
+  app.get("/api/media/:id/history", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+    return c.json({ history: listMediaRevisions(mediaDb, id) });
+  });
+
+  app.get("/api/media", (c) => {
+    const q = c.req.query("q") ?? "";
+    const records = listMedia(mediaDb, q || undefined);
+    const safe = records.map(({ model_b64: _b64, ...r }) => r);
+    return c.json({ media: safe });
   });
 
   app.get("/api/media/:id/backlinks", (c) => {
@@ -3352,9 +3394,21 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.post("/api/article/:slug/image", async (c) => {
     const slug = slugify(decodeURIComponent(c.req.param("slug")));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const body = await c.req.json().catch(() => ({})) as { url?: string };
+    const body = await c.req.json().catch(() => ({})) as { url?: string; mediaId?: string };
+
+    // Attach an existing media record by ID (search-existing flow)
+    if (typeof body.mediaId === "string" && body.mediaId.trim()) {
+      const mediaId = body.mediaId.trim();
+      const existing = getMediaById(mediaDb, mediaId);
+      if (!existing) return c.json({ error: "media not found" }, 404);
+      const attached = attachAndCaption(slug, mediaId, false, existing.width, existing.height);
+      const response = buildArticleResponseFor(slug);
+      if (!response) return c.json({ error: "article not found" }, 404);
+      return c.json({ ...attached, article: response });
+    }
+
     const url = typeof body.url === "string" ? body.url.trim() : "";
-    if (!url) return c.json({ error: "url required" }, 400);
+    if (!url) return c.json({ error: "url or mediaId required" }, 400);
     let result: Awaited<ReturnType<typeof ingestImageFromUrl>>;
     try {
       result = await ingestImageFromUrl(url, { mediaDb, config: runtime.app.images, logger });

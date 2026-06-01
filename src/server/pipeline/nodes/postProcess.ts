@@ -23,6 +23,7 @@ import {
   setArticleInfobox,
   getArticleHeadlineMedia,
   updateArticleInPlace,
+  updateArticleMediaCaption,
   type InfoboxData,
 } from "../../db";
 import { getMediaById } from "../../mediaDb";
@@ -585,5 +586,62 @@ export const indexRagChunksNode = defineNode({
       imageDescriptions,
     );
     return { ragIndexed: true };
+  },
+});
+
+// ─── LLM: sidebar caption refresh ────────────────────────────────────────────
+
+export const generateSidebarCaptionNode = defineNode({
+  name: "llm.generate_sidebar_caption",
+  kind: "llm",
+  description:
+    "Re-generate the per-article sidepane caption from the freshly-saved article body. " +
+    "Runs after every article write so the caption stays in sync with the content. " +
+    "Skipped silently when the article has no headline image or media DB is unavailable.",
+  reads: ["input", "finalArticleBody", "canonicalTitle"] as const,
+  writes: [] as const,
+  async run({ input, finalArticleBody, canonicalTitle }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    const body = finalArticleBody ?? "";
+    if (!slug || !body || !deps.mediaDb) return {};
+
+    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
+    if (!headlineMedia) return {};
+
+    const mediaRecord = getMediaById(deps.mediaDb, headlineMedia.mediaId);
+    if (!mediaRecord?.description) return {};
+
+    const title = canonicalTitle ?? input.requestedTitle ?? slug;
+    const articleExcerpt = stripTopLevelSections(body, ["References", "See also"]).slice(0, 1500);
+
+    const rendered = deps.prompts.render("image_caption", {
+      requested_title: title,
+      image_description: mediaRecord.description,
+      article_excerpt: articleExcerpt,
+    });
+
+    try {
+      const raw = await deps.llm.chat(
+        "images",
+        rendered.system,
+        rendered.user,
+        { jsonMode: true },
+      );
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("no JSON in caption response");
+      const parsed = JSON.parse(match[0]) as Partial<Record<string, string>>;
+      const caption = String(parsed.caption ?? "").replace(/\s+/g, " ").trim();
+      if (caption) {
+        updateArticleMediaCaption(deps.db, slug, 1, caption);
+        deps.logger.info("pipeline.sidebar_caption.saved", { slug, mediaId: headlineMedia.mediaId });
+      }
+    } catch (err) {
+      deps.logger.warn("pipeline.sidebar_caption.failed", {
+        slug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return {};
   },
 });

@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, insertMedia, updateMediaDescription, updateMediaId } from "../src/server/mediaDb";
+import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, insertMedia, updateMediaDescription, updateMediaId, listMediaRevisions, listMedia } from "../src/server/mediaDb";
 import { openDatabase, saveArticle, getArticleHeadlineMedia, upsertArticleHeadlineMedia, updateArticleMediaCaption, removeArticleMedia, getArticleMediaRows, getArticleInfobox, setArticleInfobox, listImageBacklinks, type InfoboxData } from "../src/server/db";
 import { renderInfoboxHtml } from "../src/server/articleRender";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
@@ -31,10 +31,11 @@ import { OpenAICompatRouter, type LlmRouter, type ChatOptions } from "../src/ser
 import { createApp } from "../src/server/index";
 import { loadConfig } from "../src/server/config";
 import type { Logger } from "../src/server/logger";
-import { generateInfoboxNode, persistInfoboxNode } from "../src/server/pipeline/nodes/postProcess";
+import { generateInfoboxNode, persistInfoboxNode, generateSidebarCaptionNode } from "../src/server/pipeline/nodes/postProcess";
 import {
   loadArticleAndImageNode,
   generateImageCaptionNode,
+  generateArticleCaptionNode,
   persistImageCaptionNode,
 } from "../src/server/pipeline/nodes/captionImage";
 import { readHeadlineImageNode, renderArticlePromptNode } from "../src/server/pipeline/nodes/articleGeneration";
@@ -95,7 +96,7 @@ class FakeLlm implements LlmRouter {
   }
   async embed() { return []; }
   async probeConnections() {}
-  supportsVision(_: "heavy" | "light") { return false; }
+  supportsVision(_: "heavy" | "light" | "images") { return false; }
 }
 
 
@@ -201,6 +202,53 @@ describe("mediaDb", () => {
     insertMedia(db, { ...baseMediaRecord("bb"), sha256: "b".padEnd(64, "b") });
     assert.equal(updateMediaId(db, "aa", "bb"), false);
     assert.ok(getMediaById(db, "aa"), "original unchanged");
+    db.close();
+  });
+
+  test("insertMedia writes an 'uploaded' revision", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(db, baseMediaRecord("img-rev"));
+    const revs = listMediaRevisions(db, "img-rev");
+    assert.equal(revs.length, 1);
+    assert.equal(revs[0].operation, "uploaded");
+    assert.equal(revs[0].media_id, "img-rev");
+    db.close();
+  });
+
+  test("updateMediaDescription writes a revision per call", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(db, baseMediaRecord("img-rev2"));
+    updateMediaDescription(db, "img-rev2", "First update", "update");
+    updateMediaDescription(db, "img-rev2", "Second update", "user-edit");
+    const revs = listMediaRevisions(db, "img-rev2");
+    // uploaded + 2 updates = 3 total
+    assert.equal(revs.length, 3);
+    // Most recent first (ORDER BY changed_at DESC)
+    assert.equal(revs[0].operation, "user-edit");
+    assert.equal(revs[0].description, "Second update");
+    db.close();
+  });
+
+  test("listMedia without query returns all records", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(db, baseMediaRecord("img-list-1"));
+    insertMedia(db, { ...baseMediaRecord("img-list-2"), sha256: "l2".padEnd(64, "2"), description: "Another image" });
+    const all = listMedia(db);
+    assert.equal(all.length, 2);
+    db.close();
+  });
+
+  test("listMedia with query filters by description LIKE", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(db, baseMediaRecord("img-filter-1")); // description: "A test image"
+    insertMedia(db, { ...baseMediaRecord("img-filter-2"), sha256: "f2".padEnd(64, "2"), description: "A completely different image" });
+    const results = listMedia(db, "test");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].id, "img-filter-1");
     db.close();
   });
 });
@@ -375,7 +423,7 @@ describe("rendering", () => {
 
   test("renderInfoboxHtml: headline image links to /api/media and /media", () => {
     const media = { id: 1, articleSlug: "x", mediaId: "benzo-mol", role: "headline", ordinal: 1, caption: "Formula", createdAt: 0, updatedAt: 0 };
-    const html = renderInfoboxHtml(null, media, "Formula");
+    const html = renderInfoboxHtml(null, media);
     assert.match(html, /src="\/api\/media\/benzo-mol"/);
     assert.match(html, /href="\/media\/benzo-mol"/);
     assert.match(html, /Formula/);
@@ -397,10 +445,11 @@ describe("rendering", () => {
     assert.match(html, /&lt;b&gt;v&lt;\/b&gt;/);
   });
 
-  test("renderInfoboxHtml: empty caption falls back to mediaDescription", () => {
+  test("renderInfoboxHtml: empty caption renders no caption paragraph", () => {
     const media = { id: 1, articleSlug: "x", mediaId: "img", role: "headline", ordinal: 1, caption: "", createdAt: 0, updatedAt: 0 };
-    const html = renderInfoboxHtml(null, media, "Fallback description");
-    assert.match(html, /Fallback description/);
+    const html = renderInfoboxHtml(null, media);
+    // No caption paragraph when caption is empty — no fallback to description
+    assert.doesNotMatch(html, /infobox-caption/);
   });
 
   test("renderInfoboxHtml: no image when headlineMedia is null", () => {
@@ -432,20 +481,22 @@ describe("markdown", () => {
     assert.match(html, /sidebar-block/);
   });
 
-  test("media: image renders as linked img with media-image-link class", () => {
+  test("media: image renders as a plain text link with media-ref-link class", () => {
     const html = renderMarkdown("![Caption here](media:my-slug)");
-    assert.match(html, /src="\/api\/media\/my-slug"/);
+    // Renders as a link, not an inline <img>
+    assert.match(html, /class="media-ref-link"/);
     assert.match(html, /href="\/media\/my-slug"/);
-    assert.match(html, /class="media-image-link"/);
-    assert.match(html, /alt="Caption here"/);
+    assert.match(html, /Caption here/);
+    // No inline image tag
+    assert.doesNotMatch(html, /<img/);
+    assert.doesNotMatch(html, /src="\/api\/media\//);
   });
 
-  test("media: both src and href contain the exact slug", () => {
+  test("media: link href contains the exact slug", () => {
     const html = renderMarkdown("![Caption](media:specific-slug-value)");
-    assert.match(html, /\/api\/media\/specific-slug-value/);
     assert.match(html, /\/media\/specific-slug-value/);
-    // Slug must appear exactly once in each attribute (no doubling or trimming)
-    assert.equal((html.match(/specific-slug-value/g) ?? []).length, 2);
+    // Slug appears exactly once in the href
+    assert.equal((html.match(/specific-slug-value/g) ?? []).length, 1);
   });
 
   test("external image does not get media-image-link treatment", () => {
@@ -468,9 +519,9 @@ describe("vision-probe", () => {
     return () => { globalThis.fetch = orig; };
   }
 
-  function makeRouter() {
+  function makeRouter(imagesChatConfig?: { base_url: string; api_key: string; model: string; temperature: number; max_tokens: number }) {
     const cfg = { base_url: "http://ollama.test/v1", api_key: "local", model: "m", temperature: 1, max_tokens: 100 };
-    return new OpenAICompatRouter(cfg, cfg, { enabled: false, base_url: "", api_key: "", model: "" }, noop());
+    return new OpenAICompatRouter(cfg, cfg, { enabled: false, base_url: "", api_key: "", model: "" }, noop(), imagesChatConfig);
   }
 
   test("true when model_info has clip.* key", async (t) => {
@@ -504,6 +555,31 @@ describe("vision-probe", () => {
     const r = makeRouter();
     await r.probeConnections();
     assert.equal(r.supportsVision("heavy"), false);
+  });
+
+  test("true when capabilities array includes 'vision'", async (t) => {
+    const restore = mockShowEndpoint({ capabilities: ["completion", "vision"] });
+    t.after(restore);
+    const r = makeRouter();
+    await r.probeConnections();
+    assert.equal(r.supportsVision("light"), true);
+  });
+
+  test("supportsVision('images') returns false when no imagesChatConfig", async (t) => {
+    const restore = mockShowEndpoint({ model_info: { "clip.vision_encoder": "clip" } });
+    t.after(restore);
+    const r = makeRouter(); // no 5th arg
+    await r.probeConnections();
+    assert.equal(r.supportsVision("images"), false);
+  });
+
+  test("supportsVision('images') probes imagesChatConfig when provided", async (t) => {
+    const restore = mockShowEndpoint({ capabilities: ["completion", "vision"] });
+    t.after(restore);
+    const imagesCfg = { base_url: "http://ollama.test/v1", api_key: "local", model: "vision-model", temperature: 1, max_tokens: 100 };
+    const r = makeRouter(imagesCfg);
+    await r.probeConnections();
+    assert.equal(r.supportsVision("images"), true);
   });
 });
 
@@ -668,7 +744,8 @@ describe("http", () => {
     assert.equal(r.status, 400);
   });
 
-  test("article HTML contains .infobox when image + infobox sidecar are set", async (t) => {
+  test("page response includes infobox sidecar when set", async (t) => {
+    // Infoboxes render client-side from page.infobox — not embedded in article.html.
     const s = await makeTestServer(); t.after(s.cleanup);
     seedMedia(s.mediaDatabasePath, "ib-img");
     const db = openDatabase(s.databasePath);
@@ -676,14 +753,137 @@ describe("http", () => {
     setArticleInfobox(db, "aspirin", { title: "Aspirin", groups: [{ label: "Chemistry", rows: [{ label: "Formula", value: "C9H8O4" }] }] });
     db.close();
     const body = await (await s.go("/api/page/aspirin")).json() as any;
-    assert.match(body.article.html as string, /class="infobox"/);
-    assert.match(body.article.html as string, /C9H8O4/);
+    assert.ok(body.infobox, "infobox sidecar present");
+    assert.equal(body.infobox.title, "Aspirin");
+    assert.equal(body.infobox.groups[0].rows[0].value, "C9H8O4");
+    assert.ok(body.headlineMedia, "headlineMedia sidecar present");
+    assert.equal(body.headlineMedia.mediaId, "ib-img");
   });
 
   test("article HTML has no infobox when none set", async (t) => {
     const s = await makeTestServer(); t.after(s.cleanup);
     const body = await (await s.go("/api/page/aspirin")).json() as any;
     assert.doesNotMatch(body.article.html as string, /class="infobox"/);
+  });
+
+  test("GET /api/media returns { media: [...] } for all images", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    seedMedia(s.mediaDatabasePath, "list-img-1");
+    seedMedia(s.mediaDatabasePath, "list-img-2");
+    const res = await s.go("/api/media");
+    assert.equal(res.status, 200);
+    const body = await res.json() as { media: any[] };
+    assert.ok(Array.isArray(body.media));
+    assert.ok(body.media.length >= 2);
+    // model_b64 should be stripped from public listing
+    assert.equal(body.media[0].model_b64, undefined);
+  });
+
+  test("GET /api/media?q=keyword filters by description LIKE", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    // Seed two images: one with default description "A test image", one different
+    seedMedia(s.mediaDatabasePath, "searchable-img");
+    const mdb = openMediaDatabase(s.mediaDatabasePath);
+    updateMediaDescription(mdb, "searchable-img", "Unique crystalline descriptor", "update");
+    mdb.close();
+    // Seed a second image with a different description
+    const mdb2 = openMediaDatabase(s.mediaDatabasePath);
+    insertMedia(mdb2, { ...baseMediaRecord("other-img"), sha256: "ot".padEnd(64, "o"), description: "Completely unrelated" });
+    mdb2.close();
+
+    const res = await s.go("/api/media?q=crystalline");
+    assert.equal(res.status, 200);
+    const body = await res.json() as { media: any[] };
+    assert.equal(body.media.length, 1);
+    assert.equal(body.media[0].id, "searchable-img");
+  });
+
+  test("GET /api/media/:id/history returns revisions after PATCH description", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    seedMedia(s.mediaDatabasePath, "hist-img");
+    // PATCH to add a user-edit revision
+    await s.go("/api/media/hist-img/description", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ description: "User-edited description" }),
+    });
+    const res = await s.go("/api/media/hist-img/history");
+    assert.equal(res.status, 200);
+    const body = await res.json() as { history: any[] };
+    assert.ok(Array.isArray(body.history));
+    assert.ok(body.history.length >= 1);
+    // Should contain a "user-edit" revision
+    assert.ok(body.history.some((r: any) => r.operation === "user-edit"));
+  });
+
+  test("GET /api/media/:id/history returns 404 for unknown id", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const res = await s.go("/api/media/nonexistent-id/history");
+    assert.equal(res.status, 404);
+  });
+
+  test("GET /api/article/:slug/live returns NDJSON stream with ready event", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const res = await s.go("/api/article/aspirin/live");
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /ndjson/);
+    // Read the first line
+    const reader = res.body!.getReader();
+    const { value } = await reader.read();
+    reader.cancel();
+    const line = new TextDecoder().decode(value).split("\n")[0];
+    const parsed = JSON.parse(line);
+    assert.equal(parsed.type, "ready");
+    assert.equal(parsed.slug, "aspirin");
+  });
+
+  test("POST /api/article/:slug/image with { mediaId } attaches existing record", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    seedMedia(s.mediaDatabasePath, "existing-media-id");
+    const res = await s.go("/api/article/aspirin/image", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mediaId: "existing-media-id" }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json() as any;
+    assert.equal(body.mediaId, "existing-media-id");
+    // Verify it was attached
+    const check = await (await s.go("/api/article/aspirin/image")).json() as any;
+    assert.equal(check.image?.id, "existing-media-id");
+  });
+
+  test("POST /api/article/:slug/image strips inline media from article body", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    seedMedia(s.mediaDatabasePath, "attach-img");
+
+    // Update the article to have inline media in its body
+    const db = openDatabase(s.databasePath);
+    const md = "# Aspirin\n\n![A caption](media:old-slug)\n\nA medication.";
+    saveArticle(db, {
+      slug: "aspirin",
+      canonicalSlug: "aspirin",
+      title: "Aspirin",
+      markdown: md,
+      html: renderMarkdown(md),
+      plain_text: markdownToPlainText(md),
+      generated_at: Date.now() + 1,
+    }, [], ["aspirin"]);
+    db.close();
+
+    // Attach a new image — should trigger body cleaning
+    const res = await s.go("/api/article/aspirin/image", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mediaId: "attach-img" }),
+    });
+    assert.equal(res.status, 200);
+
+    // Check that the article body no longer contains media: image syntax
+    const pageRes = await s.go("/api/page/aspirin");
+    const page = await pageRes.json() as any;
+    assert.doesNotMatch(page.article.html as string, /media:old-slug/);
+    assert.doesNotMatch(page.article.html as string, /media-ref-link/);
   });
 });
 
@@ -711,11 +911,14 @@ describe("pipeline-nodes", () => {
     db.close();
   });
 
-  test("generateInfoboxNode: skips when no headline image", async (t) => {
+  test("generateInfoboxNode: generates infobox for body-only article (no headline image required)", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
-    const patch = await generateInfoboxNode.run({ ...makeInput(), finalArticleBody: "# Test Article\n\nBody.", canonicalTitle: "Test Article" } as any, makeDeps(db, new FakeLlm()) as any);
-    assert.equal(patch.infobox, undefined);
+    // No headline image attached — node now runs for ALL articles
+    const llm = new FakeLlm('{"title":"Test Article","groups":[{"label":"Details","rows":[{"label":"Field","value":"Value"}]}]}');
+    const patch = await generateInfoboxNode.run({ ...makeInput(), finalArticleBody: "# Test Article\n\nBody.", canonicalTitle: "Test Article" } as any, makeDeps(db, llm) as any);
+    assert.ok(patch.infobox);
+    assert.equal((patch.infobox as InfoboxData).title, "Test Article");
     db.close();
   });
 
@@ -773,7 +976,7 @@ describe("pipeline-nodes", () => {
     mediaDb.close(); db.close();
   });
 
-  test("persistImageCaptionNode: updates description and renames media id", (t) => {
+  test("persistImageCaptionNode: updates description and writes articleCaption to article_media", (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
@@ -784,21 +987,20 @@ describe("pipeline-nodes", () => {
     const deps = { ...makeDeps(db, new FakeLlm()), mediaDb };
     const state = {
       ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "img-aabbcc112233" }),
-      imageCaptionResult: { titleSlug: "nice-slug", description: "A nice image." },
+      imageCaptionResult: { titleSlug: "nice-slug", description: "A nice image.", articleCaption: "Sidebar caption text." },
     };
 
     persistImageCaptionNode.run(state as any, deps as any);
 
-    // Media id was renamed to the nice slug
-    assert.equal(getMediaById(mediaDb, "img-aabbcc112233"), null);
-    const renamed = getMediaById(mediaDb, "nice-slug");
-    assert.ok(renamed);
-    assert.equal(renamed.description, "A nice image.");
+    // Media description was updated; id stays the same (renaming moved to attachAndCaption)
+    const rec = getMediaById(mediaDb, "img-aabbcc112233");
+    assert.ok(rec);
+    assert.equal(rec.description, "A nice image.");
 
-    // article_media caption is NOT set by the pipeline — left for the article model
+    // articleCaption is written to article_media.caption
     const headline = getArticleHeadlineMedia(db, "test-article");
-    assert.equal(headline?.mediaId, "nice-slug");
-    assert.equal(headline?.caption, ""); // pipeline doesn't touch per-article captions
+    assert.equal(headline?.mediaId, "img-aabbcc112233");
+    assert.equal(headline?.caption, "Sidebar caption text.");
 
     mediaDb.close(); db.close();
   });
@@ -809,6 +1011,129 @@ describe("pipeline-nodes", () => {
     assert.doesNotThrow(() => persistInfoboxNode.run({ ...makeInput(), infobox: undefined } as any, makeDeps(db, new FakeLlm()) as any));
     assert.equal(getArticleInfobox(db, "test-article"), null);
     db.close();
+  });
+
+  test("persistInfoboxNode: calls onSidecarUpdate when infobox is saved", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const calls: Array<[string, unknown]> = [];
+    const box: InfoboxData = { title: "Aspirin", groups: [] };
+    const deps = { ...makeDeps(db, new FakeLlm()), onSidecarUpdate: (slug: string, payload: unknown) => calls.push([slug, payload]) };
+    persistInfoboxNode.run({ ...makeInput(), infobox: box } as any, deps as any);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], "test-article");
+    assert.deepEqual((calls[0][1] as any).type, "infobox");
+    db.close();
+  });
+
+  // ── generateArticleCaptionNode ──────────────────────────────────────────────
+
+  test("generateArticleCaptionNode: sets articleCaption from LLM response", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const captionJson = JSON.stringify({ caption: "A short sidebar caption." });
+    const llm = new FakeLlm(captionJson);
+    const deps = makeDeps(db, llm);
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "some-img" }),
+      loadedArticle: { slug: "test-article", canonicalSlug: "test-article", title: "Test Article", body: "# Test\n\nBody.", summary: "", generatedAt: Date.now() },
+      imageCaptionResult: { titleSlug: "some-img", description: "A test image description." },
+    };
+    const patch = await generateArticleCaptionNode.run(state as any, deps as any);
+    assert.ok(patch.imageCaptionResult);
+    assert.equal(patch.imageCaptionResult!.articleCaption, "A short sidebar caption.");
+    db.close();
+  });
+
+  test("generateArticleCaptionNode: returns imageCaptionResult unchanged on LLM error", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    // FakeLlm that throws
+    class ThrowingLlm extends FakeLlm {
+      override async chat() { throw new Error("LLM error"); }
+    }
+    const deps = makeDeps(db, new ThrowingLlm());
+    const original = { titleSlug: "some-img", description: "A description." };
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "some-img" }),
+      loadedArticle: { slug: "test-article", canonicalSlug: "test-article", title: "Test Article", body: "# Test\n\nBody.", summary: "", generatedAt: Date.now() },
+      imageCaptionResult: { ...original },
+    };
+    const patch = await generateArticleCaptionNode.run(state as any, deps as any);
+    // Should return imageCaptionResult without articleCaption, no throw
+    assert.ok(patch.imageCaptionResult);
+    assert.equal(patch.imageCaptionResult!.articleCaption, undefined);
+    assert.equal(patch.imageCaptionResult!.description, "A description.");
+    db.close();
+  });
+
+  // ── generateSidebarCaptionNode ──────────────────────────────────────────────
+
+  test("generateSidebarCaptionNode: writes caption when image has description", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(mediaDb, { ...baseMediaRecord("sidebar-img"), sha256: "si".padEnd(64, "s"), description: "A crystal image." });
+    upsertArticleHeadlineMedia(db, "test-article", "sidebar-img", "");
+
+    const captionJson = JSON.stringify({ caption: "Crystal formed under high pressure." });
+    const llm = new FakeLlm(captionJson);
+    const deps = { ...makeDeps(db, llm), mediaDb };
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "article.post_process", slug: "test-article" }),
+      finalArticleBody: "# Test Article\n\nBody.",
+      canonicalTitle: "Test Article",
+    };
+    await generateSidebarCaptionNode.run(state as any, deps as any);
+    const headline = getArticleHeadlineMedia(db, "test-article");
+    assert.equal(headline?.caption, "Crystal formed under high pressure.");
+    mediaDb.close(); db.close();
+  });
+
+  test("generateSidebarCaptionNode: skips silently when no headline media", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+    const llm = new FakeLlm('{"caption":"Should not be called"}');
+    const deps = { ...makeDeps(db, llm), mediaDb };
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "article.post_process", slug: "test-article" }),
+      finalArticleBody: "# Test Article\n\nBody.",
+      canonicalTitle: "Test Article",
+    };
+    // Should not throw and LLM should not be called
+    await assert.doesNotReject(() => generateSidebarCaptionNode.run(state as any, deps as any));
+    assert.equal(llm.capturedOptions.length, 0);
+    mediaDb.close(); db.close();
+  });
+
+  test("generateSidebarCaptionNode: calls onSidecarUpdate when caption is saved", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(mediaDb, { ...baseMediaRecord("sc-img"), sha256: "sc".padEnd(64, "s"), description: "Image desc." });
+    upsertArticleHeadlineMedia(db, "test-article", "sc-img", "");
+
+    const capturedCalls: Array<[string, unknown]> = [];
+    const captionJson = JSON.stringify({ caption: "Generated caption." });
+    const llm = new FakeLlm(captionJson);
+    const deps = {
+      ...makeDeps(db, llm),
+      mediaDb,
+      onSidecarUpdate: (slug: string, payload: unknown) => capturedCalls.push([slug, payload]),
+    };
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "article.post_process", slug: "test-article" }),
+      finalArticleBody: "# Test Article\n\nBody.",
+      canonicalTitle: "Test Article",
+    };
+    await generateSidebarCaptionNode.run(state as any, deps as any);
+    assert.equal(capturedCalls.length, 1);
+    assert.equal(capturedCalls[0][0], "test-article");
+    const payload = capturedCalls[0][1] as any;
+    assert.equal(payload.type, "caption");
+    assert.equal(payload.caption, "Generated caption.");
+    mediaDb.close(); db.close();
   });
 });
 
@@ -832,18 +1157,18 @@ describe("image-context", () => {
 
   // ── readHeadlineImageNode ────────────────────────────────────────────────
 
-  test("readHeadlineImageNode: returns empty string when no image attached", (t) => {
+  test("readHeadlineImageNode: returns empty string when no image attached", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
     const deps = makeDepsWithMedia(db, mediaDb);
     const state = initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article" });
-    const patch = readHeadlineImageNode.run(state as any, deps as any);
+    const patch = await readHeadlineImageNode.run(state as any, deps as any);
     assert.equal(patch.headlineImageContext, "");
     db.close(); mediaDb.close();
   });
 
-  test("readHeadlineImageNode: returns empty string when image has no description yet", (t) => {
+  test("readHeadlineImageNode: returns empty string when image has no description yet", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
@@ -856,12 +1181,12 @@ describe("image-context", () => {
 
     const deps = makeDepsWithMedia(db, mediaDb);
     const state = initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article" });
-    const patch = readHeadlineImageNode.run(state as any, deps as any);
+    const patch = await readHeadlineImageNode.run(state as any, deps as any);
     assert.equal(patch.headlineImageContext, "");
     db.close(); mediaDb.close();
   });
 
-  test("readHeadlineImageNode: formats context block when image has description", (t) => {
+  test("readHeadlineImageNode: formats context block when image has description", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
@@ -873,7 +1198,7 @@ describe("image-context", () => {
 
     const deps = makeDepsWithMedia(db, mediaDb);
     const state = initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article" });
-    const patch = readHeadlineImageNode.run(state as any, deps as any);
+    const patch = await readHeadlineImageNode.run(state as any, deps as any);
 
     assert.ok(patch.headlineImageContext, "context string is non-empty");
     assert.match(patch.headlineImageContext!, /img:test-crystal/, "slug in context");
@@ -883,7 +1208,7 @@ describe("image-context", () => {
     db.close(); mediaDb.close();
   });
 
-  test("readHeadlineImageNode: uses description as caption when caption is empty", (t) => {
+  test("readHeadlineImageNode: uses description as caption when caption is empty", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
@@ -893,7 +1218,7 @@ describe("image-context", () => {
 
     const deps = makeDepsWithMedia(db, mediaDb);
     const state = initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article" });
-    const patch = readHeadlineImageNode.run(state as any, deps as any);
+    const patch = await readHeadlineImageNode.run(state as any, deps as any);
 
     // Caption should fall back to description
     assert.match(patch.headlineImageContext!, /A lunar silt formation/);
@@ -902,7 +1227,7 @@ describe("image-context", () => {
 
   // ── renderArticlePromptNode includes headline_image ──────────────────────
 
-  test("renderArticlePromptNode: headline_image appears in rendered user prompt", (t) => {
+  test("renderArticlePromptNode: headline_image appears in rendered user prompt", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
@@ -916,13 +1241,13 @@ describe("image-context", () => {
       recentEditHistory: "",
       headlineImageContext: imageContext,
     };
-    const patch = renderArticlePromptNode.run(state as any, deps as any);
+    const patch = await renderArticlePromptNode.run(state as any, deps as any);
     assert.ok(patch.renderedPrompt, "prompt was rendered");
     assert.match(patch.renderedPrompt!.user, /shimmering crystal/, "image description in rendered user prompt");
     db.close(); mediaDb.close();
   });
 
-  test("renderArticlePromptNode: headline_image is empty string when no image", (t) => {
+  test("renderArticlePromptNode: headline_image is empty string when no image", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
@@ -935,7 +1260,7 @@ describe("image-context", () => {
       recentEditHistory: "",
       headlineImageContext: "",
     };
-    const patch = renderArticlePromptNode.run(state as any, deps as any);
+    const patch = await renderArticlePromptNode.run(state as any, deps as any);
     assert.ok(patch.renderedPrompt);
     // Should not crash; user prompt renders fine without image context
     assert.equal(typeof patch.renderedPrompt!.user, "string");

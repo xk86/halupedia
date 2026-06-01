@@ -228,6 +228,8 @@ export function App() {
   const articleRef = useRef<HTMLElement | null>(null);
   const editTrayRef = useRef<HTMLElement | null>(null);
   const inFlightSlugRef = useRef<string | null>(null);
+  // Abort controller for any in-flight rewrite/refresh stream. Cancelled on navigation.
+  const activeOperationRef = useRef<AbortController | null>(null);
   const editIsPartial = editSectionId === "__selection__" || Boolean(editSectionId);
   const editInitialRefSlugSet = useMemo(
     () => new Set(editInitialRefSlugs),

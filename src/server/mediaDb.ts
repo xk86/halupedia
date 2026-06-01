@@ -192,7 +192,7 @@ export function listMediaRevisions(mediaDb: DatabaseSync, id: string): MediaRevi
   return mediaDb
     .prepare(
       `SELECT id, media_id, description, operation, changed_at
-       FROM media_revisions WHERE media_id = ? ORDER BY changed_at DESC`,
+       FROM media_revisions WHERE media_id = ? ORDER BY changed_at DESC, id DESC`,
     )
     .all(id) as unknown as MediaRevision[];
 }

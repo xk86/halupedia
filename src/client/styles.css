@@ -962,18 +962,32 @@ button.admin-danger-btn:hover:not(:disabled) {
 .infobox-label {
   color: var(--ink-soft);
   font-weight: 600;
-  padding: 0.18rem 0.5rem;
+  font-size: 0.82rem;
+  padding: 0.22rem 0.5rem;
   vertical-align: top;
-  white-space: nowrap;
   width: 42%;
+  max-width: 42%;
+  word-break: break-word;
   border-top: 1px solid var(--rule-soft);
 }
 
 .infobox-value {
   color: var(--ink);
-  padding: 0.18rem 0.5rem 0.18rem 0.25rem;
+  font-size: 0.82rem;
+  padding: 0.22rem 0.5rem 0.22rem 0.25rem;
   vertical-align: top;
+  word-break: break-word;
+  overflow-wrap: break-word;
   border-top: 1px solid var(--rule-soft);
+}
+
+.infobox-value a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+.infobox-value a:hover {
+  color: var(--link-hover, var(--link));
 }
 
 /* ── :::sidebar container ─────────────────────────────────────────────────── */

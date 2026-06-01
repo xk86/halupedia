@@ -23,6 +23,7 @@ import {
   getLatestArticleReferences,
   getArticleByLookup,
   getArticleHeadlineMedia,
+  getArticleInfobox,
   type IncomingHint,
   listIncomingHints,
 } from "../../db";
@@ -361,6 +362,56 @@ export const readHeadlineImageNode = defineNode({
       `you may also reference those using the same syntax: ![caption](media:their-slug)`,
     ];
     return { headlineImageContext: lines.join("\n") };
+  },
+});
+
+export const readInfoboxRefsNode = defineNode({
+  name: "read.infobox_refs",
+  kind: "read",
+  description:
+    "Scan the article's infobox values for ref:slug links and merge the referenced " +
+    "articles into the reference list. This ensures sidebar-linked articles are also " +
+    "included in the prompt context and the references sidecar.",
+  reads: ["input", "references"] as const,
+  writes: ["references"] as const,
+  run({ input, references }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    if (!slug) return { references };
+
+    const infobox = getArticleInfobox(deps.db, slug);
+    if (!infobox) return { references };
+
+    const existing = new Set((references ?? []).map((r) => r.slug));
+    const toAdd: ReferenceEntry[] = [];
+
+    const REF_RE = /\[([^\]]+)\]\(ref:([a-z0-9-]+)\)/g;
+    const allValues = [
+      infobox.subtitle ?? "",
+      ...infobox.groups.flatMap((g) => g.rows.map((r) => r.value)),
+    ];
+
+    for (const val of allValues) {
+      let m: RegExpExecArray | null;
+      REF_RE.lastIndex = 0;
+      while ((m = REF_RE.exec(val)) !== null) {
+        const refSlug = m[2];
+        if (existing.has(refSlug)) continue;
+        const article = getArticleByLookup(deps.db, refSlug);
+        if (!article) continue;
+        existing.add(refSlug);
+        toAdd.push({
+          slug: article.slug,
+          title: article.title,
+          content: article.summaryMarkdown ?? summaryMarkdownFromArticle(article.markdown),
+          kind: "summary",
+          pinned: false,
+          source: "body",
+        });
+      }
+    }
+
+    if (toAdd.length === 0) return { references };
+    return { references: [...(references ?? []), ...toAdd] };
   },
 });
 

@@ -28,6 +28,10 @@ Rules:
 - Do not include a field if the article doesn't actually establish it.
 - Omit "subtitle" if the category is obvious from the title.
 - The "label" on a group can be an empty string if no heading is needed.
+- When a value refers to another article that exists in the encyclopedia, write it as a
+  ref-link: [Visible Name](ref:slug-of-article). Use the article's slugified title as the
+  slug (lowercase, hyphens). Only link to articles that are actually mentioned in the body.
+- Values may use inline markdown: *italic*, **bold**, and ref-links. No block markdown.
 """
 
 user = """

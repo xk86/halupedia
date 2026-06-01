@@ -19,7 +19,7 @@ interface SidebarProps {
   onNavigateToMedia: (imageSlug: string) => void;
 }
 
-export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: headlineMediaProp, onNavigateToMedia }: SidebarProps) {
+export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: headlineMediaProp, onNavigate, onNavigateToMedia }: SidebarProps) {
   // Live sidecar state — starts from props, updated by the /live stream.
   const [infobox, setInfobox] = useState<InfoboxData | null>(infoboxProp);
   const [headlineMedia, setHeadlineMedia] = useState<HeadlineMedia | null>(headlineMediaProp);
@@ -94,11 +94,22 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
   // Only show the pipeline-generated per-article caption — never the raw description.
   const caption = headlineMedia?.caption ?? "";
 
+  const handleInternalLink = (e: React.MouseEvent<HTMLElement>) => {
+    const a = (e.target as HTMLElement).closest("a");
+    if (!a) return;
+    const href = a.getAttribute("href") ?? "";
+    if (href.startsWith("/wiki/")) {
+      e.preventDefault();
+      const seg = href.slice("/wiki/".length);
+      onNavigate(decodeURIComponent(seg));
+    }
+  };
+
   return (
-    <aside className="sidebar sidebar--infobox" aria-label="Article info">
+    <aside className="sidebar sidebar--infobox" aria-label="Article info" onClick={handleInternalLink}>
       <div className="infobox">
         {title && <div className="infobox-title">{title}</div>}
-        {subtitle && <div className="infobox-subtitle">{subtitle}</div>}
+        {subtitle && <div className="infobox-subtitle" dangerouslySetInnerHTML={{ __html: subtitle }} />}
 
         {headlineMedia && (
           <>
@@ -113,7 +124,7 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
                 className="infobox-image"
               />
             </a>
-            {caption && <p className="infobox-caption">{caption}</p>}
+            {caption && <p className="infobox-caption" dangerouslySetInnerHTML={{ __html: caption }} />}
           </>
         )}
 
@@ -129,7 +140,7 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
                 {group.rows.map((row, ri) => (
                   <tr key={ri}>
                     <th className="infobox-label">{row.label}</th>
-                    <td className="infobox-value">{row.value}</td>
+                    <td className="infobox-value" dangerouslySetInnerHTML={{ __html: row.value }} />
                   </tr>
                 ))}
               </tbody>

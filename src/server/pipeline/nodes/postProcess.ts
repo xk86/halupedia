@@ -615,6 +615,10 @@ export const generateSidebarCaptionNode = defineNode({
     const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
     if (!headlineMedia) return {};
 
+    // Only generate if caption is not yet set — avoids an LLM call on every
+    // refresh/rewrite. Caption is cleared when a new image is attached.
+    if (headlineMedia.caption) return {};
+
     const mediaRecord = getMediaById(deps.mediaDb, headlineMedia.mediaId);
     if (!mediaRecord?.description) return {};
 

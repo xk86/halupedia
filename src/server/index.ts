@@ -93,6 +93,7 @@ import {
   markdownToPlainText,
   normalizeMarkdown,
   renderMarkdown,
+  renderInlineMarkdown,
   replaceArticleSection,
   sectionSlice,
   spliceProtectedSections,
@@ -1277,12 +1278,26 @@ export async function createApp(options: CreateAppOptions = {}) {
   ) {
     const rawRecord = getArticleByLookup(db, response.slug);
     // Infobox sidecar — loaded fresh so sidebar always reflects latest pipeline output.
-    const infobox = getArticleInfobox(db, response.slug);
+    const rawInfobox = getArticleInfobox(db, response.slug);
+    // Pre-render infobox values as inline HTML so the client gets bold/italic/ref-links.
+    const infobox = rawInfobox
+      ? {
+          ...rawInfobox,
+          subtitle: rawInfobox.subtitle ? renderInlineMarkdown(rawInfobox.subtitle) : undefined,
+          groups: rawInfobox.groups.map((g) => ({
+            label: g.label,
+            rows: g.rows.map((r) => ({
+              label: r.label,
+              value: renderInlineMarkdown(r.value),
+            })),
+          })),
+        }
+      : null;
     const headlineMediaRow = getArticleHeadlineMedia(db, response.slug);
     const headlineMedia = headlineMediaRow
       ? {
           mediaId: headlineMediaRow.mediaId,
-          caption: headlineMediaRow.caption,
+          caption: headlineMediaRow.caption ? renderInlineMarkdown(headlineMediaRow.caption) : "",
           description: getMediaById(mediaDb, headlineMediaRow.mediaId)?.description ?? "",
         }
       : null;

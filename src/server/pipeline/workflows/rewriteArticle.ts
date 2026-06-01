@@ -14,6 +14,8 @@ import type { PipelineDeps } from "../deps";
 import type { PipelineState } from "../state";
 import {
   extractArticleBodyNode,
+  readHeadlineImageNode,
+  readInfoboxRefsNode,
   readRecentEditHistoryNode,
   sanitizeBodyNode,
   cleanLinkLabelsNode,
@@ -44,7 +46,9 @@ export const rewriteArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: readArticleForRewriteNode },
     { node: retrieveContextForRewriteNode },
     { node: buildRewriteReferenceListNode },
+    { node: readInfoboxRefsNode },
     { node: readRecentEditHistoryNode },
+    { node: readHeadlineImageNode },
     { node: renderRewritePromptNode,  when: skipIfProtected },
     { node: callRewriteModelNode,     when: skipIfProtected },
     { node: extractArticleBodyNode,   when: skipIfProtected },

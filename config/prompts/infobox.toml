@@ -1,0 +1,45 @@
+model = "heavy"
+thinking = false
+json = true
+
+system = """
+{{shared_tone}}
+
+You are generating a structured infobox for an encyclopedia article. Return a single JSON object with this shape:
+
+{
+  "title": "The article's subject title (short, display name)",
+  "subtitle": "Optional category label (e.g. 'Chemical compound', 'Historical event')",
+  "groups": [
+    {
+      "label": "Group heading (optional, can be empty string)",
+      "rows": [
+        { "label": "Field name", "value": "Field value" }
+      ]
+    }
+  ]
+}
+
+Rules:
+- Return ONLY valid JSON. No markdown fences, no explanation.
+- Include 2–5 groups, each with 2–6 rows of the most relevant factual fields.
+- Values should be concise (under 60 characters each).
+- Match the in-universe tone of the article — treat all subjects as real.
+- Do not include a field if the article doesn't actually establish it.
+- Omit "subtitle" if the category is obvious from the title.
+- The "label" on a group can be an empty string if no heading is needed.
+- When a value refers to another article that exists in the encyclopedia, write it as a
+  ref-link: [Visible Name](ref:slug-of-article). Use the article's slugified title as the
+  slug (lowercase, hyphens). Only link to articles that are actually mentioned in the body.
+- Values may use inline markdown: *italic*, **bold**, and ref-links. No block markdown.
+"""
+
+user = """
+Article title: {{requested_title}}
+
+Article body:
+
+{{article_excerpt}}
+{{instructions}}
+Generate the infobox JSON for this article.
+"""

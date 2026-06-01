@@ -1,20 +1,29 @@
 import type { ChatConfig, EmbeddingsConfig } from "./types";
 import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 
-export type LlmRole = "heavy" | "light" | "embeddings";
+export type LlmRole = "heavy" | "light" | "images" | "embeddings";
 type ChatLlmRole = Exclude<LlmRole, "embeddings">;
+
+export interface ChatImageAttachment {
+  mime: string;
+  b64: string;
+}
 
 export interface ChatOptions {
   thinking?: boolean;
   /** Request JSON-mode output — passes `format:"json"` to the API so the
    *  model is constrained to emit valid JSON. Use for structured-output prompts. */
   jsonMode?: boolean;
+  /** Attach images to the user turn (multimodal). OpenAI-compatible format. */
+  images?: ChatImageAttachment[];
 }
 
 /** Unified LLM interface. Role (heavy/light) is the first argument to every
  *  generative call so callers never need to hold two separate client handles. */
 export interface LlmRouter {
-  chat(role: "heavy" | "light", system: string, user: string, options?: ChatOptions): Promise<string>;
+  chat(role: "heavy" | "light" | "images", system: string, user: string, options?: ChatOptions): Promise<string>;
+  /** True when the model at the given role accepted a test vision payload at startup. */
+  supportsVision(role: "heavy" | "light" | "images"): boolean;
   streamChat(
     role: "heavy" | "light",
     system: string,
@@ -113,7 +122,18 @@ class OpenAICompatClient {
         } : {}),
         messages: [
           { role: "system", content: system },
-          { role: "user", content: user },
+          {
+            role: "user",
+            content: options.images?.length
+              ? [
+                  { type: "text", text: user },
+                  ...options.images.map((img) => ({
+                    type: "image_url",
+                    image_url: { url: `data:${img.mime};base64,${img.b64}` },
+                  })),
+                ]
+              : user,
+          },
         ],
       }),
     });
@@ -310,26 +330,83 @@ class OpenAICompatClient {
   }
 }
 
-/** Production LlmRouter that holds separate heavy and light chat clients. */
+/**
+ * Check whether a model supports vision by querying the provider's capabilities
+ * endpoint. Works natively with Ollama via POST /api/show; degrades to false
+ * for providers that don't expose this endpoint.
+ */
+async function probeVisionSupport(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  logger: Logger,
+): Promise<boolean> {
+  // Derive the Ollama-native base URL by stripping the /v1 suffix.
+  const ollamaBase = baseUrl.replace(/\/v1\/?$/, "");
+  try {
+    const response = await fetch(`${ollamaBase}/api/show`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ name: model }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return false;
+    const json = await response.json() as Record<string, unknown>;
+    // Ollama ≥0.5: top-level capabilities array is the authoritative signal.
+    const capabilities = json.capabilities as string[] | undefined;
+    if (Array.isArray(capabilities) && capabilities.includes("vision")) return true;
+    // Older Ollama: model_info has clip.* keys for vision models.
+    const modelInfo = json.model_info as Record<string, unknown> | undefined;
+    if (modelInfo && typeof modelInfo === "object") {
+      for (const key of Object.keys(modelInfo)) {
+        if (key.startsWith("clip.")) return true;
+      }
+    }
+    // Even older: details.families contains "clip" or "mllama".
+    const details = json.details as Record<string, unknown> | undefined;
+    const families = (details?.families ?? json.families) as string[] | undefined;
+    if (Array.isArray(families) && families.some((f) => f === "clip" || f === "mllama")) return true;
+    return false;
+  } catch {
+    logger.info("llm.vision_probe_skipped", { model, reason: "provider endpoint unavailable" });
+    return false;
+  }
+}
+
+/** Production LlmRouter that holds separate heavy, light, and optional images chat clients. */
 export class OpenAICompatRouter implements LlmRouter {
   private readonly heavy: OpenAICompatClient;
   private readonly light: OpenAICompatClient;
+  private readonly images: OpenAICompatClient | null;
+  private readonly visionSupport = new Map<"heavy" | "light" | "images", boolean>();
 
   constructor(
     private readonly heavyChatConfig: ChatConfig,
     private readonly lightChatConfig: ChatConfig,
     private readonly embeddingsConfig: EmbeddingsConfig,
     private readonly logger: Logger = createConsoleLogger(),
+    private readonly imagesChatConfig?: ChatConfig,
   ) {
     this.heavy = new OpenAICompatClient(heavyChatConfig, embeddingsConfig, logger, "heavy");
     this.light = new OpenAICompatClient(lightChatConfig, embeddingsConfig, logger, "light");
+    this.images = imagesChatConfig
+      ? new OpenAICompatClient(imagesChatConfig, embeddingsConfig, logger, "images")
+      : null;
   }
 
-  private client(role: "heavy" | "light"): OpenAICompatClient {
+  private client(role: "heavy" | "light" | "images"): OpenAICompatClient {
+    if (role === "images") return this.images ?? this.light;
     return role === "light" ? this.light : this.heavy;
   }
 
-  chat(role: "heavy" | "light", system: string, user: string, options?: ChatOptions): Promise<string> {
+  supportsVision(role: "heavy" | "light" | "images"): boolean {
+    return this.visionSupport.get(role) ?? false;
+  }
+
+  chat(role: "heavy" | "light" | "images", system: string, user: string, options?: ChatOptions): Promise<string> {
     return this.client(role).chat(system, user, options);
   }
 
@@ -350,10 +427,43 @@ export class OpenAICompatRouter implements LlmRouter {
   async probeConnections(): Promise<void> {
     await this.heavy.probeEndpoint("heavy", this.heavyChatConfig.base_url, this.heavyChatConfig.api_key);
     await this.light.probeEndpoint("light", this.lightChatConfig.base_url, this.lightChatConfig.api_key);
+    if (this.imagesChatConfig) {
+      await this.images!.probeEndpoint("images", this.imagesChatConfig.base_url, this.imagesChatConfig.api_key);
+    }
     if (this.embeddingsConfig.enabled) {
       await this.heavy.probeEndpoint("embeddings", this.embeddingsConfig.base_url, this.embeddingsConfig.api_key);
     } else {
       this.logger.info("llm.embed_disabled", { role: "embeddings" });
+    }
+    // Probe vision support via provider capabilities. We try the Ollama-native
+    // POST /api/show endpoint (derived by stripping /v1 from the base URL).
+    // If the provider is not Ollama or the endpoint is unreachable, we fall back
+    // to false rather than making a real chat call.
+    for (const role of ["light", "heavy"] as const) {
+      const cfg = role === "light" ? this.lightChatConfig : this.heavyChatConfig;
+      const hasVision = await probeVisionSupport(cfg.base_url, cfg.api_key, cfg.model, this.logger);
+      this.visionSupport.set(role, hasVision);
+      this.logger.info("llm.vision_capability", { role, model: cfg.model, vision: hasVision });
+    }
+    if (this.imagesChatConfig) {
+      const hasVision = await probeVisionSupport(
+        this.imagesChatConfig.base_url,
+        this.imagesChatConfig.api_key,
+        this.imagesChatConfig.model,
+        this.logger,
+      );
+      this.visionSupport.set("images", hasVision);
+      this.logger.info("llm.vision_capability", { role: "images", model: this.imagesChatConfig.model, vision: hasVision });
+      if (!hasVision) {
+        this.logger.warn("llm.images_no_vision", {
+          model: this.imagesChatConfig.model,
+          message: "configured [llm.images] model does not support vision — image descriptions will be text-only",
+        });
+      }
+    } else {
+      this.logger.warn("llm.images_no_vision", {
+        message: "no [llm.images] model configured — image descriptions will be text-only; add [llm.images] in config/llm.toml",
+      });
     }
   }
 }

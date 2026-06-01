@@ -218,6 +218,43 @@ export function openDatabase(databasePath: string): DatabaseSync {
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (scope, key)
     );
+
+    -- Per-article media attachments. The media_id references the media DB
+    -- (cross-database, no FK enforced). caption is the per-usage visible text
+    -- shown in the article (defaults to the media description when empty).
+    CREATE TABLE IF NOT EXISTS article_media (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      media_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'headline',
+      ordinal INTEGER NOT NULL DEFAULT 1,
+      caption TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(article_slug, ordinal)
+    );
+    CREATE INDEX IF NOT EXISTS idx_article_media_slug ON article_media(article_slug);
+
+    -- LLM-generated infobox rows (JSON). Separate from article body so
+    -- regeneration does not lose the structured metadata.
+    CREATE TABLE IF NOT EXISTS article_infobox (
+      article_slug TEXT PRIMARY KEY,
+      json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Audit trail for sidebar changes (infobox + caption).
+    -- operation: 'generated' | 'user-edit' | 'ai-edit' | 'restore'
+    CREATE TABLE IF NOT EXISTS sidebar_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      infobox_json TEXT NOT NULL DEFAULT '',
+      caption TEXT NOT NULL DEFAULT '',
+      operation TEXT NOT NULL DEFAULT 'generated',
+      changed_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sidebar_revisions_slug
+      ON sidebar_revisions(article_slug, changed_at DESC, id DESC);
   `);
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {
@@ -1359,6 +1396,25 @@ export function deleteArchivedArticle(db: DatabaseSync, slug: string): void {
   db.prepare(`DELETE FROM archived_articles WHERE slug = ?`).run(slug);
 }
 
+/**
+ * Return articles whose markdown body references the given image slug via
+ * the media: scheme (e.g. ![caption](media:some-slug)).
+ */
+export function listImageBacklinks(
+  db: DatabaseSync,
+  imageSlug: string,
+): Array<{ slug: string; title: string }> {
+  return (db
+    .prepare(
+      `SELECT slug, title
+       FROM articles
+       WHERE is_disambiguation = 0
+         AND markdown LIKE ?
+       ORDER BY title COLLATE NOCASE ASC`,
+    )
+    .all(`%(media:${imageSlug})%`) as unknown) as Array<{ slug: string; title: string }>;
+}
+
 export function listTopArticles(db: DatabaseSync, limit: number): { slug: string; title: string; inboundCount: number }[] {
   return db
     .prepare(
@@ -1447,6 +1503,173 @@ export function setArticleSectionProtection(
   } else {
     db.prepare(`DELETE FROM protected_sections WHERE article_slug = ? AND section_id = ?`).run(articleSlug, sectionId);
   }
+}
+
+// ── Article media (image attachments) ────────────────────────────────────────
+
+export interface ArticleMediaRow {
+  id: number;
+  articleSlug: string;
+  mediaId: string;
+  role: string;
+  ordinal: number;
+  caption: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function getArticleMediaRows(db: DatabaseSync, articleSlug: string): ArticleMediaRow[] {
+  return (db
+    .prepare(
+      `SELECT id, article_slug AS articleSlug, media_id AS mediaId,
+              role, ordinal, caption, created_at AS createdAt, updated_at AS updatedAt
+       FROM article_media WHERE article_slug = ? ORDER BY ordinal ASC`,
+    )
+    .all(articleSlug) as unknown) as ArticleMediaRow[];
+}
+
+export function getArticleHeadlineMedia(db: DatabaseSync, articleSlug: string): ArticleMediaRow | null {
+  return (db
+    .prepare(
+      `SELECT id, article_slug AS articleSlug, media_id AS mediaId,
+              role, ordinal, caption, created_at AS createdAt, updated_at AS updatedAt
+       FROM article_media WHERE article_slug = ? AND ordinal = 1 LIMIT 1`,
+    )
+    .get(articleSlug) as ArticleMediaRow | undefined) ?? null;
+}
+
+export function upsertArticleHeadlineMedia(
+  db: DatabaseSync,
+  articleSlug: string,
+  mediaId: string,
+  caption: string = "",
+): void {
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO article_media (article_slug, media_id, role, ordinal, caption, created_at, updated_at)
+     VALUES (?, ?, 'headline', 1, ?, ?, ?)
+     ON CONFLICT(article_slug, ordinal) DO UPDATE SET
+       media_id = excluded.media_id,
+       caption = excluded.caption,
+       updated_at = excluded.updated_at`,
+  ).run(articleSlug, mediaId, caption, now, now);
+}
+
+export function updateArticleMediaCaption(
+  db: DatabaseSync,
+  articleSlug: string,
+  ordinal: number,
+  caption: string,
+  operation: SidebarOperation = "generated",
+): void {
+  const now = Date.now();
+  db.prepare(
+    `UPDATE article_media SET caption = ?, updated_at = ? WHERE article_slug = ? AND ordinal = ?`,
+  ).run(caption, now, articleSlug, ordinal);
+  // Record sidebar revision so caption changes are auditable.
+  if (ordinal === 1) {
+    const infoboxJson = (db
+      .prepare(`SELECT json FROM article_infobox WHERE article_slug = ?`)
+      .get(articleSlug) as { json: string } | undefined)?.json ?? "";
+    db.prepare(
+      `INSERT INTO sidebar_revisions (article_slug, infobox_json, caption, operation, changed_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(articleSlug, infoboxJson, caption, operation, now);
+  }
+}
+
+export function removeArticleMedia(db: DatabaseSync, articleSlug: string, ordinal: number): void {
+  db.prepare(`DELETE FROM article_media WHERE article_slug = ? AND ordinal = ?`).run(articleSlug, ordinal);
+}
+
+// ── Article infobox ───────────────────────────────────────────────────────────
+
+export interface InfoboxGroup {
+  label: string;
+  rows: Array<{ label: string; value: string }>;
+}
+
+export interface InfoboxData {
+  title: string;
+  subtitle?: string;
+  image_ordinal?: number;
+  groups: InfoboxGroup[];
+}
+
+export function getArticleInfobox(db: DatabaseSync, articleSlug: string): InfoboxData | null {
+  const row = db
+    .prepare(`SELECT json FROM article_infobox WHERE article_slug = ?`)
+    .get(articleSlug) as { json: string } | undefined;
+  if (!row) return null;
+  try {
+    return JSON.parse(row.json) as InfoboxData;
+  } catch {
+    return null;
+  }
+}
+
+export type SidebarOperation = "generated" | "user-edit" | "ai-edit" | "restore";
+
+export interface SidebarRevision {
+  id: number;
+  articleSlug: string;
+  infoboxJson: string;
+  caption: string;
+  operation: SidebarOperation;
+  changedAt: number;
+}
+
+export function setArticleInfobox(
+  db: DatabaseSync,
+  articleSlug: string,
+  data: InfoboxData,
+  operation: SidebarOperation = "generated",
+): void {
+  const now = Date.now();
+  const json = JSON.stringify(data);
+  db.prepare(
+    `INSERT INTO article_infobox (article_slug, json, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(article_slug) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at`,
+  ).run(articleSlug, json, now);
+  // Record revision for audit/restore.
+  const caption = (db
+    .prepare(`SELECT caption FROM article_media WHERE article_slug = ? AND ordinal = 1`)
+    .get(articleSlug) as { caption: string } | undefined)?.caption ?? "";
+  db.prepare(
+    `INSERT INTO sidebar_revisions (article_slug, infobox_json, caption, operation, changed_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(articleSlug, json, caption, operation, now);
+}
+
+export function listSidebarRevisions(db: DatabaseSync, articleSlug: string): SidebarRevision[] {
+  return (db
+    .prepare(
+      `SELECT id,
+              article_slug AS articleSlug,
+              infobox_json AS infoboxJson,
+              caption,
+              operation,
+              changed_at AS changedAt
+       FROM sidebar_revisions
+       WHERE article_slug = ?
+       ORDER BY changed_at DESC, id DESC`,
+    )
+    .all(articleSlug) as unknown) as SidebarRevision[];
+}
+
+export function getSidebarRevision(db: DatabaseSync, id: number): SidebarRevision | null {
+  return (db
+    .prepare(
+      `SELECT id,
+              article_slug AS articleSlug,
+              infobox_json AS infoboxJson,
+              caption,
+              operation,
+              changed_at AS changedAt
+       FROM sidebar_revisions WHERE id = ?`,
+    )
+    .get(id) as unknown) as SidebarRevision | null;
 }
 
 export function updateArticleTitle(db: DatabaseSync, slug: string, title: string): ArticleRecord | null {

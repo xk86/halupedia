@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
-import type { AppConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
+import type { AppConfig, ImagesConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
 
 const ROOT = process.cwd();
 
@@ -110,6 +110,14 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
         retention_days: app.pipeline?.trace?.retention_days ?? 14,
       },
     },
+    images: {
+      model_max_edge: (app.images as Partial<ImagesConfig> | undefined)?.model_max_edge ?? 256,
+      jpeg_quality: (app.images as Partial<ImagesConfig> | undefined)?.jpeg_quality ?? 70,
+      max_bytes: (app.images as Partial<ImagesConfig> | undefined)?.max_bytes ?? 15 * 1024 * 1024,
+      fetch_timeout_ms: (app.images as Partial<ImagesConfig> | undefined)?.fetch_timeout_ms ?? 10_000,
+      media_database_path: (app.images as Partial<ImagesConfig> | undefined)?.media_database_path ?? "data/halupedia-media.sqlite",
+      allow_private_hosts: (app.images as Partial<ImagesConfig> | undefined)?.allow_private_hosts ?? false,
+    },
   };
 }
 
@@ -132,6 +140,15 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       temperature: llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
       max_tokens: llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
     },
+    images: llm.images
+      ? {
+          base_url: llm.images.base_url ?? llm.light?.base_url ?? llm.chat?.base_url ?? "http://127.0.0.1:11434/v1",
+          api_key: llm.images.api_key ?? llm.light?.api_key ?? llm.chat?.api_key ?? "local",
+          model: llm.images.model ?? llm.light?.model ?? llm.chat?.model ?? "local-model",
+          temperature: llm.images.temperature ?? llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
+          max_tokens: llm.images.max_tokens ?? llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
+        }
+      : undefined,
     embeddings: {
       enabled: llm.embeddings?.enabled ?? false,
       base_url:

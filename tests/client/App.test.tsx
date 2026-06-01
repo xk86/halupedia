@@ -870,27 +870,17 @@ describe("App", () => {
     const payload = pagePayload({
       sections: [{ id: "notes", title: "Notes" }],
     });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(payload), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            references: [
-              {
-                slug: "source-entry",
-                title: "Source Entry",
-                summaryMarkdown: "Source summary.",
-              },
-            ],
-          }),
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/page/"))
+        return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+      if (u.includes("/references"))
+        return new Response(
+          JSON.stringify({ references: [{ slug: "source-entry", title: "Source Entry", summaryMarkdown: "Source summary." }] }),
           { headers: { "content-type": "application/json" } },
-        )
-      );
+        );
+      return new Response(JSON.stringify({ image: null }), { headers: { "content-type": "application/json" } });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
@@ -911,27 +901,16 @@ describe("App", () => {
 
   it("can include recent edit prompts in a rewrite request", async () => {
     const payload = pagePayload();
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(payload), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ references: [] }), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        ndjsonResponse([{ type: "done", ...payload }])
-      )
-      // 4th call: loadEditRefs reload after rewrite completes
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ references: [] }), {
-          headers: { "content-type": "application/json" },
-        })
-      );
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("/api/page/"))
+        return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+      if (u.includes("/rewrite"))
+        return ndjsonResponse([{ type: "done", ...payload }]);
+      if (u.includes("/references"))
+        return new Response(JSON.stringify({ references: [] }), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ image: null }), { headers: { "content-type": "application/json" } });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
@@ -943,9 +922,13 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Use last 2 edit prompts" }));
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
-    const rewriteInit = fetchMock.mock.calls[2][1] as RequestInit;
-    expect(JSON.parse(String(rewriteInit.body))).toMatchObject({
+    // Wait for the rewrite POST to appear among the calls
+    await waitFor(() => {
+      const rewriteCall = fetchMock.mock.calls.find(([u, init]) => String(u).includes("/rewrite") && (init as RequestInit)?.method === "POST");
+      expect(rewriteCall).toBeDefined();
+    });
+    const rewriteCall = fetchMock.mock.calls.find(([u, init]) => String(u).includes("/rewrite") && (init as RequestInit)?.method === "POST")!;
+    expect(JSON.parse(String((rewriteCall[1] as RequestInit).body))).toMatchObject({
       instructions: "tighten the ending",
       includeRecentEditHistory: true,
       rewriteMode: "aggressive",
@@ -964,21 +947,12 @@ describe("App", () => {
         plain_text: "Original retained energy body.",
       },
     });
-    const refsResponse = new Response(
-      JSON.stringify({ references: [] }),
-      { headers: { "content-type": "application/json" } },
-    );
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(original), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      // References fetch fires when the edit tray opens
-      .mockResolvedValueOnce(refsResponse)
-      .mockResolvedValueOnce(
-        ndjsonResponse([
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      const u = String(url);
+      if (u.includes("/api/page/"))
+        return new Response(JSON.stringify(original), { headers: { "content-type": "application/json" } });
+      if (u.includes("/rewrite"))
+        return ndjsonResponse([
           {
             type: "progress",
             html: "<h1>Energy storage</h1><p>Maternal Energy Potential refers to rejected renamed article body.</p>",
@@ -986,11 +960,13 @@ describe("App", () => {
           },
           {
             type: "error",
-            message:
-              'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"',
+            message: 'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"',
           },
-        ])
-      );
+        ]);
+      if (u.includes("/references"))
+        return new Response(JSON.stringify({ references: [] }), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ image: null }), { headers: { "content-type": "application/json" } });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Energy_storage");
 

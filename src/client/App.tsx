@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
 import { GraphView } from "./GraphView";
+import { HeadlineImagePanel } from "./HeadlineImagePanel";
 import { Homepage } from "./Homepage";
+import { MediaPage } from "./MediaPage";
+import { MediaListPage } from "./MediaListPage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
 import { renderSummaryHtml } from "./summaryHtml";
@@ -17,7 +20,9 @@ type Route =
   | { kind: "graph" }
   | { kind: "article"; slug: string; title?: string }
   | { kind: "history"; slug: string }
-  | { kind: "disambiguation"; slug: string };
+  | { kind: "disambiguation"; slug: string }
+  | { kind: "media"; imageSlug: string }
+  | { kind: "media-list" };
 
 interface BacklinkItem {
   slug: string;
@@ -27,6 +32,16 @@ interface BacklinkItem {
   summaryMarkdown?: string;
   createdAt: number;
 }
+
+interface InfoboxRow { label: string; value: string; }
+interface InfoboxGroup { label: string; rows: InfoboxRow[]; }
+interface InfoboxData {
+  title: string;
+  subtitle?: string;
+  image_ordinal?: number;
+  groups: InfoboxGroup[];
+}
+interface HeadlineMedia { mediaId: string; caption: string; description: string; }
 
 interface PageData {
   cached: boolean;
@@ -43,6 +58,8 @@ interface PageData {
     plain_text: string;
     generated_at: number;
   };
+  infobox?: InfoboxData | null;
+  headlineMedia?: HeadlineMedia | null;
   sections?: ArticleSection[];
   backlinks: {
     existing: BacklinkItem[];
@@ -84,7 +101,9 @@ interface LinkMenuState {
 }
 
 function stripLeadingH1(html: string): string {
-  return html.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/i, "");
+  // Remove the first h1 regardless of position — an infobox <aside> may
+  // now precede it, so a start-of-string anchor no longer works.
+  return html.replace(/<h1[^>]*>[\s\S]*?<\/h1>\s*/i, "");
 }
 
 function countInternalLinks(markdown: string): number {
@@ -122,6 +141,10 @@ function parseRoute(): Route {
   if (pathname === "/graph") return { kind: "graph" };
   if (pathname === "/search") {
     return { kind: "search", query: new URLSearchParams(search).get("q") ?? "" };
+  }
+  if (pathname === "/media") return { kind: "media-list" };
+  if (pathname.startsWith("/media/")) {
+    return { kind: "media", imageSlug: decodeURIComponent(pathname.slice("/media/".length)) };
   }
   if (pathname.startsWith("/wiki/")) {
     const wikiPath = decodeURIComponent(pathname.slice("/wiki/".length)).replace(/^\/+|\/+$/g, "");
@@ -205,6 +228,8 @@ export function App() {
   const articleRef = useRef<HTMLElement | null>(null);
   const editTrayRef = useRef<HTMLElement | null>(null);
   const inFlightSlugRef = useRef<string | null>(null);
+  // Abort controller for any in-flight rewrite/refresh stream. Cancelled on navigation.
+  const activeOperationRef = useRef<AbortController | null>(null);
   const editIsPartial = editSectionId === "__selection__" || Boolean(editSectionId);
   const editInitialRefSlugSet = useMemo(
     () => new Set(editInitialRefSlugs),
@@ -558,6 +583,9 @@ export function App() {
     return () => {
       cancelled = true;
       inFlightSlugRef.current = null;
+      // Abort any in-flight rewrite/refresh stream when navigating away.
+      activeOperationRef.current?.abort();
+      activeOperationRef.current = null;
     };
   }, [route]);
 
@@ -622,6 +650,33 @@ export function App() {
     setRoute({ kind: "disambiguation", slug: clean });
   }, []);
 
+  const navigateToMedia = useCallback((imageSlug: string) => {
+    window.history.pushState({}, "", `/media/${encodeURIComponent(imageSlug)}`);
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "media", imageSlug });
+  }, []);
+
+  const navigateToMediaList = useCallback(() => {
+    window.history.pushState({}, "", "/media");
+    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+    setRoute({ kind: "media-list" });
+  }, []);
+
+  // Called by Sidebar when the live stream emits an {type:"article"} event.
+  // Refetches the page once and applies it only if the user is still on that slug.
+  const handleLiveArticleUpdate = useCallback((updatedSlug: string) => {
+    fetch(`/api/page/${encodeURIComponent(updatedSlug)}?wait=0`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data: PageData | null) => {
+        if (!data) return;
+        setPage((latest) => {
+          if (latest?.article.slug !== data.article.slug) return latest;
+          return data;
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   const interceptArticleLinks = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       const target = (e.target as HTMLElement).closest("a");
@@ -639,9 +694,12 @@ export function App() {
       if (href.startsWith("/wiki/")) {
         e.preventDefault();
         navigateToArticle(href.slice("/wiki/".length));
+      } else if (href.startsWith("/media/")) {
+        e.preventDefault();
+        navigateToMedia(decodeURIComponent(href.slice("/media/".length)));
       }
     },
-    [navigateToArticle]
+    [navigateToArticle, navigateToMedia]
   );
 
   const clearLinkSelection = useCallback(() => {
@@ -702,6 +760,7 @@ export function App() {
     loadEditRefs(page.article.slug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editOpen, page?.article.slug]);
+
 
   // Search for references: runs both fuzzy and RAG queries against find-references endpoint
   const searchEditRefs = useCallback(async (mode: "fuzzy" | "rag") => {
@@ -833,13 +892,18 @@ export function App() {
   const rewriteArticle = useCallback(async () => {
     if (!page?.article.slug || !editDraft.trim() || editBusy) return;
     const previousPage = page;
+    const targetSlug = page.article.slug;
+    const ac = new AbortController();
+    activeOperationRef.current?.abort();
+    activeOperationRef.current = ac;
     setEditBusy(true);
     setEditError(null);
     setPage((current) => current ? { ...current, statusMessage: "Rewriting article..." } : current);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/rewrite?stream=1`, {
+      const res = await fetch(`/api/article/${encodeURIComponent(targetSlug)}/rewrite?stream=1`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+        signal: ac.signal,
         body: JSON.stringify({
           instructions: editDraft,
           ...(editSectionId === "__selection__"
@@ -893,14 +957,15 @@ export function App() {
             | { type: "progress"; html: string; markdown?: string }
             | ({ type: "done" } & PageData)
             | { type: "error"; message: string };
+          if (ac.signal.aborted) break;
           if (event.type === "status") {
             setPage((current) =>
-              current ? { ...current, statusMessage: event.message } : current
+              current?.article.slug === targetSlug ? { ...current, statusMessage: event.message } : current
             );
           } else if (event.type === "progress") {
             streamedHtml = event.html;
             setPage((current) =>
-              current
+              current?.article.slug === targetSlug
                 ? {
                   ...current,
                   cached: false,
@@ -941,15 +1006,16 @@ export function App() {
         (async () => {
           for (let i = 0; i < 40; i++) {
             await new Promise((r) => window.setTimeout(r, 3000));
+            if (ac.signal.aborted) return;
             try {
-              const res = await fetch(`/api/page/${encodeURIComponent(toWikiSegment(pollTitle))}?wait=0`);
+              const res = await fetch(`/api/page/${encodeURIComponent(toWikiSegment(pollTitle))}?wait=0`, { signal: ac.signal });
               if (!res.ok) continue;
               const data: PageData = await res.json();
               if ((data.article.generated_at ?? 0) > (pollGeneratedAt ?? 0) || data.article.markdown !== doneArticle!.markdown) {
                 setPage((current) => current?.article.slug === pollSlug ? data : current);
                 return;
               }
-            } catch { /* keep polling */ }
+            } catch { return; }
           }
         })();
       }
@@ -974,6 +1040,7 @@ export function App() {
       // Reload refs from the freshly-saved article so the panel stays accurate.
       if (page?.article.slug) loadEditRefs(page.article.slug);
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       setPage(previousPage);
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
@@ -982,12 +1049,17 @@ export function App() {
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
+    const targetSlug = page.article.slug;
+    const ac = new AbortController();
+    activeOperationRef.current?.abort();
+    activeOperationRef.current = ac;
     setRefreshBusy(true);
     setRefreshMessage("Refreshing with retrieved context...");
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/refresh-context?stream=1`, {
+      const res = await fetch(`/api/article/${encodeURIComponent(targetSlug)}/refresh-context?stream=1`, {
         method: "POST",
         headers: { accept: "application/x-ndjson" },
+        signal: ac.signal,
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -1014,11 +1086,12 @@ export function App() {
             | { type: "progress"; html: string; markdown?: string }
             | ({ type: "done" } & PageData)
             | { type: "error"; message: string };
+          if (ac.signal.aborted) break;
           if (event.type === "status") {
             setRefreshMessage(event.message);
           } else if (event.type === "progress") {
             setPage((current) =>
-              current
+              current?.article.slug === targetSlug
                 ? {
                   ...current,
                   cached: false,
@@ -1056,6 +1129,7 @@ export function App() {
       setRevisions([]);
       setHistoryLoaded(false);
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       setRefreshMessage(err?.message || "Could not refresh references.");
       console.error("[app] refresh_context_failed", err);
     } finally {
@@ -1235,6 +1309,14 @@ export function App() {
   }, [page]);
 
   const mainView = useMemo(() => {
+    if (route.kind === "media") {
+      return <MediaPage imageSlug={route.imageSlug} onNavigate={navigateToArticle} />;
+    }
+
+    if (route.kind === "media-list") {
+      return <MediaListPage onNavigateToMedia={navigateToMedia} />;
+    }
+
     if (route.kind === "home") {
       return <Homepage onNavigate={navigateToArticle} />;
     }
@@ -1511,15 +1593,8 @@ export function App() {
                     setEditTitleDraft("");
                     // Navigate to the new canonical path so the page re-fetches with the updated title.
                     if (data.canonicalPath) {
-                      const target = route.kind === "history"
-                        ? `${data.canonicalPath}/history`
-                        : data.canonicalPath;
-                      const clean = target.replace(/^\/wiki\//, "").replace(/\/history$/, "");
-                      if (route.kind === "history") {
-                        navigateToHistory(clean);
-                      } else {
-                        navigateToArticle(clean);
-                      }
+                      const clean = data.canonicalPath.replace(/^\/wiki\//, "");
+                      navigateToArticle(clean);
                     } else {
                       setPage(data);
                     }
@@ -1534,6 +1609,14 @@ export function App() {
               </button>
             </div>
             {editTitleError && <p style={{ color: "red", fontSize: "0.85rem", marginBottom: "0.5rem" }}>{editTitleError}</p>}
+
+            {/* Headline image panel — owns its own state, lives outside mainView's memo */}
+            <HeadlineImagePanel
+              articleSlug={page.article.slug}
+              onArticleUpdate={(article) => setPage((cur) => cur ? { ...cur, article: article as typeof cur.article } : cur)}
+              onNavigateToMedia={navigateToMedia}
+            />
+
             <div className="edit-tray-row">
               <label>
                 Section
@@ -1947,6 +2030,31 @@ export function App() {
             </div>
           ) : null}
         </article>
+        {/* Backlinks — moved to bottom of article column */}
+        {(page.backlinks.existing.length > 0 || page.backlinks.unwritten.length > 0) && (
+          <section className="article-backlinks" aria-label="Referenced by">
+            <h4 className="article-backlinks-heading">
+              Referenced by <span className="article-backlinks-count">({page.backlinks.existing.length + page.backlinks.unwritten.length})</span>
+            </h4>
+            <ul className="article-backlinks-list">
+              {page.backlinks.existing.map((b) => (
+                <li key={b.slug}>
+                  <a href={`/wiki/${b.title.replace(/\s+/g, "_")}`} onClick={(e) => { e.preventDefault(); navigateToArticle(b.title.replace(/\s+/g, "_")); }}>
+                    {b.title}
+                  </a>
+                </li>
+              ))}
+              {page.backlinks.unwritten.map((b) => (
+                <li key={b.slug} className="article-backlinks-unwritten">
+                  <a href={`/wiki/${b.title.replace(/\s+/g, "_")}`} onClick={(e) => { e.preventDefault(); navigateToArticle(b.title.replace(/\s+/g, "_")); }}>
+                    {b.title}
+                  </a>
+                  <span className="article-backlinks-stub"> (unwritten)</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </>
     );
   }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, rawEditOpen, rawEditMarkdown, rawEditPreview, rawEditPreviewBusy, openRawEdit, saveRawEdit, previewRawEdit, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, searchEditRefs, addEditRef, removeEditRef, blacklistEditRef, togglePinRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage, editTitleDraft, editTitleBusy, editTitleError, protectionBusy]);
@@ -2001,6 +2109,15 @@ export function App() {
             }}
           >
             All entries
+          </a>
+          <a
+            href="/media"
+            onClick={(e) => {
+              e.preventDefault();
+              navigateToMediaList();
+            }}
+          >
+            Media
           </a>
           <a
             href="/Random"
@@ -2104,8 +2221,11 @@ export function App() {
           <Sidebar
             articleSlug={articleSlug}
             articleTitle={articleTitle}
-            backlinks={page?.backlinks ?? null}
+            infobox={page?.infobox ?? null}
+            headlineMedia={page?.headlineMedia ?? null}
             onNavigate={navigateToArticle}
+            onNavigateToMedia={navigateToMedia}
+            onArticleUpdate={handleLiveArticleUpdate}
           />
         )}
       </section>

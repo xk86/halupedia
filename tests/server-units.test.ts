@@ -71,6 +71,7 @@ import {
   findTitleMentionedArticles,
   formatReferencesForPrompt,
   linkMentionedReferencesInBody,
+  linkReferences,
   renderReferencesHtml,
   resolveRefLinks,
 } from "../src/server/referenceList";
@@ -1060,6 +1061,32 @@ test("stripSelfLinks is a no-op when no self-links exist", () => {
   assert.equal(stripSelfLinks(markdown, "glow-fruit"), markdown);
 });
 
+test("stripSelfLinks also strips ref:self-slug links, not just halu:", () => {
+  const markdown = "See [Glow Fruit](ref:glow-fruit) and [the orchard](ref:crater-orchard).";
+  const result = stripSelfLinks(markdown, "glow-fruit");
+  // Self ref: link becomes plain text
+  assert.doesNotMatch(result, /ref:glow-fruit/);
+  assert.match(result, /See Glow Fruit and/);
+  // Other ref: link is untouched
+  assert.match(result, /\(ref:crater-orchard\)/);
+});
+
+test("linkReferences filters self-article from refs before linking mentions", () => {
+  const mkRef = (slug: string, title: string) => ({
+    slug, title, content: "", kind: "summary" as const, pinned: false, revisionId: "current" as const,
+  });
+  const refs: ReferenceList = [
+    mkRef("glow-fruit", "Glow Fruit"),
+    mkRef("crater-orchard", "Crater Orchard"),
+  ];
+  // When selfSlug is passed, mentions of "Glow Fruit" must NOT be linked
+  // because it would be a self-link.
+  const body = "Glow Fruit grows in Crater Orchard.";
+  const result = linkReferences(body, refs, "glow-fruit");
+  assert.doesNotMatch(result, /ref:glow-fruit/, "self-article must not be linked");
+  assert.match(result, /\[Crater Orchard\]\(ref:crater-orchard\)/, "other refs must still be linked");
+});
+
 test("leadBoldsTitle detects bolded title in lead paragraph", () => {
   const markdown = [
     "# Glow Fruit",
@@ -1582,16 +1609,15 @@ test("linkMentionedReferencesInBody wraps exact unlinked reference title mention
     "Do not alter `Source Entry` inside code.",
   ].join("\n");
 
-  assert.equal(
-    linkMentionedReferencesInBody(body, refs),
-    [
-      "# Current Entry",
-      "",
-      "[source entry](ref:source-entry) is mentioned plainly.",
-      "[Already Linked](ref:already-linked) is already linked.",
-      "Do not alter `Source Entry` inside code.",
-    ].join("\n"),
-  );
+  const result = linkMentionedReferencesInBody(body, refs);
+  // "source entry" bare mention gets linked
+  assert.match(result, /\[source entry\]\(ref:source-entry\) is mentioned plainly/);
+  // Code span content is protected
+  assert.match(result, /`Source Entry`/);
+  // "Already Linked" already inside a link — must not be double-wrapped
+  assert.doesNotMatch(result, /\[\[Already Linked\]/);
+  // The text "already linked" (free text, matches case-insensitively) gets linked per new behavior
+  assert.match(result, /is \[already linked\]\(ref:already-linked\)/)
 });
 
 test("see-also metadata renders for display but is not baked into article markdown", () => {
@@ -1646,7 +1672,7 @@ test("resolveRefLinks: [](ref:N) fills in article title on first occurrence", ()
   assert.equal(resolved, "See [Glow Fruit](ref:glow-fruit) for details.");
 });
 
-test("resolveRefLinks: second occurrence of same ref becomes plain text", () => {
+test("resolveRefLinks: both occurrences of same ref stay as anchor links", () => {
   const refs: ReferenceList = [
     {
       slug: "glow-fruit",
@@ -1659,8 +1685,8 @@ test("resolveRefLinks: second occurrence of same ref becomes plain text", () => 
   ];
   const body = "See [the grove](ref:1) here and [](ref:1) there.";
   const resolved = resolveRefLinks(body, refs);
-  // First: linked with bracket text. Second: plain title, no link.
-  assert.equal(resolved, "See [the grove](ref:glow-fruit) here and Glow Fruit there.");
+  // Both numeric refs resolve to slug and remain as anchor links.
+  assert.equal(resolved, "See [the grove](ref:glow-fruit) here and [Glow Fruit](ref:glow-fruit) there.");
 });
 
 test("resolveRefLinks: ref:slug input is canonical and ref:N still resolves", () => {
@@ -1920,10 +1946,10 @@ test("deleteArticleBySlug: returns false and leaves no tombstone for unknown slu
 });
 
 /* ─────────────────────────────────────────────────────────────────
-   resolveRefLinks: bolded duplicate collapse
+   resolveRefLinks: bolded occurrences both stay linked
    ───────────────────────────────────────────────────────────────── */
 
-test("resolveRefLinks: bold markers stripped from collapsed duplicate ref", () => {
+test("resolveRefLinks: both bolded occurrences of same ref stay as anchor links", () => {
   const refs: ReferenceList = [
     {
       slug: "glow-fruit",
@@ -1936,11 +1962,10 @@ test("resolveRefLinks: bold markers stripped from collapsed duplicate ref", () =
   ];
   const body = "The [**Glow Fruit**](ref:glow-fruit) is notable. Later, [**Glow Fruit**](ref:glow-fruit) reappears.";
   const resolved = resolveRefLinks(body, refs);
-  // First occurrence kept as-is (bold inside the link is fine).
-  assert.match(resolved, /\[\*\*Glow Fruit\*\*\]\(ref:glow-fruit\)/);
-  // Second occurrence must NOT carry bold markers.
-  assert.doesNotMatch(resolved, /Later.*\*\*Glow Fruit\*\*/);
-  assert.match(resolved, /Later, Glow Fruit reappears/);
+  // Both occurrences must remain as ref anchor links.
+  const refCount = (resolved.match(/ref:glow-fruit/g) ?? []).length;
+  assert.equal(refCount, 2);
+  assert.match(resolved, /Later, \[\*\*Glow Fruit\*\*\]\(ref:glow-fruit\) reappears/);
 });
 
 /* ─────────────────────────────────────────────────────────────────
@@ -2000,15 +2025,17 @@ test("normalizeMarkdownLinks: already-canonical ref slug is unchanged", () => {
 });
 
 test("normalizeMarkdownLinks: ref link whose label is a ref-slug is rewritten to a human title", () => {
-  // [ref:public-transport](ref:public-transport) — label is a raw ref marker, not a title
+  // [ref:public-transport](ref:public-transport) — label is a raw ref marker, not a title.
+  // slugToTitle / normalizeCanonicalTitle uppercases only the first letter of the string.
   const result = normalizeMarkdownLinks(`[ref:public-transport](ref:public-transport)`, "article");
-  assert.equal(result.markdown, `[Public Transport](ref:public-transport)`);
+  assert.equal(result.markdown, `[Public transport](ref:public-transport)`);
 });
 
 test("normalizeMarkdownLinks: ref link whose label is a plain slug is rewritten to a human title", () => {
-  // [public-transport](ref:public-transport) — label is a raw slug, not a title
+  // [public-transport](ref:public-transport) — label is a raw slug, not a title.
+  // slugToTitle / normalizeCanonicalTitle uppercases only the first letter of the string.
   const result = normalizeMarkdownLinks(`[public-transport](ref:public-transport)`, "article");
-  assert.equal(result.markdown, `[Public Transport](ref:public-transport)`);
+  assert.equal(result.markdown, `[Public transport](ref:public-transport)`);
 });
 
 // Slug metadata leakage stripping

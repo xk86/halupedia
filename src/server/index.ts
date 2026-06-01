@@ -15,6 +15,7 @@ import { loadConfig } from "./config";
 import { listPromptFiles, readPromptFile, writePromptFile } from "./promptEditor";
 import {
   deleteArticleBySlug,
+  listImageBacklinks,
   getAdminOverview,
   getArticleByLookup,
   getArticleByTitle,
@@ -62,7 +63,21 @@ import {
   getPromptCurrent,
   setPromptCurrent,
   listAllPromptCurrents,
+  getArticleHeadlineMedia,
+  getArticleInfobox,
+  setArticleInfobox,
+  listSidebarRevisions,
+  getSidebarRevision,
+  upsertArticleHeadlineMedia,
+  updateArticleMediaCaption,
+  removeArticleMedia,
+  type InfoboxData,
+  type SidebarOperation,
 } from "./db";
+import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
+import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
+import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
+import { renderInfoboxHtml } from "./articleRender";
 import {
   findFuzzyTitleMatchesInEditText,
   findReferencedArticlesInEditText,
@@ -83,6 +98,7 @@ import {
   markdownToPlainText,
   normalizeMarkdown,
   renderMarkdown,
+  renderInlineMarkdown,
   replaceArticleSection,
   sectionSlice,
   spliceProtectedSections,
@@ -94,6 +110,7 @@ import {
 import { getPrompt, getSharedPrompt, renderTemplate, stripJsonFences } from "./prompts";
 import {
   indexArticleChunks,
+  flattenInfoboxForRag,
   mergeRetrievedContextPackets,
   retrieveContext,
   retrieveDirectArticleContext,
@@ -118,6 +135,7 @@ import type {
 import {
   extractRefLinksAsInternalLinks,
   findExistingArticleLinkReferences,
+  linkReferencesInline,
   loadPriorReferenceList,
 } from "./referenceList";
 import {
@@ -209,6 +227,7 @@ function articleLookupSlugFromInput(input: string): string {
 
 export interface CreateAppOptions {
   databasePath?: string;
+  mediaDatabasePath?: string;
   distRoot?: string;
   skipLlmProbe?: boolean;
   skipHomepagePrepare?: boolean;
@@ -803,6 +822,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
   const db = openDatabase(runtime.app.storage.database_path);
+  const mediaDb = openMediaDatabase(options.mediaDatabasePath ?? runtime.app.images.media_database_path);
 
   // Startup sync: ingest any TOML edits made outside the UI into DB, and write
   // TOML for any DB-current entries whose files are missing.
@@ -843,6 +863,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.llm.light,
       runtime.llm.embeddings,
       logger,
+      runtime.llm.images,
     );
   const app = new Hono();
   const distRoot = options.distRoot
@@ -861,6 +882,44 @@ export async function createApp(options: CreateAppOptions = {}) {
   const slugGenerations = new Map<string, GenerationQueueEntry>();
   let generationSeq = 0;
   const inFlightEdits = new Set<string>(); // Track slugs with in-flight edits to prevent stale overwrites
+
+  // Per-article sidecar push: clients subscribe via GET /api/article/:slug/live
+  // and receive NDJSON events when post-process updates sidecar data.
+  const articleListeners = new Map<string, Set<(e: unknown) => void>>();
+  // Tracks slugs that have had an auto-post-process triggered this session
+  // so we don't re-fire on every page load before the infobox is written.
+  const autoPostProcessed = new Set<string>();
+  function notifySidecar(slug: string, event: unknown) {
+    const listeners = articleListeners.get(slug);
+    if (!listeners) return;
+    // Pre-render infobox values inline so the client receives HTML, not raw markdown.
+    // Run linkReferencesInline first so bare title mentions become ref: links.
+    const liveRefs = loadPriorReferenceList(db, slug) ?? [];
+    let wire = event as Record<string, unknown>;
+    if (wire.type === "infobox" && wire.infobox) {
+      const raw = wire.infobox as { title?: string; subtitle?: string; groups?: Array<{ label: string; rows: Array<{ label: string; value: string }> }> };
+      wire = {
+        ...wire,
+        infobox: {
+          ...raw,
+          subtitle: raw.subtitle
+            ? renderInlineMarkdown(linkReferencesInline(raw.subtitle, liveRefs))
+            : undefined,
+          groups: (raw.groups ?? []).map((g) => ({
+            label: g.label,
+            rows: g.rows.map((r) => ({
+              label: r.label,
+              value: renderInlineMarkdown(linkReferencesInline(r.value, liveRefs)),
+            })),
+          })),
+        },
+      };
+    } else if (wire.type === "caption" && typeof wire.caption === "string") {
+      wire = { ...wire, caption: renderInlineMarkdown(linkReferencesInline(wire.caption, liveRefs)) };
+    }
+    for (const cb of listeners) { try { cb(wire); } catch {} }
+  }
+
   const maintenance = new MaintenanceScheduler(logger);
 
   function trackGeneration<T>(promise: Promise<T>): Promise<T> {
@@ -934,6 +993,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   function afterArticleSaved(slug: string, title: string, markdown: string, generatedAt: number): void {
     trackGeneration(
       (async () => {
+        const headlineMedia = getArticleHeadlineMedia(db, slug);
+        const imageDescriptions: Array<{ id: string; description: string }> = [];
+        if (headlineMedia) {
+          const rec = getMediaById(mediaDb, headlineMedia.mediaId);
+          if (rec?.description) imageDescriptions.push({ id: rec.id, description: rec.description });
+        }
         await indexArticleChunks(
           db,
           llm,
@@ -942,6 +1007,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
           runtime.app.rag.chunk_size,
           logger,
+          imageDescriptions,
         );
         const summaryMarkdown = await generateArticleSummary(
           llm,
@@ -970,6 +1036,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     logger.info("shutdown.closing_database");
     db.close();
+    mediaDb.close();
     logger.info("shutdown.complete");
   }
 
@@ -993,6 +1060,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.llm.light,
         runtime.llm.embeddings,
         logger,
+        runtime.llm.images,
       );
     }
     logger.info("startup", {
@@ -1002,6 +1070,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       heavy_model: runtime.llm.chat.model,
       light_base_url: runtime.llm.light.base_url,
       light_model: runtime.llm.light.model,
+      images_base_url: runtime.llm.images?.base_url ?? "(none)",
+      images_model: runtime.llm.images?.model ?? "(none)",
       embeddings_enabled: runtime.llm.embeddings.enabled,
       embeddings_base_url: runtime.llm.embeddings.base_url,
       embeddings_model: runtime.llm.embeddings.model,
@@ -1239,6 +1309,37 @@ export async function createApp(options: CreateAppOptions = {}) {
     },
   ) {
     const rawRecord = getArticleByLookup(db, response.slug);
+    // Infobox sidecar — loaded fresh so sidebar always reflects latest pipeline output.
+    const rawInfobox = getArticleInfobox(db, response.slug);
+    // Load refs so we can link title mentions in infobox values and caption.
+    const sidebarRefs = loadPriorReferenceList(db, response.slug) ?? [];
+    // Pre-render infobox values as inline HTML so the client gets bold/italic/ref-links.
+    // Run linkReferencesInline first so bare title mentions become ref: links before rendering.
+    const infobox = rawInfobox
+      ? {
+          ...rawInfobox,
+          subtitle: rawInfobox.subtitle
+            ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs))
+            : undefined,
+          groups: rawInfobox.groups.map((g) => ({
+            label: g.label,
+            rows: g.rows.map((r) => ({
+              label: r.label,
+              value: renderInlineMarkdown(linkReferencesInline(r.value, sidebarRefs)),
+            })),
+          })),
+        }
+      : null;
+    const headlineMediaRow = getArticleHeadlineMedia(db, response.slug);
+    const headlineMedia = headlineMediaRow
+      ? {
+          mediaId: headlineMediaRow.mediaId,
+          caption: headlineMediaRow.caption
+            ? renderInlineMarkdown(linkReferencesInline(headlineMediaRow.caption, sidebarRefs))
+            : "",
+          description: getMediaById(mediaDb, headlineMediaRow.mediaId)?.description ?? "",
+        }
+      : null;
     return {
       cached: opts.cached,
       referenceStatus: buildReferenceStatus(
@@ -1252,6 +1353,8 @@ export async function createApp(options: CreateAppOptions = {}) {
           : undefined,
       canonicalPath: opts.canonicalPath,
       article: response,
+      infobox,
+      headlineMedia,
       // Sections list is derived from the rendered body, not metadata.
       sections: listArticleSections(response.body),
       backlinks: listBacklinks(db, response.slug),
@@ -1310,10 +1413,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   function buildPipelineDeps(overrides: Partial<PipelineDeps> = {}): PipelineDeps {
     return {
       db,
+      mediaDb,
       llm,
       prompts: buildPromptRegistry(runtime.prompts),
       logger,
       runtime,
+      onSidecarUpdate: notifySidecar,
       ...overrides,
     };
   }
@@ -1591,6 +1696,28 @@ export async function createApp(options: CreateAppOptions = {}) {
       if (response) {
         const canonicalPath = canonicalPathForArticle(record);
         logger.info("page.hit", { slug: lookupSlug, in_flight_edit: hasInFlightEdit });
+
+        // Auto-sidebar: fire post-process in the background on first view if
+        // the article has no infobox yet (e.g. imported or created before
+        // post-process ran). Tracked so it only fires once per server session.
+        if (!getArticleInfobox(db, record.slug) && !autoPostProcessed.has(record.slug)) {
+          autoPostProcessed.add(record.slug);
+          logger.info("page.auto_post_process", { slug: record.slug });
+          trackGeneration(
+            runWorkflow(postProcessWorkflow, {
+              input: {
+                requestId: randomUUID(),
+                workflow: "article.post_process",
+                slug: record.slug,
+                requestedTitle: record.title,
+              },
+              deps: buildPipelineDeps(),
+              recorder: getTraceRecorder(runtime.app.pipeline.trace),
+              logger,
+            }).catch(() => {}),
+          );
+        }
+
         return c.json(
           buildPageResponse(response, {
             cached: true,
@@ -3168,6 +3295,511 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   });
 
+  // ── Media routes ─────────────────────────────────────────────────────────────
+  // These must be registered BEFORE the app.get("*") SPA catch-all because
+  // that wildcard intercepts all GET requests that aren't matched first.
+
+  app.get("/api/media/:id", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const result = getMediaBytesById(mediaDb, id);
+    if (!result) return c.notFound();
+    return new Response(result.bytes as unknown as BodyInit, {
+      headers: {
+        "content-type": result.mime,
+        "cache-control": "public, max-age=31536000, immutable",
+      },
+    });
+  });
+
+  app.get("/api/media/:id/info", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+    const { model_b64: _b64, ...safe } = record as any;
+    return c.json(safe);
+  });
+
+  app.patch("/api/media/:id/description", async (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const body = await c.req.json().catch(() => ({})) as { description?: string };
+    const description = typeof body.description === "string" ? body.description.trim() : null;
+    if (description === null) return c.json({ error: "description required" }, 400);
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+    updateMediaDescription(mediaDb, id, description, "user-edit");
+    return c.json({ ok: true });
+  });
+
+  app.get("/api/media/:id/history", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+    return c.json({ history: listMediaRevisions(mediaDb, id) });
+  });
+
+  app.get("/api/media", (c) => {
+    const q = c.req.query("q") ?? "";
+    const records = listMedia(mediaDb, q || undefined);
+    const safe = records.map(({ model_b64: _b64, ...r }) => r);
+    return c.json({ media: safe });
+  });
+
+  app.get("/api/media/:id/backlinks", (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    return c.json({ backlinks: listImageBacklinks(db, id) });
+  });
+
+  // Regenerate image description via LLM. Accepts optional instructions that
+  // are forwarded to the image_description prompt.
+  app.post("/api/media/:id/describe", async (c) => {
+    const id = decodeURIComponent(c.req.param("id"));
+    const record = getMediaById(mediaDb, id);
+    if (!record) return c.json({ error: "not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({})) as { instructions?: string; articleSlug?: string };
+    const instructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
+    const articleSlug = typeof body.articleSlug === "string" ? slugify(body.articleSlug) : "";
+
+    const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+    const result = await runWorkflow(captionImageWorkflow, {
+      input: {
+        requestId: randomUUID(),
+        workflow: "image.caption",
+        slug: articleSlug || undefined,
+        requestedTitle: (articleSlug ? getArticleByLookup(db, articleSlug)?.title : undefined) ?? id,
+        imageId: id,
+        instructions: instructions || undefined,
+      },
+      deps: buildPipelineDeps(),
+      recorder,
+      logger,
+    });
+
+    if (result.status !== "ok") {
+      return c.json({ error: result.error?.message ?? "description generation failed" }, 500);
+    }
+
+    // Reload the record to get the updated description. ID never changes on regeneration.
+    const updated = getMediaById(mediaDb, id);
+    if (!updated) return c.json({ error: "media record missing after describe" }, 500);
+
+    const { model_b64: _b64, ...safe } = updated as any;
+    return c.json({ ok: true, media: safe });
+  });
+
+  // ── Sidebar (infobox) edit / history / restore endpoints ───────────────────
+
+  /** Re-index RAG chunks for a slug including its current infobox. */
+  async function reindexSidebarRag(slug: string): Promise<void> {
+    const article = getArticleByLookup(db, slug);
+    if (!article) return;
+    const rag = runtime.app.rag;
+    const useEmbeddings = rag.enabled && runtime.llm.embeddings?.enabled;
+    const headlineMedia = getArticleHeadlineMedia(db, slug);
+    const imageDescriptions: Array<{ id: string; description: string }> = [];
+    if (headlineMedia) {
+      const rec = getMediaById(mediaDb, headlineMedia.mediaId);
+      if (rec?.description) imageDescriptions.push({ id: rec.id, description: rec.description });
+    }
+    const infobox = getArticleInfobox(db, slug);
+    const infoboxText = infobox ? flattenInfoboxForRag(slug, infobox) : undefined;
+    await indexArticleChunks(db, llm, slug, article.markdown, useEmbeddings, rag.chunk_size, logger, imageDescriptions, infoboxText);
+  }
+
+  /** Build the pre-rendered sidebar payload for a slug (same shape as page payload). */
+  function buildSidebarPayload(slug: string) {
+    const rawInfobox = getArticleInfobox(db, slug);
+    const sidebarRefs = loadPriorReferenceList(db, slug) ?? [];
+    const infobox = rawInfobox
+      ? {
+          ...rawInfobox,
+          subtitle: rawInfobox.subtitle
+            ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs))
+            : undefined,
+          groups: rawInfobox.groups.map((g) => ({
+            label: g.label,
+            rows: g.rows.map((r) => ({
+              label: r.label,
+              value: renderInlineMarkdown(linkReferencesInline(r.value, sidebarRefs)),
+            })),
+          })),
+        }
+      : null;
+    const headlineMediaRow = getArticleHeadlineMedia(db, slug);
+    const caption = headlineMediaRow?.caption
+      ? renderInlineMarkdown(linkReferencesInline(headlineMediaRow.caption, sidebarRefs))
+      : "";
+    return { infobox, caption };
+  }
+
+  // GET /api/article/:slug/infobox — raw (unrendered) infobox data for the editor.
+  app.get("/api/article/:slug/infobox", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const rawInfobox = getArticleInfobox(db, slug);
+    const headlineMediaRow = getArticleHeadlineMedia(db, slug);
+    return c.json({
+      infobox: rawInfobox,
+      caption: headlineMediaRow?.caption ?? "",
+    });
+  });
+
+  // PATCH /api/article/:slug/infobox — raw save of infobox JSON + optional caption.
+  app.patch("/api/article/:slug/infobox", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, slug);
+    if (!article) return c.json({ error: "not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({})) as { infobox?: InfoboxData; caption?: string };
+    if (!body.infobox || typeof body.infobox !== "object") return c.json({ error: "infobox required" }, 400);
+    const { title, groups } = body.infobox;
+    if (!title || !Array.isArray(groups)) return c.json({ error: "invalid infobox shape" }, 400);
+
+    setArticleInfobox(db, slug, body.infobox, "user-edit");
+    if (typeof body.caption === "string") {
+      updateArticleMediaCaption(db, slug, 1, body.caption.trim(), "user-edit");
+    }
+
+    await reindexSidebarRag(slug);
+    const payload = buildSidebarPayload(slug);
+    notifySidecar(slug, { type: "infobox", infobox: body.infobox });
+    if (typeof body.caption === "string") {
+      const headlineMedia = getArticleHeadlineMedia(db, slug);
+      if (headlineMedia) notifySidecar(slug, { type: "caption", caption: body.caption.trim(), mediaId: headlineMedia.mediaId });
+    }
+
+    return c.json({ ok: true, ...payload });
+  });
+
+  // POST /api/article/:slug/infobox/regenerate — AI re-generation with optional instructions.
+  app.post("/api/article/:slug/infobox/regenerate", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, slug);
+    if (!article) return c.json({ error: "not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({})) as { instructions?: string };
+    const instructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
+
+    const prompt = getPrompt(runtime.prompts, "infobox");
+    const excerpt = stripTopLevelSections(article.markdown, ["References", "See also"]).slice(0, 6000);
+    const instructionsBlock = instructions ? `Additional instructions: ${instructions}\n` : "";
+
+    let raw: string;
+    try {
+      raw = await llm.chat(
+        prompt.model ?? "heavy",
+        prompt.system,
+        renderTemplate(prompt.user, {
+          requested_title: article.title,
+          article_excerpt: excerpt,
+          instructions: instructionsBlock,
+        }),
+        { jsonMode: true, thinking: prompt.thinking },
+      );
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "LLM error" }, 500);
+    }
+
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return c.json({ error: "no JSON in response" }, 500);
+    let parsed: InfoboxData;
+    try {
+      parsed = JSON.parse(match[0]) as InfoboxData;
+      if (!parsed.title || !Array.isArray(parsed.groups)) throw new Error("invalid infobox shape");
+    } catch {
+      return c.json({ error: "invalid infobox JSON" }, 500);
+    }
+
+    setArticleInfobox(db, slug, parsed, "ai-edit");
+    await reindexSidebarRag(slug);
+    const payload = buildSidebarPayload(slug);
+    notifySidecar(slug, { type: "infobox", infobox: parsed });
+
+    return c.json({ ok: true, ...payload });
+  });
+
+  // GET /api/article/:slug/infobox/history — list sidebar revisions.
+  app.get("/api/article/:slug/infobox/history", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const revisions = listSidebarRevisions(db, slug);
+    return c.json({ revisions });
+  });
+
+  // POST /api/article/:slug/infobox/restore — restore a prior sidebar revision.
+  app.post("/api/article/:slug/infobox/restore", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, slug);
+    if (!article) return c.json({ error: "not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({})) as { revisionId?: number };
+    if (typeof body.revisionId !== "number") return c.json({ error: "revisionId required" }, 400);
+    const rev = getSidebarRevision(db, body.revisionId);
+    if (!rev || rev.articleSlug !== slug) return c.json({ error: "revision not found" }, 404);
+
+    if (rev.infoboxJson) {
+      let infoboxData: InfoboxData;
+      try {
+        infoboxData = JSON.parse(rev.infoboxJson) as InfoboxData;
+        if (!infoboxData.title || !Array.isArray(infoboxData.groups)) throw new Error("invalid shape");
+      } catch {
+        return c.json({ error: "stored revision has invalid infobox JSON" }, 500);
+      }
+      setArticleInfobox(db, slug, infoboxData, "restore");
+    }
+    if (rev.caption) {
+      updateArticleMediaCaption(db, slug, 1, rev.caption, "restore");
+    }
+
+    await reindexSidebarRag(slug);
+    const payload = buildSidebarPayload(slug);
+    const rawInfobox = getArticleInfobox(db, slug);
+    if (rawInfobox) notifySidecar(slug, { type: "infobox", infobox: rawInfobox });
+    if (rev.caption) {
+      const headlineMedia = getArticleHeadlineMedia(db, slug);
+      if (headlineMedia) notifySidecar(slug, { type: "caption", caption: rev.caption, mediaId: headlineMedia.mediaId });
+    }
+
+    return c.json({ ok: true, ...payload });
+  });
+
+  // Live sidecar stream — NDJSON events pushed when post-process updates
+  // infobox, caption, or article body for this slug. Clients subscribe on
+  // page load and receive updates without polling.
+  app.get("/api/article/:slug/live", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const enc = new TextEncoder();
+    let open = true;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (payload: unknown) => {
+          if (!open) return;
+          try { controller.enqueue(enc.encode(`${JSON.stringify(payload)}\n`)); } catch { open = false; }
+        };
+        const cb = (e: unknown) => send(e);
+        if (!articleListeners.has(slug)) articleListeners.set(slug, new Set());
+        articleListeners.get(slug)!.add(cb);
+        // Send a heartbeat so the client knows the stream is open.
+        send({ type: "ready", slug });
+        return () => {
+          open = false;
+          articleListeners.get(slug)?.delete(cb);
+          if (articleListeners.get(slug)?.size === 0) articleListeners.delete(slug);
+          try { controller.close(); } catch {}
+        };
+      },
+      cancel() {
+        open = false;
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "cache-control": "no-cache",
+        "x-accel-buffering": "no",
+      },
+    });
+  });
+
+  app.get("/api/article/:slug/image", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    const headlineMedia = getArticleHeadlineMedia(db, slug);
+    if (!headlineMedia) return c.json({ image: null });
+    const record = getMediaById(mediaDb, headlineMedia.mediaId);
+    if (!record) return c.json({ image: null });
+    const { model_b64: _b64, ...safe } = record as any;
+    return c.json({
+      image: {
+        ...safe,
+        caption: headlineMedia.caption || record.description,
+        articleCaption: headlineMedia.caption,
+      },
+    });
+  });
+
+  /** Shared helper: attach a just-ingested image, fire caption pipeline async. */
+  function attachAndCaption(
+    articleSlug: string,
+    mediaId: string,
+    isNew: boolean,
+    width: number,
+    height: number,
+  ) {
+    // ── Strip any existing inline media images from the article body ──────────
+    // Articles should never have headline images inline; they live in the sidebar.
+    const article = getArticleByLookup(db, articleSlug);
+    if (article) {
+      const cleaned = article.markdown.replace(/!\[[^\]]*\]\(media:[^)]+\)\n?/g, "").trimEnd();
+      if (cleaned !== article.markdown) {
+        const links = extractInternalLinks(cleaned);
+        saveArticle(
+          db,
+          { ...article, markdown: cleaned, html: renderMarkdown(cleaned), plain_text: markdownToPlainText(cleaned), generated_at: Date.now() },
+          links,
+          [],
+          { operation: "strip-inline-media" },
+        );
+        invalidateArticleHtml(articleSlug);
+      }
+    }
+
+    upsertArticleHeadlineMedia(db, articleSlug, mediaId, "");
+    invalidateArticleHtml(articleSlug);
+
+    // ── Hash-check: skip pipeline if same image is already captioned ──────────
+    const newRecord = getMediaById(mediaDb, mediaId);
+    const currentHeadline = getArticleHeadlineMedia(db, articleSlug);
+    if (currentHeadline && currentHeadline.caption && newRecord) {
+      const currentRecord = getMediaById(mediaDb, currentHeadline.mediaId);
+      if (currentRecord && currentRecord.sha256 === newRecord.sha256) {
+        logger.info("image.caption_skipped_same_hash", { slug: articleSlug, mediaId, sha256: newRecord.sha256 });
+        return { mediaId, isNew, width, height };
+      }
+    }
+
+    // ── Fire caption + post-process pipeline ──────────────────────────────────
+    trackGeneration(
+      runWorkflow(captionImageWorkflow, {
+        input: {
+          requestId: randomUUID(),
+          workflow: "image.caption",
+          slug: articleSlug,
+          requestedTitle: getArticleByLookup(db, articleSlug)?.title ?? articleSlug,
+          imageId: mediaId,
+        },
+        deps: buildPipelineDeps(),
+        recorder: getTraceRecorder(runtime.app.pipeline.trace),
+        logger,
+      })
+        .then((result) => {
+          if (result.status === "ok") {
+            // Rename the temp id (img-xxxx) to the title_slug from the description
+            // pipeline. Only at ingest — never during regeneration.
+            const titleSlug = result.state.imageCaptionResult?.titleSlug;
+            if (titleSlug && titleSlug !== mediaId) {
+              const renamed = updateMediaId(mediaDb, mediaId, titleSlug);
+              if (renamed) {
+                upsertArticleHeadlineMedia(db, articleSlug, titleSlug, "");
+                logger.info("media.renamed_after_ingest", { from: mediaId, to: titleSlug });
+              }
+            }
+            invalidateArticleHtml(articleSlug);
+            // Fire post-process so the infobox regenerates with the new image context.
+            const finalSlug = titleSlug && titleSlug !== mediaId ? titleSlug : mediaId;
+            trackGeneration(
+              runWorkflow(postProcessWorkflow, {
+                input: {
+                  requestId: randomUUID(),
+                  workflow: "article.post_process",
+                  slug: articleSlug,
+                  requestedTitle: getArticleByLookup(db, articleSlug)?.title ?? articleSlug,
+                },
+                deps: buildPipelineDeps(),
+                recorder: getTraceRecorder(runtime.app.pipeline.trace),
+                logger,
+              }).then(() => {
+                logger.info("image.post_process_done", { slug: articleSlug, mediaId: finalSlug });
+              }).catch(() => {}),
+            );
+          } else {
+            logger.warn("image.caption_workflow_failed", {
+              slug: articleSlug,
+              mediaId,
+              error: result.error?.message ?? "unknown",
+            });
+          }
+        })
+        .catch(() => {}),
+    );
+
+    return { mediaId, isNew, width, height };
+  }
+
+  app.post("/api/article/:slug/image", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const body = await c.req.json().catch(() => ({})) as { url?: string; mediaId?: string };
+
+    // Attach an existing media record by ID (search-existing flow)
+    if (typeof body.mediaId === "string" && body.mediaId.trim()) {
+      const mediaId = body.mediaId.trim();
+      const existing = getMediaById(mediaDb, mediaId);
+      if (!existing) return c.json({ error: "media not found" }, 404);
+      const attached = attachAndCaption(slug, mediaId, false, existing.width, existing.height);
+      const response = buildArticleResponseFor(slug);
+      if (!response) return c.json({ error: "article not found" }, 404);
+      return c.json({ ...attached, article: response });
+    }
+
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    if (!url) return c.json({ error: "url or mediaId required" }, 400);
+    let result: Awaited<ReturnType<typeof ingestImageFromUrl>>;
+    try {
+      result = await ingestImageFromUrl(url, { mediaDb, config: runtime.app.images, logger });
+    } catch (err: any) {
+      return c.json({ error: err?.message || "Image ingestion failed" }, 400);
+    }
+    const attached = attachAndCaption(slug, result.mediaId, result.isNew, result.width, result.height);
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({ ...attached, article: response });
+  });
+
+  app.post("/api/article/:slug/image/upload", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    let bytes: Buffer;
+    let mime: string;
+    const contentType = c.req.header("content-type") ?? "";
+    if (contentType.includes("multipart/form-data")) {
+      const form = await c.req.formData().catch(() => null);
+      const file = form?.get("image") as File | null;
+      if (!file) return c.json({ error: "no image field in form" }, 400);
+      bytes = Buffer.from(await file.arrayBuffer());
+      mime = file.type || "image/jpeg";
+    } else if (contentType.startsWith("image/")) {
+      bytes = Buffer.from(await c.req.arrayBuffer());
+      mime = contentType.split(";")[0].trim();
+    } else {
+      return c.json({ error: "send multipart/form-data with an 'image' field, or raw bytes with an image/* content-type" }, 400);
+    }
+    let result: Awaited<ReturnType<typeof ingestImageFromBuffer>>;
+    try {
+      result = await ingestImageFromBuffer(bytes, mime, { mediaDb, config: runtime.app.images, logger });
+    } catch (err: any) {
+      return c.json({ error: err?.message || "Image processing failed" }, 400);
+    }
+    const attached = attachAndCaption(slug, result.mediaId, result.isNew, result.width, result.height);
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({ ...attached, article: response });
+  });
+
+  app.delete("/api/article/:slug/image", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    removeArticleMedia(db, slug, 1);
+    invalidateArticleHtml(slug);
+    const response = buildArticleResponseFor(slug);
+    if (!response) return c.json({ error: "article not found" }, 404);
+    return c.json({ article: response });
+  });
+
+  app.patch("/api/article/:slug/image/caption", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const body = await c.req.json().catch(() => ({})) as { caption?: string };
+    const caption = typeof body.caption === "string" ? body.caption : null;
+    if (caption === null) return c.json({ error: "caption required" }, 400);
+    updateArticleMediaCaption(db, slug, 1, caption);
+    invalidateArticleHtml(slug);
+    return c.json({ ok: true });
+  });
+
   // Comments are intentionally disabled from the active application path for now.
   // Keep the implementation on disk, but do not mount the routes until the feature returns.
   app.use("/assets/*", serveStatic({ root: distRoot }));
@@ -3200,6 +3832,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       path === "/all-entries" ||
       path === "/admin" ||
       path === "/graph" ||
+      path.startsWith("/media/") ||
       routeSlug(path)
     ) {
       return c.html(await readFile(resolve(distRoot, "index.html"), "utf8"));

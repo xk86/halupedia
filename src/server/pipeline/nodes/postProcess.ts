@@ -15,21 +15,26 @@
  */
 
 import { defineNode } from "../runtime/nodeFactory";
-import type { PipelineDeps } from "../deps";
+import type { PipelineDeps, SidecarUpdateEvent } from "../deps";
 import {
   getArticleByLookup,
+  getArticleInfobox,
   listIncomingHints,
   saveArticleSeeAlso,
+  setArticleInfobox,
+  getArticleHeadlineMedia,
   updateArticleInPlace,
+  updateArticleMediaCaption,
+  type InfoboxData,
 } from "../../db";
+import { getMediaById } from "../../mediaDb";
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
   extractRefLinksAsInternalLinks,
   findBodyReferencedArticles,
-  linkMentionedReferencesInBody,
+  linkReferences,
   loadPriorReferenceList,
-  resolveRefLinks,
 } from "../../referenceList";
 import {
   extractInternalLinks,
@@ -44,6 +49,7 @@ import {
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
   indexArticleChunks,
+  flattenInfoboxForRag,
 } from "../../retrieval";
 import { slugify } from "../../slug";
 import type { ReferenceEntry } from "../state";
@@ -267,8 +273,7 @@ export const resolveLinksPostProcessNode = defineNode({
     const slug = slugify(input.slug ?? "");
     let body = normalizeMarkdownLinks(finalArticleBody ?? "", "article").markdown;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
-    body = resolveRefLinks(body, refs);
-    body = linkMentionedReferencesInBody(body, refs);
+    body = linkReferences(body, refs);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
     return { finalArticleBody: body };
@@ -472,7 +477,82 @@ export const updateArticleInPlaceNode = defineNode({
       summary_chars: summary.length,
     });
 
+    // Push the updated article body/summary/see-also to subscribed clients.
+    if (deps.onSidecarUpdate) {
+      const updated = getArticleByLookup(deps.db, slug);
+      if (updated) deps.onSidecarUpdate(slug, { type: "article", article: updated });
+    }
+
     return { persistedAt: now };
+  },
+});
+
+// ─── LLM: infobox generation ────────────────────────────────────────────────
+
+export const generateInfoboxNode = defineNode({
+  name: "llm.generate_infobox",
+  kind: "llm",
+  description:
+    "Generate structured infobox rows (heavy, JSON). Runs for all articles regardless of image.",
+  reads: ["finalArticleBody", "canonicalTitle", "input"] as const,
+  writes: ["infobox"] as const,
+  async run({ finalArticleBody, canonicalTitle, input }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    const body = finalArticleBody ?? "";
+    if (!slug || !body) return { infobox: undefined };
+
+    const title = canonicalTitle ?? input.requestedTitle ?? slug;
+    const excerpt = stripTopLevelSections(body, ["References", "See also"]).slice(0, 6000);
+
+    const rendered = deps.prompts.render("infobox", {
+      requested_title: title,
+      article_excerpt: excerpt,
+    });
+
+    try {
+      const raw = await deps.llm.chat(
+        rendered.role ?? "heavy",
+        rendered.system,
+        rendered.user,
+        { jsonMode: true, thinking: rendered.thinking },
+      );
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("no JSON in infobox response");
+      const parsed = JSON.parse(match[0]) as InfoboxData;
+      if (!parsed.title || !Array.isArray(parsed.groups)) throw new Error("invalid infobox shape");
+      return { infobox: parsed };
+    } catch (err) {
+      deps.logger.warn("pipeline.infobox.failed", {
+        slug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { infobox: undefined };
+    }
+  },
+});
+
+// ─── WRITE: persist infobox ───────────────────────────────────────────────────
+
+export const persistInfoboxNode = defineNode({
+  name: "write.persist_infobox",
+  kind: "write",
+  description: "Save generated infobox data to article_infobox sidecar.",
+  reads: ["input", "infobox"] as const,
+  writes: [] as const,
+  run({ input, infobox }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    if (!slug || !infobox) return {};
+    try {
+      setArticleInfobox(deps.db, slug, infobox as InfoboxData);
+      deps.logger.info("pipeline.infobox.saved", { slug });
+      deps.onSidecarUpdate?.(slug, { type: "infobox", infobox });
+    } catch (err) {
+      deps.logger.warn("pipeline.infobox.save_failed", {
+        slug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return {};
   },
 });
 
@@ -490,6 +570,22 @@ export const indexRagChunksNode = defineNode({
     if (!slug || !body) return { ragIndexed: false };
     const rag = deps.runtime.app.rag;
     const useEmbeddings = rag.enabled && deps.runtime.llm.embeddings.enabled;
+
+    // Include image description as a searchable chunk so other articles
+    // can discover and reference this article's image via RAG.
+    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
+    const imageDescriptions: Array<{ id: string; description: string }> = [];
+    if (headlineMedia && deps.mediaDb) {
+      const rec = getMediaById(deps.mediaDb, headlineMedia.mediaId);
+      if (rec?.description) {
+        imageDescriptions.push({ id: rec.id, description: rec.description });
+      }
+    }
+
+    // Include flattened infobox as a single relevance-ranked chunk.
+    const infobox = getArticleInfobox(deps.db, slug);
+    const infoboxText = infobox ? flattenInfoboxForRag(slug, infobox) : undefined;
+
     await indexArticleChunks(
       deps.db,
       deps.llm,
@@ -498,7 +594,71 @@ export const indexRagChunksNode = defineNode({
       useEmbeddings,
       rag.chunk_size,
       deps.logger,
+      imageDescriptions,
+      infoboxText,
     );
     return { ragIndexed: true };
+  },
+});
+
+// ─── LLM: sidebar caption refresh ────────────────────────────────────────────
+
+export const generateSidebarCaptionNode = defineNode({
+  name: "llm.generate_sidebar_caption",
+  kind: "llm",
+  description:
+    "Re-generate the per-article sidepane caption from the freshly-saved article body. " +
+    "Runs after every article write so the caption stays in sync with the content. " +
+    "Skipped silently when the article has no headline image or media DB is unavailable.",
+  reads: ["input", "finalArticleBody", "canonicalTitle"] as const,
+  writes: [] as const,
+  async run({ input, finalArticleBody, canonicalTitle }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    const body = finalArticleBody ?? "";
+    if (!slug || !body || !deps.mediaDb) return {};
+
+    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
+    if (!headlineMedia) return {};
+
+    // Only generate if caption is not yet set — avoids an LLM call on every
+    // refresh/rewrite. Caption is cleared when a new image is attached.
+    if (headlineMedia.caption) return {};
+
+    const mediaRecord = getMediaById(deps.mediaDb, headlineMedia.mediaId);
+    if (!mediaRecord?.description) return {};
+
+    const title = canonicalTitle ?? input.requestedTitle ?? slug;
+    const articleExcerpt = stripTopLevelSections(body, ["References", "See also"]).slice(0, 1500);
+
+    const rendered = deps.prompts.render("image_caption", {
+      requested_title: title,
+      image_description: mediaRecord.description,
+      article_excerpt: articleExcerpt,
+    });
+
+    try {
+      const raw = await deps.llm.chat(
+        "images",
+        rendered.system,
+        rendered.user,
+        { jsonMode: true },
+      );
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error("no JSON in caption response");
+      const parsed = JSON.parse(match[0]) as Partial<Record<string, string>>;
+      const caption = String(parsed.caption ?? "").replace(/\s+/g, " ").trim();
+      if (caption) {
+        updateArticleMediaCaption(deps.db, slug, 1, caption);
+        deps.logger.info("pipeline.sidebar_caption.saved", { slug, mediaId: headlineMedia.mediaId });
+        deps.onSidecarUpdate?.(slug, { type: "caption", caption, mediaId: headlineMedia.mediaId });
+      }
+    } catch (err) {
+      deps.logger.warn("pipeline.sidebar_caption.failed", {
+        slug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return {};
   },
 });

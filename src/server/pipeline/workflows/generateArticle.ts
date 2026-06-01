@@ -19,8 +19,10 @@ import type { PipelineDeps } from "../deps";
 import {
   readArticleNode,
   readRecentEditHistoryNode,
+  readHeadlineImageNode,
   retrieveContextNode,
   buildReferenceListNode,
+  readInfoboxRefsNode,
   renderArticlePromptNode,
   callArticleModelNode,
   extractArticleBodyNode,
@@ -32,6 +34,7 @@ import {
   validateBodyNode,
   persistArticleNode,
 } from "../nodes/articleGeneration";
+import { generateInfoboxNode, persistInfoboxNode } from "../nodes/postProcess";
 
 export const generateArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
   name: "article.generate",
@@ -39,8 +42,10 @@ export const generateArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
   edges: [
     { node: readArticleNode },
     { node: readRecentEditHistoryNode },
+    { node: readHeadlineImageNode },
     { node: retrieveContextNode },
     { node: buildReferenceListNode },
+    { node: readInfoboxRefsNode },
     { node: renderArticlePromptNode },
     { node: callArticleModelNode },
     { node: extractArticleBodyNode },
@@ -49,7 +54,9 @@ export const generateArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: deriveIdentityNode },
     { node: resolveLinksNode },
     { node: generateSummaryNode },
+    { node: generateInfoboxNode },
     { node: validateBodyNode },
     { node: persistArticleNode },
+    { node: persistInfoboxNode },
   ],
 };

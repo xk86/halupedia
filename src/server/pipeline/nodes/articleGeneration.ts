@@ -22,9 +22,12 @@ import {
   saveArticleSeeAlso,
   getLatestArticleReferences,
   getArticleByLookup,
+  getArticleHeadlineMedia,
+  getArticleInfobox,
   type IncomingHint,
   listIncomingHints,
 } from "../../db";
+import { getMediaById } from "../../mediaDb";
 import {
   retrieveContext as retrieveContextLegacy,
   retrieveDirectArticleContext,
@@ -34,9 +37,9 @@ import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
   findBodyReferencedArticles,
-  linkMentionedReferencesInBody,
+  linkReferences,
   loadPriorReferenceList,
-  resolveRefLinks,
+
   formatReferencesForPromptText,
 } from "../../referenceList";
 import {
@@ -327,6 +330,91 @@ function slugsToUserAdditions(
   return refs;
 }
 
+// ─── READ: headline image context ────────────────────────────────────────────
+
+export const readHeadlineImageNode = defineNode({
+  name: "read.headline_image",
+  kind: "read",
+  description:
+    "Load the current article's headline image description from article_media + media DB. " +
+    "Formats a context block injected into the generation/rewrite/refresh prompts.",
+  reads: ["input"] as const,
+  writes: ["headlineImageContext"] as const,
+  run({ input }, deps: PipelineDeps) {
+    const slug = input.slug ?? "";
+    if (!slug || !deps.mediaDb) return { headlineImageContext: "" };
+
+    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
+    if (!headlineMedia) return { headlineImageContext: "" };
+
+    const record = getMediaById(deps.mediaDb, headlineMedia.mediaId);
+    if (!record || !record.description) return { headlineImageContext: "" };
+
+    const caption = headlineMedia.caption || record.description;
+    const lines = [
+      `This article has a headline image attached:`,
+      `  Slug: img:${record.id}`,
+      `  Description: ${record.description}`,
+      `  Caption: ${caption}`,
+      ``,
+      `To embed this image in the article body use: ![your caption here](media:${record.id})`,
+      `If the context above mentions images from other articles (lines starting with [img:...]),`,
+      `you may also reference those using the same syntax: ![caption](media:their-slug)`,
+    ];
+    return { headlineImageContext: lines.join("\n") };
+  },
+});
+
+export const readInfoboxRefsNode = defineNode({
+  name: "read.infobox_refs",
+  kind: "read",
+  description:
+    "Scan the article's infobox values for ref:slug links and merge the referenced " +
+    "articles into the reference list. This ensures sidebar-linked articles are also " +
+    "included in the prompt context and the references sidecar.",
+  reads: ["input", "references"] as const,
+  writes: ["references"] as const,
+  run({ input, references }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    if (!slug) return { references };
+
+    const infobox = getArticleInfobox(deps.db, slug);
+    if (!infobox) return { references };
+
+    const existing = new Set((references ?? []).map((r) => r.slug));
+    const toAdd: ReferenceEntry[] = [];
+
+    const REF_RE = /\[([^\]]+)\]\(ref:([a-z0-9-]+)\)/g;
+    const allValues = [
+      infobox.subtitle ?? "",
+      ...infobox.groups.flatMap((g) => g.rows.map((r) => r.value)),
+    ];
+
+    for (const val of allValues) {
+      let m: RegExpExecArray | null;
+      REF_RE.lastIndex = 0;
+      while ((m = REF_RE.exec(val)) !== null) {
+        const refSlug = m[2];
+        if (existing.has(refSlug)) continue;
+        const article = getArticleByLookup(deps.db, refSlug);
+        if (!article) continue;
+        existing.add(refSlug);
+        toAdd.push({
+          slug: article.slug,
+          title: article.title,
+          content: article.summaryMarkdown ?? summaryMarkdownFromArticle(article.markdown),
+          kind: "summary",
+          pinned: false,
+          source: "body",
+        });
+      }
+    }
+
+    if (toAdd.length === 0) return { references };
+    return { references: [...(references ?? []), ...toAdd] };
+  },
+});
+
 // ─── LLM nodes ───────────────────────────────────────────────────────────────
 
 export const renderArticlePromptNode = defineNode({
@@ -338,10 +426,11 @@ export const renderArticlePromptNode = defineNode({
     "references",
     "retrievedContext",
     "recentEditHistory",
+    "headlineImageContext",
   ] as const,
   writes: ["renderedPrompt"] as const,
   run(
-    { input, references, retrievedContext, recentEditHistory },
+    { input, references, retrievedContext, recentEditHistory, headlineImageContext },
     deps: PipelineDeps,
   ) {
     const refs = (references ?? []).map((r) =>
@@ -367,6 +456,7 @@ export const renderArticlePromptNode = defineNode({
         .join("\n"),
       recent_edit_history: recentEditHistory ?? "",
       link_hints: linkHints || "(none)",
+      headline_image: headlineImageContext ?? "",
     });
     return { renderedPrompt: rendered };
   },
@@ -539,8 +629,7 @@ export const resolveLinksNode = defineNode({
     }
 
     body = normalizeMarkdownLinks(body, "article").markdown;
-    body = resolveRefLinks(body, refs);
-    body = linkMentionedReferencesInBody(body, refs);
+    body = linkReferences(body, refs);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
 

@@ -1,9 +1,11 @@
 import MarkdownIt from "markdown-it";
+import markdownItContainer from "markdown-it-container";
 import katex from "katex";
 import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
 import type { ArticleSection, ParsedInternalLink } from "./types";
 import { buildHaluLink, extractHaluLinks } from "./text/links/haluLinks";
 import { normalizeMarkdownLinks } from "./text/linkNormalize";
+import { parseMarkdownLinks } from "./text/markdownLinkParser";
 
 // Matches already-normalised halu links produced by normalizeHaluLinks.
 // The slug has no spaces (slugify was applied), hints may use " or '.
@@ -66,6 +68,34 @@ const md = new MarkdownIt({
   linkify: false,
   breaks: false,
 });
+
+// :::sidebar … ::: → <aside class="sidebar-block">
+md.use(markdownItContainer, "sidebar", {
+  render(tokens: any[], idx: number) {
+    return tokens[idx].nesting === 1
+      ? '<aside class="sidebar-block">\n'
+      : "</aside>\n";
+  },
+});
+
+// media: image scheme — render as click-to-media-page linked image
+const defaultImageRule =
+  (md.renderer.rules.image as ((...args: any[]) => string) | undefined) ??
+  ((tokens: any[], idx: number, options: any, _env: any, self: any) =>
+    self.renderToken(tokens, idx, options) as string);
+
+md.renderer.rules.image = (tokens: any[], idx: number, options: any, env: any, self: any) => {
+  const token = tokens[idx];
+  const srcIdx = token.attrIndex("src");
+  const src: string = srcIdx >= 0 ? (token.attrs[srcIdx][1] as string) : "";
+  if (src.startsWith("media:")) {
+    // Headline images are sidebar-only. Suppress the inline embed in rendered HTML
+    // so the caption doesn't appear as stray body text. The markdown `![](media:slug)`
+    // is preserved in storage so backlink scanning in db.ts continues to work.
+    return "";
+  }
+  return defaultImageRule(tokens, idx, options, env, self);
+};
 
 function escapeHtml(value: string): string {
   return value
@@ -335,6 +365,13 @@ export function renderMarkdown(markdown: string): string {
   return md.render(normalizeHaluLinks(markdown));
 }
 
+/** Render a single line of markdown as inline HTML — no wrapping block element.
+ *  Used for infobox values and captions that need bold/italic/ref-link support. */
+export function renderInlineMarkdown(text: string): string {
+  const html = md.renderInline(normalizeHaluLinks(text));
+  return html;
+}
+
 export function summaryMarkdownFromArticle(markdown: string): string {
   const withoutTitle = markdown.replace(/^#\s+.+?$/m, "").trim();
   const withoutDerivedSections = stripTopLevelSections(withoutTitle, [
@@ -384,12 +421,25 @@ export function extractDisplayTitle(markdown: string): string | undefined {
 }
 
 export function stripSelfLinks(markdown: string, selfSlug: string): string {
-  return normalizeHaluLinks(markdown).replace(
+  const normalized = slugify(selfSlug);
+  // Strip halu: self-links.
+  let result = normalizeHaluLinks(markdown).replace(
     LINK_RE,
-    (match, visibleLabel, rawSlug) => {
-      return slugify(rawSlug) === selfSlug ? visibleLabel : match;
-    },
+    (match, visibleLabel, rawSlug) => slugify(rawSlug) === normalized ? visibleLabel : match,
   );
+  // Also strip ref:self-slug links — these are not covered by LINK_RE.
+  if (!result.includes("ref:") || !result.includes(normalized)) return result;
+  const selfRefLinks = parseMarkdownLinks(result).links
+    .filter((l) => l.kind === "ref" && slugify(l.slug ?? l.target) === normalized);
+  if (selfRefLinks.length === 0) return result;
+  let out = "";
+  let cursor = 0;
+  for (const link of selfRefLinks) {
+    out += result.slice(cursor, link.start);
+    out += link.label.trim() || slugToTitle(normalized);
+    cursor = link.end;
+  }
+  return out + result.slice(cursor);
 }
 
 export function leadBoldsTitle(markdown: string, title: string): boolean {

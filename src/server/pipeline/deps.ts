@@ -23,6 +23,9 @@ import type { PromptRegistry } from "./prompts/registry";
 
 export interface PipelineDeps {
   db: DatabaseSync;
+  /** Media database (separate SQLite for image blobs). Optional so test
+   *  harnesses that don't exercise image paths can omit it. */
+  mediaDb?: DatabaseSync;
   llm: LlmRouter;
   prompts: PromptRegistry;
   logger: Logger;
@@ -33,4 +36,16 @@ export interface PipelineDeps {
    * (rendered HTML + raw markdown), enabling live preview on the client.
    */
   onProgress?: (html: string, markdown: string) => void;
+  /**
+   * Optional sidecar push callback. Called by post-process write nodes when
+   * they update sidecar data (infobox, caption, summary, see-also) so any
+   * client subscribed to the article's /api/article/:slug/live stream receives
+   * the update immediately without polling.
+   */
+  onSidecarUpdate?: (slug: string, event: SidecarUpdateEvent) => void;
 }
+
+export type SidecarUpdateEvent =
+  | { type: "infobox"; infobox: unknown }
+  | { type: "caption"; caption: string; mediaId: string }
+  | { type: "article"; article: unknown };

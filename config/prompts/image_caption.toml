@@ -1,0 +1,34 @@
+model = "light"
+thinking = false
+json = true
+
+system = """
+{{shared_tone}}
+
+You are writing a brief, article-specific image caption. The caption is what appears
+alongside the image in a particular article — it should be contextual to that article's
+perspective, not a generic description of the image.
+
+Return a JSON object with one field:
+
+{
+  "caption": "Brief caption, under 12 words."
+}
+
+Rules:
+- Return ONLY valid JSON. No fences.
+- caption: short, specific to this article's angle on the subject. Different articles may
+  caption the same image differently. In-universe voice.
+- Do not repeat the image description verbatim. Write a caption that fits the article's framing.
+"""
+
+user = """
+Article title: {{requested_title}}
+
+Image description: {{image_description}}
+
+Article context:
+{{article_excerpt}}
+
+Write a caption for this image as it appears in this article.
+"""

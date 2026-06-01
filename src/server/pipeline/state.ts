@@ -76,6 +76,10 @@ export const WorkflowInputSchema = z.object({
   /** Caller-provided markdown for no-LLM save workflows. */
   rawMarkdown: z.string().optional(),
 
+  // Image caption-specific ─────────────────────────────────────────────────
+  /** Media DB id of the image to caption. */
+  imageId: z.string().optional(),
+
 });
 export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
 
@@ -237,6 +241,26 @@ export const PipelineStateSchema = z.object({
   // Homepage ────────────────────────────────────────────────────────────────
   /** Homepage cache payload produced by homepage.refresh. */
   homepagePayload: z.unknown().optional(),
+
+  // Infobox ────────────────────────────────────────────────────────────────
+  /** LLM-generated infobox data (post-process only). */
+  infobox: z.unknown().optional(),
+
+  // Headline image context (for prompt injection) ──────────────────────────
+  /** Formatted description of the current article's headline image, or ""
+   *  if none attached. Injected into generation/rewrite/refresh prompts. */
+  headlineImageContext: z.string().optional(),
+
+  // Image caption ──────────────────────────────────────────────────────────
+  /** LLM-generated caption result for the image.caption workflow. */
+  imageCaptionResult: z
+    .object({
+      titleSlug: z.string(),
+      description: z.string(),
+      /** Per-article short caption generated from description + article context. */
+      articleCaption: z.string().optional(),
+    })
+    .optional(),
 
 });
 export type PipelineState = z.infer<typeof PipelineStateSchema>;

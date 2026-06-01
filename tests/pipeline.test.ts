@@ -895,12 +895,24 @@ test("linkMentionedReferencesInBody: title mention gets a ref link", () => {
   assert.match(linked, /ref:glow-fruit/);
 });
 
-test("linkMentionedReferencesInBody: already-linked title not double-linked", () => {
+test("linkMentionedReferencesInBody: bare mention after an existing link also gets linked", () => {
+  // New behaviour: every bare mention is linked, not just the first.
   const refs: ReferenceList = [makeRef("glow-fruit", "Glow Fruit")];
   const body = "[Glow Fruit](ref:glow-fruit) is mentioned and Glow Fruit appears again.";
   const linked = linkMentionedReferencesInBody(body, refs);
+  // The already-linked first occurrence must not be double-wrapped; the bare
+  // second occurrence must gain a link.
   const refCount = (linked.match(/ref:glow-fruit/g) ?? []).length;
-  assert.equal(refCount, 1, "title mention should not be double-linked");
+  assert.equal(refCount, 2, "bare second mention should also be linked");
+  assert.doesNotMatch(linked, /\[\[Glow Fruit\]/, "must not double-wrap existing link");
+});
+
+test("linkMentionedReferencesInBody: all occurrences are linked", () => {
+  const refs: ReferenceList = [makeRef("glow-fruit", "Glow Fruit")];
+  const body = "Glow Fruit is great. We love Glow Fruit. Glow Fruit forever.";
+  const linked = linkMentionedReferencesInBody(body, refs);
+  const refCount = (linked.match(/ref:glow-fruit/g) ?? []).length;
+  assert.equal(refCount, 3, "all three occurrences should be linked");
 });
 
 test("linkMentionedReferencesInBody: no-op when refs is empty", () => {

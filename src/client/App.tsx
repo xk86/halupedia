@@ -583,6 +583,9 @@ export function App() {
     return () => {
       cancelled = true;
       inFlightSlugRef.current = null;
+      // Abort any in-flight rewrite/refresh stream when navigating away.
+      activeOperationRef.current?.abort();
+      activeOperationRef.current = null;
     };
   }, [route]);
 
@@ -874,13 +877,18 @@ export function App() {
   const rewriteArticle = useCallback(async () => {
     if (!page?.article.slug || !editDraft.trim() || editBusy) return;
     const previousPage = page;
+    const targetSlug = page.article.slug;
+    const ac = new AbortController();
+    activeOperationRef.current?.abort();
+    activeOperationRef.current = ac;
     setEditBusy(true);
     setEditError(null);
     setPage((current) => current ? { ...current, statusMessage: "Rewriting article..." } : current);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/rewrite?stream=1`, {
+      const res = await fetch(`/api/article/${encodeURIComponent(targetSlug)}/rewrite?stream=1`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+        signal: ac.signal,
         body: JSON.stringify({
           instructions: editDraft,
           ...(editSectionId === "__selection__"
@@ -934,14 +942,15 @@ export function App() {
             | { type: "progress"; html: string; markdown?: string }
             | ({ type: "done" } & PageData)
             | { type: "error"; message: string };
+          if (ac.signal.aborted) break;
           if (event.type === "status") {
             setPage((current) =>
-              current ? { ...current, statusMessage: event.message } : current
+              current?.article.slug === targetSlug ? { ...current, statusMessage: event.message } : current
             );
           } else if (event.type === "progress") {
             streamedHtml = event.html;
             setPage((current) =>
-              current
+              current?.article.slug === targetSlug
                 ? {
                   ...current,
                   cached: false,
@@ -982,15 +991,16 @@ export function App() {
         (async () => {
           for (let i = 0; i < 40; i++) {
             await new Promise((r) => window.setTimeout(r, 3000));
+            if (ac.signal.aborted) return;
             try {
-              const res = await fetch(`/api/page/${encodeURIComponent(toWikiSegment(pollTitle))}?wait=0`);
+              const res = await fetch(`/api/page/${encodeURIComponent(toWikiSegment(pollTitle))}?wait=0`, { signal: ac.signal });
               if (!res.ok) continue;
               const data: PageData = await res.json();
               if ((data.article.generated_at ?? 0) > (pollGeneratedAt ?? 0) || data.article.markdown !== doneArticle!.markdown) {
                 setPage((current) => current?.article.slug === pollSlug ? data : current);
                 return;
               }
-            } catch { /* keep polling */ }
+            } catch { return; }
           }
         })();
       }
@@ -1015,6 +1025,7 @@ export function App() {
       // Reload refs from the freshly-saved article so the panel stays accurate.
       if (page?.article.slug) loadEditRefs(page.article.slug);
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       setPage(previousPage);
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
@@ -1023,12 +1034,17 @@ export function App() {
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
+    const targetSlug = page.article.slug;
+    const ac = new AbortController();
+    activeOperationRef.current?.abort();
+    activeOperationRef.current = ac;
     setRefreshBusy(true);
     setRefreshMessage("Refreshing with retrieved context...");
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/refresh-context?stream=1`, {
+      const res = await fetch(`/api/article/${encodeURIComponent(targetSlug)}/refresh-context?stream=1`, {
         method: "POST",
         headers: { accept: "application/x-ndjson" },
+        signal: ac.signal,
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
@@ -1055,11 +1071,12 @@ export function App() {
             | { type: "progress"; html: string; markdown?: string }
             | ({ type: "done" } & PageData)
             | { type: "error"; message: string };
+          if (ac.signal.aborted) break;
           if (event.type === "status") {
             setRefreshMessage(event.message);
           } else if (event.type === "progress") {
             setPage((current) =>
-              current
+              current?.article.slug === targetSlug
                 ? {
                   ...current,
                   cached: false,
@@ -1097,6 +1114,7 @@ export function App() {
       setRevisions([]);
       setHistoryLoaded(false);
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       setRefreshMessage(err?.message || "Could not refresh references.");
       console.error("[app] refresh_context_failed", err);
     } finally {

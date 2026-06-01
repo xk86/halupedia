@@ -631,40 +631,52 @@ function titleMentionPattern(title: string): RegExp | null {
 }
 
 /**
- * Ensure every reference that is visibly mentioned by exact title text has an
- * inline ref:slug link. This is deliberately bounded deterministic repair:
- * no fuzzy matching, no LLM, no edits inside existing markdown links/code.
+ * Ensure every bare mention of a reference title becomes a ref:slug link.
+ *
+ * Links ALL occurrences, not just the first. Longest title wins when titles
+ * overlap (e.g. "Trans Ethology" beats "Ethology"). Skips text already inside
+ * a markdown link, code span, or a range already claimed by a longer match.
+ * No LLM, no fuzzy matching — pure deterministic text processing.
  */
 export function linkMentionedReferencesInBody(
   body: string,
   refs: ReferenceList,
 ): string {
   if (refs.length === 0) return body;
-  let nextBody = body;
-  let linked = collectReferenceLinkSlugs(nextBody);
 
-  // Process longest titles first so "The X Industry" beats the substring "X".
+  // Longest title first so longer matches claim their ranges before shorter ones.
   const sortedRefs = [...refs].sort((a, b) => b.title.length - a.title.length);
 
+  // Collect ALL matches upfront (before any string mutation so indices stay valid).
+  type Match = { start: number; end: number; slug: string; visible: string };
+  const matches: Match[] = [];
+  // Ranges already claimed by a longer-title match — prevents overlapping links.
+  const claimed: Array<{ start: number; end: number }> = [];
+  const initialProtected = markdownProtectedRanges(body);
+
   for (const ref of sortedRefs) {
-    if (linked.has(ref.slug)) continue;
     const pattern = titleMentionPattern(ref.title);
     if (!pattern) continue;
-    const protectedRanges = markdownProtectedRanges(nextBody);
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(nextBody)) !== null) {
-      if (isInsideRange(match.index, protectedRanges)) continue;
-      const visible = match[0];
-      nextBody =
-        nextBody.slice(0, match.index) +
-        `[${visible}](ref:${ref.slug})` +
-        nextBody.slice(match.index + visible.length);
-      linked = collectReferenceLinkSlugs(nextBody);
-      break;
+    const blocked = [...initialProtected, ...claimed];
+    let m: RegExpExecArray | null;
+    pattern.lastIndex = 0;
+    while ((m = pattern.exec(body)) !== null) {
+      const end = m.index + m[0].length;
+      if (isInsideRange(m.index, blocked)) continue;
+      claimed.push({ start: m.index, end });
+      matches.push({ start: m.index, end, slug: ref.slug, visible: m[0] });
     }
   }
 
-  return nextBody;
+  if (matches.length === 0) return body;
+
+  // Apply substitutions from end → start so earlier indices stay valid.
+  matches.sort((a, b) => b.start - a.start);
+  let result = body;
+  for (const r of matches) {
+    result = result.slice(0, r.start) + `[${r.visible}](ref:${r.slug})` + result.slice(r.end);
+  }
+  return result;
 }
 
 /**

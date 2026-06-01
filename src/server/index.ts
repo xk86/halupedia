@@ -885,7 +885,25 @@ export async function createApp(options: CreateAppOptions = {}) {
   function notifySidecar(slug: string, event: unknown) {
     const listeners = articleListeners.get(slug);
     if (!listeners) return;
-    for (const cb of listeners) { try { cb(event); } catch {} }
+    // Pre-render infobox values inline so the client receives HTML, not raw markdown.
+    let wire = event as Record<string, unknown>;
+    if (wire.type === "infobox" && wire.infobox) {
+      const raw = wire.infobox as { title?: string; subtitle?: string; groups?: Array<{ label: string; rows: Array<{ label: string; value: string }> }> };
+      wire = {
+        ...wire,
+        infobox: {
+          ...raw,
+          subtitle: raw.subtitle ? renderInlineMarkdown(raw.subtitle) : undefined,
+          groups: (raw.groups ?? []).map((g) => ({
+            label: g.label,
+            rows: g.rows.map((r) => ({ label: r.label, value: renderInlineMarkdown(r.value) })),
+          })),
+        },
+      };
+    } else if (wire.type === "caption" && typeof wire.caption === "string") {
+      wire = { ...wire, caption: renderInlineMarkdown(wire.caption) };
+    }
+    for (const cb of listeners) { try { cb(wire); } catch {} }
   }
 
   const maintenance = new MaintenanceScheduler(logger);

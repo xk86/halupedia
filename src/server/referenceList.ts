@@ -543,11 +543,10 @@ export const formatReferencesForPromptJson = formatReferencesForPromptText;
  *   - If the target does NOT resolve (sidecar list empty or slug not in list),
  *     empty brackets are still filled with the slug-derived title so `[]` never
  *     appears in rendered output.
- *   - Duplicate occurrences of the same slug collapse to plain text.
+ *   - Every occurrence of the same slug remains a full anchor link.
  */
 export function resolveRefLinks(body: string, refs: ReferenceList): string {
   if (!body.includes("ref:")) return body;
-  const seen = new Set<string>();
   const parsed = parseMarkdownLinks(body).links.filter((link) => link.kind === "ref");
   if (parsed.length === 0) return body;
   let output = "";
@@ -565,14 +564,7 @@ export function resolveRefLinks(body: string, refs: ReferenceList): string {
       }
     } else {
       const label = visibleText || ref.title;
-      // First occurrence: anchor link. Subsequent occurrences: plain text only,
-      // with inline formatting stripped so bold/italic from the link label doesn't
-      // bleed into plain-text repetitions.
-      if (seen.has(ref.slug)) replacement = label.replace(/\*\*?|__?|~~|`/g, "");
-      else {
-        seen.add(ref.slug);
-        replacement = `[${label}](ref:${ref.slug})`;
-      }
+      replacement = `[${label}](ref:${ref.slug})`;
     }
     output += body.slice(cursor, link.start);
     output += replacement;
@@ -581,6 +573,30 @@ export function resolveRefLinks(body: string, refs: ReferenceList): string {
   output += body.slice(cursor);
   return output;
 }
+
+/**
+ * Full deterministic reference-linking pass: resolves existing ref: links
+ * (numeric → slug, empty bracket fill) then links every bare title mention
+ * that isn't already inside a link or code span.
+ *
+ * Pass `selfSlug` to filter the self-article from refs and strip any surviving
+ * self-links from the output. Pure text processing — no LLM.
+ */
+export function linkReferences(text: string, refs: ReferenceList, selfSlug?: string): string {
+  const filtered = selfSlug
+    ? refs.filter((r) => r.slug !== slugify(selfSlug))
+    : refs;
+  let result = resolveRefLinks(text, filtered);
+  result = linkMentionedReferencesInBody(result, filtered);
+  return result;
+}
+
+/**
+ * Same as linkReferences but for single-line inline text (infobox values,
+ * captions, subtitles). No self-link concept for sidebar values.
+ */
+export const linkReferencesInline = (text: string, refs: ReferenceList): string =>
+  linkReferences(text, refs);
 
 export function resolveReferenceTarget(
   target: string,
@@ -655,6 +671,10 @@ export function linkMentionedReferencesInBody(
   const initialProtected = markdownProtectedRanges(body);
 
   for (const ref of sortedRefs) {
+    // Skip single-word titles shorter than 8 chars (e.g. "Oil", "War") to avoid
+    // false positives. Multi-word titles are specific enough regardless of length.
+    const titleWords = ref.title.trim().split(/\s+/).filter(Boolean);
+    if (titleWords.length < 2 && (titleWords[0]?.length ?? 0) < 8) continue;
     const pattern = titleMentionPattern(ref.title);
     if (!pattern) continue;
     const blocked = [...initialProtected, ...claimed];

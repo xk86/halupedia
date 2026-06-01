@@ -64,6 +64,8 @@ import {
   findTitleMentionedArticles,
   formatReferencesForPrompt,
   linkMentionedReferencesInBody,
+  linkReferences,
+  linkReferencesInline,
   renderReferencesHtml,
   resolveRefLinks,
 } from "../src/server/referenceList";
@@ -760,14 +762,14 @@ test("resolveRefLinks: ref:N numeric resolved to canonical ref:slug form", () =>
   assert.doesNotMatch(resolved, /\(ref:2\)/);
 });
 
-test("resolveRefLinks: second occurrence of same ref collapses to plain text", () => {
+test("resolveRefLinks: every occurrence of the same ref stays as a full anchor link", () => {
   const refs: ReferenceList = [makeRef("glow-fruit", "Glow Fruit")];
   const body = "[Glow Fruit](ref:glow-fruit) then [Glow Fruit](ref:glow-fruit) again.";
   const resolved = resolveRefLinks(body, refs);
-  // First stays as ref:glow-fruit; second becomes plain text
+  // Both occurrences must remain as ref:glow-fruit anchor links.
   const refCount = (resolved.match(/ref:glow-fruit/g) ?? []).length;
-  assert.equal(refCount, 1, "second occurrence must be collapsed to plain text");
-  assert.match(resolved, /then Glow Fruit again/);
+  assert.equal(refCount, 2, "second occurrence must not be collapsed to plain text");
+  assert.match(resolved, /\[Glow Fruit\]\(ref:glow-fruit\).*\[Glow Fruit\]\(ref:glow-fruit\)/);
 });
 
 test("resolveRefLinks: empty ref list returns body unchanged", () => {
@@ -957,6 +959,59 @@ test("linkMentionedReferencesInBody: parenthetical title does not match bare sub
   const body = "We use the Vector Space definition here.";
   const linked = linkMentionedReferencesInBody(body, refs);
   assert.doesNotMatch(linked, /ref:vector-space-real/);
+});
+
+test("linkMentionedReferencesInBody: short ref title (< 2 words, < 12 chars) not over-matched", () => {
+  // Single-word short titles should be skipped by the specificity guard to avoid false positives.
+  const refs: ReferenceList = [makeRef("oil", "Oil")];
+  const body = "Crude oil is refined into petroleum. Oil is important.";
+  const linked = linkMentionedReferencesInBody(body, refs);
+  // "Oil" is too short/non-specific to be auto-linked
+  assert.doesNotMatch(linked, /ref:oil/);
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   linkReferences / linkReferencesInline
+   ───────────────────────────────────────────────────────────────── */
+
+test("linkReferences: resolves numeric ref AND links bare mention in one pass", () => {
+  const refs: ReferenceList = [makeRef("fluid-dynamics", "Fluid Dynamics")];
+  const body = "[see ref](ref:1) and also Fluid Dynamics appears here.";
+  const result = linkReferences(body, refs);
+  // Numeric ref resolved
+  assert.match(result, /ref:fluid-dynamics/);
+  // Bare mention also linked (the "and also Fluid Dynamics" part)
+  const refCount = (result.match(/ref:fluid-dynamics/g) ?? []).length;
+  assert.ok(refCount >= 2, "both the numeric ref and the bare mention should be linked");
+});
+
+test("linkReferences: does not double-link already-linked text", () => {
+  const refs: ReferenceList = [makeRef("trans-ethology", "Trans Ethology")];
+  const body = "[Trans Ethology](ref:trans-ethology) is discussed here.";
+  const result = linkReferences(body, refs);
+  // Should not produce [[Trans Ethology](ref:trans-ethology)](ref:trans-ethology)
+  assert.doesNotMatch(result, /\[\[/);
+  assert.equal((result.match(/ref:trans-ethology/g) ?? []).length, 1);
+});
+
+test("linkReferencesInline: links a ref title inside a short infobox value string", () => {
+  const refs: ReferenceList = [makeRef("quantum-field-theory", "Quantum Field Theory")];
+  const value = "Developed from Quantum Field Theory principles.";
+  const result = linkReferencesInline(value, refs);
+  assert.match(result, /ref:quantum-field-theory/);
+});
+
+test("linkReferences: word boundary prevents matching inside a larger word", () => {
+  const refs: ReferenceList = [makeRef("rain-forest", "Rain Forest")];
+  const body = "The RainForest ecosystem differs from Rain Forest biomes.";
+  const result = linkReferences(body, refs);
+  // "RainForest" (no space, no word boundary between words) must not get a ref link.
+  // "Rain Forest" (with space) must become a ref link.
+  const matches = result.match(/\[Rain Forest\]\(ref:rain-forest\)/g) ?? [];
+  assert.equal(matches.length, 1, "only the spaced 'Rain Forest' should be linked");
+  // "RainForest" must appear as plain text (not inside a link bracket).
+  assert.match(result, /The RainForest ecosystem/);
+  assert.doesNotMatch(result, /\[RainForest\]/);
 });
 
 /* ─────────────────────────────────────────────────────────────────
@@ -1861,14 +1916,14 @@ test("resolveRefLinks: body with no ref: links returned unchanged", () => {
   assert.equal(resolved, body);
 });
 
-test("resolveRefLinks: three occurrences — first kept, rest collapsed", () => {
+test("resolveRefLinks: three occurrences — all stay as anchor links", () => {
+  // Note: "R" is a single short word; the mention-linker's specificity guard would
+  // skip it, but these are already explicit ref: links so resolveRefLinks keeps them.
   const refs: ReferenceList = [makeRef("r", "R")];
   const body = "[R](ref:r) and [R](ref:r) and [R](ref:r) end.";
   const resolved = resolveRefLinks(body, refs);
   const refCount = (resolved.match(/ref:r/g) ?? []).length;
-  assert.equal(refCount, 1);
-  const plainCount = (resolved.match(/\bR\b/g) ?? []).length;
-  assert.ok(plainCount >= 3, "all three occurrences should show the label");
+  assert.equal(refCount, 3, "all three explicit ref: links must remain as anchors");
 });
 
 /* ─────────────────────────────────────────────────────────────────

@@ -69,6 +69,26 @@ function lexicalScore(queryWords: string[], content: string): number {
   return hits / queryWords.length;
 }
 
+/** Flatten an infobox JSON object into a single plain-text chunk for RAG indexing. */
+export function flattenInfoboxForRag(
+  slug: string,
+  infobox: { title?: string; subtitle?: string; groups?: Array<{ label: string; rows: Array<{ label: string; value: string }> }> },
+): string {
+  const lines: string[] = [`[infobox:${slug}]`];
+  if (infobox.title) lines.push(infobox.title);
+  if (infobox.subtitle) {
+    // Strip markdown link syntax so only the visible text is embedded/matched.
+    lines.push(infobox.subtitle.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"));
+  }
+  for (const group of infobox.groups ?? []) {
+    for (const row of group.rows) {
+      const value = row.value.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+      lines.push(`${row.label}: ${value}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export async function indexArticleChunks(
   db: DatabaseSync,
   llm: LlmRouter,
@@ -77,17 +97,19 @@ export async function indexArticleChunks(
   useEmbeddings: boolean,
   chunkSize: number,
   logger?: Logger,
-  /** Image descriptions to index alongside the text chunks.
-   *  Each entry becomes a searchable chunk so other articles can discover
-   *  and reference the image via its description during RAG retrieval. */
+  /** Image descriptions to index alongside the text chunks. */
   imageDescriptions: Array<{ id: string; description: string }> = [],
+  /** Flattened infobox text (from flattenInfoboxForRag). One chunk, relevance-gated. */
+  infoboxText?: string,
 ) {
   const textChunks = chunkText(markdown, chunkSize);
   // Append one chunk per attached image that has a description.
   const imgChunks = imageDescriptions
     .filter((img) => img.description.trim())
     .map((img) => `[img:${img.id}]\n${img.description.trim()}`);
-  const chunks = [...textChunks, ...imgChunks];
+  // Append one infobox chunk when available so sidebar data is discoverable via RAG.
+  const infoboxChunks = infoboxText?.trim() ? [infoboxText.trim()] : [];
+  const chunks = [...textChunks, ...imgChunks, ...infoboxChunks];
 
   const embeddings = useEmbeddings && chunks.length ? await llm.embed(chunks) : [];
   const deleteStmt = db.prepare(`DELETE FROM article_chunks WHERE slug = ?`);
@@ -111,6 +133,7 @@ export async function indexArticleChunks(
     slug,
     text_chunks: textChunks.length,
     image_chunks: imgChunks.length,
+    infobox_chunk: infoboxChunks.length,
     embeddings_enabled: useEmbeddings,
     embedded_chunks: embeddings.length,
   });

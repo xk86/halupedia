@@ -662,6 +662,21 @@ export function App() {
     setRoute({ kind: "media-list" });
   }, []);
 
+  // Called by Sidebar when the live stream emits an {type:"article"} event.
+  // Refetches the page once and applies it only if the user is still on that slug.
+  const handleLiveArticleUpdate = useCallback((updatedSlug: string) => {
+    fetch(`/api/page/${encodeURIComponent(updatedSlug)}?wait=0`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data: PageData | null) => {
+        if (!data) return;
+        setPage((latest) => {
+          if (latest?.article.slug !== data.article.slug) return latest;
+          return data;
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   const interceptArticleLinks = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       const target = (e.target as HTMLElement).closest("a");
@@ -2210,6 +2225,7 @@ export function App() {
             headlineMedia={page?.headlineMedia ?? null}
             onNavigate={navigateToArticle}
             onNavigateToMedia={navigateToMedia}
+            onArticleUpdate={handleLiveArticleUpdate}
           />
         )}
       </section>

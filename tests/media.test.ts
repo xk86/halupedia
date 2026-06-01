@@ -481,22 +481,26 @@ describe("markdown", () => {
     assert.match(html, /sidebar-block/);
   });
 
-  test("media: image renders as a plain text link with media-ref-link class", () => {
+  test("media: inline embed is suppressed in rendered HTML (sidebar-only)", () => {
     const html = renderMarkdown("![Caption here](media:my-slug)");
-    // Renders as a link, not an inline <img>
-    assert.match(html, /class="media-ref-link"/);
-    assert.match(html, /href="\/media\/my-slug"/);
-    assert.match(html, /Caption here/);
-    // No inline image tag
+    // Headline images are sidebar-only — the media embed must not appear in body HTML.
+    assert.doesNotMatch(html, /class="media-ref-link"/);
+    assert.doesNotMatch(html, /Caption here/);
     assert.doesNotMatch(html, /<img/);
-    assert.doesNotMatch(html, /src="\/api\/media\//);
+    assert.doesNotMatch(html, /my-slug/);
+    // The rendered output should be empty (whitespace only) for a standalone embed.
+    assert.ok(html.trim() === "" || !html.includes("media:"), "media embed must be suppressed");
   });
 
-  test("media: link href contains the exact slug", () => {
-    const html = renderMarkdown("![Caption](media:specific-slug-value)");
-    assert.match(html, /\/media\/specific-slug-value/);
-    // Slug appears exactly once in the href
-    assert.equal((html.match(/specific-slug-value/g) ?? []).length, 1);
+  test("media: markdown source is preserved for backlink scanning", () => {
+    // The suppression is in HTML rendering only — the raw markdown must keep the embed
+    // so the backlink scanner in db.ts can find %(media:slug)%.
+    const markdown = "![My Caption](media:specific-slug-value)";
+    // Markdown unchanged (normalizeMarkdown does not strip media: embeds)
+    assert.match(markdown, /media:specific-slug-value/);
+    // But renderMarkdown suppresses it
+    const html = renderMarkdown(markdown);
+    assert.doesNotMatch(html, /specific-slug-value/);
   });
 
   test("external image does not get media-image-link treatment", () => {

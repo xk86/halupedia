@@ -40,6 +40,6 @@ Article title: {{requested_title}}
 Article body:
 
 {{article_excerpt}}
-
+{{instructions}}
 Generate the infobox JSON for this article.
 """

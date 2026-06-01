@@ -18,6 +18,7 @@ import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps, SidecarUpdateEvent } from "../deps";
 import {
   getArticleByLookup,
+  getArticleInfobox,
   listIncomingHints,
   saveArticleSeeAlso,
   setArticleInfobox,
@@ -32,9 +33,8 @@ import {
   convertExistingArticleLinksToRefs,
   extractRefLinksAsInternalLinks,
   findBodyReferencedArticles,
-  linkMentionedReferencesInBody,
+  linkReferences,
   loadPriorReferenceList,
-  resolveRefLinks,
 } from "../../referenceList";
 import {
   extractInternalLinks,
@@ -49,6 +49,7 @@ import {
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
   indexArticleChunks,
+  flattenInfoboxForRag,
 } from "../../retrieval";
 import { slugify } from "../../slug";
 import type { ReferenceEntry } from "../state";
@@ -272,8 +273,7 @@ export const resolveLinksPostProcessNode = defineNode({
     const slug = slugify(input.slug ?? "");
     let body = normalizeMarkdownLinks(finalArticleBody ?? "", "article").markdown;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
-    body = resolveRefLinks(body, refs);
-    body = linkMentionedReferencesInBody(body, refs);
+    body = linkReferences(body, refs);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
     return { finalArticleBody: body };
@@ -582,6 +582,10 @@ export const indexRagChunksNode = defineNode({
       }
     }
 
+    // Include flattened infobox as a single relevance-ranked chunk.
+    const infobox = getArticleInfobox(deps.db, slug);
+    const infoboxText = infobox ? flattenInfoboxForRag(slug, infobox) : undefined;
+
     await indexArticleChunks(
       deps.db,
       deps.llm,
@@ -591,6 +595,7 @@ export const indexRagChunksNode = defineNode({
       rag.chunk_size,
       deps.logger,
       imageDescriptions,
+      infoboxText,
     );
     return { ragIndexed: true };
   },

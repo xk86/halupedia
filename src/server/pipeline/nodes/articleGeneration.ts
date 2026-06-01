@@ -37,9 +37,9 @@ import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
   findBodyReferencedArticles,
-  linkMentionedReferencesInBody,
+  linkReferences,
   loadPriorReferenceList,
-  resolveRefLinks,
+
   formatReferencesForPromptText,
 } from "../../referenceList";
 import {
@@ -629,8 +629,7 @@ export const resolveLinksNode = defineNode({
     }
 
     body = normalizeMarkdownLinks(body, "article").markdown;
-    body = resolveRefLinks(body, refs);
-    body = linkMentionedReferencesInBody(body, refs);
+    body = linkReferences(body, refs);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
 

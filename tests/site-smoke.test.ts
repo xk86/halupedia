@@ -1629,6 +1629,27 @@ test("homepage request regenerates expired cache and logs refresh lifecycle", as
   );
 });
 
+test("article page payload is not blank — html and title are populated", async (t) => {
+  const server = await createTestServer({ seed: true });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/page/Test_Article");
+  assert.equal(res.status, 200, "page endpoint must return 200");
+
+  const body = await res.json();
+  // The article must have a title and non-empty HTML — a blank page would have empty html.
+  assert.ok(body.article?.title, "article title must not be empty");
+  assert.ok(
+    typeof body.article?.html === "string" && body.article.html.trim().length > 0,
+    "article html must not be blank",
+  );
+  // The html must contain visible article text, not just whitespace or empty tags.
+  assert.match(body.article.html, /<[hp]/, "html must contain paragraph or heading tags");
+  // Sanity: the page must not return a 'blank' body object missing required fields.
+  assert.ok(body.backlinks, "backlinks must be present");
+  assert.ok(body.canonicalPath, "canonicalPath must be present");
+});
+
 // Ensure clean exit after all tests complete and cleanup handlers finish
 // This addresses the hanging test suite issue by forcing exit after a brief delay
 // to allow final async operations to settle.

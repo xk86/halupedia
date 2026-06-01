@@ -65,9 +65,14 @@ import {
   listAllPromptCurrents,
   getArticleHeadlineMedia,
   getArticleInfobox,
+  setArticleInfobox,
+  listSidebarRevisions,
+  getSidebarRevision,
   upsertArticleHeadlineMedia,
   updateArticleMediaCaption,
   removeArticleMedia,
+  type InfoboxData,
+  type SidebarOperation,
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -105,6 +110,7 @@ import {
 import { getPrompt, getSharedPrompt, renderTemplate, stripJsonFences } from "./prompts";
 import {
   indexArticleChunks,
+  flattenInfoboxForRag,
   mergeRetrievedContextPackets,
   retrieveContext,
   retrieveDirectArticleContext,
@@ -129,6 +135,7 @@ import type {
 import {
   extractRefLinksAsInternalLinks,
   findExistingArticleLinkReferences,
+  linkReferencesInline,
   loadPriorReferenceList,
 } from "./referenceList";
 import {
@@ -886,6 +893,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     const listeners = articleListeners.get(slug);
     if (!listeners) return;
     // Pre-render infobox values inline so the client receives HTML, not raw markdown.
+    // Run linkReferencesInline first so bare title mentions become ref: links.
+    const liveRefs = loadPriorReferenceList(db, slug) ?? [];
     let wire = event as Record<string, unknown>;
     if (wire.type === "infobox" && wire.infobox) {
       const raw = wire.infobox as { title?: string; subtitle?: string; groups?: Array<{ label: string; rows: Array<{ label: string; value: string }> }> };
@@ -893,15 +902,20 @@ export async function createApp(options: CreateAppOptions = {}) {
         ...wire,
         infobox: {
           ...raw,
-          subtitle: raw.subtitle ? renderInlineMarkdown(raw.subtitle) : undefined,
+          subtitle: raw.subtitle
+            ? renderInlineMarkdown(linkReferencesInline(raw.subtitle, liveRefs))
+            : undefined,
           groups: (raw.groups ?? []).map((g) => ({
             label: g.label,
-            rows: g.rows.map((r) => ({ label: r.label, value: renderInlineMarkdown(r.value) })),
+            rows: g.rows.map((r) => ({
+              label: r.label,
+              value: renderInlineMarkdown(linkReferencesInline(r.value, liveRefs)),
+            })),
           })),
         },
       };
     } else if (wire.type === "caption" && typeof wire.caption === "string") {
-      wire = { ...wire, caption: renderInlineMarkdown(wire.caption) };
+      wire = { ...wire, caption: renderInlineMarkdown(linkReferencesInline(wire.caption, liveRefs)) };
     }
     for (const cb of listeners) { try { cb(wire); } catch {} }
   }
@@ -1297,16 +1311,21 @@ export async function createApp(options: CreateAppOptions = {}) {
     const rawRecord = getArticleByLookup(db, response.slug);
     // Infobox sidecar — loaded fresh so sidebar always reflects latest pipeline output.
     const rawInfobox = getArticleInfobox(db, response.slug);
+    // Load refs so we can link title mentions in infobox values and caption.
+    const sidebarRefs = loadPriorReferenceList(db, response.slug) ?? [];
     // Pre-render infobox values as inline HTML so the client gets bold/italic/ref-links.
+    // Run linkReferencesInline first so bare title mentions become ref: links before rendering.
     const infobox = rawInfobox
       ? {
           ...rawInfobox,
-          subtitle: rawInfobox.subtitle ? renderInlineMarkdown(rawInfobox.subtitle) : undefined,
+          subtitle: rawInfobox.subtitle
+            ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs))
+            : undefined,
           groups: rawInfobox.groups.map((g) => ({
             label: g.label,
             rows: g.rows.map((r) => ({
               label: r.label,
-              value: renderInlineMarkdown(r.value),
+              value: renderInlineMarkdown(linkReferencesInline(r.value, sidebarRefs)),
             })),
           })),
         }
@@ -1315,7 +1334,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     const headlineMedia = headlineMediaRow
       ? {
           mediaId: headlineMediaRow.mediaId,
-          caption: headlineMediaRow.caption ? renderInlineMarkdown(headlineMediaRow.caption) : "",
+          caption: headlineMediaRow.caption
+            ? renderInlineMarkdown(linkReferencesInline(headlineMediaRow.caption, sidebarRefs))
+            : "",
           description: getMediaById(mediaDb, headlineMediaRow.mediaId)?.description ?? "",
         }
       : null;
@@ -3364,6 +3385,185 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const { model_b64: _b64, ...safe } = updated as any;
     return c.json({ ok: true, media: safe });
+  });
+
+  // ── Sidebar (infobox) edit / history / restore endpoints ───────────────────
+
+  /** Re-index RAG chunks for a slug including its current infobox. */
+  async function reindexSidebarRag(slug: string): Promise<void> {
+    const article = getArticleByLookup(db, slug);
+    if (!article) return;
+    const rag = runtime.app.rag;
+    const useEmbeddings = rag.enabled && runtime.llm.embeddings?.enabled;
+    const headlineMedia = getArticleHeadlineMedia(db, slug);
+    const imageDescriptions: Array<{ id: string; description: string }> = [];
+    if (headlineMedia) {
+      const rec = getMediaById(mediaDb, headlineMedia.mediaId);
+      if (rec?.description) imageDescriptions.push({ id: rec.id, description: rec.description });
+    }
+    const infobox = getArticleInfobox(db, slug);
+    const infoboxText = infobox ? flattenInfoboxForRag(slug, infobox) : undefined;
+    await indexArticleChunks(db, llm, slug, article.markdown, useEmbeddings, rag.chunk_size, logger, imageDescriptions, infoboxText);
+  }
+
+  /** Build the pre-rendered sidebar payload for a slug (same shape as page payload). */
+  function buildSidebarPayload(slug: string) {
+    const rawInfobox = getArticleInfobox(db, slug);
+    const sidebarRefs = loadPriorReferenceList(db, slug) ?? [];
+    const infobox = rawInfobox
+      ? {
+          ...rawInfobox,
+          subtitle: rawInfobox.subtitle
+            ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs))
+            : undefined,
+          groups: rawInfobox.groups.map((g) => ({
+            label: g.label,
+            rows: g.rows.map((r) => ({
+              label: r.label,
+              value: renderInlineMarkdown(linkReferencesInline(r.value, sidebarRefs)),
+            })),
+          })),
+        }
+      : null;
+    const headlineMediaRow = getArticleHeadlineMedia(db, slug);
+    const caption = headlineMediaRow?.caption
+      ? renderInlineMarkdown(linkReferencesInline(headlineMediaRow.caption, sidebarRefs))
+      : "";
+    return { infobox, caption };
+  }
+
+  // GET /api/article/:slug/infobox — raw (unrendered) infobox data for the editor.
+  app.get("/api/article/:slug/infobox", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const rawInfobox = getArticleInfobox(db, slug);
+    const headlineMediaRow = getArticleHeadlineMedia(db, slug);
+    return c.json({
+      infobox: rawInfobox,
+      caption: headlineMediaRow?.caption ?? "",
+    });
+  });
+
+  // PATCH /api/article/:slug/infobox — raw save of infobox JSON + optional caption.
+  app.patch("/api/article/:slug/infobox", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, slug);
+    if (!article) return c.json({ error: "not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({})) as { infobox?: InfoboxData; caption?: string };
+    if (!body.infobox || typeof body.infobox !== "object") return c.json({ error: "infobox required" }, 400);
+    const { title, groups } = body.infobox;
+    if (!title || !Array.isArray(groups)) return c.json({ error: "invalid infobox shape" }, 400);
+
+    setArticleInfobox(db, slug, body.infobox, "user-edit");
+    if (typeof body.caption === "string") {
+      updateArticleMediaCaption(db, slug, 1, body.caption.trim(), "user-edit");
+    }
+
+    await reindexSidebarRag(slug);
+    const payload = buildSidebarPayload(slug);
+    notifySidecar(slug, { type: "infobox", infobox: body.infobox });
+    if (typeof body.caption === "string") {
+      const headlineMedia = getArticleHeadlineMedia(db, slug);
+      if (headlineMedia) notifySidecar(slug, { type: "caption", caption: body.caption.trim(), mediaId: headlineMedia.mediaId });
+    }
+
+    return c.json({ ok: true, ...payload });
+  });
+
+  // POST /api/article/:slug/infobox/regenerate — AI re-generation with optional instructions.
+  app.post("/api/article/:slug/infobox/regenerate", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, slug);
+    if (!article) return c.json({ error: "not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({})) as { instructions?: string };
+    const instructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
+
+    const prompt = getPrompt(runtime.prompts, "infobox");
+    const excerpt = stripTopLevelSections(article.markdown, ["References", "See also"]).slice(0, 6000);
+    const instructionsBlock = instructions ? `Additional instructions: ${instructions}\n` : "";
+
+    let raw: string;
+    try {
+      raw = await llm.chat(
+        prompt.model ?? "heavy",
+        prompt.system,
+        renderTemplate(prompt.user, {
+          requested_title: article.title,
+          article_excerpt: excerpt,
+          instructions: instructionsBlock,
+        }),
+        { jsonMode: true, thinking: prompt.thinking },
+      );
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "LLM error" }, 500);
+    }
+
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return c.json({ error: "no JSON in response" }, 500);
+    let parsed: InfoboxData;
+    try {
+      parsed = JSON.parse(match[0]) as InfoboxData;
+      if (!parsed.title || !Array.isArray(parsed.groups)) throw new Error("invalid infobox shape");
+    } catch {
+      return c.json({ error: "invalid infobox JSON" }, 500);
+    }
+
+    setArticleInfobox(db, slug, parsed, "ai-edit");
+    await reindexSidebarRag(slug);
+    const payload = buildSidebarPayload(slug);
+    notifySidecar(slug, { type: "infobox", infobox: parsed });
+
+    return c.json({ ok: true, ...payload });
+  });
+
+  // GET /api/article/:slug/infobox/history — list sidebar revisions.
+  app.get("/api/article/:slug/infobox/history", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const revisions = listSidebarRevisions(db, slug);
+    return c.json({ revisions });
+  });
+
+  // POST /api/article/:slug/infobox/restore — restore a prior sidebar revision.
+  app.post("/api/article/:slug/infobox/restore", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, slug);
+    if (!article) return c.json({ error: "not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({})) as { revisionId?: number };
+    if (typeof body.revisionId !== "number") return c.json({ error: "revisionId required" }, 400);
+    const rev = getSidebarRevision(db, body.revisionId);
+    if (!rev || rev.articleSlug !== slug) return c.json({ error: "revision not found" }, 404);
+
+    if (rev.infoboxJson) {
+      let infoboxData: InfoboxData;
+      try {
+        infoboxData = JSON.parse(rev.infoboxJson) as InfoboxData;
+        if (!infoboxData.title || !Array.isArray(infoboxData.groups)) throw new Error("invalid shape");
+      } catch {
+        return c.json({ error: "stored revision has invalid infobox JSON" }, 500);
+      }
+      setArticleInfobox(db, slug, infoboxData, "restore");
+    }
+    if (rev.caption) {
+      updateArticleMediaCaption(db, slug, 1, rev.caption, "restore");
+    }
+
+    await reindexSidebarRag(slug);
+    const payload = buildSidebarPayload(slug);
+    const rawInfobox = getArticleInfobox(db, slug);
+    if (rawInfobox) notifySidecar(slug, { type: "infobox", infobox: rawInfobox });
+    if (rev.caption) {
+      const headlineMedia = getArticleHeadlineMedia(db, slug);
+      if (headlineMedia) notifySidecar(slug, { type: "caption", caption: rev.caption, mediaId: headlineMedia.mediaId });
+    }
+
+    return c.json({ ok: true, ...payload });
   });
 
   // Live sidecar stream — NDJSON events pushed when post-process updates

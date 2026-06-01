@@ -242,6 +242,19 @@ export function openDatabase(databasePath: string): DatabaseSync {
       json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    -- Audit trail for sidebar changes (infobox + caption).
+    -- operation: 'generated' | 'user-edit' | 'ai-edit' | 'restore'
+    CREATE TABLE IF NOT EXISTS sidebar_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      infobox_json TEXT NOT NULL DEFAULT '',
+      caption TEXT NOT NULL DEFAULT '',
+      operation TEXT NOT NULL DEFAULT 'generated',
+      changed_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sidebar_revisions_slug
+      ON sidebar_revisions(article_slug, changed_at DESC, id DESC);
   `);
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {
@@ -1547,10 +1560,22 @@ export function updateArticleMediaCaption(
   articleSlug: string,
   ordinal: number,
   caption: string,
+  operation: SidebarOperation = "generated",
 ): void {
+  const now = Date.now();
   db.prepare(
     `UPDATE article_media SET caption = ?, updated_at = ? WHERE article_slug = ? AND ordinal = ?`,
-  ).run(caption, Date.now(), articleSlug, ordinal);
+  ).run(caption, now, articleSlug, ordinal);
+  // Record sidebar revision so caption changes are auditable.
+  if (ordinal === 1) {
+    const infoboxJson = (db
+      .prepare(`SELECT json FROM article_infobox WHERE article_slug = ?`)
+      .get(articleSlug) as { json: string } | undefined)?.json ?? "";
+    db.prepare(
+      `INSERT INTO sidebar_revisions (article_slug, infobox_json, caption, operation, changed_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(articleSlug, infoboxJson, caption, operation, now);
+  }
 }
 
 export function removeArticleMedia(db: DatabaseSync, articleSlug: string, ordinal: number): void {
@@ -1583,12 +1608,68 @@ export function getArticleInfobox(db: DatabaseSync, articleSlug: string): Infobo
   }
 }
 
-export function setArticleInfobox(db: DatabaseSync, articleSlug: string, data: InfoboxData): void {
+export type SidebarOperation = "generated" | "user-edit" | "ai-edit" | "restore";
+
+export interface SidebarRevision {
+  id: number;
+  articleSlug: string;
+  infoboxJson: string;
+  caption: string;
+  operation: SidebarOperation;
+  changedAt: number;
+}
+
+export function setArticleInfobox(
+  db: DatabaseSync,
+  articleSlug: string,
+  data: InfoboxData,
+  operation: SidebarOperation = "generated",
+): void {
+  const now = Date.now();
+  const json = JSON.stringify(data);
   db.prepare(
     `INSERT INTO article_infobox (article_slug, json, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(article_slug) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at`,
-  ).run(articleSlug, JSON.stringify(data), Date.now());
+  ).run(articleSlug, json, now);
+  // Record revision for audit/restore.
+  const caption = (db
+    .prepare(`SELECT caption FROM article_media WHERE article_slug = ? AND ordinal = 1`)
+    .get(articleSlug) as { caption: string } | undefined)?.caption ?? "";
+  db.prepare(
+    `INSERT INTO sidebar_revisions (article_slug, infobox_json, caption, operation, changed_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(articleSlug, json, caption, operation, now);
+}
+
+export function listSidebarRevisions(db: DatabaseSync, articleSlug: string): SidebarRevision[] {
+  return (db
+    .prepare(
+      `SELECT id,
+              article_slug AS articleSlug,
+              infobox_json AS infoboxJson,
+              caption,
+              operation,
+              changed_at AS changedAt
+       FROM sidebar_revisions
+       WHERE article_slug = ?
+       ORDER BY changed_at DESC, id DESC`,
+    )
+    .all(articleSlug) as unknown) as SidebarRevision[];
+}
+
+export function getSidebarRevision(db: DatabaseSync, id: number): SidebarRevision | null {
+  return (db
+    .prepare(
+      `SELECT id,
+              article_slug AS articleSlug,
+              infobox_json AS infoboxJson,
+              caption,
+              operation,
+              changed_at AS changedAt
+       FROM sidebar_revisions WHERE id = ?`,
+    )
+    .get(id) as unknown) as SidebarRevision | null;
 }
 
 export function updateArticleTitle(db: DatabaseSync, slug: string, title: string): ArticleRecord | null {

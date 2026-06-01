@@ -1,10 +1,10 @@
 // In-memory render cache keyed by slug+generatedAt.
 
 import type { Article } from "./article";
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown, stripSelfLinks } from "./markdown";
 import {
   renderReferencesHtml,
-  resolveRefLinks,
+  linkReferences,
 } from "./referenceList";
 import type { SeeAlsoList } from "./article";
 import type { InfoboxData, ArticleMediaRow } from "./db";
@@ -31,7 +31,8 @@ export function renderSeeAlsoSection(seeAlso: SeeAlsoList): string {
  * rendered for display from Article.metadata.
  */
 export function assembleArticleMarkdownForRender(article: Article): string {
-  return resolveRefLinks(article.body, article.metadata.references).trim();
+  const linked = linkReferences(article.body, article.metadata.references, article.slug);
+  return stripSelfLinks(linked, article.slug).trim();
 }
 
 function escapeHtml(s: string): string {
@@ -84,7 +85,8 @@ export function renderInfoboxHtml(
  * so the client can render it in the right column.
  */
 export function renderArticleDisplayHtml(article: Article): string {
-  const body = resolveRefLinks(article.body, article.metadata.references);
+  const linked = linkReferences(article.body, article.metadata.references, article.slug);
+  const body = stripSelfLinks(linked, article.slug);
   const bodyHtml = renderMarkdown(body);
   const refsHtml = renderReferencesHtml(article.metadata.references);
   const seeAlsoMd = renderSeeAlsoSection(article.metadata.seeAlso);

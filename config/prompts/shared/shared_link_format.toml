@@ -13,7 +13,7 @@ Reference Link Shorthand:
 - To cite a reference from "Available references", use `[anchor text](ref:slug-name)` where `slug-name` is the slug shown in the references list.
 - The anchor text must be a word or short phrase already present in the sentence — the part of the prose that the reference supports. It becomes the visible underlined link text.
 - Place every link inline inside a sentence. Links are part of the prose, not appended after it.
-- Each reference may only be linked once per article; choose the most relevant sentence.
+- Link every occurrence of a reference's anchor text throughout the article, not just the first.
 - Use only the link formats specified here. Do not include extra square brackets.
 
 Format examples:

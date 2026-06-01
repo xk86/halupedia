@@ -926,16 +926,18 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .infobox-image {
   display: block;
-  max-width: 100%;
+  width: 100%;
   height: auto;
   margin: 0 auto;
 }
 
 .infobox-caption {
-  color: var(--ink-fade);
-  font-size: 0.78rem;
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  font-style: italic;
   text-align: center;
-  padding: 0.2rem 0.6rem 0.4rem;
+  line-height: 1.35;
+  padding: 0.3rem 0.7rem 0.45rem;
   margin: 0;
   border-bottom: 1px solid var(--rule-soft);
 }

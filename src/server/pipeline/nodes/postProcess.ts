@@ -15,7 +15,7 @@
  */
 
 import { defineNode } from "../runtime/nodeFactory";
-import type { PipelineDeps } from "../deps";
+import type { PipelineDeps, SidecarUpdateEvent } from "../deps";
 import {
   getArticleByLookup,
   listIncomingHints,
@@ -477,6 +477,12 @@ export const updateArticleInPlaceNode = defineNode({
       summary_chars: summary.length,
     });
 
+    // Push the updated article body/summary/see-also to subscribed clients.
+    if (deps.onSidecarUpdate) {
+      const updated = getArticleByLookup(deps.db, slug);
+      if (updated) deps.onSidecarUpdate(slug, { type: "article", article: updated });
+    }
+
     return { persistedAt: now };
   },
 });
@@ -539,6 +545,7 @@ export const persistInfoboxNode = defineNode({
     try {
       setArticleInfobox(deps.db, slug, infobox as InfoboxData);
       deps.logger.info("pipeline.infobox.saved", { slug });
+      deps.onSidecarUpdate?.(slug, { type: "infobox", infobox });
     } catch (err) {
       deps.logger.warn("pipeline.infobox.save_failed", {
         slug,
@@ -634,6 +641,7 @@ export const generateSidebarCaptionNode = defineNode({
       if (caption) {
         updateArticleMediaCaption(deps.db, slug, 1, caption);
         deps.logger.info("pipeline.sidebar_caption.saved", { slug, mediaId: headlineMedia.mediaId });
+        deps.onSidecarUpdate?.(slug, { type: "caption", caption, mediaId: headlineMedia.mediaId });
       }
     } catch (err) {
       deps.logger.warn("pipeline.sidebar_caption.failed", {

@@ -41,7 +41,6 @@ function escapeHtml(s: string): string {
 export function renderInfoboxHtml(
   infobox: InfoboxData | null,
   headlineMedia: ArticleMediaRow | null,
-  mediaDescription: string = "",
 ): string {
   if (!infobox && !headlineMedia) return "";
 
@@ -52,7 +51,8 @@ export function renderInfoboxHtml(
   let imgHtml = "";
   if (headlineMedia) {
     const slug = encodeURIComponent(headlineMedia.mediaId);
-    const caption = headlineMedia.caption || mediaDescription;
+    // Only use the per-article caption — never the raw description (too long).
+    const caption = headlineMedia.caption;
     imgHtml = `
       <a href="/media/${slug}" class="infobox-image-link">
         <img src="/api/media/${slug}" alt="${escapeHtml(caption)}" class="infobox-image">

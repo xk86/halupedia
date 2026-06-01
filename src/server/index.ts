@@ -874,6 +874,16 @@ export async function createApp(options: CreateAppOptions = {}) {
   const slugGenerations = new Map<string, GenerationQueueEntry>();
   let generationSeq = 0;
   const inFlightEdits = new Set<string>(); // Track slugs with in-flight edits to prevent stale overwrites
+
+  // Per-article sidecar push: clients subscribe via GET /api/article/:slug/live
+  // and receive NDJSON events when post-process updates sidecar data.
+  const articleListeners = new Map<string, Set<(e: unknown) => void>>();
+  function notifySidecar(slug: string, event: unknown) {
+    const listeners = articleListeners.get(slug);
+    if (!listeners) return;
+    for (const cb of listeners) { try { cb(event); } catch {} }
+  }
+
   const maintenance = new MaintenanceScheduler(logger);
 
   function trackGeneration<T>(promise: Promise<T>): Promise<T> {
@@ -1351,6 +1361,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       prompts: buildPromptRegistry(runtime.prompts),
       logger,
       runtime,
+      onSidecarUpdate: notifySidecar,
       ...overrides,
     };
   }
@@ -3319,6 +3330,45 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const { model_b64: _b64, ...safe } = updated as any;
     return c.json({ ok: true, media: safe });
+  });
+
+  // Live sidecar stream — NDJSON events pushed when post-process updates
+  // infobox, caption, or article body for this slug. Clients subscribe on
+  // page load and receive updates without polling.
+  app.get("/api/article/:slug/live", (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const enc = new TextEncoder();
+    let open = true;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = (payload: unknown) => {
+          if (!open) return;
+          try { controller.enqueue(enc.encode(`${JSON.stringify(payload)}\n`)); } catch { open = false; }
+        };
+        const cb = (e: unknown) => send(e);
+        if (!articleListeners.has(slug)) articleListeners.set(slug, new Set());
+        articleListeners.get(slug)!.add(cb);
+        // Send a heartbeat so the client knows the stream is open.
+        send({ type: "ready", slug });
+        return () => {
+          open = false;
+          articleListeners.get(slug)?.delete(cb);
+          if (articleListeners.get(slug)?.size === 0) articleListeners.delete(slug);
+          try { controller.close(); } catch {}
+        };
+      },
+      cancel() {
+        open = false;
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "cache-control": "no-cache",
+        "x-accel-buffering": "no",
+      },
+    });
   });
 
   app.get("/api/article/:slug/image", (c) => {

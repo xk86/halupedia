@@ -12,14 +12,15 @@ that may reference it.
 Return a JSON object with exactly two fields:
 
 {
-  "title_slug": "kebab-case-memorable-slug",
+  "title_slug": "silver-can-red-sausages-fork",
   "description": "1–3 sentences describing what the image shows."
 }
 
 Rules:
 - Return ONLY valid JSON. No fences, no explanation.
-- title_slug: lowercase, hyphens only, 3–8 words. Describes the image, not the article topic.
-  Example: "penisman-tetrahedron-lattice-diagram", "lampshading-insertion-schematic".
+- title_slug: 3–8 lowercase words joined by hyphens, describing the image content.
+  Good examples: "vienna-sausages-open-tin", "crystal-lattice-tetrahedron-diagram", "fork-impaling-red-cylinder".
+  Bad examples: anything starting with "kebab-case", "title-slug", "image-of", or "photo-of".
 - description: describe the VISUAL CONTENT of the image — what is depicted, the visual
   arrangement, notable features, materials, actions, or subjects. Write in the in-universe
   voice as if this is a real artefact being catalogued.

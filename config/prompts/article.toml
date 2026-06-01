@@ -1,5 +1,5 @@
 model = "heavy"
-thinking = false
+thinking = true
 system = """
 
 {{shared_article_rules}}

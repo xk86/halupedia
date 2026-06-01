@@ -878,6 +878,9 @@ export async function createApp(options: CreateAppOptions = {}) {
   // Per-article sidecar push: clients subscribe via GET /api/article/:slug/live
   // and receive NDJSON events when post-process updates sidecar data.
   const articleListeners = new Map<string, Set<(e: unknown) => void>>();
+  // Tracks slugs that have had an auto-post-process triggered this session
+  // so we don't re-fire on every page load before the infobox is written.
+  const autoPostProcessed = new Set<string>();
   function notifySidecar(slug: string, event: unknown) {
     const listeners = articleListeners.get(slug);
     if (!listeners) return;
@@ -1643,24 +1646,22 @@ export async function createApp(options: CreateAppOptions = {}) {
         // Auto-sidebar: fire post-process in the background on first view if
         // the article has no infobox yet (e.g. imported or created before
         // post-process ran). Tracked so it only fires once per server session.
-        if (!getArticleInfobox(db, record.slug)) {
-          const already = slugGenerations.has(record.slug);
-          if (!already) {
-            logger.info("page.auto_post_process", { slug: record.slug });
-            trackGeneration(
-              runWorkflow(postProcessWorkflow, {
-                input: {
-                  requestId: randomUUID(),
-                  workflow: "article.post_process",
-                  slug: record.slug,
-                  requestedTitle: record.title,
-                },
-                deps: buildPipelineDeps(),
-                recorder: getTraceRecorder(runtime.app.pipeline.trace),
-                logger,
-              }).catch(() => {}),
-            );
-          }
+        if (!getArticleInfobox(db, record.slug) && !autoPostProcessed.has(record.slug)) {
+          autoPostProcessed.add(record.slug);
+          logger.info("page.auto_post_process", { slug: record.slug });
+          trackGeneration(
+            runWorkflow(postProcessWorkflow, {
+              input: {
+                requestId: randomUUID(),
+                workflow: "article.post_process",
+                slug: record.slug,
+                requestedTitle: record.title,
+              },
+              deps: buildPipelineDeps(),
+              recorder: getTraceRecorder(runtime.app.pipeline.trace),
+              logger,
+            }).catch(() => {}),
+          );
         }
 
         return c.json(
@@ -3395,11 +3396,39 @@ export async function createApp(options: CreateAppOptions = {}) {
     width: number,
     height: number,
   ) {
+    // ── Strip any existing inline media images from the article body ──────────
+    // Articles should never have headline images inline; they live in the sidebar.
+    const article = getArticleByLookup(db, articleSlug);
+    if (article) {
+      const cleaned = article.markdown.replace(/!\[[^\]]*\]\(media:[^)]+\)\n?/g, "").trimEnd();
+      if (cleaned !== article.markdown) {
+        const links = extractInternalLinks(cleaned);
+        saveArticle(
+          db,
+          { ...article, markdown: cleaned, html: renderMarkdown(cleaned), plain_text: markdownToPlainText(cleaned), generated_at: Date.now() },
+          links,
+          [],
+          { operation: "strip-inline-media" },
+        );
+        invalidateArticleHtml(articleSlug);
+      }
+    }
+
     upsertArticleHeadlineMedia(db, articleSlug, mediaId, "");
     invalidateArticleHtml(articleSlug);
 
-    // Fire the caption pipeline regardless of vision support —
-    // text-only models still generate a useful description from article context.
+    // ── Hash-check: skip pipeline if same image is already captioned ──────────
+    const newRecord = getMediaById(mediaDb, mediaId);
+    const currentHeadline = getArticleHeadlineMedia(db, articleSlug);
+    if (currentHeadline && currentHeadline.caption && newRecord) {
+      const currentRecord = getMediaById(mediaDb, currentHeadline.mediaId);
+      if (currentRecord && currentRecord.sha256 === newRecord.sha256) {
+        logger.info("image.caption_skipped_same_hash", { slug: articleSlug, mediaId, sha256: newRecord.sha256 });
+        return { mediaId, isNew, width, height };
+      }
+    }
+
+    // ── Fire caption + post-process pipeline ──────────────────────────────────
     trackGeneration(
       runWorkflow(captionImageWorkflow, {
         input: {
@@ -3415,9 +3444,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       })
         .then((result) => {
           if (result.status === "ok") {
-            // Rename the temp id (img-xxxx) to the nice title_slug from the
-            // description pipeline. This only runs here — never during
-            // description regeneration — so existing slugs can never be clobbered.
+            // Rename the temp id (img-xxxx) to the title_slug from the description
+            // pipeline. Only at ingest — never during regeneration.
             const titleSlug = result.state.imageCaptionResult?.titleSlug;
             if (titleSlug && titleSlug !== mediaId) {
               const renamed = updateMediaId(mediaDb, mediaId, titleSlug);
@@ -3427,6 +3455,23 @@ export async function createApp(options: CreateAppOptions = {}) {
               }
             }
             invalidateArticleHtml(articleSlug);
+            // Fire post-process so the infobox regenerates with the new image context.
+            const finalSlug = titleSlug && titleSlug !== mediaId ? titleSlug : mediaId;
+            trackGeneration(
+              runWorkflow(postProcessWorkflow, {
+                input: {
+                  requestId: randomUUID(),
+                  workflow: "article.post_process",
+                  slug: articleSlug,
+                  requestedTitle: getArticleByLookup(db, articleSlug)?.title ?? articleSlug,
+                },
+                deps: buildPipelineDeps(),
+                recorder: getTraceRecorder(runtime.app.pipeline.trace),
+                logger,
+              }).then(() => {
+                logger.info("image.post_process_done", { slug: articleSlug, mediaId: finalSlug });
+              }).catch(() => {}),
+            );
           } else {
             logger.warn("image.caption_workflow_failed", {
               slug: articleSlug,

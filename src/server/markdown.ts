@@ -88,9 +88,10 @@ md.renderer.rules.image = (tokens: any[], idx: number, options: any, env: any, s
   const srcIdx = token.attrIndex("src");
   const src: string = srcIdx >= 0 ? (token.attrs[srcIdx][1] as string) : "";
   if (src.startsWith("media:")) {
+    // Headline images live in the sidebar only — render as a plain text link.
     const imageSlug = encodeURIComponent(src.slice("media:".length));
-    const alt = escapeHtml(token.content as string);
-    return `<a href="/media/${imageSlug}" class="media-image-link"><img src="/api/media/${imageSlug}" alt="${alt}" class="article-image"></a>`;
+    const alt = escapeHtml(token.content as string) || decodeURIComponent(imageSlug);
+    return `<a href="/media/${imageSlug}" class="media-ref-link">${alt}</a>`;
   }
   return defaultImageRule(tokens, idx, options, env, self);
 };

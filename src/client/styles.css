@@ -1029,6 +1029,16 @@ button.admin-danger-btn:hover:not(:disabled) {
   border-radius: 2px;
 }
 
+/* Inline media: references render as plain article links (image is in sidebar) */
+.media-ref-link {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid var(--link-underline, currentColor);
+}
+.media-ref-link:hover {
+  color: var(--link-hover, var(--link));
+}
+
 /* Clearfix after floated :::sidebar blocks */
 .article::after {
   content: "";

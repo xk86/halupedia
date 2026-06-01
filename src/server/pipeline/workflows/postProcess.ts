@@ -36,9 +36,9 @@ export const postProcessWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: resolveLinksPostProcessNode },
     { node: generateSeeAlsoNode },
     { node: regenerateSummaryNode },
-    { node: updateArticleInPlaceNode },
-    { node: indexRagChunksNode },
     { node: generateInfoboxNode },
     { node: persistInfoboxNode },
+    { node: updateArticleInPlaceNode },
+    { node: indexRagChunksNode },
   ],
 };

@@ -29,7 +29,6 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
   const [rawDraft, setRawDraft] = useState("");
   const [instructions, setInstructions] = useState("");
   const [aiPreview, setAiPreview] = useState<string | null>(null);
-  const [aiNewId, setAiNewId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -42,7 +41,6 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
     setInfo(null);
     setEditMode(null);
     setAiPreview(null);
-    setAiNewId(null);
     setBacklinks([]);
 
     fetch(`/api/media/${encodeURIComponent(imageSlug)}/backlinks`)
@@ -77,7 +75,6 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
     setEditMode(mode);
     setEditError(null);
     setAiPreview(null);
-    setAiNewId(null);
     if (mode === "raw") setRawDraft(info?.description ?? "");
     if (mode === "ai") setInstructions("");
   };
@@ -86,16 +83,14 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
     setEditMode(null);
     setEditError(null);
     setAiPreview(null);
-    setAiNewId(null);
   };
 
-  // AI mode: regenerate description via the image_description pipeline
+  // AI mode: regenerate description (ID never changes on regeneration)
   const regenerate = async () => {
     if (!info || busy) return;
     setBusy(true);
     setEditError(null);
     setAiPreview(null);
-    setAiNewId(null);
     try {
       const res = await fetch(`/api/media/${encodeURIComponent(imageSlug)}/describe`, {
         method: "POST",
@@ -104,9 +99,7 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
       });
       const data = await res.json() as { ok?: boolean; media?: MediaInfo; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error || `error ${res.status}`);
-      // Show preview — may have a new id if pipeline renamed the image
       setAiPreview(data.media?.description ?? "");
-      setAiNewId(data.media?.id !== imageSlug ? (data.media?.id ?? null) : null);
     } catch (err: any) {
       setEditError(err?.message || "Regeneration failed.");
     } finally {
@@ -114,17 +107,10 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
     }
   };
 
-  // AI mode: accept the preview by navigating to the (possibly new) id
   const applyAi = () => {
-    if (aiNewId && aiNewId !== imageSlug) {
-      // Image was renamed — navigate to the new slug
-      onNavigate(aiNewId);
-    } else {
-      // Same id, just update local state with the preview
-      setInfo((prev) => prev ? { ...prev, description: aiPreview ?? prev.description } : prev);
-      setEditMode(null);
-      setAiPreview(null);
-    }
+    setInfo((prev) => prev ? { ...prev, description: aiPreview ?? prev.description } : prev);
+    setEditMode(null);
+    setAiPreview(null);
   };
 
   // Raw mode: save description directly
@@ -261,17 +247,12 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
               ) : (
                 <>
                   <p className="media-desc-label">Generated description — review before applying:</p>
-                  {aiNewId && (
-                    <p className="media-desc-renamed-notice">
-                      The image will be renamed to <code>{aiNewId}</code>. References using <code>media:{imageSlug}</code> may need updating.
-                    </p>
-                  )}
                   <blockquote className="media-desc-preview">{aiPreview}</blockquote>
                   <div className="media-desc-btn-row">
                     <button type="button" className="edit-modal-submit" onClick={applyAi}>
                       Apply
                     </button>
-                    <button type="button" className="edit-modal-close" onClick={() => { setAiPreview(null); setAiNewId(null); }}>
+                    <button type="button" className="edit-modal-close" onClick={() => setAiPreview(null)}>
                       Regenerate again
                     </button>
                     <button type="button" className="edit-modal-close" onClick={cancelEdit}>

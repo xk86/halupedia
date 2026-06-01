@@ -33,6 +33,7 @@ import {
   validateBodyNode,
   persistArticleNode,
 } from "../nodes/articleGeneration";
+import { generateInfoboxNode, persistInfoboxNode } from "../nodes/postProcess";
 
 export const generateArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
   name: "article.generate",
@@ -51,7 +52,9 @@ export const generateArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: deriveIdentityNode },
     { node: resolveLinksNode },
     { node: generateSummaryNode },
+    { node: generateInfoboxNode },
     { node: validateBodyNode },
     { node: persistArticleNode },
+    { node: persistInfoboxNode },
   ],
 };

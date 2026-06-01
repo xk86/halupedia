@@ -79,33 +79,17 @@ export function renderInfoboxHtml(
 }
 
 /**
- * Render display HTML for an article.
- *
- * Four-part output:
- *   0. Infobox (optional sidecar): aside with headline image + structured rows.
- *   1. Body: markdown with ref: links resolved to wiki paths.
- *   2. References: HTML <ol> with #ref-N anchor IDs.
- *   3. See also: sidecar metadata rendered as markdown.
+ * Render display HTML for an article (body + references + see-also).
+ * The infobox is NOT included here — it lives in the sidebar payload
+ * so the client can render it in the right column.
  */
-export function renderArticleDisplayHtml(
-  article: Article,
-  opts: {
-    infobox?: InfoboxData | null;
-    headlineMedia?: ArticleMediaRow | null;
-    mediaDescription?: string;
-  } = {},
-): string {
+export function renderArticleDisplayHtml(article: Article): string {
   const body = resolveRefLinks(article.body, article.metadata.references);
   const bodyHtml = renderMarkdown(body);
   const refsHtml = renderReferencesHtml(article.metadata.references);
   const seeAlsoMd = renderSeeAlsoSection(article.metadata.seeAlso);
   const seeAlsoHtml = seeAlsoMd ? renderMarkdown(seeAlsoMd) : "";
-  const infoboxHtml = renderInfoboxHtml(
-    opts.infobox ?? null,
-    opts.headlineMedia ?? null,
-    opts.mediaDescription ?? "",
-  );
-  return [infoboxHtml, bodyHtml, refsHtml, seeAlsoHtml].filter(Boolean).join("\n");
+  return [bodyHtml, refsHtml, seeAlsoHtml].filter(Boolean).join("\n");
 }
 
 export function getCachedArticleHtml(slug: string, generatedAt: number): string | undefined {

@@ -31,6 +31,16 @@ interface BacklinkItem {
   createdAt: number;
 }
 
+interface InfoboxRow { label: string; value: string; }
+interface InfoboxGroup { label: string; rows: InfoboxRow[]; }
+interface InfoboxData {
+  title: string;
+  subtitle?: string;
+  image_ordinal?: number;
+  groups: InfoboxGroup[];
+}
+interface HeadlineMedia { mediaId: string; caption: string; description: string; }
+
 interface PageData {
   cached: boolean;
   canonicalPath?: string;
@@ -46,6 +56,8 @@ interface PageData {
     plain_text: string;
     generated_at: number;
   };
+  infobox?: InfoboxData | null;
+  headlineMedia?: HeadlineMedia | null;
   sections?: ArticleSection[];
   backlinks: {
     existing: BacklinkItem[];
@@ -1970,6 +1982,31 @@ export function App() {
             </div>
           ) : null}
         </article>
+        {/* Backlinks — moved to bottom of article column */}
+        {(page.backlinks.existing.length > 0 || page.backlinks.unwritten.length > 0) && (
+          <section className="article-backlinks" aria-label="Referenced by">
+            <h4 className="article-backlinks-heading">
+              Referenced by <span className="article-backlinks-count">({page.backlinks.existing.length + page.backlinks.unwritten.length})</span>
+            </h4>
+            <ul className="article-backlinks-list">
+              {page.backlinks.existing.map((b) => (
+                <li key={b.slug}>
+                  <a href={`/wiki/${b.title.replace(/\s+/g, "_")}`} onClick={(e) => { e.preventDefault(); navigateToArticle(b.title.replace(/\s+/g, "_")); }}>
+                    {b.title}
+                  </a>
+                </li>
+              ))}
+              {page.backlinks.unwritten.map((b) => (
+                <li key={b.slug} className="article-backlinks-unwritten">
+                  <a href={`/wiki/${b.title.replace(/\s+/g, "_")}`} onClick={(e) => { e.preventDefault(); navigateToArticle(b.title.replace(/\s+/g, "_")); }}>
+                    {b.title}
+                  </a>
+                  <span className="article-backlinks-stub"> (unwritten)</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </>
     );
   }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, rawEditOpen, rawEditMarkdown, rawEditPreview, rawEditPreviewBusy, openRawEdit, saveRawEdit, previewRawEdit, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, searchEditRefs, addEditRef, removeEditRef, blacklistEditRef, togglePinRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage, editTitleDraft, editTitleBusy, editTitleError, protectionBusy]);
@@ -2127,8 +2164,10 @@ export function App() {
           <Sidebar
             articleSlug={articleSlug}
             articleTitle={articleTitle}
-            backlinks={page?.backlinks ?? null}
+            infobox={page?.infobox ?? null}
+            headlineMedia={page?.headlineMedia ?? null}
             onNavigate={navigateToArticle}
+            onNavigateToMedia={navigateToMedia}
           />
         )}
       </section>

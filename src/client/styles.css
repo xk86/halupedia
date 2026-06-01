@@ -887,11 +887,8 @@ button.admin-danger-btn:hover:not(:disabled) {
 /* ── Infobox (Wikipedia-style floated side panel) ─────────────────────────── */
 
 .infobox {
-  float: right;
-  clear: right;
-  margin: 0 0 1.25rem 1.5rem;
   padding: 0;
-  width: clamp(200px, 28%, 280px);
+  width: 100%;
   background: var(--panel-surface-strong);
   border: 1px solid var(--panel-border);
   border-radius: 3px;
@@ -1030,7 +1027,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   border-radius: 2px;
 }
 
-/* Clearfix after floated infobox/sidebar */
+/* Clearfix after floated :::sidebar blocks */
 .article::after {
   content: "";
   display: table;
@@ -2857,6 +2854,44 @@ button.admin-danger-btn:hover:not(:disabled) {
      than the body copy above them on desktop */
   max-width: 760px;
   min-width: 0;
+}
+
+/* Bottom-of-article backlinks */
+.article-backlinks {
+  border-top: 1px solid var(--rule-soft);
+  margin-top: 2rem;
+  padding-top: 0.75rem;
+}
+
+.article-backlinks-heading {
+  color: var(--ink-fade);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.4rem;
+  text-transform: uppercase;
+}
+
+.article-backlinks-count {
+  font-weight: 400;
+}
+
+.article-backlinks-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.article-backlinks-list li {
+  font-size: 0.85rem;
+}
+
+.article-backlinks-stub {
+  color: var(--ink-fade);
+  font-size: 0.8rem;
 }
 
 .sidebar {

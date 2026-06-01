@@ -486,17 +486,13 @@ export const generateInfoboxNode = defineNode({
   name: "llm.generate_infobox",
   kind: "llm",
   description:
-    "Generate structured infobox rows (heavy, JSON). Skipped when article has no headline image.",
+    "Generate structured infobox rows (heavy, JSON). Runs for all articles regardless of image.",
   reads: ["finalArticleBody", "canonicalTitle", "input"] as const,
   writes: ["infobox"] as const,
   async run({ finalArticleBody, canonicalTitle, input }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
     const body = finalArticleBody ?? "";
     if (!slug || !body) return { infobox: undefined };
-
-    // Only generate when a headline image is attached
-    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
-    if (!headlineMedia) return { infobox: undefined };
 
     const title = canonicalTitle ?? input.requestedTitle ?? slug;
     const excerpt = stripTopLevelSections(body, ["References", "See also"]).slice(0, 6000);

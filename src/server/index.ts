@@ -69,7 +69,7 @@ import {
   updateArticleMediaCaption,
   removeArticleMedia,
 } from "./db";
-import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription } from "./mediaDb";
+import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaId } from "./mediaDb";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
 import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
 import { renderInfoboxHtml } from "./articleRender";
@@ -1187,17 +1187,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (cached) {
       html = cached;
     } else {
-      const headlineMedia = getArticleHeadlineMedia(db, article.slug);
-      const infobox = getArticleInfobox(db, article.slug);
-      let mediaDescription = "";
-      if (headlineMedia) {
-        mediaDescription = getMediaById(mediaDb, headlineMedia.mediaId)?.description ?? "";
-      }
-      const rendered = renderArticleDisplayHtml(article, {
-        infobox,
-        headlineMedia,
-        mediaDescription,
-      });
+      const rendered = renderArticleDisplayHtml(article);
       const links = extractInternalLinks(combined);
       html = rewriteArticleHtml(rendered, links);
       rememberArticleHtml(article.slug, article.generatedAt, html);
@@ -1269,6 +1259,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     },
   ) {
     const rawRecord = getArticleByLookup(db, response.slug);
+    // Infobox sidecar — loaded fresh so sidebar always reflects latest pipeline output.
+    const infobox = getArticleInfobox(db, response.slug);
+    const headlineMediaRow = getArticleHeadlineMedia(db, response.slug);
+    const headlineMedia = headlineMediaRow
+      ? {
+          mediaId: headlineMediaRow.mediaId,
+          caption: headlineMediaRow.caption,
+          description: getMediaById(mediaDb, headlineMediaRow.mediaId)?.description ?? "",
+        }
+      : null;
     return {
       cached: opts.cached,
       referenceStatus: buildReferenceStatus(
@@ -1282,6 +1282,8 @@ export async function createApp(options: CreateAppOptions = {}) {
           : undefined,
       canonicalPath: opts.canonicalPath,
       article: response,
+      infobox,
+      headlineMedia,
       // Sections list is derived from the rendered body, not metadata.
       sections: listArticleSections(response.body),
       backlinks: listBacklinks(db, response.slug),
@@ -3269,9 +3271,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       return c.json({ error: result.error?.message ?? "description generation failed" }, 500);
     }
 
-    // Reload the record to get the updated description (and possibly new id after rename).
-    const updated = getMediaById(mediaDb, result.state.imageCaptionResult?.titleSlug ?? id)
-      ?? getMediaById(mediaDb, id);
+    // Reload the record to get the updated description. ID never changes on regeneration.
+    const updated = getMediaById(mediaDb, id);
     if (!updated) return c.json({ error: "media record missing after describe" }, 500);
 
     const { model_b64: _b64, ...safe } = updated as any;
@@ -3322,6 +3323,17 @@ export async function createApp(options: CreateAppOptions = {}) {
       })
         .then((result) => {
           if (result.status === "ok") {
+            // Rename the temp id (img-xxxx) to the nice title_slug from the
+            // description pipeline. This only runs here — never during
+            // description regeneration — so existing slugs can never be clobbered.
+            const titleSlug = result.state.imageCaptionResult?.titleSlug;
+            if (titleSlug && titleSlug !== mediaId) {
+              const renamed = updateMediaId(mediaDb, mediaId, titleSlug);
+              if (renamed) {
+                upsertArticleHeadlineMedia(db, articleSlug, titleSlug, "");
+                logger.info("media.renamed_after_ingest", { from: mediaId, to: titleSlug });
+              }
+            }
             invalidateArticleHtml(articleSlug);
           } else {
             logger.warn("image.caption_workflow_failed", {

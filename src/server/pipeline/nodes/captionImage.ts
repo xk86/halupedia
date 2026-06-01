@@ -9,15 +9,8 @@
 
 import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps } from "../deps";
-import {
-  getArticleByLookup,
-  upsertArticleHeadlineMedia,
-} from "../../db";
-import {
-  getMediaById,
-  updateMediaDescription,
-  updateMediaId,
-} from "../../mediaDb";
+import { getArticleByLookup } from "../../db";
+import { getMediaById, updateMediaDescription } from "../../mediaDb";
 import { slugify } from "../../slug";
 import { stripTopLevelSections } from "../../markdown";
 
@@ -117,8 +110,9 @@ export const persistImageCaptionNode = defineNode({
   name: "write.persist_image_caption",
   kind: "write",
   description:
-    "Save canonical description to media DB; rename media id to title_slug when available. " +
-    "Does NOT set per-article captions — those are written by the article model inline.",
+    "Save canonical description to media DB. " +
+    "Rename logic is intentionally absent — renaming only happens at initial ingest " +
+    "(via attachAndCaption in index.ts) so description regeneration never clobbers existing slugs.",
   reads: ["input", "imageCaptionResult"] as const,
   writes: [] as const,
   run({ input, imageCaptionResult }, deps: PipelineDeps) {
@@ -126,32 +120,14 @@ export const persistImageCaptionNode = defineNode({
     const articleSlug = input.slug ?? "";
     if (!imageId || !imageCaptionResult || !deps.mediaDb) return {};
 
-    const { titleSlug, description } = imageCaptionResult;
+    const { description } = imageCaptionResult;
 
-    // Update canonical description on the media record.
     if (description) {
       updateMediaDescription(deps.mediaDb, imageId, description);
     }
 
-    // Try to rename the media id to the nice slug (idempotent on collision).
-    let finalId = imageId;
-    if (titleSlug && titleSlug !== imageId) {
-      const renamed = updateMediaId(deps.mediaDb, imageId, titleSlug);
-      if (renamed) {
-        finalId = titleSlug;
-        deps.logger.info("pipeline.image_description.renamed", {
-          from: imageId,
-          to: finalId,
-        });
-        // Keep the article_media reference in sync after rename.
-        if (articleSlug) {
-          upsertArticleHeadlineMedia(deps.db, articleSlug, finalId, "");
-        }
-      }
-    }
-
     deps.logger.info("pipeline.image_description.saved", {
-      mediaId: finalId,
+      mediaId: imageId,
       articleSlug,
       hasDescription: Boolean(description),
       usedVision: deps.llm.supportsVision("light"),

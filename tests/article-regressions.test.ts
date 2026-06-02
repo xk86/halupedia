@@ -42,6 +42,14 @@ class QueueLlmClient implements LlmRouter {
     _user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
+    // Consume from the chatResponses queue first so tests that switch
+    // between chat() and streamChat() see the same ordered responses.
+    if (this.chatResponses.length) {
+      const content = this.chatResponses.shift()!;
+      this.streamedChunkCount += 1;
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    }
     const chunks = this.streamChunks ?? [this.streamContent];
     let accumulated = "";
     for (const delta of chunks) {

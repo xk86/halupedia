@@ -132,7 +132,6 @@ export async function runWorkflow<Deps>(
               return {
                 ...deps,
                 llm: {
-                  ...origLlm,
                   chat(role: unknown, system: unknown, user: unknown, ...rest: unknown[]) {
                     capture(system, user);
                     return origLlm.chat(role, system, user, ...rest);
@@ -141,6 +140,8 @@ export async function runWorkflow<Deps>(
                     capture(system, user);
                     return origLlm.streamChat(role, system, user, ...rest);
                   },
+                  embed: (...args: unknown[]) => (origLlm as Record<string, unknown> & { embed(...a: unknown[]): unknown }).embed(...args),
+                  probeConnections: (...args: unknown[]) => (origLlm as Record<string, unknown> & { probeConnections(...a: unknown[]): unknown }).probeConnections(...args),
                 },
               };
             })()

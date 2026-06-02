@@ -91,8 +91,10 @@ class FakeLlm implements LlmRouter {
     this.capturedOptions.push(opts ?? {});
     return this.resp;
   }
-  async streamChat(_r: "heavy" | "light", _s: string, _u: string, onChunk: (d: string, a: string) => void) {
-    const c = "# Test\n\nBody."; onChunk(c, c); return { content: c, finishReason: "stop" };
+  async streamChat(_r: "heavy" | "light", _s: string, _u: string, onChunk: (d: string, a: string) => void, opts?: ChatOptions) {
+    const c = await this.chat(_r, _s, _u, opts);
+    onChunk(c, c);
+    return { content: c, finishReason: "stop" };
   }
   async embed() { return []; }
   async probeConnections() {}

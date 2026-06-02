@@ -38,25 +38,6 @@ function newGroup(): DraftGroup {
   return { label: "", rows: [{ label: "", value: "" }] };
 }
 
-/** Minimal client-side preview for infobox markdown values. */
-function previewMarkdown(raw: string): string {
-  const esc = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  // Escape first, then apply inline patterns.
-  return esc(raw)
-    .replace(
-      /\[([^\]]+)\]\((?:ref|halu):[^)]+\)/g,
-      (_m, label) => `<span class="infobox-preview-link">${esc(label)}</span>`,
-    )
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/_([^_]+)_/g, "<em>$1</em>");
-}
-
-/**
- * Textarea with optional live preview for markdown / ref / halu link values.
- * Preview appears below the textarea whenever the value contains markdown syntax.
- */
 function MarkdownField({
   value,
   onChange,
@@ -70,25 +51,15 @@ function MarkdownField({
   placeholder?: string;
   className?: string;
 }) {
-  const hasMarkdown = /[*_\[]/.test(value);
   return (
-    <div className="infobox-md-field">
-      <textarea
-        className={className}
-        value={value}
-        rows={1}
-        disabled={disabled}
-        placeholder={placeholder}
-        spellCheck={false}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {hasMarkdown && (
-        <div
-          className="infobox-md-preview"
-          dangerouslySetInnerHTML={{ __html: previewMarkdown(value) }}
-        />
-      )}
-    </div>
+    <textarea
+      className={className}
+      value={value}
+      disabled={disabled}
+      placeholder={placeholder}
+      spellCheck={false}
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }
 

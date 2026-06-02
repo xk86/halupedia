@@ -1053,14 +1053,6 @@ button.admin-danger-btn:hover:not(:disabled) {
   letter-spacing: 0.04em;
 }
 
-/* When MarkdownField wraps a .sidebar-edit-input, show preview contiguously. */
-.sidebar-edit-panel .infobox-md-field .sidebar-edit-input {
-  border-radius: 3px 3px 0 0;
-}
-.sidebar-edit-panel .infobox-md-field .infobox-md-preview {
-  border-radius: 0 0 3px 3px;
-}
-
 .sidebar-edit-input,
 .sidebar-edit-textarea {
   width: 100%;
@@ -1073,10 +1065,14 @@ button.admin-danger-btn:hover:not(:disabled) {
   background: var(--bg, #fdf6e9);
   color: var(--text, #3b2a1a);
   resize: none;
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
   field-sizing: content;
   min-height: 1.6rem;
+  max-height: 8rem;
 }
+.sidebar-edit-input::-webkit-scrollbar,
+.sidebar-edit-textarea::-webkit-scrollbar { display: none; }
 
 .sidebar-edit-textarea--short { font-family: inherit; resize: vertical; }
 
@@ -1130,45 +1126,21 @@ button.admin-danger-btn:hover:not(:disabled) {
   box-sizing: border-box;
   font-size: 0.72rem;
   border: 1px solid var(--border, #c8b99a);
-  border-radius: 2px 2px 0 0;
+  border-radius: 2px;
   padding: 0.2rem 0.3rem;
   background: var(--bg, #fdf6e9);
   color: var(--text, #3b2a1a);
   min-width: 0;
   width: 100%;
   resize: none;
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
   field-sizing: content;
   min-height: 1.5rem;
+  max-height: 7rem;
   font-family: inherit;
 }
-
-/* Wrapper that stacks textarea + preview in the value grid cell. */
-.infobox-md-field {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-/* Live markdown preview shown below the value textarea. */
-.infobox-md-preview {
-  font-size: 0.68rem;
-  color: var(--text, #3b2a1a);
-  padding: 0.15rem 0.35rem;
-  background: var(--bg-alt, #f0e8d8);
-  border: 1px solid var(--border, #c8b99a);
-  border-top: none;
-  border-radius: 0 0 2px 2px;
-  line-height: 1.4;
-}
-
-/* Ref/halu links in the preview look like real links. */
-.infobox-preview-link {
-  color: var(--link, #8b4513);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: default;
-}
+.infobox-editor-row-value::-webkit-scrollbar { display: none; }
 
 .infobox-editor-del {
   background: none;

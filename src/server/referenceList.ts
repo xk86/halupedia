@@ -566,7 +566,21 @@ export function resolveRefLinks(body: string, refs: ReferenceList): string {
       const label = visibleText || ref.title;
       replacement = `[${label}](ref:${ref.slug})`;
     }
-    output += body.slice(cursor, link.start);
+    // Strip a preceding plain-text duplicate of the link label. The LLM
+    // sometimes appends [Title](ref:slug) right after the bare title text
+    // instead of wrapping it, producing "Title[Title](ref:slug)". Stripping
+    // the duplicate here prevents linkMentionedReferencesInBody from then
+    // wrapping the bare title and producing two adjacent identical links.
+    const segment = body.slice(cursor, link.start);
+    const vis = (visibleText || (ref?.title ?? "")).trim();
+    let cleanedSegment = segment;
+    if (vis && cleanedSegment.endsWith(vis)) {
+      const before = cleanedSegment.slice(0, cleanedSegment.length - vis.length);
+      if (!before || /[^\p{L}\p{N}]$/u.test(before)) {
+        cleanedSegment = before;
+      }
+    }
+    output += cleanedSegment;
     output += replacement;
     cursor = link.end;
   }

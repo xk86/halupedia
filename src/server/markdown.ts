@@ -367,8 +367,16 @@ export function renderMarkdown(markdown: string): string {
 
 /** Render a single line of markdown as inline HTML — no wrapping block element.
  *  Used for infobox values and captions that need bold/italic/ref-link support. */
-export function renderInlineMarkdown(text: string): string {
-  const html = md.renderInline(normalizeHaluLinks(text));
+export function renderInlineMarkdown(text: unknown): string {
+  const inlineText =
+    text == null
+      ? ""
+      : typeof text === "string"
+        ? text
+        : typeof text === "object"
+          ? JSON.stringify(text)
+        : String(text);
+  const html = md.renderInline(normalizeHaluLinks(inlineText));
   return html;
 }
 

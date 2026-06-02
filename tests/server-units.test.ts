@@ -31,6 +31,7 @@ import {
   leadBoldsTitle,
   markdownToPlainText,
   normalizeHaluLinks,
+  renderInlineMarkdown,
   renderMarkdown,
   normalizeMarkdown,
   summaryMarkdownFromArticle,
@@ -349,6 +350,13 @@ test("renderMarkdown rewrites halu links to wiki paths using visible text", () =
   );
   assert.match(html, /href="\/wiki\/Glow_Fruit"/);
   assert.doesNotMatch(html, /hidden hint/);
+});
+
+test("renderInlineMarkdown stringifies invalid sidecar values instead of throwing", () => {
+  assert.equal(renderInlineMarkdown(null), "");
+  const html = renderInlineMarkdown({ value: "bad infobox row" } as unknown);
+  assert.match(html, /bad infobox row/);
+  assert.doesNotMatch(html, /href=/);
 });
 
 test("parseMarkdownLinks classifies supported and fallback internal links in one pass", () => {

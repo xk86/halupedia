@@ -424,19 +424,28 @@ export const generateInfoboxNode = defineNode({
   kind: "llm",
   description:
     "Generate structured infobox rows (heavy, JSON). Runs for all articles regardless of image.",
-  reads: ["finalArticleBody", "canonicalTitle", "input"] as const,
+  reads: ["finalArticleBody", "canonicalTitle", "input", "references"] as const,
   writes: ["infobox"] as const,
-  async run({ finalArticleBody, canonicalTitle, input }, deps: PipelineDeps) {
+  async run({ finalArticleBody, canonicalTitle, input, references }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
     const body = finalArticleBody ?? "";
     if (!slug || !body) return { infobox: undefined };
 
     const title = canonicalTitle ?? input.requestedTitle ?? slug;
-    const excerpt = stripTopLevelSections(body, ["References", "See also"]).slice(0, 6000);
+    // Full body stripped of generated metadata sections — infobox should mine
+    // every fact from the article, not a truncated excerpt.
+    const articleBody = stripTopLevelSections(body, ["References", "See also"]);
+
+    // Refs as formatted links only — no summaries, so the model derives facts
+    // from the article itself and uses refs purely for correct slug targets.
+    const refLinks = (references ?? [])
+      .map((r) => `[${r.title}](ref:${r.slug})`)
+      .join("\n");
 
     const rendered = deps.prompts.render("infobox", {
       requested_title: title,
-      article_excerpt: excerpt,
+      article_body: articleBody,
+      ref_links: refLinks || "(none)",
     });
 
     try {

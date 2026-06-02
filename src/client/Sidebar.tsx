@@ -395,16 +395,25 @@ function InfoboxHistory({
   );
 }
 
+const GENERATING_LABELS: Record<string, string> = {
+  "llm.generate_see_also": "Suggesting related articles…",
+  "llm.regenerate_summary": "Writing summary…",
+  "llm.generate_infobox": "Building infobox…",
+  "llm.generate_sidebar_caption": "Writing caption…",
+};
+
 export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: headlineMediaProp, onNavigate, onNavigateToMedia, onArticleUpdate }: SidebarProps) {
   // Live sidecar state — starts from props, updated by the /live stream.
   const [infobox, setInfobox] = useState<InfoboxData | null>(infoboxProp);
   const [headlineMedia, setHeadlineMedia] = useState<HeadlineMedia | null>(headlineMediaProp);
+  const [generatingNode, setGeneratingNode] = useState<string | null>(null);
+  const [generatingPartial, setGeneratingPartial] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [editTab, setEditTab] = useState<EditTab>("edit");
   const liveRef = useRef<AbortController | null>(null);
 
   // Sync prop changes (navigation) into local state; close edit panel on navigation.
-  useEffect(() => { setInfobox(infoboxProp); setEditOpen(false); }, [infoboxProp]);
+  useEffect(() => { setInfobox(infoboxProp); setEditOpen(false); setGeneratingNode(null); setGeneratingPartial(null); }, [infoboxProp]);
   useEffect(() => { setHeadlineMedia(headlineMediaProp); }, [headlineMediaProp]);
 
   // Subscribe to live sidecar updates for this article.
@@ -438,9 +447,12 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
                 | { type: "ready" }
                 | { type: "infobox"; infobox: InfoboxData }
                 | { type: "caption"; caption: string; mediaId: string }
-                | { type: "article" };
+                | { type: "article" }
+                | { type: "generating"; node: string; partial?: string };
               if (event.type === "infobox") {
                 setInfobox(event.infobox);
+                setGeneratingNode(null);
+                setGeneratingPartial(null);
               } else if (event.type === "caption") {
                 setHeadlineMedia((prev) =>
                   prev && prev.mediaId === event.mediaId
@@ -448,7 +460,12 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
                     : prev,
                 );
               } else if (event.type === "article" && articleSlug) {
+                setGeneratingNode(null);
+                setGeneratingPartial(null);
                 onArticleUpdate?.(articleSlug);
+              } else if (event.type === "generating") {
+                setGeneratingNode(event.node);
+                setGeneratingPartial(event.partial ?? null);
               }
             } catch {}
           }
@@ -495,7 +512,19 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
 
   const hasContent = Boolean(articleSlug) && Boolean(infobox || headlineMedia);
   if (!hasContent) {
-    return <aside className="sidebar" aria-label="Context" />;
+    if (!generatingNode) return <aside className="sidebar" aria-label="Context" />;
+    return (
+      <aside className="sidebar" aria-label="Context">
+        <div className="sidebar-generating">
+          <span className="sidebar-generating-label">
+            {GENERATING_LABELS[generatingNode] ?? "Generating…"}
+          </span>
+          {generatingPartial && (
+            <p className="sidebar-generating-partial">{generatingPartial}</p>
+          )}
+        </div>
+      </aside>
+    );
   }
 
   const title = infobox?.title ?? "";
@@ -606,6 +635,16 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
             ))}
           </table>
         )}
+      {generatingNode && (
+        <div className="sidebar-generating sidebar-generating--inline">
+          <span className="sidebar-generating-label">
+            {GENERATING_LABELS[generatingNode] ?? "Updating…"}
+          </span>
+          {generatingPartial && generatingNode === "llm.regenerate_summary" && (
+            <p className="sidebar-generating-partial">{generatingPartial}</p>
+          )}
+        </div>
+      )}
       </div>
     </aside>
   );

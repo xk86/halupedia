@@ -59,6 +59,7 @@ interface NodeSpan {
   duration_ms: number;
   status: string;
   error_message?: string | null;
+  prompt_chars?: number | null;
 }
 
 interface Props {
@@ -259,6 +260,10 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
   );
 }
 
+function fmtK(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
 function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number }) {
   const maxMs = Math.max(...nodes.map((n) => n.duration_ms), 1);
   return (
@@ -280,6 +285,9 @@ function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number 
             </span>
             <span className="admin-pipeline-node-ms">{node.duration_ms} ms</span>
             <span className="admin-pipeline-node-pct">{pct}%</span>
+            <span className="admin-pipeline-node-ctx" title="prompt chars (system + user)">
+              {node.prompt_chars != null ? `${fmtK(node.prompt_chars)}c` : ""}
+            </span>
           </div>
         );
       })}

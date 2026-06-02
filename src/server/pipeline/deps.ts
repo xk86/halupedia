@@ -48,4 +48,6 @@ export interface PipelineDeps {
 export type SidecarUpdateEvent =
   | { type: "infobox"; infobox: unknown }
   | { type: "caption"; caption: string; mediaId: string }
-  | { type: "article"; article: unknown };
+  | { type: "article"; article: unknown }
+  /** Fired during LLM streaming in post-process nodes; partial may be undefined for JSON nodes. */
+  | { type: "generating"; node: string; partial?: string };

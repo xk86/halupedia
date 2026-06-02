@@ -243,7 +243,8 @@ export const generateSeeAlsoNode = defineNode({
       });
       const seeAlsoRole = rendered.role ?? "heavy";
       try {
-        const raw = await deps.llm.chat(seeAlsoRole, rendered.system, rendered.user, {
+        deps.onSidecarUpdate?.(slug, { type: "generating", node: "llm.generate_see_also" });
+        const { content: raw } = await deps.llm.streamChat(seeAlsoRole, rendered.system, rendered.user, () => {}, {
           thinking: rendered.thinking,
           jsonMode: rendered.json,
         });
@@ -307,12 +308,17 @@ export const regenerateSummaryNode = defineNode({
       article_excerpt: trimmed,
       full_article: trimmed,
     });
+    const articleSlug = slugify(input.slug ?? "");
     const summaryRole = rendered.role ?? "heavy";
     try {
-      const raw = await deps.llm.chat(summaryRole, rendered.system, rendered.user, {
-        thinking: rendered.thinking,
-        jsonMode: rendered.json,
-      });
+      deps.onSidecarUpdate?.(articleSlug, { type: "generating", node: "llm.regenerate_summary" });
+      const { content: raw } = await deps.llm.streamChat(
+        summaryRole, rendered.system, rendered.user,
+        (_delta, accumulated) => {
+          deps.onSidecarUpdate?.(articleSlug, { type: "generating", node: "llm.regenerate_summary", partial: accumulated });
+        },
+        { thinking: rendered.thinking, jsonMode: rendered.json },
+      );
       return { articleSummary: raw.trim() };
     } catch {
       return { articleSummary: summaryMarkdownFromArticle(body) };
@@ -449,10 +455,12 @@ export const generateInfoboxNode = defineNode({
     });
 
     try {
-      const raw = await deps.llm.chat(
+      deps.onSidecarUpdate?.(slug, { type: "generating", node: "llm.generate_infobox" });
+      const { content: raw } = await deps.llm.streamChat(
         rendered.role ?? "heavy",
         rendered.system,
         rendered.user,
+        () => {},
         { jsonMode: true, thinking: rendered.thinking },
       );
       const match = raw.match(/\{[\s\S]*\}/);

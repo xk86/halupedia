@@ -112,8 +112,42 @@ export async function runWorkflow<Deps>(
       const nodeStart = Date.now();
       options.onNode?.(edge.node.name, edge.node.kind);
       const before = state;
+      // Wrap deps.llm (if present) to capture prompt size for this node.
+      let nodePromptChars: number | undefined;
+      const deps = options.deps as Record<string, unknown>;
+      const nodeDeps =
+        deps && typeof deps === "object" && typeof deps.llm === "object" && deps.llm
+          ? (() => {
+              const origLlm = deps.llm as {
+                chat(...args: unknown[]): Promise<string>;
+                streamChat(...args: unknown[]): Promise<unknown>;
+                embed: unknown;
+                probeConnections: unknown;
+              };
+              const capture = (system: unknown, user: unknown) => {
+                nodePromptChars =
+                  (typeof system === "string" ? system.length : 0) +
+                  (typeof user === "string" ? user.length : 0);
+              };
+              return {
+                ...deps,
+                llm: {
+                  ...origLlm,
+                  chat(role: unknown, system: unknown, user: unknown, ...rest: unknown[]) {
+                    capture(system, user);
+                    return origLlm.chat(role, system, user, ...rest);
+                  },
+                  streamChat(role: unknown, system: unknown, user: unknown, ...rest: unknown[]) {
+                    capture(system, user);
+                    return origLlm.streamChat(role, system, user, ...rest);
+                  },
+                },
+              };
+            })()
+          : options.deps;
       try {
-        const patch = await edge.node.run(before, options.deps);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const patch = await edge.node.run(before, nodeDeps as any);
         const after = mergePatch(before, patch);
         const diff = diffState(before, after);
         state = after;
@@ -131,6 +165,7 @@ export async function runWorkflow<Deps>(
           inputs: pickKeys(before, edge.node.reads),
           patch,
           diff,
+          promptChars: nodePromptChars,
         });
         options.logger?.info("pipeline.node.ok", {
           workflow: workflow.name,
@@ -156,6 +191,7 @@ export async function runWorkflow<Deps>(
           writes: edge.node.writes,
           inputs: pickKeys(before, edge.node.reads),
           error: { message: wrapped.message, stack: wrapped.stack },
+          promptChars: nodePromptChars,
         });
         options.logger?.error("pipeline.node.error", {
           workflow: workflow.name,

@@ -46,6 +46,8 @@ export interface NodeTraceFields {
   diff?: StateDiff;
   warnings?: string[];
   error?: { message: string; stack?: string };
+  /** Total chars in system+user prompt for LLM nodes; undefined for non-LLM nodes. */
+  promptChars?: number;
 }
 
 export interface RunTraceFields {
@@ -149,12 +151,16 @@ class SqliteTraceRecorder implements TraceRecorder {
           status, nodes_executed, error_message, error_stack)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
     );
+    // Migrate existing DBs that predate the prompt_chars column.
+    try {
+      this.db.exec(`ALTER TABLE pipeline_nodes ADD COLUMN prompt_chars INTEGER`);
+    } catch { /* column already exists */ }
     this.insertNode = this.db.prepare(
       `INSERT INTO pipeline_nodes
          (run_id, node_name, node_kind, started_at, duration_ms, status,
           reads, writes, inputs_json, patch_json, diff_json, warnings_json,
-          error_message, error_stack)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          error_message, error_stack, prompt_chars)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
   }
 
@@ -209,6 +215,7 @@ class SqliteTraceRecorder implements TraceRecorder {
           : null,
         fields.error?.message ?? null,
         fields.error?.stack ?? null,
+        fields.promptChars ?? null,
       );
     } catch {
       // ditto — swallow trace failures.
@@ -271,7 +278,8 @@ CREATE TABLE IF NOT EXISTS pipeline_nodes (
   diff_json       TEXT,
   warnings_json   TEXT,
   error_message   TEXT,
-  error_stack     TEXT
+  error_stack     TEXT,
+  prompt_chars    INTEGER
 );
 CREATE INDEX IF NOT EXISTS pipeline_nodes_run_idx
   ON pipeline_nodes (run_id, started_at);

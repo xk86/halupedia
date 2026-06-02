@@ -1118,6 +1118,13 @@ export function deleteArticleBySlug(db: DatabaseSync, lookupSlug: string) {
     db.prepare(`DELETE FROM article_chunks WHERE slug = ?`).run(article.slug);
     db.prepare(`DELETE FROM article_links WHERE source_slug = ? OR target_slug = ?`).run(article.slug, article.slug);
     db.prepare(`DELETE FROM article_aliases WHERE article_slug = ? OR alias_slug = ?`).run(article.slug, lookupSlug);
+    // Remove all sidecar data so stale metadata never lingers after deletion.
+    db.prepare(`DELETE FROM article_infobox WHERE article_slug = ?`).run(article.slug);
+    db.prepare(`DELETE FROM article_media WHERE article_slug = ?`).run(article.slug);
+    db.prepare(`DELETE FROM article_references WHERE article_slug = ?`).run(article.slug);
+    db.prepare(`DELETE FROM article_see_also WHERE article_slug = ?`).run(article.slug);
+    db.prepare(`DELETE FROM sidebar_revisions WHERE article_slug = ?`).run(article.slug);
+    db.prepare(`DELETE FROM protected_sections WHERE article_slug = ?`).run(article.slug);
     db.prepare(`DELETE FROM articles WHERE slug = ?`).run(article.slug);
     // article_revisions is intentionally preserved for audit purposes.
     db.exec("COMMIT");
@@ -1596,13 +1603,35 @@ export interface InfoboxData {
   groups: InfoboxGroup[];
 }
 
+/** Coerce all leaf values to strings so callers can safely call .includes/.replace. */
+export function normalizeInfoboxData(data: unknown): InfoboxData | null {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  const title = String(d.title ?? "");
+  if (!title) return null;
+  const subtitle = d.subtitle != null ? String(d.subtitle) : undefined;
+  const groups: InfoboxGroup[] = [];
+  for (const g of Array.isArray(d.groups) ? d.groups : []) {
+    const group = g as Record<string, unknown>;
+    const rows: InfoboxGroup["rows"] = [];
+    for (const r of Array.isArray(group.rows) ? group.rows : []) {
+      const row = r as Record<string, unknown>;
+      const lbl = String(row.label ?? "");
+      const val = String(row.value ?? "");
+      if (lbl || val) rows.push({ label: lbl, value: val });
+    }
+    groups.push({ label: String(group.label ?? ""), rows });
+  }
+  return { title, subtitle, image_ordinal: d.image_ordinal as number | undefined, groups };
+}
+
 export function getArticleInfobox(db: DatabaseSync, articleSlug: string): InfoboxData | null {
   const row = db
     .prepare(`SELECT json FROM article_infobox WHERE article_slug = ?`)
     .get(articleSlug) as { json: string } | undefined;
   if (!row) return null;
   try {
-    return JSON.parse(row.json) as InfoboxData;
+    return normalizeInfoboxData(JSON.parse(row.json));
   } catch {
     return null;
   }
@@ -1626,7 +1655,8 @@ export function setArticleInfobox(
   operation: SidebarOperation = "generated",
 ): void {
   const now = Date.now();
-  const json = JSON.stringify(data);
+  const normalized = normalizeInfoboxData(data) ?? data;
+  const json = JSON.stringify(normalized);
   db.prepare(
     `INSERT INTO article_infobox (article_slug, json, updated_at)
      VALUES (?, ?, ?)

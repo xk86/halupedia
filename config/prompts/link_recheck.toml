@@ -1,4 +1,4 @@
-model = "heavy"
+model = "light"
 thinking = false
 system = """
 You are a link checker. You receive an article body in raw Markdown and must find and evaluate every internal link.

@@ -59,6 +59,8 @@ export interface WorkflowRunOptions<Deps> {
   deps: Deps;
   recorder: TraceRecorder;
   logger?: Logger;
+  /** Called at the start of each node with the node name and kind. */
+  onNode?: (nodeName: string, nodeKind: string) => void;
 }
 
 export interface WorkflowRunResult {
@@ -108,6 +110,7 @@ export async function runWorkflow<Deps>(
         continue;
       }
       const nodeStart = Date.now();
+      options.onNode?.(edge.node.name, edge.node.kind);
       const before = state;
       try {
         const patch = await edge.node.run(before, options.deps);
@@ -132,6 +135,7 @@ export async function runWorkflow<Deps>(
         options.logger?.info("pipeline.node.ok", {
           workflow: workflow.name,
           run_id: runId,
+          slug,
           node: edge.node.name,
           kind: edge.node.kind,
           duration_ms: Date.now() - nodeStart,
@@ -156,6 +160,7 @@ export async function runWorkflow<Deps>(
         options.logger?.error("pipeline.node.error", {
           workflow: workflow.name,
           run_id: runId,
+          slug,
           node: edge.node.name,
           error: wrapped.message,
         });

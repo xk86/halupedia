@@ -3332,8 +3332,46 @@ button.admin-danger-btn:hover:not(:disabled) {
   .sidebar {
     position: static;
     border-top: 1px solid var(--rule);
-    padding-top: 1.5rem;
+    padding-top: 0;
   }
+
+  /* Mobile collapse toggle — visible only on small screens */
+  .sidebar-mobile-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.65rem 0.1rem;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--rule-soft);
+    cursor: pointer;
+    font-family: var(--serif);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: left;
+  }
+  .sidebar-mobile-toggle:hover { color: var(--accent); }
+  .sidebar-mobile-toggle-icon {
+    font-size: 0.75rem;
+    color: var(--ink-fade);
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+  }
+
+  /* When collapsed, hide everything inside .infobox except the header row */
+  .infobox--collapsed .infobox-subtitle,
+  .infobox--collapsed .sidebar-edit-container,
+  .infobox--collapsed .infobox-image-link,
+  .infobox--collapsed .infobox-caption,
+  .infobox--collapsed .infobox-table { display: none; }
+}
+
+/* On desktop, never show the mobile toggle */
+@media (min-width: 981px) {
+  .sidebar-mobile-toggle { display: none; }
+  .sidebar { padding-top: 0; }
 }
 
 /* --- Panel chrome ---------------------------------------------------- */

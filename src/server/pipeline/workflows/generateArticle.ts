@@ -30,11 +30,14 @@ import {
   cleanLinkLabelsNode,
   deriveIdentityNode,
   resolveLinksNode,
-  generateSummaryNode,
   validateBodyNode,
   persistArticleNode,
 } from "../nodes/articleGeneration";
-import { generateInfoboxNode, persistInfoboxNode } from "../nodes/postProcess";
+
+// Summary, infobox, and sidebar caption are generated exclusively in
+// article.post_process, which always fires after this workflow. Keeping them
+// here would run them twice for fresh generations; post_process is the single
+// owner of all enrichment so refresh/rewrite/generate stay consistent.
 
 export const generateArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
   name: "article.generate",
@@ -53,10 +56,7 @@ export const generateArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: cleanLinkLabelsNode },
     { node: deriveIdentityNode },
     { node: resolveLinksNode },
-    { node: generateSummaryNode },
-    { node: generateInfoboxNode },
     { node: validateBodyNode },
     { node: persistArticleNode },
-    { node: persistInfoboxNode },
   ],
 };

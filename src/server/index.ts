@@ -878,8 +878,21 @@ export async function createApp(options: CreateAppOptions = {}) {
     seq: number;
     startedAt: number;
     waiting: number;
+    workflow: string;
+    phase: string;
+    /** Active stream subscribers — receives every progress/status event. */
+    progressListeners: Set<(event: unknown) => void>;
   }
   const slugGenerations = new Map<string, GenerationQueueEntry>();
+  // Tracks any active non-generate workflow (refresh, rewrite, post_process) per slug.
+  interface ActiveOperationEntry {
+    slug: string;
+    title: string;
+    workflow: string;
+    phase: string;
+    startedAt: number;
+  }
+  const activeOperations = new Map<string, ActiveOperationEntry>();
   let generationSeq = 0;
   const inFlightEdits = new Set<string>(); // Track slugs with in-flight edits to prevent stale overwrites
 
@@ -902,13 +915,14 @@ export async function createApp(options: CreateAppOptions = {}) {
         ...wire,
         infobox: {
           ...raw,
+          title: renderInlineMarkdown(raw.title ?? ""),
           subtitle: raw.subtitle
             ? renderInlineMarkdown(linkReferencesInline(raw.subtitle, liveRefs))
             : undefined,
           groups: (raw.groups ?? []).map((g) => ({
-            label: g.label,
+            label: renderInlineMarkdown(g.label),
             rows: g.rows.map((r) => ({
-              label: r.label,
+              label: renderInlineMarkdown(r.label),
               value: renderInlineMarkdown(linkReferencesInline(r.value, liveRefs)),
             })),
           })),
@@ -954,34 +968,78 @@ export async function createApp(options: CreateAppOptions = {}) {
       };
     }
     logger.info("page.generate", { slug, seq });
-    const promise = generate().finally(() => {
-      if (slugGenerations.get(slug)?.seq === seq) {
-        slugGenerations.delete(slug);
-      }
-    });
-    slugGenerations.set(slug, {
-      promise,
+    const entry: GenerationQueueEntry = {
+      promise: undefined as unknown as Promise<ArticleRecord>,
       slug,
       title,
       seq,
       startedAt: Date.now(),
       waiting: 0,
+      workflow: "article.generate",
+      phase: "starting",
+      progressListeners: new Set(),
+    };
+    const promise = generate().finally(() => {
+      if (slugGenerations.get(slug)?.seq === seq) {
+        slugGenerations.delete(slug);
+      }
     });
+    entry.promise = promise;
+    slugGenerations.set(slug, entry);
     return { promise, seq, joined: false, releaseWaiter: () => {} };
   }
 
   function generationQueuePayload() {
-    return {
-      items: [...slugGenerations.values()]
-        .sort((a, b) => a.startedAt - b.startedAt)
-        .map((entry) => ({
-          slug: entry.slug,
-          title: entry.title,
-          seq: entry.seq,
-          startedAt: entry.startedAt,
-          waiting: entry.waiting,
-        })),
+    const generating = [...slugGenerations.values()]
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .map((entry) => ({
+        slug: entry.slug,
+        title: entry.title,
+        seq: entry.seq,
+        startedAt: entry.startedAt,
+        waiting: entry.waiting,
+        workflow: entry.workflow,
+        phase: entry.phase,
+      }));
+    const updating = [...activeOperations.values()]
+      .filter((op) => !slugGenerations.has(op.slug))
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .map((op) => ({
+        slug: op.slug,
+        title: op.title,
+        seq: -1,
+        startedAt: op.startedAt,
+        waiting: 0,
+        workflow: op.workflow,
+        phase: op.phase,
+      }));
+    return { items: [...generating, ...updating] };
+  }
+
+  /**
+   * Register a non-generate workflow in the active-operations map so it
+   * shows up in the generation queue. Returns an onNode callback to pass
+   * to runWorkflow, and a register() function to attach the real promise
+   * for cleanup once it is available.
+   */
+  function trackActiveOperation(
+    slug: string,
+    title: string,
+    workflow: string,
+  ): { onNode: (nodeName: string) => void; register: (p: Promise<unknown>) => void } {
+    const op: ActiveOperationEntry = { slug, title, workflow, phase: "starting", startedAt: Date.now() };
+    activeOperations.set(slug, op);
+    const onNode = (nodeName: string) => {
+      if (activeOperations.get(slug) === op) op.phase = nodeName;
+      const gen = slugGenerations.get(slug);
+      if (gen) gen.phase = nodeName;
     };
+    const register = (p: Promise<unknown>) => {
+      p.finally(() => {
+        if (activeOperations.get(slug) === op) activeOperations.delete(slug);
+      });
+    };
+    return { onNode, register };
   }
 
   /**
@@ -1318,13 +1376,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     const infobox = rawInfobox
       ? {
           ...rawInfobox,
+          title: renderInlineMarkdown(rawInfobox.title),
           subtitle: rawInfobox.subtitle
             ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs))
             : undefined,
           groups: rawInfobox.groups.map((g) => ({
-            label: g.label,
+            label: renderInlineMarkdown(g.label),
             rows: g.rows.map((r) => ({
-              label: r.label,
+              label: renderInlineMarkdown(r.label),
               value: renderInlineMarkdown(linkReferencesInline(r.value, sidebarRefs)),
             })),
           })),
@@ -1431,6 +1490,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   ) {
     onStatus?.("Writing...");
     const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+    const genEntry = slugGenerations.get(slug);
     const result = await runWorkflow(generateArticleWorkflow, {
       input: {
         requestId: randomUUID(),
@@ -1441,6 +1501,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       deps: buildPipelineDeps({ onProgress }),
       recorder,
       logger,
+      onNode: (nodeName) => {
+        if (genEntry) genEntry.phase = nodeName;
+      },
     });
     if (result.status === "error") throw result.error ?? new Error("article generation failed");
 
@@ -1453,21 +1516,23 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
 
     // Post-process async: link repair, see-also, summary, RAG indexing.
-    trackGeneration(
-      runWorkflow(postProcessWorkflow, {
-        input: {
-          requestId: randomUUID(),
-          workflow: "article.post_process",
-          slug: canonicalSlug,
-          requestedTitle,
-        },
-        deps: buildPipelineDeps({
-          ...(persistedAt ? { onProgress: undefined } : {}),
-        }),
-        recorder,
-        logger,
-      }).catch(() => {}),
-    );
+    const ppOp = trackActiveOperation(canonicalSlug, requestedTitle, "article.post_process");
+    const ppPromise = runWorkflow(postProcessWorkflow, {
+      input: {
+        requestId: randomUUID(),
+        workflow: "article.post_process",
+        slug: canonicalSlug,
+        requestedTitle,
+      },
+      deps: buildPipelineDeps({
+        ...(persistedAt ? { onProgress: undefined } : {}),
+      }),
+      recorder,
+      logger,
+      onNode: ppOp.onNode,
+    }).catch(() => {});
+    ppOp.register(ppPromise);
+    trackGeneration(ppPromise);
 
     const article = getArticleByLookup(db, canonicalSlug);
     if (!article) throw new Error(`article not found after generation: ${canonicalSlug}`);
@@ -1700,7 +1765,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         // Auto-sidebar: fire post-process in the background on first view if
         // the article has no infobox yet (e.g. imported or created before
         // post-process ran). Tracked so it only fires once per server session.
-        if (!getArticleInfobox(db, record.slug) && !autoPostProcessed.has(record.slug)) {
+        if (!getArticleInfobox(db, record.slug) && !autoPostProcessed.has(record.slug) && !activeOperations.has(record.slug)) {
           autoPostProcessed.add(record.slug);
           logger.info("page.auto_post_process", { slug: record.slug });
           trackGeneration(
@@ -1750,7 +1815,9 @@ export async function createApp(options: CreateAppOptions = {}) {
           202,
         );
       }
+      const listeners = existingGeneration.progressListeners;
       let streamOpen = true;
+      let listener: ((event: unknown) => void) | null = null;
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
           const send = (payload: unknown) => {
@@ -1764,14 +1831,34 @@ export async function createApp(options: CreateAppOptions = {}) {
           const close = () => {
             if (!streamOpen) return;
             streamOpen = false;
-            try {
-              controller.close();
-            } catch {}
+            try { controller.close(); } catch {}
           };
 
           send({ type: "start", slug: lookupSlug, cached: false, seq: joinSeq, joined: true });
-          send({ type: "status", message: "Waiting and contemplating..." });
-          close();
+
+          listener = (event: unknown) => send(event);
+          listeners.add(listener);
+
+          existingGeneration.promise
+            .then((result) => {
+              if (listener) listeners.delete(listener);
+              const canonicalPath = canonicalPathForArticle(result);
+              logger.info("page.join_done", { slug: lookupSlug, seq: joinSeq });
+              const response = buildArticleResponseFor(result.slug);
+              if (response) {
+                send({ type: "done", ...buildPageResponse(response, { cached: false, requestedPath, canonicalPath }) });
+              }
+              close();
+            })
+            .catch((error) => {
+              if (listener) listeners.delete(listener);
+              send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+              close();
+            });
+        },
+        cancel() {
+          if (listener) listeners.delete(listener);
+          streamOpen = false;
         },
       });
       return new Response(stream, {
@@ -1780,6 +1867,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     let streamOpen = true;
+    let originSend: ((payload: unknown) => void) | null = null;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const send = (payload: unknown) => {
@@ -1790,12 +1878,17 @@ export async function createApp(options: CreateAppOptions = {}) {
             streamOpen = false;
           }
         };
+        originSend = send;
         const close = () => {
           if (!streamOpen) return;
           streamOpen = false;
           try {
             controller.close();
           } catch {}
+        };
+
+        const broadcast = (event: unknown) => {
+          slugGenerations.get(lookupSlug)?.progressListeners.forEach((cb) => cb(event));
         };
 
         const {
@@ -1807,20 +1900,20 @@ export async function createApp(options: CreateAppOptions = {}) {
           buildArticle(
             lookupSlug,
             requestedTitle,
-            (html, markdown) => {
-              send({ type: "progress", html, markdown });
-            },
-            (message) => {
-              send({ type: "status", message });
-            },
+            (html, markdown) => broadcast({ type: "progress", html, markdown }),
+            (message) => broadcast({ type: "status", message }),
           ),
         );
+
+        // Subscribe this stream as the first listener before any LLM chunks arrive.
+        slugGenerations.get(lookupSlug)?.progressListeners.add(send);
 
         send({ type: "start", slug: lookupSlug, cached: false, seq, joined });
         send({ type: "status", message: "Waiting and contemplating..." });
 
         generation
           .then((result) => {
+            slugGenerations.get(lookupSlug)?.progressListeners.delete(send);
             const canonicalPath = canonicalPathForArticle(result);
             logger.info("page.stream_done", { slug: lookupSlug, seq });
             // Re-hydrate via buildArticleResponseFor so the streamed payload
@@ -1841,6 +1934,7 @@ export async function createApp(options: CreateAppOptions = {}) {
             return result;
           })
           .catch((error) => {
+            slugGenerations.get(lookupSlug)?.progressListeners.delete(send);
             logger.error("page.stream_error", { slug: lookupSlug, seq, error: error instanceof Error ? error.message : String(error) });
             send({
               type: "error",
@@ -1853,6 +1947,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         trackGeneration(generation.catch(() => {}));
       },
       cancel() {
+        if (originSend) slugGenerations.get(lookupSlug)?.progressListeners.delete(originSend);
         streamOpen = false;
       },
     });
@@ -2533,31 +2628,36 @@ export async function createApp(options: CreateAppOptions = {}) {
         const onProgress = send
           ? (html: string, markdown: string) => send({ type: "progress", html, markdown })
           : undefined;
+        const rewriteOp = trackActiveOperation(article.slug, article.title, "article.rewrite");
         const result = await runWorkflow(rewriteArticleWorkflow, {
           input: rewriteInput,
           deps: buildPipelineDeps({ onProgress }),
           recorder,
           logger,
+          onNode: rewriteOp.onNode,
         });
+        rewriteOp.register(Promise.resolve());
         if (result.status === "error") throw result.error ?? new Error("rewrite failed");
 
         const updatedSlug = result.state.canonicalSlug ?? article.slug;
         invalidateArticleHtml(updatedSlug);
 
-        trackGeneration(
-          runWorkflow(postProcessWorkflow, {
-            input: {
-              requestId: randomUUID(),
-              workflow: "article.post_process",
-              slug: updatedSlug,
-              requestedTitle: article.title,
-              blacklistSlugs: effectiveBlacklistSlugs,
-            },
-            deps: buildPipelineDeps(),
-            recorder,
-            logger,
-          }).catch(() => {}),
-        );
+        const ppRewriteOp = trackActiveOperation(updatedSlug, article.title, "article.post_process");
+        const ppRewritePromise = runWorkflow(postProcessWorkflow, {
+          input: {
+            requestId: randomUUID(),
+            workflow: "article.post_process",
+            slug: updatedSlug,
+            requestedTitle: article.title,
+            blacklistSlugs: effectiveBlacklistSlugs,
+          },
+          deps: buildPipelineDeps(),
+          recorder,
+          logger,
+          onNode: ppRewriteOp.onNode,
+        }).catch(() => {});
+        ppRewriteOp.register(ppRewritePromise);
+        trackGeneration(ppRewritePromise);
 
         const updatedRecord = getArticleByLookup(db, updatedSlug);
         const response = buildArticleResponseFor(updatedSlug);
@@ -2630,6 +2730,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         ? (html: string, markdown: string) => send({ type: "progress", html, markdown })
         : undefined;
 
+      const refreshOp = trackActiveOperation(article.slug, article.title, "article.refresh");
       const result = await runWorkflow(refreshArticleWorkflow, {
         input: {
           requestId: randomUUID(),
@@ -2641,7 +2742,9 @@ export async function createApp(options: CreateAppOptions = {}) {
         deps: buildPipelineDeps({ onProgress }),
         recorder,
         logger,
+        onNode: refreshOp.onNode,
       });
+      refreshOp.register(Promise.resolve());
       if (result.status === "error") throw result.error ?? new Error("refresh failed");
 
       const updatedSlug = result.state.canonicalSlug ?? article.slug;
@@ -2651,19 +2754,21 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger.info("page.refresh", { slug: updatedSlug, changed: refreshChanged });
       invalidateArticleHtml(updatedSlug);
 
-      trackGeneration(
-        runWorkflow(postProcessWorkflow, {
-          input: {
-            requestId: randomUUID(),
-            workflow: "article.post_process",
-            slug: updatedSlug,
-            requestedTitle: article.title,
-          },
-          deps: buildPipelineDeps(),
-          recorder,
-          logger,
-        }).catch(() => {}),
-      );
+      const ppRefreshOp = trackActiveOperation(updatedSlug, article.title, "article.post_process");
+      const ppRefreshPromise = runWorkflow(postProcessWorkflow, {
+        input: {
+          requestId: randomUUID(),
+          workflow: "article.post_process",
+          slug: updatedSlug,
+          requestedTitle: article.title,
+        },
+        deps: buildPipelineDeps(),
+        recorder,
+        logger,
+        onNode: ppRefreshOp.onNode,
+      }).catch(() => {});
+      ppRefreshOp.register(ppRefreshPromise);
+      trackGeneration(ppRefreshPromise);
 
       const response = buildArticleResponseFor(updatedSlug);
       if (!response) throw new Error("failed to hydrate response");
@@ -3413,13 +3518,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     const infobox = rawInfobox
       ? {
           ...rawInfobox,
+          title: renderInlineMarkdown(rawInfobox.title),
           subtitle: rawInfobox.subtitle
             ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs))
             : undefined,
           groups: rawInfobox.groups.map((g) => ({
-            label: g.label,
+            label: renderInlineMarkdown(g.label),
             rows: g.rows.map((r) => ({
-              label: r.label,
+              label: renderInlineMarkdown(r.label),
               value: renderInlineMarkdown(linkReferencesInline(r.value, sidebarRefs)),
             })),
           })),

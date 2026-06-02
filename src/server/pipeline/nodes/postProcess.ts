@@ -104,90 +104,20 @@ export const reloadSavedArticleNode = defineNode({
   },
 });
 
-// ─── TRANSFORM: repair malformed halu: links ─────────────────────────────────
+// ─── TRANSFORM: load body for post-process ────────────────────────────────────
+// Strips derived metadata sections so downstream nodes only see the editable body.
+// LLM link repair belongs to the refresh workflow (single full-body rewrite call).
 
 export const repairLinksNode = defineNode({
-  name: "llm.repair_links",
-  kind: "llm",
-  description: "LLM-backed repair of malformed halu: occurrences in body markdown (light model, body-only).",
-  reads: ["loadedArticle", "input"] as const,
+  name: "transform.load_body",
+  kind: "transform",
+  description: "Strip metadata sections (References, See also) from the loaded article body.",
+  reads: ["loadedArticle"] as const,
   writes: ["finalArticleBody"] as const,
-  async run({ loadedArticle, input }, deps: PipelineDeps) {
+  run({ loadedArticle }) {
     if (!loadedArticle) return { finalArticleBody: "" };
-    const slug = loadedArticle.slug;
-
-    // Strip any metadata sections before passing to the LLM repair — these
-    // are algorithmically generated and must never be rewritten by a model.
     const body = stripTopLevelSections(loadedArticle.body, ["References", "See also"]);
-
-    if (!body.includes("halu:")) return { finalArticleBody: body };
-
-    // Guard: never repair a body that somehow still has metadata sections.
-    if (/^#{2,6}\s+(references|see also):?\s*#*\s*$/im.test(body)) {
-      deps.logger.error("pipeline.repair_links.refused_metadata", { slug });
-      return { finalArticleBody: body };
-    }
-
-    // Find positions of `halu:` outside valid LINK_RE matches.
-    const { LINK_RE } = await import("../../markdown");
-    const validRanges: Array<{ start: number; end: number }> = [];
-    const linkPat = new RegExp(LINK_RE.source, LINK_RE.flags);
-    let m: RegExpExecArray | null;
-    while ((m = linkPat.exec(body)) !== null) {
-      validRanges.push({ start: m.index, end: m.index + m[0].length });
-    }
-
-    const malformed: number[] = [];
-    let pos = 0;
-    while (true) {
-      const idx = body.indexOf("halu:", pos);
-      if (idx < 0) break;
-      if (!validRanges.some((r) => idx >= r.start && idx < r.end)) {
-        malformed.push(idx);
-      }
-      pos = idx + 1;
-    }
-
-    if (malformed.length === 0) return { finalArticleBody: body };
-
-    deps.logger.warn("pipeline.repair_links.malformed_detected", {
-      slug,
-      count: malformed.length,
-    });
-
-    let rendered;
-    try {
-      rendered = deps.prompts.render("link_repair", {});
-    } catch {
-      return { finalArticleBody: body };
-    }
-
-    let result = body;
-    let offset = 0;
-    for (const rawPos of malformed) {
-      const p = rawPos + offset;
-      const ctxStart = Math.max(0, p - 120);
-      const ctxEnd = Math.min(result.length, p + 300);
-      const context = result.slice(ctxStart, ctxEnd);
-      try {
-        const repaired = await deps.llm.chat(
-          "light",
-          rendered.system,
-          deps.prompts.render("link_repair", { context }).user,
-          { thinking: false },
-        );
-        if (repaired && repaired.trim() !== context.trim()) {
-          result = result.slice(0, ctxStart) + repaired.trim() + result.slice(ctxEnd);
-          offset += repaired.trim().length - (ctxEnd - ctxStart);
-        }
-      } catch (err) {
-        deps.logger.warn("pipeline.repair_links.repair_failed", {
-          slug,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return { finalArticleBody: result };
+    return { finalArticleBody: body };
   },
 });
 

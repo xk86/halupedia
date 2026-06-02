@@ -509,10 +509,10 @@ export function App() {
                   generated_at: Date.now(),
                 },
                 backlinks: { existing: [], unwritten: [] },
-                statusMessage: event.joined ? "Waiting and contemplating..." : "Waiting and contemplating...",
+                statusMessage: "Waiting and contemplating...",
               });
               setLoading(false);
-              if (event.joined) void pollGeneratedArticle(route.slug);
+              // Joined streams now receive live progress events — no polling needed.
             } else if (event.type === "status") {
               setPage((current) =>
                 current

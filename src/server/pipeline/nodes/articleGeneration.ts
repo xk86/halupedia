@@ -387,7 +387,7 @@ export const readInfoboxRefsNode = defineNode({
     const REF_RE = /\[([^\]]+)\]\(ref:([a-z0-9-]+)\)/g;
     const allValues = [
       infobox.subtitle ?? "",
-      ...infobox.groups.flatMap((g) => g.rows.map((r) => r.value)),
+      ...(infobox.groups ?? []).flatMap((g) => (g.rows ?? []).map((r) => String(r.value ?? ""))),
     ];
 
     for (const val of allValues) {

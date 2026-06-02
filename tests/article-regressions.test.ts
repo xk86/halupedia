@@ -680,8 +680,14 @@ test("generated articles store an actual summary instead of the opening paragrap
     "",
     "Their exchanges are run by ash clerks, delayed furnace indices, and regional reserve ceremonies.",
   ].join("\n");
+  // Post-process LLM calls fire in order: see_also → regenerate_summary → generate_infobox.
+  // generate_sidebar_caption is skipped (no headline image).
+  const expectedSummary =
+    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.";
   const llm = new QueueLlmClient(body, [
-    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.",
+    JSON.stringify({ items: [] }),  // see_also
+    expectedSummary,                // regenerate_summary
+    JSON.stringify({ title: "Coal Futures Markets", subtitle: "", groups: [] }), // infobox
   ]);
   const server = await createServer(databasePath, llm);
 
@@ -693,10 +699,8 @@ test("generated articles store an actual summary instead of the opening paragrap
     .map((line) => JSON.parse(line));
   const done = events.find((event) => event.type === "done");
   assert.ok(done);
-  assert.equal(
-    done.article.summaryMarkdown,
-    "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.",
-  );
+  // Generate workflow uses deterministic summary; the LLM summary arrives via post_process.
+  assert.ok(done.article.summaryMarkdown, "summary should be non-empty after generate");
 
   let cachedSummary = "";
   for (let attempt = 0; attempt < 20; attempt++) {

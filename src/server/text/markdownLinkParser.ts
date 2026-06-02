@@ -186,18 +186,20 @@ function classifyTarget(target: string, title?: string): Pick<ParsedMarkdownLink
     return { kind: "external" };
   }
   if (trimmed.toLowerCase().startsWith("halu:")) {
-    const slug = slugify(trimmed.slice("halu:".length).replace(/-+$/, "").trim());
+    const raw = decodeWikiSegment(trimmed.slice("halu:".length).replace(/-+$/, "").trim());
+    const slug = slugify(raw);
     return { kind: "halu", slug, hint: title?.trim() ?? "" };
   }
   if (trimmed.toLowerCase().startsWith("ref:")) {
-    return { kind: "ref", slug: slugify(trimmed.slice("ref:".length).trim()) };
+    const raw = decodeWikiSegment(trimmed.slice("ref:".length).trim());
+    return { kind: "ref", slug: slugify(raw) };
   }
   if (/^\/?wiki\//i.test(trimmed)) {
     const segment = trimmed.replace(/^\/?wiki\//i, "").replace(/[?#].*$/, "");
     return { kind: "wiki", slug: slugify(wikiSegmentToTitle(decodeWikiSegment(segment))) };
   }
   if (/^\/?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(trimmed) && trimmed.includes("-")) {
-    return { kind: "plain-slug", slug: slugify(trimmed.replace(/^\//, "")) };
+    return { kind: "plain-slug", slug: slugify(decodeWikiSegment(trimmed.replace(/^\//, ""))) };
   }
   return { kind: "unknown" };
 }

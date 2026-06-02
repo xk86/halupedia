@@ -1,4 +1,4 @@
-model = "heavy"
+model = "light"
 thinking = false
 json = true
 
@@ -39,7 +39,11 @@ Article title: {{requested_title}}
 
 Article body:
 
-{{article_excerpt}}
+{{article_body}}
+
+Known encyclopedia articles (for ref-link slugs only — derive all facts from the body above):
+
+{{ref_links}}
 {{instructions}}
 Generate the infobox JSON for this article.
 """

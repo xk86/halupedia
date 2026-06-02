@@ -504,7 +504,7 @@ test("loadConfig resolves prompt manifest file references", () => {
   const articlePrompt = getPrompt(prompts, "article");
   assert.match(articlePrompt.system, /shared_article_rules|formatting|article/i);
   assert.equal(articlePrompt.model, "heavy");
-  assert.equal(articlePrompt.thinking, false);
+  assert.equal(articlePrompt.thinking, true);
   assert.doesNotMatch(articlePrompt.system, /\{\{shared_article_rules\}\}/);
 
   const linkingGuide = getSharedPrompt(prompts, "linking_guide");

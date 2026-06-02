@@ -361,8 +361,13 @@ export function sectionSlice(markdown: string, heading: string): string {
   return (nextHeading ? rest.slice(0, nextHeading.index) : rest).trim();
 }
 
+/** Normalize :::end_sidebar closer to ::: so both forms work in article bodies. */
+function normalizeSidebarMarkers(markdown: string): string {
+  return markdown.replace(/^:::end_sidebar\s*$/gm, ":::");
+}
+
 export function renderMarkdown(markdown: string): string {
-  return md.render(normalizeHaluLinks(markdown));
+  return md.render(normalizeSidebarMarkers(normalizeHaluLinks(markdown)));
 }
 
 /** Render a single line of markdown as inline HTML — no wrapping block element.

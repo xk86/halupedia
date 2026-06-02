@@ -462,6 +462,8 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
     }
   }, [onNavigate]);
 
+  const [mobileCollapsed, setMobileCollapsed] = useState(false);
+
   const hasContent = Boolean(articleSlug) && Boolean(infobox || headlineMedia);
   if (!hasContent) {
     return <aside className="sidebar" aria-label="Context" />;
@@ -474,9 +476,18 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
 
   return (
     <aside className="sidebar sidebar--infobox" aria-label="Article info" onClick={handleInternalLink}>
-      <div className="infobox">
+      <button
+        type="button"
+        className="sidebar-mobile-toggle"
+        onClick={(e) => { e.stopPropagation(); setMobileCollapsed((v) => !v); }}
+        aria-expanded={!mobileCollapsed}
+      >
+        <span>{title || "Article info"}</span>
+        <span className="sidebar-mobile-toggle-icon">{mobileCollapsed ? "▸" : "▾"}</span>
+      </button>
+      <div className={`infobox${mobileCollapsed ? " infobox--collapsed" : ""}`}>
         <div className="infobox-header-row">
-          {title && <div className="infobox-title">{title}</div>}
+          {title && <div className="infobox-title" dangerouslySetInnerHTML={{ __html: title }} />}
           {articleSlug && (
             <button
               type="button"
@@ -553,12 +564,12 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
               <tbody key={gi}>
                 {group.label && (
                   <tr>
-                    <th className="infobox-group-header" colSpan={2}>{group.label}</th>
+                    <th className="infobox-group-header" colSpan={2} dangerouslySetInnerHTML={{ __html: group.label }} />
                   </tr>
                 )}
                 {group.rows.map((row, ri) => (
                   <tr key={ri}>
-                    <th className="infobox-label">{row.label}</th>
+                    <th className="infobox-label" dangerouslySetInnerHTML={{ __html: row.label }} />
                     <td className="infobox-value" dangerouslySetInnerHTML={{ __html: row.value }} />
                   </tr>
                 ))}

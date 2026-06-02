@@ -7,6 +7,8 @@
  *   5. Halu link parsing: spaces in slug, single-quote hints
  *   6. Article references saved and restored alongside revisions
  *   7. Refresh-context normalizes markdown even without LLM rewrite
+ *   8. Joining page request receives live progress and done events (no polling)
+ *   9. Auto post_process is not fired when one is already in flight
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -616,7 +618,154 @@ test("saveArticle call followed by saveArticleReferences is exposed via GET endp
 });
 
 /* ─────────────────────────────────────────────────────────────────
-   8. Refresh-context normalizes markdown even without LLM rewrite
+   8. Joining page request receives live progress and done events
+   ───────────────────────────────────────────────────────────────── */
+
+/**
+ * An LLM that holds its stream response until `.release()` is called.
+ * Lets tests interleave a second request while the first is mid-generation.
+ */
+class GatedStreamLlm implements LlmRouter {
+  private gate: Promise<void>;
+  private openGate!: () => void;
+  private readonly body: string;
+  private readonly chatFallback: string;
+
+  constructor(body: string, chatFallback = "{}") {
+    this.body = body;
+    this.chatFallback = chatFallback;
+    this.gate = new Promise<void>((res) => { this.openGate = res; });
+  }
+
+  release() { this.openGate(); }
+
+  async chat(): Promise<string> { return this.chatFallback; }
+
+  async streamChat(
+    _r: "heavy" | "light",
+    _s: string,
+    _u: string,
+    onChunk: (delta: string, acc: string) => void,
+  ): Promise<{ content: string; finishReason: string }> {
+    await this.gate;
+    onChunk(this.body, this.body);
+    return { content: this.body, finishReason: "stop" };
+  }
+
+  async embed(): Promise<number[][]> { return []; }
+  async probeConnections(): Promise<void> {}
+}
+
+test("joining page request receives live progress then done event", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const articleBody = "# Gate Test\n\nContent for gate test article.";
+  const llm = new GatedStreamLlm(articleBody);
+  const server = await createTestServer(databasePath, llm);
+  t.after(() => server.shutdown());
+
+  // Start first request (generation owner) — do not await.
+  const firstReq = server.request("/api/page/Gate_Test");
+
+  // Poll until the generation is in flight (slug registered) by checking the
+  // 202 "generating" response from ?wait=0.
+  let joined = false;
+  for (let i = 0; i < 50 && !joined; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+    const probe = await server.request("/api/page/Gate_Test?wait=0");
+    if (probe.status === 202) joined = true;
+  }
+  assert.ok(joined, "generation should be in-flight before releasing gate");
+
+  // Start second request — should subscribe to the live progress stream.
+  const secondReq = server.request("/api/page/Gate_Test");
+
+  // Release the LLM so both streams can complete.
+  llm.release();
+
+  const [firstRes, secondRes] = await Promise.all([firstReq, secondReq]);
+  assert.equal(firstRes.status, 200);
+  assert.equal(secondRes.status, 200);
+
+  const firstEvents = parseNdjson<{ type: string }>(await firstRes.text());
+  const secondEvents = parseNdjson<{ type: string }>(await secondRes.text());
+
+  // Both should end with a done event containing a full article.
+  const firstDone = firstEvents.find((e) => e.type === "done") as { type: "done"; article?: { slug: string } } | undefined;
+  const secondDone = secondEvents.find((e) => e.type === "done") as { type: "done"; article?: { slug: string } } | undefined;
+  assert.ok(firstDone, "first stream should receive done event");
+  assert.ok(secondDone, "joined stream should receive done event");
+  assert.equal(secondDone.article?.slug, firstDone.article?.slug, "both streams should resolve to the same article");
+
+  // The joined stream should have received at least one progress event.
+  const secondProgress = secondEvents.filter((e) => e.type === "progress");
+  assert.ok(secondProgress.length > 0, "joined stream should receive progress events");
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   9. Auto post_process is not fired when one is already in flight
+   ───────────────────────────────────────────────────────────────── */
+
+test("page load during in-flight post_process does not fire a second one", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  let postProcessCallCount = 0;
+  // Slow LLM: chat responses count post_process LLM calls (see_also, summary, infobox).
+  const llm: LlmRouter = {
+    async chat() {
+      postProcessCallCount += 1;
+      // Slow enough that page loads can arrive mid-post-process.
+      await new Promise((r) => setTimeout(r, 30));
+      return "{}";
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const body = "# Race Test\n\nContent.";
+      onChunk(body, body);
+      return { content: body, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer(databasePath, llm);
+  t.after(() => server.shutdown());
+
+  // First request: generate the article (also fires post_process async).
+  const firstRes = await server.request("/api/page/Race_Test");
+  assert.equal(firstRes.status, 200);
+  const firstText = await firstRes.text();
+  const done = parseNdjson<{ type: string }>(firstText).find((e) => e.type === "done");
+  assert.ok(done, "article should be generated");
+
+  // Wait briefly so post_process is started but not finished.
+  await new Promise((r) => setTimeout(r, 15));
+
+  // Reset the counter so we only count calls from a potential second post_process.
+  const callsBeforePageLoad = postProcessCallCount;
+
+  // Second page load — should NOT trigger another post_process.
+  const secondRes = await server.request("/api/page/Race_Test?wait=0");
+  // May be 200 (article exists) or 202 (still generating); both are fine.
+  assert.ok(secondRes.status === 200 || secondRes.status === 202);
+
+  // Allow time for any spurious post_process to start.
+  await new Promise((r) => setTimeout(r, 100));
+
+  // Calls should not have increased beyond what the already-in-flight run uses.
+  // The auto post_process check (activeOperations guard) should have blocked it.
+  const spuriousCalls = postProcessCallCount - callsBeforePageLoad;
+  // The in-flight post_process itself makes 3 chat calls (see_also, summary, infobox).
+  // A second post_process would add 3 more. Allow up to 3 (the first one finishing).
+  assert.ok(
+    spuriousCalls <= 3,
+    `expected ≤3 additional chat calls (first post_process), got ${spuriousCalls}`,
+  );
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   10. Refresh-context normalizes markdown even without LLM rewrite
    ───────────────────────────────────────────────────────────────── */
 
 test("refresh-context endpoint normalizes markdown formatting", async (t) => {

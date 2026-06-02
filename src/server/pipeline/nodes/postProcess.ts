@@ -244,7 +244,7 @@ export const generateSeeAlsoNode = defineNode({
       const seeAlsoRole = rendered.role ?? "heavy";
       try {
         deps.onSidecarUpdate?.(slug, { type: "generating", node: "llm.generate_see_also" });
-        const { content: raw } = await deps.llm.streamChat(seeAlsoRole, rendered.system, rendered.user, () => {}, {
+        const raw = await deps.llm.chat(seeAlsoRole, rendered.system, rendered.user, {
           thinking: rendered.thinking,
           jsonMode: rendered.json,
         });
@@ -456,11 +456,10 @@ export const generateInfoboxNode = defineNode({
 
     try {
       deps.onSidecarUpdate?.(slug, { type: "generating", node: "llm.generate_infobox" });
-      const { content: raw } = await deps.llm.streamChat(
+      const raw = await deps.llm.chat(
         rendered.role ?? "heavy",
         rendered.system,
         rendered.user,
-        () => {},
         { jsonMode: true, thinking: rendered.thinking },
       );
       const match = raw.match(/\{[\s\S]*\}/);

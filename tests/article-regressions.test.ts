@@ -19,6 +19,7 @@ const TEST_CONFIG = loadConfig().app.tests;
 class QueueLlmClient implements LlmRouter {
   public streamedChunkCount = 0;
   public embedInputs: string[][] = [];
+  private streamUsed = false;
 
   constructor(
     private readonly streamContent: string,
@@ -42,22 +43,30 @@ class QueueLlmClient implements LlmRouter {
     _user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
-    // Consume from the chatResponses queue first so tests that switch
-    // between chat() and streamChat() see the same ordered responses.
+    // First streamChat call: use streamContent/streamChunks (article body stream).
+    // Subsequent calls (post-process nodes): drain chatResponses so tests can
+    // queue JSON responses for see_also/summary/infobox without them interfering
+    // with the article body stream.
+    if (!this.streamUsed && (this.streamContent || this.streamChunks)) {
+      this.streamUsed = true;
+      const chunks = this.streamChunks ?? [this.streamContent];
+      let accumulated = "";
+      for (const delta of chunks) {
+        accumulated += delta;
+        this.streamedChunkCount += 1;
+        onChunk(delta, accumulated);
+      }
+      return { content: accumulated, finishReason: "stop" };
+    }
     if (this.chatResponses.length) {
       const content = this.chatResponses.shift()!;
       this.streamedChunkCount += 1;
       onChunk(content, content);
       return { content, finishReason: "stop" };
     }
-    const chunks = this.streamChunks ?? [this.streamContent];
-    let accumulated = "";
-    for (const delta of chunks) {
-      accumulated += delta;
-      this.streamedChunkCount += 1;
-      onChunk(delta, accumulated);
-    }
-    return { content: accumulated, finishReason: "stop" };
+    const fallback = JSON.stringify({ items: [] });
+    onChunk(fallback, fallback);
+    return { content: fallback, finishReason: "stop" };
   }
 
   async embed(input: string[]): Promise<number[][]> {

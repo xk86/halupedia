@@ -1,9 +1,13 @@
 node_modules/
+.pnpm-store/
 dist/
 .wrangler/
 .dev.vars
 .DS_Store
 *.log
 data/*.sqlite*
-.claude/worktrees/
+.claude/
 .serena/
+mcp.json
+config/app.toml
+config/llm.toml

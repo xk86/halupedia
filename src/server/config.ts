@@ -6,7 +6,9 @@ import type { AppConfig, ImagesConfig, LlmConfig, PromptConfig, PromptTemplate, 
 const ROOT = process.cwd();
 
 function readToml<T>(path: string): T {
-  const raw = readFileSync(resolve(ROOT, path), "utf8");
+  const configPath = resolve(ROOT, path);
+  const examplePath = resolve(ROOT, `${path}.example`);
+  const raw = readFileSync(existsSync(configPath) ? configPath : examplePath, "utf8");
   return parse(raw) as T;
 }
 
@@ -97,7 +99,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     },
     tests: {
       database_path: app.tests?.database_path ?? "halupedia.sqlite",
-      llm_base_url: app.tests?.llm_base_url ?? "http://localhost:11434/v1",
+      llm_base_url: app.tests?.llm_base_url ?? "http://127.0.0.1:11434/v1",
       llm_api_key: app.tests?.llm_api_key ?? "ollama",
       llm_model: app.tests?.llm_model ?? "gemma4",
     },

@@ -133,7 +133,7 @@ describe("App", () => {
       latestArticles: [],
       model: "test-model",
       databasePath: "test.sqlite",
-      promptConfigPath: "config/prompts.toml",
+      promptConfigPath: "config/prompts",
       ragMode: "full",
       promptModelAssociations: [],
     };
@@ -195,7 +195,7 @@ describe("App", () => {
       latestArticles: [],
       model: "test-model",
       databasePath: "test.sqlite",
-      promptConfigPath: "config/prompts.toml",
+      promptConfigPath: "config/prompts",
       ragMode: "full",
       promptModelAssociations: [
         {

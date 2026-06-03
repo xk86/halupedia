@@ -883,7 +883,7 @@ test("retrieveContext summary mode caps chunk content at 360 chars", async (t) =
 
 test("test config exposes isolated database filename and live LLM target", () => {
   assert.equal(TEST_CONFIG.database_path, "halupedia-testing.sqlite");
-  assert.equal(TEST_CONFIG.llm_base_url, "http://localhost:11434/v1");
+  assert.equal(TEST_CONFIG.llm_base_url, "http://127.0.0.1:11434/v1");
   assert.equal(TEST_CONFIG.llm_api_key, "ollama");
   assert.equal(TEST_CONFIG.llm_model, "gemma4");
 });
@@ -2166,7 +2166,7 @@ test("parseArticleFrameOutput: equals-sign prefix ===used-refs is recognized", (
   // Reproduces production log: ===halu-used-refs [...]
   const raw = [
     "---halu-body",
-    "# Human Person Death",
+    "# Archive Notice",
     "",
     "Body text.",
     '===halu-used-refs ["slug-a","slug-b"]',

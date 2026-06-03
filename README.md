@@ -29,9 +29,16 @@ The graph grows over time, including edges to unwritten articles.
 
 All runtime configuration is TOML-based:
 
-- [config/app.toml](REPO_ROOT/config/app.toml)
-- [config/llm.toml](REPO_ROOT/config/llm.toml)
-- [config/prompts.toml](REPO_ROOT/config/prompts.toml)
+- [config/app.toml.example](config/app.toml.example)
+- [config/llm.toml.example](config/llm.toml.example)
+- [config/prompts/](config/prompts/)
+
+The example files are used when local config files are absent. To customize local runtime settings, copy them first:
+
+```bash
+cp config/app.toml.example config/app.toml
+cp config/llm.toml.example config/llm.toml
+```
 
 Prompts are user-owned. The code only loads prompts, renders templates, injects context, calls the LLM, parses output, and persists graph state.
 
@@ -62,4 +69,4 @@ The client is built into `dist/`, and the local server serves it on `http://127.
 - Article source of truth is Markdown, not rendered HTML.
 - Internal links must use `[visible text](halu:target-slug "hidden context hint")`.
 - Hidden context hints are never rendered, but they are persisted and reused as future canon.
-- RAG is optional and can be enabled through [config/app.toml](REPO_ROOT/config/app.toml) and [config/llm.toml](REPO_ROOT/config/llm.toml).
+- RAG is optional and can be enabled through `config/app.toml` and `config/llm.toml`.

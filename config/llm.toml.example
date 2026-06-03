@@ -1,0 +1,30 @@
+# Gemma models require temperature of 1
+[llm.chat]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+model = "gemma4"
+temperature = 1
+top_k = 150
+top_p = 0.85
+max_tokens = 9001
+
+[llm.light]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+#model = "gemma4:e2b"
+model = "gemma3:4b-it-qat"
+temperature = 1
+max_tokens = 4800
+
+[llm.images]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+model = "gemma3:4b-it-qat"
+temperature = 1
+max_tokens = 4800
+
+[llm.embeddings]
+enabled = true
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "local"
+model = "nomic-embed-text-v2-moe:latest"

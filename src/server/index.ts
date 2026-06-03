@@ -1,4 +1,4 @@
-// TODO: split api and shit out because jesus christ this file is way too long
+// TODO: split API routes into focused modules.
 // TODO: make sure that formatting text isn't being added into link replacement/strips.
 import { jsonrepair } from "jsonrepair";
 import { copyFileSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

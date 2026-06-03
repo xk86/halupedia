@@ -1,0 +1,61 @@
+[server]
+host = "0.0.0.0"
+port = 8787
+
+[storage]
+database_path = "data/halupedia.sqlite"
+
+[search]
+limit = 20
+
+[rag]
+enabled = true
+mode = "summary" # options: "full" or "summary"
+max_results = 12
+# Changing chunk size after initialization is risky
+chunk_size = 500
+min_score = 0.4
+# Reference-list tuning (independent of general RAG so it can be tightened/loosened separately).
+# reference_max_results caps only newly-discovered vector-search (RAG) results per build.
+# Body-linked, user-added, and prior-save references are NOT subject to this cap — they
+# are only bounded by max_references. Pinned references survive pruning and don't count toward max_references.
+reference_max_results = 8
+reference_min_score = 0.5
+max_references = 50
+reference_recursive_depth = 2
+reference_recursive_max_per_article = 2
+# Minimum RAG score for a reference's content (summary/chunk) to be included in the
+# prompt JSON sent to the LLM. Below this threshold the ref still appears in the list
+# so the LLM can link to it, but its text is omitted to keep context windows small.
+# Pinned references always include their content regardless of this value.
+# Range 0.0–1.0; raise to shrink prompts, lower to give the LLM more source material.
+prompt_ref_content_min_score = 0.52
+# After the min_score filter, only the top-K highest-scoring refs get their content
+# included. Pinned refs are always included and don't count against this cap.
+# Set to 0 to disable the cap entirely.
+prompt_ref_content_top_k = 6
+
+[homepage]
+rotation_hours = 4
+
+[random_page]
+inspiration_count = 50
+
+[pipeline.trace]
+# Structural tracing of the LangGraph pipeline. Each workflow run records its
+# nodes, timings, state diffs, and warnings to a dedicated SQLite database so
+# we never have to step through a debugger to understand a generation.
+# Disable in production if observation overhead is undesirable.
+enabled = true
+database_path = "data/halupedia-traces.sqlite"
+# off | quiet | normal | debug | trace
+#   normal records timings, hashes, validation results, warnings.
+#   debug adds state diffs. trace adds full per-node inputs/outputs.
+level = "normal"
+retention_days = 14
+
+[tests]
+database_path = "halupedia-testing.sqlite"
+llm_base_url = "http://127.0.0.1:11434/v1"
+llm_api_key = "ollama"
+llm_model = "gemma4"

@@ -203,7 +203,7 @@ export const resolveLinksPostProcessNode = defineNode({
     const slug = slugify(input.slug ?? "");
     let body = normalizeMarkdownLinks(finalArticleBody ?? "", "article").markdown;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
-    body = linkReferences(body, refs);
+    body = linkReferences(body, refs, slug, deps.db);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
     return { finalArticleBody: body };
@@ -248,6 +248,8 @@ export const generateSeeAlsoNode = defineNode({
           thinking: rendered.thinking,
           jsonMode: rendered.json,
         });
+  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
+  // like this is clearly a jsonrepair task
         const arrayMatch = raw.match(/\[[\s\S]*\]/);
         const objectMatch = raw.match(/\{[\s\S]*\}/);
         let items: Array<{ slug?: string; hint?: string }> = [];

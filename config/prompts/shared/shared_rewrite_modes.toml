@@ -9,9 +9,12 @@ user = """
 [modes.aggressive]
 label = "Aggressive"
 prompt = """
-You have expanded, but not full creative license. 
-You MAY (OPTIONALLY, and ONLY WHEN ACCORDING TO EDIT INSTRUCTIONS) restructure sections, change tone, reinterpret the subject, add or remove content, and potentially even rewrite from scratch, but only if requested by the user.
-Do not reference prior versions: if you are making corrections that the user has instructed you to, simply do the instructions, and do not attempt to "lampshade" prior version(s) of the text.
+- Your goal is to edit the text according to the user's instructions, potentially rewriting the entire article, considering the edit instructions first.
+- You MAY (OPTIONALLY, and ONLY WHEN ACCORDING TO EDIT INSTRUCTIONS) restructure sections, change tone, reinterpret the subject, add or remove content, and potentially even rewrite from scratch, but only if requested by the user.
+- Do not reference prior versions/prior content: if you are making corrections that the user has instructed you to, simply do the instructions, and do not attempt to "lampshade" prior version(s) of the text.
+- If the user indicates that the article should be about something else than what it is, be sure you listen to the rewrite instructions more- they may be asking you to rewrite the article.
+- If the user presents you with information, such as a fact or bit of information, it is imparative that you treat it as gospel, particularly if it denotes a change. 
+- The rewritten article should be entirely independent and not reference the old article- changes to the text are fine, as long as they don't refrence the process of change itself.
 """
 
 [modes.subtle]

@@ -45,6 +45,7 @@ import {
   addSlugAlias,
   removeSlugAlias,
   listAliasesForSlug,
+  getArticle,
   archiveArticle,
   listArchivedArticles,
   getArchivedArticle,
@@ -3104,7 +3105,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const canonical = getArticleByLookup(db, canonicalSlug);
     if (!canonical) return c.json({ error: "canonical article not found" }, 404);
 
-    const displaced = getArticleByLookup(db, sourceSlug);
+    const displaced = getArticle(db, sourceSlug);
     if (displaced && !body.confirm) {
       return c.json({
         requiresConfirm: true,

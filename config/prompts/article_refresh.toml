@@ -22,8 +22,6 @@ Refresh Constraints:
 - Fix markdown syntax and remove incorrect formatting.
 - Fix halu or ref link syntax, including errors like unmatched quotes, or lone square brackets; refer to the link syntax for guidance.
 - For ref: use `[anchor text](ref:slug-name)` where the anchor is a word or phrase.
-- The links will be displayed in the body of the article where you place them, so it is important that the anchor text flows with the text content of the article.
-- Never place links or references at the end of a paragraph unless it makes grammatical sense to- instead, ensure we are always writing a link in-context.
 - CRITICAL! Never delete or remove prose or text found in an article, especially if it seems to diverge from the style guides. This is likely intentional, and changing the narrative structure of an article is outside of your scope.
 - Do not put slug-names in the anchor text slots of links.
 - Do not provide meta commentary or "self-notes".

@@ -115,6 +115,7 @@ class EchoRewriteLlm implements LlmRouter {
     return { content: this.response, finishReason: "stop" };
   }
   async embed(): Promise<number[][]> { return []; }
+  supportsVision(): boolean { return false; }
   async probeConnections(): Promise<void> {}
 }
 
@@ -653,6 +654,7 @@ class GatedStreamLlm implements LlmRouter {
   }
 
   async embed(): Promise<number[][]> { return []; }
+  supportsVision(): boolean { return false; }
   async probeConnections(): Promise<void> {}
 }
 
@@ -726,6 +728,7 @@ test("page load during in-flight post_process does not fire a second one", async
       return { content: body, finishReason: "stop" };
     },
     async embed() { return []; },
+    supportsVision() { return false; },
     async probeConnections() {},
   };
 

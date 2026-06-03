@@ -1,25 +1,40 @@
 system = """
+Universal placement rule (applies to ALL link types):
+- Every link — halu: or ref: — must be embedded inside a sentence as part of the flowing prose.
+- NEVER append any link after a sentence or period as a standalone item.
+- Do not force a ref into a sentence where it doesn't fit naturally — leave it unlinked rather than contorting the prose.
+
 Halu Link Helper:
-- Use the halu: link helper for every internal link. This is the only way to create links to new articles.
+- Use the halu: link helper for every internal link to an article that does not exist. This is the only way to create links to new articles.
 - Syntax: `[Visible Title](halu:target-slug 'hidden context hint')`
-- The visible text is the article's human-readable title. Preserve natural casing (proper nouns Title Cased, common nouns sentence cased).
+- The visible text is the article's human-readable, title. Preserve natural casing (proper nouns Title Cased, common nouns sentence cased).
 - The target-slug is lowercase-kebab-case derived from the title.
 - The hidden context hint is a concise canonical description of the target article.
 - Use single quotes around the hidden context hint when writing article bodies inside JSON.
 - Link the first mention of proper nouns and significant concepts.
-- The current article's own subject (including alternate names and abbreviations) must be bolded, never linked.
+- Don't make up concepts just to link them- link things that are already going to be brought up, even if mundane.
 
 Reference Link Shorthand:
 - To cite a reference from "Available references", use `[anchor text](ref:slug-name)` where `slug-name` is the slug shown in the references list.
-- The anchor text must be a word or short phrase already present in the sentence — the part of the prose that the reference supports. It becomes the visible underlined link text.
-- Place every link inline inside a sentence. Links are part of the prose, not appended after it.
+- The anchor text is typically the reference's full title, or a short phrase from the sentence that naturally points to it. Both are correct.
 - Link every occurrence of a reference's anchor text throughout the article, not just the first.
 - Use only the link formats specified here. Do not include extra square brackets.
 
+WRONG — link appended after sentence content (forbidden, applies to both halu: and ref:):
+  `...categorize deviation as critical failure [Petrochemical Cartel](ref:petrochemical-cartel).` (Do not append; "...critical failure Petrochemical Cartel." does not make sense as a sentence!)
+  `...first described by researchers at the institute. [Blue Group](halu:blue-group 'research institute')` (Do not append!)
+
+RIGHT — full title used as anchor, embedded where it fits:
+  `The relationship between the [Petrochemical Cartel](ref:petrochemical-cartel) and food production are well-understood...` (Link to the ref inside of the text in a way that flows)
+  `...first described by researchers at the [Blue Group](halu:blue-group 'research institute'), who...` (Mentioned naturally in the sentence, establishing relevance)
+
+RIGHT — short phrase anchor, also valid (only when it's already clear in the paragraph what is being talked about, use this only rarely!):
+  `...the [Society](ref:society-for-really-long-names) is well understood to...` (in a sentence about them)
+
 Format examples:
 - `[Visible Title](halu:visible-title 'concise hidden context hint')`
-- `[the structural coatings industry](ref:structural-coatings-industry)` — anchor is a phrase from the sentence
-- `[the 1848 publication](ref:communist-manifesto)` — anchor describes the thing being cited
+- `[Structural coatings industry](ref:structural-coatings-industry)` — literal title anchor
+- `[the 1848 publication](ref:communist-manifesto)` — descriptive anchor
 """
 
 user = """

@@ -39,7 +39,6 @@ Formatting Constraints:
 - When writing lists, each item is a link to a potentially new page.
 - When writing lists, you generally do not describe the items in great detail (except as the halu: hint...)
 - If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.
-- *Every link* is a markdown-style link embedded inside a sentence as the anchor text of a word or phrase — links are part of the flowing prose, and the text label should read fine grammatically.
 - The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
 - Boldface is only required for the first mention of a reference.
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.

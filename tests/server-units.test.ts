@@ -105,6 +105,7 @@ class NoopLlmClient implements LlmRouter {
     return [];
   }
 
+  supportsVision(): boolean { return false; }
   async probeConnections(): Promise<void> {}
 }
 

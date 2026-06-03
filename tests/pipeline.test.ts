@@ -122,6 +122,7 @@ class EchoLlm implements LlmRouter {
     return { content: this.response, finishReason: "stop" };
   }
   async embed(): Promise<number[][]> { return []; }
+  supportsVision(): boolean { return false; }
   async probeConnections(): Promise<void> {}
 }
 

@@ -491,7 +491,7 @@ export function formatReferencesForPrompt(refs: ReferenceList): string {
  * Produces two clearly separated sections: pinned refs (which the model
  * should prioritize linking to) and additional refs (contextual, use if
  * relevant). The model is NOT required to cite all refs or declare which
- * ones it used — it simply links via [text](ref:slug) or [text](halu:slug).
+ * ones it used — it simply links via [text](ref:slug).
  *
  * Content (summary/chunk) is included for refs meeting the score threshold
  * so the model has factual grounding. Pinned refs always include content.
@@ -589,6 +589,41 @@ export function resolveRefLinks(body: string, refs: ReferenceList): string {
 }
 
 /**
+ * Resolve bare brackets like [Some Title] that the LLM wrote without a href.
+ * - If the bracket's slug matches a known ref → convert to [label](ref:slug).
+ * - Otherwise → strip the brackets and keep only the label text.
+ *
+ * This prevents [text] from surviving into the renderer and producing literal
+ * visible brackets (or double-nested [[text](ref:slug)] when a later pass
+ * wraps the label).
+ */
+function resolveBareBracketsToRefs(text: string, refs: ReferenceList): string {
+  const { bareBrackets } = parseMarkdownLinks(text);
+  const candidates = bareBrackets.filter(
+    (b) => b.kind === "title-seed" || b.kind === "ref-marker",
+  );
+  if (candidates.length === 0) return text;
+
+  const alreadyLinked = collectReferenceLinkSlugs(text);
+  // Apply end → start so earlier positions stay valid.
+  const sorted = [...candidates].sort((a, b) => b.start - a.start);
+  let result = text;
+  for (const bracket of sorted) {
+    const slug = bracket.slug ? slugify(bracket.slug) : "";
+    const ref = slug ? refs.find((r) => r.slug === slug) : undefined;
+    let replacement: string;
+    if (ref && !alreadyLinked.has(ref.slug)) {
+      replacement = `[${bracket.label || ref.title}](ref:${ref.slug})`;
+    } else {
+      // Not a known ref (or already linked): strip the brackets.
+      replacement = bracket.label;
+    }
+    result = result.slice(0, bracket.start) + replacement + result.slice(bracket.end);
+  }
+  return result;
+}
+
+/**
  * Full deterministic reference-linking pass: resolves existing ref: links
  * (numeric → slug, empty bracket fill) then links every bare title mention
  * that isn't already inside a link or code span.
@@ -596,12 +631,22 @@ export function resolveRefLinks(body: string, refs: ReferenceList): string {
  * Pass `selfSlug` to filter the self-article from refs and strip any surviving
  * self-links from the output. Pure text processing — no LLM.
  */
-export function linkReferences(text: string, refs: ReferenceList, selfSlug?: string): string {
-  const filtered = selfSlug
-    ? refs.filter((r) => r.slug !== slugify(selfSlug))
+export function linkReferences(
+  text: string,
+  refs: ReferenceList,
+  selfSlug?: string,
+  db?: DatabaseSync,
+): string {
+  const normalizedSelf = selfSlug ? slugify(selfSlug) : "";
+  const filtered = normalizedSelf
+    ? refs.filter((r) => r.slug !== normalizedSelf)
     : refs;
+  const selfTitle = normalizedSelf && db
+    ? (getArticleByLookup(db, normalizedSelf)?.title ?? undefined)
+    : undefined;
   let result = resolveRefLinks(text, filtered);
-  result = linkMentionedReferencesInBody(result, filtered);
+  result = resolveBareBracketsToRefs(result, filtered);
+  result = linkMentionedReferencesInBody(result, filtered, db, selfTitle);
   return result;
 }
 
@@ -638,6 +683,7 @@ export function collectReferenceLinkSlugs(body: string): Set<string> {
 
 function markdownProtectedRanges(body: string): Array<{ start: number; end: number }> {
   const ranges: Array<{ start: number; end: number }> = [];
+  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
   const linkPattern = /\[[^\]]*]\([^)]+\)/g;
   const codePattern = /`[^`]*`/g;
   for (const pattern of [linkPattern, codePattern]) {
@@ -653,11 +699,60 @@ function isInsideRange(index: number, ranges: Array<{ start: number; end: number
   return ranges.some((range) => index >= range.start && index < range.end);
 }
 
+/**
+ * Extract the text content of every bold/italic span in body that isn't already
+ * inside an existing markdown link. Used to whitelist short ref titles that the
+ * model has explicitly formatted.
+ */
+function extractFormattedTitleSpans(body: string): string[] {
+  // Blank out existing links so we don't match inside their labels.
+  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
+  const stripped = body.replace(/\[[^\]]*\]\([^)]*\)/g, (m) => " ".repeat(m.length));
+  const seen = new Set<string>();
+  const spans: string[] = [];
+  const add = (text: string) => {
+    const t = text.trim();
+    if (t && !seen.has(t)) { seen.add(t); spans.push(t); }
+  };
+  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
+  for (const m of stripped.matchAll(/\*{2}([^*\n]+)\*{2}|_{2}([^_\n]+)_{2}/g)) add(m[1] ?? m[2] ?? "");
+  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
+  for (const m of stripped.matchAll(/(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!_)_([^_\n]+)_(?!_)/g)) add(m[1] ?? m[2] ?? "");
+  return spans;
+}
+
 function titleMentionPattern(title: string): RegExp | null {
   const tokens = title.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return null;
+  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
   const escaped = tokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
   return new RegExp(`(?<![\\p{L}\\p{N}])${escaped.join("\\s+")}(?![\\p{L}\\p{N}])`, "giu");
+}
+
+/**
+ * Expand a seed ref list one level deep: fetch every seed article's saved
+ * reference sidecar, validate each child slug exists in the DB, and return
+ * seeds + all unique valid children. Self-slug is excluded throughout.
+ */
+function expandRefsOneLevelDeep(
+  db: DatabaseSync,
+  seeds: ReferenceList,
+  selfSlug: string,
+): ReferenceList {
+  const seen = new Set<string>([slugify(selfSlug)]);
+  for (const r of seeds) seen.add(slugify(r.slug));
+  const expanded = [...seeds];
+  for (const seed of seeds) {
+    for (const child of getLatestArticleReferences(db, seed.slug)) {
+      const slug = slugify(child.slug);
+      if (!slug || seen.has(slug)) continue;
+      if (!getArticleByLookup(db, slug)) continue;
+      seen.add(slug);
+      expanded.push(child);
+    }
+  }
+  return expanded;
 }
 
 /**
@@ -667,28 +762,125 @@ function titleMentionPattern(title: string): RegExp | null {
  * overlap (e.g. "Trans Ethology" beats "Ethology"). Skips text already inside
  * a markdown link, code span, or a range already claimed by a longer match.
  * No LLM, no fuzzy matching — pure deterministic text processing.
+ *
+ * Pass `db` to expand candidates one level deeper (refs-of-refs).
+ * Pass `selfTitle` to claim self-article spans without linking them, preventing
+ * refs whose titles are substrings of the article title from spuriously matching.
  */
 export function linkMentionedReferencesInBody(
   body: string,
   refs: ReferenceList,
+  db?: DatabaseSync,
+  selfTitle?: string,
 ): string {
-  if (refs.length === 0) return body;
+  // Derive self-title from the body H1 when not provided (handles new articles
+  // not yet in the DB so self-protection always runs).
+  const resolvedSelfTitle =
+  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
+    selfTitle ?? body.match(/^#+\s+(.+)$/m)?.[1]?.trim();
+  const resolvedSelfSlug = resolvedSelfTitle ? slugify(resolvedSelfTitle) : "";
+
+  // Bold any bare (un-bolded, un-linked) occurrences of the self-title before
+  // doing anything else — do this before computing protected ranges so that
+  // subsequent index arithmetic is based on the final body shape.
+  if (resolvedSelfTitle) {
+    const selfPat = titleMentionPattern(resolvedSelfTitle);
+    if (selfPat) {
+      const preProtected = markdownProtectedRanges(body);
+      const toBold: Array<{ start: number; end: number; text: string }> = [];
+      let m: RegExpExecArray | null;
+      selfPat.lastIndex = 0;
+      while ((m = selfPat.exec(body)) !== null) {
+        if (isInsideRange(m.index, preProtected)) continue;
+        // Skip heading lines — bolding inside `# Title` produces `# **Title**`.
+        const lineStart = body.lastIndexOf("\n", m.index - 1) + 1;
+        if (/^#+\s/.test(body.slice(lineStart, lineStart + 7))) continue;
+        // Skip already-bold/italic text (single or double markers on either side).
+        const pre = body[m.index - 1] ?? "";
+        const post = body[m.index + m[0].length] ?? "";
+        if (pre === "*" || pre === "_" || post === "*" || post === "_") continue;
+        toBold.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+      }
+      for (let i = toBold.length - 1; i >= 0; i--) {
+        const { start, end, text } = toBold[i];
+        body = body.slice(0, start) + `**${text}**` + body.slice(end);
+      }
+    }
+  }
+
+  const expanded = db && refs.length > 0
+    ? expandRefsOneLevelDeep(db, refs, resolvedSelfSlug)
+    : refs;
+
+  // Scan bold/italic spans. Any candidate whose title matches one bypasses the
+  // short single-word filter. Also add DB-discovered articles from formatted
+  // spans that aren't already in the candidate pool.
+  const formattedSpans = extractFormattedTitleSpans(body);
+  const formattedLower = new Set(formattedSpans.map((s) => s.toLowerCase()));
+  const candidates = [...expanded];
+  const bypassLengthFilter = new Set<string>();
+
+  if (formattedSpans.length > 0) {
+    const candidateSlugs = new Set(expanded.map((r) => r.slug));
+    for (const ref of expanded) {
+      if (formattedLower.has(ref.title.toLowerCase())) bypassLengthFilter.add(ref.slug);
+    }
+    if (db) {
+      for (const span of formattedSpans) {
+        const slug = slugify(span);
+        if (!slug || candidateSlugs.has(slug) || slug === resolvedSelfSlug) continue;
+        const article = getArticleByLookup(db, slug);
+        if (!article) continue;
+        candidateSlugs.add(article.slug);
+        candidates.push({
+          slug: article.slug,
+          title: article.title,
+          content: article.summaryMarkdown ?? "",
+          kind: "summary",
+          pinned: false,
+          revisionId: "current",
+        });
+        bypassLengthFilter.add(article.slug);
+      }
+    }
+  }
+
+  if (candidates.length === 0 && !resolvedSelfTitle) return body;
 
   // Longest title first so longer matches claim their ranges before shorter ones.
-  const sortedRefs = [...refs].sort((a, b) => b.title.length - a.title.length);
+  const sortedCandidates = [...candidates].sort((a, b) => b.title.length - a.title.length);
 
   // Collect ALL matches upfront (before any string mutation so indices stay valid).
   type Match = { start: number; end: number; slug: string; visible: string };
   const matches: Match[] = [];
-  // Ranges already claimed by a longer-title match — prevents overlapping links.
+  // Ranges already claimed by a longer-title match or self-article spans.
   const claimed: Array<{ start: number; end: number }> = [];
   const initialProtected = markdownProtectedRanges(body);
 
-  for (const ref of sortedRefs) {
+  // Self-article protection: claim all self-title spans without emitting links.
+  // Runs before the candidates loop so substring refs don't match inside them.
+  if (resolvedSelfTitle) {
+    const selfWords = resolvedSelfTitle.trim().split(/\s+/).filter(Boolean);
+    if (selfWords.length >= 2 || (selfWords[0]?.length ?? 0) >= 8) {
+      const selfPattern = titleMentionPattern(resolvedSelfTitle);
+      if (selfPattern) {
+        selfPattern.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = selfPattern.exec(body)) !== null) {
+          if (!isInsideRange(m.index, initialProtected)) {
+            claimed.push({ start: m.index, end: m.index + m[0].length });
+          }
+        }
+      }
+    }
+  }
+
+  for (const ref of sortedCandidates) {
     // Skip single-word titles shorter than 8 chars (e.g. "Oil", "War") to avoid
-    // false positives. Multi-word titles are specific enough regardless of length.
+    // false positives — unless the title appeared in bold/italic in the body,
+    // which is an explicit signal that it's a named reference.
     const titleWords = ref.title.trim().split(/\s+/).filter(Boolean);
-    if (titleWords.length < 2 && (titleWords[0]?.length ?? 0) < 8) continue;
+    if (titleWords.length < 2 && (titleWords[0]?.length ?? 0) < 8 && !bypassLengthFilter.has(ref.slug)) continue;
     const pattern = titleMentionPattern(ref.title);
     if (!pattern) continue;
     const blocked = [...initialProtected, ...claimed];

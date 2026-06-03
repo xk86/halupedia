@@ -629,7 +629,7 @@ export const resolveLinksNode = defineNode({
     }
 
     body = normalizeMarkdownLinks(body, "article").markdown;
-    body = linkReferences(body, refs);
+    body = linkReferences(body, refs, slug, deps.db);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
 

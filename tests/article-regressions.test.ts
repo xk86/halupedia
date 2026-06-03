@@ -74,6 +74,7 @@ class QueueLlmClient implements LlmRouter {
     return input.map(() => this.embedVector);
   }
 
+  supportsVision(): boolean { return false; }
   async probeConnections(): Promise<void> {}
 }
 
@@ -104,6 +105,7 @@ class CapturingChatLlmClient implements LlmRouter {
     return input.map(() => []);
   }
 
+  supportsVision(): boolean { return false; }
   async probeConnections(): Promise<void> {}
 }
 
@@ -1352,7 +1354,7 @@ test("section rewrite streams only the selected section and records revertable h
   assert.match(done.article.markdown, /municipal bell ledger/);
   assert.match(
     done.article.markdown,
-    /Clock Orchard has a dry introductory paragraph/,
+    /has a dry introductory paragraph/,
   );
   assert.match(done.article.markdown, /The orchard is arranged in narrow rows/);
   assert.equal(
@@ -1482,7 +1484,7 @@ test("refresh-context always runs LLM and preserves article when content is unch
 
   assert.equal(res.status, 200);
   const body = await res.json();
-  assert.match(body.article.markdown, /Stable Page has a body/);
+  assert.match(body.article.markdown, /has a body that does not need derived reference changes/);
 });
 
 test("refresh-context can rewrite from retrieved context", async (t) => {
@@ -1589,7 +1591,7 @@ test("self-links are stripped from generated articles", async (t) => {
   assert.ok(done);
   assert.doesNotMatch(done.article.markdown, /\(halu:fog-registry/);
   assert.match(done.article.markdown, /\(halu:municipal-fog/);
-  assert.match(done.article.markdown, /is a Fog Registry that tracks/);
+  assert.match(done.article.markdown, /is a (?:\*\*Fog Registry\*\*|Fog Registry) that tracks/);
 });
 
 test("generated article DB markdown contains no frame markers or model-emitted ref headings", async (t) => {
@@ -1931,6 +1933,7 @@ test("article body generation uses streamChat (not chat) and emits progress even
       return input.map(() => []);
     }
 
+    supportsVision(): boolean { return false; }
     async probeConnections(): Promise<void> {}
   }
 

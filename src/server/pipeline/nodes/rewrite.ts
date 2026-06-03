@@ -304,6 +304,8 @@ export const renderRewritePromptNode = defineNode({
     "input",
     "loadedArticle",
     "selectedMarkdown",
+    "selectionRange",
+    "sectionId",
     "references",
     "retrievedContext",
     "rewriteMode",
@@ -312,7 +314,7 @@ export const renderRewritePromptNode = defineNode({
   ] as const,
   writes: ["renderedPrompt"] as const,
   run(
-    { input, loadedArticle, selectedMarkdown, references, retrievedContext, rewriteMode, recentEditHistory, headlineImageContext },
+    { input, loadedArticle, selectedMarkdown, selectionRange, sectionId, references, retrievedContext, rewriteMode, recentEditHistory, headlineImageContext },
     deps: PipelineDeps,
   ) {
     const slug = slugify(input.slug ?? "");
@@ -326,12 +328,20 @@ export const renderRewritePromptNode = defineNode({
       "";
     const instructions = input.instructions ?? "";
 
+    // For partial edits (section or selection), feed only the targeted fragment
+    // as current_article so the model returns just that fragment. For full rewrites,
+    // pass the whole body as usual.
+    const isPartial = !!(selectionRange || sectionId);
+    const currentArticle = isPartial
+      ? (selectedMarkdown ?? "")
+      : loadedArticle
+        ? stripTopLevelSections(loadedArticle.body, ["References", "See also"])
+        : "";
+
     const rendered = deps.prompts.render("article_rewrite", {
       slug,
       requested_title: title,
-      current_article: loadedArticle
-        ? stripTopLevelSections(loadedArticle.body, ["References", "See also"])
-        : "",
+      current_article: currentArticle,
       selected_text: selectedMarkdown ?? "",
       edit_instructions: instructions,
       rewrite_mode: modePrompt,
@@ -419,7 +429,7 @@ export const spliceRewriteResultNode = defineNode({
     "isProtected",
   ] as const,
   writes: ["rawArticleBody"] as const,
-  run({ rawArticleBody, loadedArticle, selectionRange, sectionId, isProtected }) {
+  run({ rawArticleBody, loadedArticle, selectionRange, sectionId, isProtected }, deps: PipelineDeps) {
     const generated = rawArticleBody ?? "";
     const fullMarkdown = loadedArticle?.body ?? "";
 
@@ -428,18 +438,54 @@ export const spliceRewriteResultNode = defineNode({
     }
 
     if (selectionRange) {
-      // Selection edit: replace the selected range in the full markdown.
+      // Selection edit: the model should return only the replacement fragment.
+      // If the model leaked the full article (contains a top-level heading when the
+      // selection had none, or is dramatically longer than the selection), extract
+      // just the text between the first and last heading-free region as a best
+      // effort — otherwise use as-is for simple inline replacements.
+      const selectedLen = selectionRange.end - selectionRange.start;
+      const looksLikeFullArticle =
+        /^#\s/m.test(generated) && selectedLen < generated.length / 2;
+      const fragment = looksLikeFullArticle
+        ? (() => {
+            deps.logger.warn("splice.selection_leak_detected", {
+              slug: loadedArticle?.slug,
+              selected_len: selectedLen,
+              generated_len: generated.length,
+            });
+            // Strip title heading and top-level sections, return the lead prose.
+            return stripTopLevelSections(generated, ["References", "See also"])
+              .replace(/^#[^\n]*\n+/, "")
+              .trim();
+          })()
+        : generated;
       const spliced =
         fullMarkdown.slice(0, selectionRange.start) +
-        generated +
+        fragment +
         fullMarkdown.slice(selectionRange.end);
       return { rawArticleBody: spliced };
     }
 
     if (sectionId) {
-      // Section rewrite: replace just the named section.
+      // Section rewrite: if the model returned a full article instead of just the
+      // section, extract only the target section from the output before splicing.
+      const looksLikeFullArticle = /^#\s/m.test(generated);
+      const fragment = looksLikeFullArticle
+        ? (() => {
+            const extracted = articleSectionMarkdown(generated, sectionId);
+            if (extracted !== generated) {
+              deps.logger.warn("splice.section_leak_detected", {
+                slug: loadedArticle?.slug,
+                sectionId,
+                generated_len: generated.length,
+                extracted_len: extracted.length,
+              });
+            }
+            return extracted;
+          })()
+        : generated;
       return {
-        rawArticleBody: replaceArticleSection(fullMarkdown, sectionId, generated),
+        rawArticleBody: replaceArticleSection(fullMarkdown, sectionId, fragment),
       };
     }
 

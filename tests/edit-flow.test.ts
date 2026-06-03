@@ -91,6 +91,7 @@ class RewriteLlmClient implements LlmRouter {
   }
 
   async embed(): Promise<number[][]> { return []; }
+  supportsVision(): boolean { return false; }
   async probeConnections(): Promise<void> {}
 }
 
@@ -121,6 +122,7 @@ class DelayedRewriteLlmClient implements LlmRouter {
   }
 
   async embed(): Promise<number[][]> { return []; }
+  supportsVision(): boolean { return false; }
   async probeConnections(): Promise<void> {}
 }
 
@@ -306,19 +308,19 @@ test("rewrite can include the last two edit prompts with timestamps", async (t) 
   assert.equal(res.status, 200);
   await res.json();
 
-  const rewritePrompt = llm.chatCalls
-    .map((call) => call.user)
+  const rewriteCall = llm.chatCalls
     .reverse()
-    .find((user) => user.includes("third edit prompt"));
-  assert.ok(rewritePrompt);
-  assert.match(rewritePrompt, /Recent edit history, oldest to newest:/);
-  assert.match(rewritePrompt, /\d{4}-\d{2}-\d{2}T.*\(section-rewrite\): first edit prompt/);
-  assert.match(rewritePrompt, /\d{4}-\d{2}-\d{2}T.*\(section-rewrite\): second edit prompt/);
+    .find((call) => call.system.includes("third edit prompt"));
+  assert.ok(rewriteCall, "should find call with third edit prompt in system prompt");
+  const systemPrompt = rewriteCall!.system;
+  assert.match(systemPrompt, /Recent edit history, oldest to newest:/);
+  assert.match(systemPrompt, /\d{4}-\d{2}-\d{2}T.*\(section-rewrite\): first edit prompt/);
+  assert.match(systemPrompt, /\d{4}-\d{2}-\d{2}T.*\(section-rewrite\): second edit prompt/);
   assert.ok(
-    rewritePrompt.indexOf("first edit prompt") < rewritePrompt.indexOf("second edit prompt"),
+    systemPrompt.indexOf("first edit prompt") < systemPrompt.indexOf("second edit prompt"),
     "recent edit prompts should be chronological",
   );
-  assert.doesNotMatch(rewritePrompt, /Initial history snapshot/);
+  assert.doesNotMatch(systemPrompt, /Initial history snapshot/);
   await server.shutdown();
 });
 
@@ -679,6 +681,162 @@ test("selection edit creates a revision entry", async (t) => {
   await server.shutdown();
 });
 
+test("section edit: model receives only the section, not the full article", async (t) => {
+  const { root, databasePath } = createTestDb();
+  const fullBody = [
+    "# Prompt Check",
+    "",
+    "Lead stays.",
+    "",
+    "## History",
+    "",
+    "Old history.",
+    "",
+    "## Culture",
+    "",
+    "Culture stays.",
+  ].join("\n");
+  const { renderMarkdown: renderMd, markdownToPlainText: toPlain } = await import("../src/server/markdown");
+  const db2 = (await import("../src/server/db")).openDatabase(databasePath);
+  (await import("../src/server/db")).saveArticle(
+    db2,
+    {
+      slug: "prompt-check",
+      canonicalSlug: "prompt-check",
+      title: "Prompt Check",
+      markdown: fullBody,
+      html: renderMd(fullBody),
+      plain_text: toPlain(fullBody),
+      generated_at: Date.now(),
+    },
+    [],
+    ["prompt-check"],
+  );
+  db2.close();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("## History\n\nNew history.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  await server.request("/api/article/prompt-check/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "expand history", sectionId: "history" }),
+  });
+
+  const rewriteCall = llm.chatCalls.find((c) => c.system.includes("Rewrite"));
+  assert.ok(rewriteCall, "should have called the LLM");
+  // The model should receive only the section, not the full article
+  assert.ok(!rewriteCall!.user.includes("Lead stays"),
+    "prompt should NOT include other sections when doing a section edit");
+  assert.ok(rewriteCall!.user.includes("Old history"),
+    "prompt should include the target section content");
+  await server.shutdown();
+});
+
+test("section edit: full-article response from model is trimmed to target section", async (t) => {
+  const { root, databasePath } = createTestDb();
+  const fullBody = [
+    "# Leak Test",
+    "",
+    "Lead stays.",
+    "",
+    "## History",
+    "",
+    "Old history.",
+    "",
+    "## Culture",
+    "",
+    "Culture stays.",
+  ].join("\n");
+  const { renderMarkdown: renderMd2, markdownToPlainText: toPlain2 } = await import("../src/server/markdown");
+  const db3 = (await import("../src/server/db")).openDatabase(databasePath);
+  (await import("../src/server/db")).saveArticle(
+    db3,
+    {
+      slug: "leak-test",
+      canonicalSlug: "leak-test",
+      title: "Leak Test",
+      markdown: fullBody,
+      html: renderMd2(fullBody),
+      plain_text: toPlain2(fullBody),
+      generated_at: Date.now(),
+    },
+    [],
+    ["leak-test"],
+  );
+  db3.close();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Model leaks the full article despite being given only the section
+  const leakedFullArticle = [
+    "# Leak Test",
+    "",
+    "Lead stays.",
+    "",
+    "## History",
+    "",
+    "New history content.",
+    "",
+    "## Culture",
+    "",
+    "Culture stays.",
+  ].join("\n");
+
+  const llm = new RewriteLlmClient(leakedFullArticle);
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/leak-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "expand history", sectionId: "history" }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+
+  assert.match(body.article.markdown, /Lead stays/, "lead should be preserved");
+  assert.match(body.article.markdown, /New history content/, "new history should appear");
+  assert.match(body.article.markdown, /Culture stays/, "culture should be preserved");
+  // The key assertion: History section should not appear duplicated
+  const historyMatches = (body.article.markdown.match(/## History/g) ?? []).length;
+  assert.equal(historyMatches, 1, "History heading should appear exactly once, not duplicated");
+  await server.shutdown();
+});
+
+test("selection edit: full-article response from model is trimmed to replacement fragment", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "sel-leak-test", "Sel Leak Test", "The quick brown fox jumps over the lazy dog.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Model leaks a full article when it should only return a fragment
+  const leakedFullArticle = [
+    "# Sel Leak Test",
+    "",
+    "The swift red fox leaps over the tired dog.",
+  ].join("\n");
+
+  const llm = new RewriteLlmClient(leakedFullArticle);
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/sel-leak-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      instructions: "make the fox swift and red",
+      selectedText: "quick brown fox",
+    }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as any;
+
+  // The article title heading should not be duplicated in the body
+  const h1Matches = (body.article.markdown.match(/^# /gm) ?? []).length;
+  assert.equal(h1Matches, 1, "title heading should appear exactly once");
+  assert.ok(!body.article.markdown.includes("quick brown fox"),
+    "original selected text should be replaced");
+  await server.shutdown();
+});
+
 test("post-process body updates are folded into the active rewrite revision", async (t) => {
   const { root, databasePath } = createTestDb();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -940,6 +1098,7 @@ test("rewrite with explicit referenceSlugs passes them as context", async (t) =>
       return { content, finishReason: "stop" };
     },
     async embed() { return []; },
+    supportsVision() { return false; },
     async probeConnections() {},
   };
 

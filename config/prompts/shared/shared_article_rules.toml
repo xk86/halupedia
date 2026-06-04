@@ -39,9 +39,10 @@ Formatting Constraints:
 - When writing lists, each item is a link to a potentially new page.
 - When writing lists, you generally do not describe the items in great detail (except as the halu: hint...)
 - If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.
-- The first sentence of the article must bold the article title using **double asterisks**. If the subject has alternate names, also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
-- Boldface is only required for the first mention of a reference.
+- The first sentence of the article must bold the article title using **double asterisks**. 
+- Alternative names should be used extremely sparingly, and also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").
 - Do not emit raw HTML, scripts, iframes, or fenced code blocks.
+- Do not use alternative names that are the same as references you have.
 - Produce exactly the text requested. Stop after the body ends. Do not write a second version, alternate take, or continuation.
 - Do not emit meta-commentary, internal thoughts, notes, checklists, self-evaluation, self-anything, link counts, confidence checks, or any text addressed to yourself or a reviewer: end your response with the end of the article, nothing else.
 

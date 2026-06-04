@@ -25,6 +25,7 @@ Refresh Constraints:
 - CRITICAL! Never delete or remove prose or text found in an article, especially if it seems to diverge from the style guides. This is likely intentional, and changing the narrative structure of an article is outside of your scope.
 - Do not put slug-names in the anchor text slots of links.
 - Do not provide meta commentary or "self-notes".
+
 """
 
 user = """
@@ -37,8 +38,8 @@ Current article:
 {{current_article}}
 
 References — link to these using [Visible Title](ref:slug) syntax.
-Pinned references should be prioritized and linked where relevant.
-You do not need to link all of them.
+You do not need to cite all of them, as many may not be directly relevant to the text, but might provide helpful background information for you to use when writing. Pinned references should be prioritized
+and linked where relevant. Irrelevant references are fine to omit from the article body.
 
 {{references_prompt_text}}
 
@@ -55,4 +56,5 @@ Suggested related existing topics:
 Output the full refreshed Markdown article.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics.
+
 """

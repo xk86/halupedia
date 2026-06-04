@@ -11,19 +11,15 @@ Output rules:
 - "slug" must be a lowercase kebab-case identifier for a plausible related article, e.g. "salt-river-syndicate" or "upper-great-lakes-geology".
 - "hint" must be a single short sentence describing what that article covers.
 - Generate between 3 and 7 suggestions.
-- Prefer topics thematically related to the references listed below, not topics already prominent in the article body.
-- Do not include the article itself or any of its listed references as suggestions.
+- Suggest topics thematically related to the article but not already covered by it.
+- Do not include the article itself as a suggestion.
 - Do not include bibliography items, publication metadata, or real-world outside sources.
-- Suggest only articles that do not yet exist — these are seed ideas for future writing, not links to current content.
-- Do not re-suggest slugs listed in the "already used or rejected" section below."""
+- Suggest only articles that do not yet exist — these are seed ideas for future writing, not links to current content."""
 
 user = """
 Current article title: {{requested_title}}
 
-Article references (use these as thematic anchors for your suggestions):
-{{reference_slugs}}
-
-{{already_used_section}}Current article excerpt:
-{{article_excerpt}}
+Article summary:
+{{article_summary}}
 
 Return a JSON array of {slug, hint} objects only."""

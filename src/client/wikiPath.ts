@@ -2,7 +2,8 @@ export function toWikiSegment(titleOrSlug: string): string {
   let segment = titleOrSlug
     .trim()
     .replace(/\s+/g, "_")
-    .replace(/[^\p{L}\p{N}_'(),.-]+/gu, "");
+    // Keep letters, numbers, emoji/symbols (\p{S}), punctuation (\p{P}), underscore, and common safe chars.
+    .replace(/[^\p{L}\p{N}\p{S}\p{P}_]+/gu, "");
   const firstLetterIndex = segment.search(/\p{L}/u);
   if (firstLetterIndex >= 0) {
     segment = segment.slice(0, firstLetterIndex) + segment[firstLetterIndex].toUpperCase() + segment.slice(firstLetterIndex + 1);
@@ -16,8 +17,6 @@ export function articleInputToWikiSegment(input: string): string {
   if (wikiIndex >= 0) raw = raw.slice(wikiIndex + "wiki/".length);
   raw = raw.replace(/[?#].*$/, "").replace(/^\/+|\/+$/g, "");
   if (!raw) return "";
-  if (wikiIndex >= 0 || raw.includes("_") || raw.includes("-")) {
-    return raw;
-  }
+  // Always normalize spaces to underscores so the URL is copy-pasteable immediately.
   return toWikiSegment(raw);
 }

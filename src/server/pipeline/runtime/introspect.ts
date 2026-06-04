@@ -47,46 +47,60 @@ export interface DescribedWorkflow {
   edges: DescribedEdge[];
 }
 
+/** Expand an edge into all its nodes (primary + any parallel siblings). */
+function edgeNodes<Deps>(edge: { node: CompiledNode<Deps>; when?: unknown; parallel?: CompiledNode<Deps>[] }): CompiledNode<Deps>[] {
+  return edge.parallel ? [edge.node, ...edge.parallel] : [edge.node];
+}
+
 export function describeWorkflow<Deps>(
   workflow: WorkflowDefinition<Deps>,
 ): DescribedWorkflow {
-  const nodes: DescribedNode[] = workflow.edges.map((edge, index) => ({
-    name: edge.node.name,
-    kind: edge.node.kind,
-    description: edge.node.description,
-    reads: edge.node.reads,
-    writes: edge.node.writes,
-    index,
-    conditional: Boolean(edge.when),
-    whenLabel: edge.when?.name || undefined,
-  }));
+  // Flatten edges into a linear node list; parallel siblings get the same
+  // `index` as their primary node so the UI can group them visually.
+  const nodes: DescribedNode[] = [];
+  for (let i = 0; i < workflow.edges.length; i += 1) {
+    const edge = workflow.edges[i];
+    for (const node of edgeNodes(edge)) {
+      nodes.push({
+        name: node.name,
+        kind: node.kind,
+        description: node.description,
+        reads: node.reads,
+        writes: node.writes,
+        index: i,
+        conditional: Boolean(edge.when),
+        whenLabel: edge.when?.name || undefined,
+      });
+    }
+  }
 
+  // Control edges: connect the last node of each edge-group to the first node
+  // of the next group. Parallel siblings within a group get no control edge
+  // between them (they are independent).
   const controlEdges: DescribedEdge[] = [];
-  for (let i = 0; i < nodes.length - 1; i += 1) {
-    controlEdges.push({
-      from: nodes[i].name,
-      to: nodes[i + 1].name,
-      kind: "control",
-    });
+  for (let i = 0; i < workflow.edges.length - 1; i += 1) {
+    const fromGroup = edgeNodes(workflow.edges[i]);
+    const toGroup = edgeNodes(workflow.edges[i + 1]);
+    for (const from of fromGroup) {
+      for (const to of toGroup) {
+        controlEdges.push({ from: from.name, to: to.name, kind: "control" });
+      }
+    }
   }
 
   // Data edges: for each `writes` field of a node, point at the next node
   // (in order) that lists the same field in its `reads`. Multiple consumers
   // are allowed — emit one edge per consumer until the field is overwritten.
+  const flatNodes = nodes; // already linearised above
   const dataEdges: DescribedEdge[] = [];
-  for (let i = 0; i < workflow.edges.length; i += 1) {
-    const producer = workflow.edges[i].node;
+  for (let i = 0; i < flatNodes.length; i += 1) {
+    const producer = flatNodes[i];
     for (const field of producer.writes) {
-      for (let j = i + 1; j < workflow.edges.length; j += 1) {
-        const consumer = workflow.edges[j].node;
-        if (consumer.writes.includes(field)) break; // overwritten; downstream sees the new value
-        if (consumer.reads.includes(field)) {
-          dataEdges.push({
-            from: producer.name,
-            to: consumer.name,
-            kind: "data",
-            field,
-          });
+      for (let j = i + 1; j < flatNodes.length; j += 1) {
+        const consumer = flatNodes[j];
+        if (consumer.writes.includes(field as string)) break;
+        if (consumer.reads.includes(field as string)) {
+          dataEdges.push({ from: producer.name, to: consumer.name, kind: "data", field: field as string });
         }
       }
     }
@@ -147,15 +161,18 @@ export function workflowSummary<Deps>(
 ): string {
   const counts: Record<string, number> = {};
   for (const edge of workflow.edges) {
-    counts[edge.node.kind] = (counts[edge.node.kind] ?? 0) + 1;
+    for (const node of edgeNodes(edge)) {
+      counts[node.kind] = (counts[node.kind] ?? 0) + 1;
+    }
   }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const parts = Object.entries(counts).map(([k, v]) => `${k}=${v}`);
-  return `${workflow.name} (${workflow.edges.length} nodes, ${parts.join(",")})`;
+  return `${workflow.name} (${total} nodes, ${parts.join(",")})`;
 }
 
 /** Surface declared node references so admin pages can list them. */
 export function listNodes<Deps>(
   workflow: WorkflowDefinition<Deps>,
 ): CompiledNode<Deps>[] {
-  return workflow.edges.map((edge) => edge.node);
+  return workflow.edges.flatMap((edge) => edgeNodes(edge));
 }

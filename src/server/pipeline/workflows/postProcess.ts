@@ -17,13 +17,15 @@
  * 4. write.resolve_links_post_process
  *    Converts halu: links that now point at existing articles to ref: links.
  *
- * 5. llm.generate_see_also  [heavy]
- *    Suggests see-also slugs that are not already in the reference list.
+ * 5. llm.regenerate_summary  [light]  ┐ parallel — different model tiers,
+ *    Re-generates the summary_markdown. │ disjoint state writes.
+ *    llm.generate_infobox  [heavy, JSON]┘
+ *    Generates structured infobox data.
  *
- * 6. llm.regenerate_summary  [light]
- *    Re-generates the summary_markdown sidecar from the final body.
+ * 6. llm.generate_see_also  [light]
+ *    Suggests see-also slugs using the article title + freshly generated summary.
  *
- * 7. llm.generate_infobox  [heavy, JSON]
+ * 7. (formerly step 7, now step 8) write.persist_infobox
  *    Prompt: infobox
  *    Input:  article title + first ~6000 chars of body
  *    Output: structured { title, subtitle, groups[] } saved to article_infobox
@@ -86,9 +88,8 @@ export const postProcessWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: repairLinksNode },
     { node: rebuildReferenceListNode },
     { node: resolveLinksPostProcessNode },
+    { node: regenerateSummaryNode, parallel: [generateInfoboxNode] },
     { node: generateSeeAlsoNode },
-    { node: regenerateSummaryNode },
-    { node: generateInfoboxNode },
     { node: persistInfoboxNode },
     { node: generateSidebarCaptionNode },
     { node: updateArticleInPlaceNode },

@@ -699,13 +699,13 @@ test("generated articles store an actual summary instead of the opening paragrap
     "",
     "Their exchanges are run by ash clerks, delayed furnace indices, and regional reserve ceremonies.",
   ].join("\n");
-  // Post-process LLM calls fire in order: see_also → regenerate_summary → generate_infobox.
+  // Post-process LLM calls fire in order: regenerate_summary → see_also → generate_infobox.
   // generate_sidebar_caption is skipped (no headline image).
   const expectedSummary =
     "Coal futures markets turn buried fuel trading into a ceremonial pricing bureaucracy organized around ash clerks and future-delivery rites.";
   const llm = new QueueLlmClient(body, [
-    JSON.stringify({ items: [] }),  // see_also
     expectedSummary,                // regenerate_summary
+    JSON.stringify({ items: [] }),  // see_also
     JSON.stringify({ title: "Coal Futures Markets", subtitle: "", groups: [] }), // infobox
   ]);
   const server = await createServer(databasePath, llm);

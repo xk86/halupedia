@@ -95,20 +95,21 @@ export const generateImageCaptionNode = defineNode({
         "images",
         rendered.system,
         rendered.user,
-        { jsonMode: true, images: visionImages.length ? visionImages : undefined },
+        { images: visionImages.length ? visionImages : undefined },
       );
-      const match = raw.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error("no JSON in description response");
-      const parsed = JSON.parse(match[0]) as Partial<Record<string, string>>;
 
-      const titleSlug = String(parsed.title_slug ?? "")
+      const description = raw.replace(/\s+/g, " ").trim();
+      if (!description) throw new Error("description response empty");
+
+      // Derive a slug from the first few words of the description.
+      const titleSlug = description
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
+        .replace(/[^a-z0-9\s]+/g, "")
+        .trim()
+        .split(/\s+/)
+        .slice(0, 6)
+        .join("-")
         .slice(0, 80);
-      const description = String(parsed.description ?? "").replace(/\s+/g, " ").trim();
-
-      if (!titleSlug && !description) throw new Error("description response missing fields");
 
       return { imageCaptionResult: { titleSlug, description } };
     } catch (err) {

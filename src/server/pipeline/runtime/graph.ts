@@ -44,6 +44,13 @@ export interface WorkflowEdge<Deps> {
   node: CompiledNode<Deps>;
   /** Node is skipped when this returns false. */
   when?: SkipPredicate;
+  /**
+   * Nodes to run concurrently with `node`. All nodes in this group (including
+   * `node` itself) start with the same input state and their patches are merged
+   * once all complete. Use only when the nodes write disjoint state keys and
+   * use different model tiers so they don't contend on the same LLM pool.
+   */
+  parallel?: CompiledNode<Deps>[];
 }
 
 export interface WorkflowDefinition<Deps> {
@@ -109,43 +116,101 @@ export async function runWorkflow<Deps>(
         });
         continue;
       }
+
+      const parallelNodes = edge.parallel ? [edge.node, ...edge.parallel] : null;
+
+      if (parallelNodes) {
+        // Run all nodes in the parallel group concurrently against the same
+        // input state; merge their patches once all complete.
+        const groupStart = Date.now();
+        const before = state;
+        const results = await Promise.all(
+          parallelNodes.map(async (node) => {
+            options.onNode?.(node.name, node.kind);
+            const nodeStart = Date.now();
+            let nodePromptChars: number | undefined;
+            const nodeDeps = wrapLlmDeps(options.deps, (chars) => { nodePromptChars = chars; });
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const patch = await node.run(before, nodeDeps as any);
+              const diff = diffState(before, mergePatch(before, patch));
+              options.recorder.recordNode({
+                workflow: workflow.name,
+                runId,
+                nodeName: node.name,
+                nodeKind: node.kind,
+                startedAt: nodeStart,
+                durationMs: Date.now() - nodeStart,
+                status: "ok",
+                reads: node.reads,
+                writes: node.writes,
+                inputs: pickKeys(before, node.reads),
+                patch,
+                diff,
+                promptChars: nodePromptChars,
+              });
+              options.logger?.info("pipeline.node.ok", {
+                workflow: workflow.name,
+                run_id: runId,
+                slug,
+                node: node.name,
+                kind: node.kind,
+                duration_ms: Date.now() - nodeStart,
+                writes: node.writes.join(",") || "(none)",
+              });
+              return { patch, error: undefined };
+            } catch (err) {
+              const wrapped = err instanceof Error ? err : new Error(String(err));
+              options.recorder.recordNode({
+                workflow: workflow.name,
+                runId,
+                nodeName: node.name,
+                nodeKind: node.kind,
+                startedAt: nodeStart,
+                durationMs: Date.now() - nodeStart,
+                status: "error",
+                reads: node.reads,
+                writes: node.writes,
+                inputs: pickKeys(before, node.reads),
+                error: { message: wrapped.message, stack: wrapped.stack },
+              });
+              options.logger?.error("pipeline.node.error", {
+                workflow: workflow.name,
+                run_id: runId,
+                slug,
+                node: node.name,
+                error: wrapped.message,
+              });
+              return { patch: {} as PipelineStatePatch, error: wrapped };
+            }
+          }),
+        );
+
+        // Merge patches in declaration order; first error wins.
+        let combined = before;
+        for (const r of results) {
+          combined = mergePatch(combined, r.patch);
+          if (r.error && !error) { error = r.error; status = "error"; }
+        }
+        state = combined;
+        nodesExecuted += parallelNodes.length;
+        options.logger?.info("pipeline.parallel.ok", {
+          workflow: workflow.name,
+          run_id: runId,
+          slug,
+          nodes: parallelNodes.map((n) => n.name).join(","),
+          duration_ms: Date.now() - groupStart,
+        });
+        if (error) break;
+        continue;
+      }
+
+      // ── serial node ──────────────────────────────────────────────────────────
       const nodeStart = Date.now();
       options.onNode?.(edge.node.name, edge.node.kind);
       const before = state;
-      // Wrap deps.llm (if present) to capture prompt size for this node.
       let nodePromptChars: number | undefined;
-      const deps = options.deps as Record<string, unknown>;
-      const nodeDeps =
-        deps && typeof deps === "object" && typeof deps.llm === "object" && deps.llm
-          ? (() => {
-              const origLlm = deps.llm as {
-                chat(...args: unknown[]): Promise<string>;
-                streamChat(...args: unknown[]): Promise<unknown>;
-                embed: unknown;
-                probeConnections: unknown;
-              };
-              const capture = (system: unknown, user: unknown) => {
-                nodePromptChars =
-                  (typeof system === "string" ? system.length : 0) +
-                  (typeof user === "string" ? user.length : 0);
-              };
-              return {
-                ...deps,
-                llm: {
-                  chat(role: unknown, system: unknown, user: unknown, ...rest: unknown[]) {
-                    capture(system, user);
-                    return origLlm.chat(role, system, user, ...rest);
-                  },
-                  streamChat(role: unknown, system: unknown, user: unknown, ...rest: unknown[]) {
-                    capture(system, user);
-                    return origLlm.streamChat(role, system, user, ...rest);
-                  },
-                  embed: (...args: unknown[]) => (origLlm as Record<string, unknown> & { embed(...a: unknown[]): unknown }).embed(...args),
-                  probeConnections: (...args: unknown[]) => (origLlm as Record<string, unknown> & { probeConnections(...a: unknown[]): unknown }).probeConnections(...args),
-                },
-              };
-            })()
-          : options.deps;
+      const nodeDeps = wrapLlmDeps(options.deps, (chars) => { nodePromptChars = chars; });
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const patch = await edge.node.run(before, nodeDeps as any);
@@ -238,6 +303,38 @@ export async function runWorkflow<Deps>(
     status,
     error,
   };
+}
+
+function wrapLlmDeps<Deps>(deps: Deps, onCapture: (chars: number) => void): Deps {
+  const d = deps as Record<string, unknown>;
+  if (!d || typeof d !== "object" || typeof d.llm !== "object" || !d.llm) return deps;
+  const origLlm = d.llm as Record<string, (...a: unknown[]) => unknown>;
+  const capture = (system: unknown, user: unknown) => {
+    onCapture(
+      (typeof system === "string" ? system.length : 0) +
+      (typeof user === "string" ? user.length : 0),
+    );
+  };
+  // Proxy: forwards every call to origLlm, intercepting chat/streamChat to capture prompt size.
+  const wrappedLlm = new Proxy(origLlm, {
+    get(target, prop) {
+      if (prop === "chat") {
+        return (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
+          capture(system, user);
+          return target.chat(role, system, user, ...rest);
+        };
+      }
+      if (prop === "streamChat") {
+        return (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
+          capture(system, user);
+          return target.streamChat(role, system, user, ...rest);
+        };
+      }
+      const val = Reflect.get(target, prop, target);
+      return typeof val === "function" ? val.bind(target) : val;
+    },
+  });
+  return { ...d, llm: wrappedLlm } as Deps;
 }
 
 function mergePatch(

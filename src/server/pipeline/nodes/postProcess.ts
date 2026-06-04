@@ -215,14 +215,14 @@ export const resolveLinksPostProcessNode = defineNode({
 export const generateSeeAlsoNode = defineNode({
   name: "llm.generate_see_also",
   kind: "llm",
-  description: "Generate see-also candidates (LLM, heavy); filtered to non-existing articles only.",
-  reads: ["finalArticleBody", "references", "canonicalTitle", "input"] as const,
+  description: "Generate see-also candidates from article summary + title; filtered to non-existing articles only.",
+  reads: ["finalArticleBody", "articleSummary", "canonicalTitle", "input"] as const,
   writes: ["seeAlso"] as const,
-  async run({ finalArticleBody, references, canonicalTitle, input }, deps: PipelineDeps) {
+  async run({ finalArticleBody, articleSummary, canonicalTitle, input }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
     const title = canonicalTitle ?? input.requestedTitle ?? slug;
     const body = finalArticleBody ?? "";
-    const refSlugs = (references ?? []).map((r) => r.slug);
+    const summary = articleSummary || body.slice(0, 1500);
 
     const bodyLinkSlugs = new Set(
       extractInternalLinks(body).map((l) => l.targetSlug),
@@ -230,61 +230,42 @@ export const generateSeeAlsoNode = defineNode({
     const isHaluOnly = (s: string) =>
       s !== slug && !bodyLinkSlugs.has(s) && !getArticleByLookup(deps.db, s);
 
-    const attempt = async (forbiddenSlugs: string[]) => {
-      const rendered = deps.prompts.render("see_also", {
-        requested_title: title,
-        article_excerpt: body.slice(0, 6000),
-        reference_slugs: refSlugs.length
-          ? refSlugs.map((s) => `- ${s}`).join("\n")
-          : "(none)",
-        already_used_section: forbiddenSlugs.length
-          ? `Already used or rejected (do not re-suggest):\n${forbiddenSlugs.map((s) => `- ${s}`).join("\n")}\n\n`
-          : "",
+    const rendered = deps.prompts.render("see_also", {
+      requested_title: title,
+      article_summary: summary,
+    });
+    const seeAlsoRole = rendered.role ?? "light";
+    try {
+      deps.onSidecarUpdate?.(slug, { type: "generating", node: "llm.generate_see_also" });
+      const raw = await deps.llm.chat(seeAlsoRole, rendered.system, rendered.user, {
+        thinking: rendered.thinking,
+        jsonMode: rendered.json,
       });
-      const seeAlsoRole = rendered.role ?? "heavy";
-      try {
-        deps.onSidecarUpdate?.(slug, { type: "generating", node: "llm.generate_see_also" });
-        const raw = await deps.llm.chat(seeAlsoRole, rendered.system, rendered.user, {
-          thinking: rendered.thinking,
-          jsonMode: rendered.json,
-        });
-  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
-  // like this is clearly a jsonrepair task
-        const arrayMatch = raw.match(/\[[\s\S]*\]/);
-        const objectMatch = raw.match(/\{[\s\S]*\}/);
-        let items: Array<{ slug?: string; hint?: string }> = [];
-        if (arrayMatch) {
-          try { items = JSON.parse(arrayMatch[0]); } catch { /* fall through */ }
-        }
-        if (!items.length && objectMatch) {
-          try { const o = JSON.parse(objectMatch[0]); items = o.items ?? []; } catch { /* fall through */ }
-        }
-        return items
-          .filter((i) => i.slug)
-          .map((i) => ({ slug: slugify(i.slug ?? ""), hint: (i.hint ?? "").replace(/\s+/g, " ").trim() }))
-          .filter((i) => i.slug);
-      } catch {
-        return [];
+      const arrayMatch = raw.match(/\[[\s\S]*\]/);
+      const objectMatch = raw.match(/\{[\s\S]*\}/);
+      let items: Array<{ slug?: string; hint?: string }> = [];
+      if (arrayMatch) {
+        try { items = JSON.parse(arrayMatch[0]); } catch { /* fall through */ }
       }
-    };
+      if (!items.length && objectMatch) {
+        try { const o = JSON.parse(objectMatch[0]); items = o.items ?? []; } catch { /* fall through */ }
+      }
+      const valid = items
+        .filter((i) => i.slug)
+        .map((i) => ({ slug: slugify(i.slug ?? ""), hint: (i.hint ?? "").replace(/\s+/g, " ").trim() }))
+        .filter((i) => i.slug && isHaluOnly(i.slug))
+        .slice(0, 7);
 
-    const raw = await attempt([]);
-    let valid = raw.filter((c) => isHaluOnly(c.slug)).slice(0, 7);
-
-    if (valid.length < 3) {
-      const rejected = raw.map((c) => c.slug).filter((s) => !isHaluOnly(s));
-      const retryRaw = await attempt([...refSlugs, ...rejected]);
-      const retryValid = retryRaw.filter((c) => isHaluOnly(c.slug)).slice(0, 7);
-      if (retryValid.length > valid.length) valid = retryValid;
+      return {
+        seeAlso: valid.map((c) => ({
+          slug: c.slug,
+          title: c.slug.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase()),
+          hint: c.hint,
+        })),
+      };
+    } catch {
+      return { seeAlso: [] };
     }
-
-    return {
-      seeAlso: valid.map((c) => ({
-        slug: c.slug,
-        title: c.slug.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase()),
-        hint: c.hint,
-      })),
-    };
   },
 });
 

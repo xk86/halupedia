@@ -143,7 +143,7 @@ class PipelineLlm implements LlmRouter {
       return "A brief test summary.";
     }
     // See-also prompt → return empty array.
-    if (user.includes("already_used_section") || user.includes("article_excerpt")) {
+    if (system.includes("See Also suggestions") || user.includes("article_summary")) {
       return "[]";
     }
     // Link repair → return context unchanged.

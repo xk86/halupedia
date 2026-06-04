@@ -147,7 +147,7 @@ function parseRoute(): Route {
     return { kind: "media", imageSlug: decodeURIComponent(pathname.slice("/media/".length)) };
   }
   if (pathname.startsWith("/wiki/")) {
-    const wikiPath = decodeURIComponent(pathname.slice("/wiki/".length)).replace(/^\/+|\/+$/g, "");
+    const wikiPath = toWikiSegment(decodeURIComponent(pathname.slice("/wiki/".length)).replace(/^\/+|\/+$/g, ""));
     if (wikiPath.startsWith("Special:Disambiguation/")) {
       return {
         kind: "disambiguation",
@@ -282,7 +282,7 @@ export function App() {
           window.history.replaceState({}, "", url.pathname);
           setRoute({
             kind: "article",
-            slug: decodeURIComponent(url.pathname.slice("/wiki/".length)),
+            slug: toWikiSegment(decodeURIComponent(url.pathname.slice("/wiki/".length))),
           });
         } catch (err: any) {
           if (cancelled) return;
@@ -350,6 +350,14 @@ export function App() {
 
     const fetchSlug = route.slug;
     if (inFlightSlugRef.current === fetchSlug) return;
+
+    // Immediately normalize the URL so spaces → underscores before any server response.
+    if (route.kind === "article") {
+      const normalizedPath = `/wiki/${fetchSlug}`;
+      if (window.location.pathname !== normalizedPath) {
+        window.history.replaceState({}, "", normalizedPath);
+      }
+    }
     inFlightSlugRef.current = fetchSlug;
 
     let cancelled = false;

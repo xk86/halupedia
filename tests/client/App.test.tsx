@@ -1167,4 +1167,59 @@ describe("App", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(screen.getByRole("button", { name: "Use automatic theme" })).toBeInTheDocument();
   });
+
+  it("normalises spaces to underscores in the URL immediately when navigating via the search bar", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(pagePayload()), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    const input = screen.getByPlaceholderText("Search the register...");
+    await userEvent.type(input, "Differences in penis size");
+    await userEvent.keyboard("{Enter}");
+
+    // URL must have underscores, not spaces, before any server response.
+    expect(window.location.pathname).toBe("/wiki/Differences_in_penis_size");
+  });
+
+  it("normalises a URL with spaces when loaded directly (e.g. pasted into address bar)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(pagePayload()), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    // Simulate browser decoding %20 spaces in the URL.
+    setPath("/wiki/Differences in penis size");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/wiki/Differences_in_penis_size");
+    });
+  });
+
+  it("normalises a title with hyphens that also has spaces (previous regression)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(pagePayload()), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    const input = screen.getByPlaceholderText("Search the register...");
+    await userEvent.type(input, "human-horse hybrids");
+    await userEvent.keyboard("{Enter}");
+
+    // Hyphen in input must not bypass space→underscore normalisation.
+    expect(window.location.pathname).toBe("/wiki/Human-horse_hybrids");
+  });
 });

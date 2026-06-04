@@ -525,6 +525,10 @@ export const extractArticleBodyNode = defineNode({
       throw new Error("transform.extract_body: llmOutput missing");
     }
     const { body } = parseArticleFrameOutput(llmOutput.text, undefined, undefined, deps.logger);
+    // Truncated response + trivially short body = don't save garbage over a good article.
+    if (llmOutput.finishReason === "length" && body.length < 100) {
+      throw new Error(`transform.extract_body: LLM response truncated (finish_reason=length, body_chars=${body.length}); aborting to preserve existing article`);
+    }
     return { rawArticleBody: body };
   },
 });

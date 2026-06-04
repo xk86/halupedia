@@ -11,6 +11,7 @@ Additional Rules:
 Incoming canonical references that may link back to this article:
 
 {{link_hints}}
+
 """
 
 user = """
@@ -23,8 +24,8 @@ Requested article title:
 {{requested_title}}
 
 References — link to these using [Visible Title](ref:slug) syntax.
-You do not need to cite all of them. Pinned references should be prioritized
-and linked where relevant. Unlinked references are fine to omit from the article body.
+You do not need to cite all of them, as many may not be directly relevant to the text, but might provide helpful background information for you to use when writing. Pinned references should be prioritized
+and linked where relevant. Irrelevant references are fine to omit from the article body.
 
 {{references_prompt_text}}
 
@@ -41,4 +42,5 @@ Suggested related existing topics:
 Output the full article Markdown.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics not in the reference list.
+
 """

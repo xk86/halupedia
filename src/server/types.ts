@@ -55,6 +55,17 @@ export interface RagConfig {
   reference_recursive_depth: number;
   /** Maximum sidecar refs to pull from each traversed article per depth step. */
   reference_recursive_max_per_article: number;
+  /**
+   * Global cull applied after full assembly (RAG + recursive + prior-save).
+   * Only entries with a finite rankScore are eligible (rag, inherited, floor,
+   * prior). Pinned, user-added, and body-linked refs are always exempt.
+   *
+   * reference_cull_min_score: drop cull-eligible refs below this relevancy.
+   * reference_cull_top_k: after the score floor, keep only the top-K by score.
+   *   Set to 0 to disable the top-K cut (score floor still applies).
+   */
+  reference_cull_min_score: number;
+  reference_cull_top_k: number;
 }
 
 /**

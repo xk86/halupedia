@@ -70,6 +70,8 @@ export interface BuildReferenceListInput {
     | "max_references"
     | "reference_recursive_depth"
     | "reference_recursive_max_per_article"
+    | "reference_cull_min_score"
+    | "reference_cull_top_k"
   >;
 }
 
@@ -338,19 +340,44 @@ export function buildReferenceList(
     frontier = nextFrontier;
   }
 
-  // Apply caps:
+  // Cull stage: applied across the fully-assembled candidate pool before the
+  // count caps below. Exempt sources are pinned, user-added, and body-linked
+  // (source "user" or "body") — these are explicit human choices and immune.
+  // Everything else (rag, recursive, prior carryover) is cull-eligible:
+  //   1. Drop any cull-eligible candidate below reference_cull_min_score.
+  //   2. Keep only the top reference_cull_top_k by rankScore (0 = no top-k cut).
+  // This prevents deep recursive fan-out and stale prior carryover from
+  // inflating the list with low-relevance entries.
+  const cullExemptSources = new Set(["user", "body"]);
+  const cullMinScore = config.reference_cull_min_score;
+  const cullTopK = Math.max(0, Math.floor(config.reference_cull_top_k));
+  const afterCull: InternalCandidate[] = [];
+  const cullEligible: InternalCandidate[] = [];
+  for (const c of candidates) {
+    if (c.entry.pinned || cullExemptSources.has(c.source)) {
+      afterCull.push(c);
+    } else {
+      cullEligible.push(c);
+    }
+  }
+  const scorePassed = cullEligible.filter((c) => c.rankScore >= cullMinScore);
+  scorePassed.sort((a, b) => b.rankScore - a.rankScore);
+  const topKPassed = cullTopK > 0 ? scorePassed.slice(0, cullTopK) : scorePassed;
+  const cullDropped = candidates.length - afterCull.length - topKPassed.length;
+  afterCull.push(...topKPassed);
+
+  // Apply count caps to the culled pool:
   //   - pinned entries are FREE (never count toward any cap).
-  //   - carried entries (user-added, body-linked, prior-save, recursive) are
-  //     capped only by max_references — they are never squeezed out by the
-  //     RAG budget.
+  //   - user/body/prior entries are capped only by max_references — they are
+  //     never squeezed out by the RAG budget.
   //   - rag entries are capped first by reference_max_results (the per-build
   //     budget for newly-discovered vector-search results), then by whatever
-  //     remains of max_references after carried entries are placed.
+  //     remains of max_references after the above are placed.
   //
   // reference_max_results strictly limits direct RAG additions only.
-  const pinned = candidates.filter((c) => c.entry.pinned);
-  const carried = candidates.filter((c) => !c.entry.pinned && c.source !== "rag");
-  const rag = candidates
+  const pinned = afterCull.filter((c) => c.entry.pinned);
+  const carried = afterCull.filter((c) => !c.entry.pinned && c.source !== "rag");
+  const rag = afterCull
     .filter((c) => !c.entry.pinned && c.source === "rag")
     .sort((a, b) => b.rankScore - a.rankScore);
   const keptCarried = carried.slice(0, Math.max(0, config.max_references));
@@ -388,6 +415,9 @@ export function buildReferenceList(
     recursive_traversed: recursiveTraversalCount,
     recursive_max_per_article: config.reference_recursive_max_per_article,
     blacklisted: blacklistSlugs.length,
+    cull_dropped: cullDropped,
+    cull_min_score: cullMinScore,
+    cull_top_k: cullTopK,
     kept: kept.length,
     dropped: candidates.length - kept.length,
     score_floor: config.reference_min_score,

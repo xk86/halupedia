@@ -88,6 +88,8 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       max_references: app.rag?.max_references ?? 50,
       reference_recursive_depth: app.rag?.reference_recursive_depth ?? 2,
       reference_recursive_max_per_article: app.rag?.reference_recursive_max_per_article ?? 3,
+      reference_cull_min_score: app.rag?.reference_cull_min_score ?? 0.3,
+      reference_cull_top_k: app.rag?.reference_cull_top_k ?? 20,
       prompt_ref_content_min_score: app.rag?.prompt_ref_content_min_score ?? 0.5,
       prompt_ref_content_top_k: app.rag?.prompt_ref_content_top_k ?? 6,
     },

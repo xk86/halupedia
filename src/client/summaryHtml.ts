@@ -6,10 +6,6 @@ function stripWrappingParagraph(html: string): string {
   return match ? match[1] : trimmed;
 }
 
-export function renderSummaryHtml(markdown: string): string {
+export function renderInlineHtml(markdown: string): string {
   return stripWrappingParagraph(renderMarkdown(markdown));
-}
-
-export function renderTitleHtml(title: string): string {
-  return stripWrappingParagraph(renderMarkdown(title));
 }

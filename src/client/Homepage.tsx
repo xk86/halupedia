@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { renderSummaryHtml } from "./summaryHtml";
+import { renderInlineHtml } from "./summaryHtml";
 import { toWikiSegment } from "./wikiPath";
 
 interface TopArticle {
@@ -248,7 +248,7 @@ export function Homepage({ onNavigate }: Props) {
                   <div
                     className="homepage-summary"
                     onClick={handleRenderedClick}
-                    dangerouslySetInnerHTML={{ __html: renderSummaryHtml(displayData.featured.summaryMarkdown) }}
+                    dangerouslySetInnerHTML={{ __html: renderInlineHtml(displayData.featured.summaryMarkdown) }}
                   />
                 )}
                 <a
@@ -270,7 +270,7 @@ export function Homepage({ onNavigate }: Props) {
                   <li
                     key={item.slug}
                     onClick={handleRenderedClick}
-                    dangerouslySetInnerHTML={{ __html: renderSummaryHtml(item.fact) }}
+                    dangerouslySetInnerHTML={{ __html: renderInlineHtml(item.fact) }}
                   />
                 ))}
               </ul>

@@ -8,7 +8,7 @@ import { MediaPage } from "./MediaPage";
 import { MediaListPage } from "./MediaListPage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
-import { renderSummaryHtml, renderTitleHtml } from "./summaryHtml";
+import { renderInlineHtml } from "./summaryHtml";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
 
 type Route =
@@ -1374,7 +1374,7 @@ export function App() {
       return (
         <article className="article disambiguation-page" onClick={interceptArticleLinks}>
           <div className="disambiguation-notice">This is a disambiguation page.</div>
-          <h1 dangerouslySetInnerHTML={{ __html: renderTitleHtml(articleDisplayTitle) }} />
+          <h1 dangerouslySetInnerHTML={{ __html: renderInlineHtml(articleDisplayTitle) }} />
           <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
         </article>
       );
@@ -1385,7 +1385,7 @@ export function App() {
         <>
           {restoreMessage ? <div className="status">{restoreMessage}</div> : null}
           <div className="history-page-header">
-            <h1>History: <span dangerouslySetInnerHTML={{ __html: renderTitleHtml(articleDisplayTitle) }} /></h1>
+            <h1>History: <span dangerouslySetInnerHTML={{ __html: renderInlineHtml(articleDisplayTitle) }} /></h1>
             <button type="button" className="edit-modal-close" onClick={() => navigateToArticle(page.article.title.replace(/\s+/g, "_"))}>
               Current article
             </button>
@@ -1407,7 +1407,7 @@ export function App() {
                     {revision.summaryMarkdown ? (
                       <div
                         className="history-summary"
-                        dangerouslySetInnerHTML={{ __html: renderSummaryHtml(revision.summaryMarkdown) }}
+                        dangerouslySetInnerHTML={{ __html: renderInlineHtml(revision.summaryMarkdown) }}
                       />
                     ) : null}
                   </div>
@@ -1487,7 +1487,7 @@ export function App() {
         ) : null}
         {refreshMessage ? <div className="status">{refreshMessage}</div> : null}
         <div className="article-title-row">
-          <h1 dangerouslySetInnerHTML={{ __html: renderTitleHtml(articleDisplayTitle) }} />
+          <h1 dangerouslySetInnerHTML={{ __html: renderInlineHtml(articleDisplayTitle) }} />
           <button
             type="button"
             className="article-edit-button"
@@ -2017,7 +2017,7 @@ export function App() {
                     {revision.summaryMarkdown ? (
                       <div
                         className="history-summary"
-                        dangerouslySetInnerHTML={{ __html: renderSummaryHtml(revision.summaryMarkdown) }}
+                        dangerouslySetInnerHTML={{ __html: renderInlineHtml(revision.summaryMarkdown) }}
                       />
                     ) : null}
                   </div>

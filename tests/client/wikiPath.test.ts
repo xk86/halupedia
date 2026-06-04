@@ -26,9 +26,13 @@ describe("toWikiSegment", () => {
     expect(toWikiSegment("le béton")).toBe("Le_béton");
   });
 
-  it("strips bare control characters but keeps punctuation", () => {
-    const result = toWikiSegment("title (disambiguation)");
-    expect(result).toBe("Title_(disambiguation)");
+  it("strips bare control characters but keeps safe punctuation", () => {
+    expect(toWikiSegment("title (disambiguation)")).toBe("Title_(disambiguation)");
+  });
+
+  it("strips markdown syntax characters like asterisks", () => {
+    expect(toWikiSegment("*Algebra*")).toBe("Algebra");
+    expect(toWikiSegment("**Bold Title**")).toBe("Bold_Title");
   });
 });
 

@@ -2,8 +2,8 @@ export function toWikiSegment(titleOrSlug: string): string {
   let segment = titleOrSlug
     .trim()
     .replace(/\s+/g, "_")
-    // Keep letters, numbers, emoji/symbols (\p{S}), punctuation (\p{P}), underscore, and common safe chars.
-    .replace(/[^\p{L}\p{N}\p{S}\p{P}_]+/gu, "");
+    // Keep letters, numbers, emoji/symbols (\p{S}), underscore, and safe ASCII punctuation.
+    .replace(/[^\p{L}\p{N}\p{S}_'(),.-]+/gu, "");
   const firstLetterIndex = segment.search(/\p{L}/u);
   if (firstLetterIndex >= 0) {
     segment = segment.slice(0, firstLetterIndex) + segment[firstLetterIndex].toUpperCase() + segment.slice(firstLetterIndex + 1);

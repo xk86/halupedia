@@ -59,6 +59,10 @@ describe("articleInputToWikiSegment", () => {
     expect(articleInputToWikiSegment("cats 🐱 and dogs")).toBe("Cats_🐱_and_dogs");
   });
 
+  it("preserves apostrophes in titles", () => {
+    expect(articleInputToWikiSegment("Charlie Kirk's incest")).toBe("Charlie_Kirk's_incest");
+  });
+
   it("returns empty string for empty input", () => {
     expect(articleInputToWikiSegment("")).toBe("");
     expect(articleInputToWikiSegment("   ")).toBe("");

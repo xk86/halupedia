@@ -3942,7 +3942,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       path.startsWith("/media/") ||
       routeSlug(path)
     ) {
-      return c.html(await readFile(resolve(distRoot, "index.html"), "utf8"));
+      try {
+        return c.html(await readFile(resolve(distRoot, "index.html"), "utf8"));
+      } catch {
+        // dist not built yet (dev mode) — redirect to root so Vite serves the shell
+        return c.redirect("/", 302);
+      }
     }
 
     const filePath = resolve(distRoot, path.slice(1));

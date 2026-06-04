@@ -20,6 +20,7 @@ import {
   getArticleByLookup,
   getArticleInfobox,
   listIncomingHints,
+  normalizeInfoboxData,
   saveArticleSeeAlso,
   setArticleInfobox,
   getArticleHeadlineMedia,
@@ -474,7 +475,8 @@ export const persistInfoboxNode = defineNode({
     try {
       setArticleInfobox(deps.db, slug, infobox as InfoboxData);
       deps.logger.info("pipeline.infobox.saved", { slug });
-      deps.onSidecarUpdate?.(slug, { type: "infobox", infobox });
+      const normalized = normalizeInfoboxData(infobox);
+      if (normalized) deps.onSidecarUpdate?.(slug, { type: "infobox", infobox: normalized });
     } catch (err) {
       deps.logger.warn("pipeline.infobox.save_failed", {
         slug,

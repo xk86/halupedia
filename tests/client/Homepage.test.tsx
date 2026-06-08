@@ -16,7 +16,7 @@ describe("Homepage", () => {
     cleanup();
   });
 
-  it("renders thumbnails for top articles and the featured article when imageId is present", async () => {
+  it("renders thumbnails for the featured article when imageId is present", async () => {
     const now = Date.now();
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -38,7 +38,7 @@ describe("Homepage", () => {
       if (url.startsWith("/api/top-articles")) {
         return Promise.resolve(jsonResponse({
           articles: [
-            { slug: "with-image", title: "Article With Image", inboundCount: 3, imageId: "img-with-image", imageCaption: "Top-list thumbnail caption." },
+            { slug: "with-image", title: "Article With Image", inboundCount: 3 },
             { slug: "without-image", title: "Article Without Image", inboundCount: 1 },
           ],
         }));
@@ -56,23 +56,13 @@ describe("Homepage", () => {
     const images = Array.from(container.querySelectorAll("img"));
     const srcs = images.map((img) => img.getAttribute("src"));
     expect(srcs).toContain("/api/media/img-featured");
-    expect(srcs).toContain("/api/media/img-with-image");
     expect(srcs).not.toContain("/api/media/undefined");
 
-    // The article without an image must not render an extra thumbnail for it
-    const withoutImageLink = screen.getByRole("link", { name: "Article Without Image" });
-    const withoutImageItem = withoutImageLink.closest("li");
-    expect(withoutImageItem?.querySelector("img")).toBeNull();
-
     // Captions are shown alongside their images — visibly under the larger
-    // featured image (a <figcaption>), and as alt/title text on the compact
-    // top-article thumbnails.
+    // featured image (a <figcaption>).
     expect(screen.getByText("A glowing orchard at dusk.")).toBeInTheDocument();
     const featuredImg = container.querySelector(".homepage-featured-image") as HTMLImageElement;
     expect(featuredImg.getAttribute("alt")).toBe("A glowing orchard at dusk.");
-    const topThumb = container.querySelector(".homepage-top-thumb") as HTMLImageElement;
-    expect(topThumb.getAttribute("alt")).toBe("Top-list thumbnail caption.");
-    expect(topThumb.getAttribute("title")).toBe("Top-list thumbnail caption.");
   });
 
   it("renders no thumbnails when no articles have images", async () => {

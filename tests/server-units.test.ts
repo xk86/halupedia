@@ -1207,14 +1207,19 @@ test("extractTitle strips markdown formatting from titles", () => {
   assert.equal(extractTitle("No heading here.", "fallback"), "fallback");
 });
 
-test("extractDisplayTitle returns formatted title when markdown formatting present", () => {
+test("extractDisplayTitle keeps italics but strips bold from titles", () => {
+  // Italics are meaningful (e.g. scientific names) — kept.
   assert.equal(
     extractDisplayTitle("# *De Rerum Natura*\n\nBody."),
     "*De Rerum Natura*",
   );
+  // Bold-only titles render identically to the plain canonical title once the
+  // bold is stripped, so there's no separate display title to keep.
+  assert.equal(extractDisplayTitle("# **Bold Title**\n\nBody."), undefined);
+  // Mixed: bold stripped, italics retained.
   assert.equal(
-    extractDisplayTitle("# **Bold Title**\n\nBody."),
-    "**Bold Title**",
+    extractDisplayTitle("# **Pee**: *A* Test\n\nBody."),
+    "Pee: *A* Test",
   );
   assert.equal(extractDisplayTitle("# San Francisco\n\nBody."), undefined);
   assert.equal(extractDisplayTitle("No heading."), undefined);

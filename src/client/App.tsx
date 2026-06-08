@@ -401,6 +401,13 @@ export function App() {
           ? `/api/disambiguation/${encodeURIComponent(route.slug)}`
           : `/api/page/${encodeURIComponent(route.slug)}`;
         const pendingTitle = pendingRequestedTitleRef.current;
+        // Placeholder title shown while the article streams in. Prefer the
+        // user's literal typed title (it carries punctuation the slug-based
+        // URL can't, e.g. the colon in "Pee: A Test") so it appears
+        // immediately instead of snapping in only once the article fully
+        // renders. Falls back to reconstructing from the URL segment.
+        const matchedPending = pendingTitle && pendingTitle.slug === route.slug ? pendingTitle.title : null;
+        const placeholderTitle = matchedPending ?? titleFromSegment(route.slug);
         const res = pendingTitle && pendingTitle.slug === route.slug
           // HTTP header values must be ASCII/Latin-1 — titles with emoji or
           // other non-Latin1 characters (e.g. "Banana 🍌") would make fetch
@@ -521,7 +528,7 @@ export function App() {
                 article: {
                   slug: route.slug,
                   canonicalSlug: route.slug,
-                  title: titleFromSegment(route.slug),
+                  title: placeholderTitle,
                   html: "",
                   markdown: "",
                   plain_text: "",
@@ -545,7 +552,7 @@ export function App() {
                 article: current?.article ?? {
                   slug: route.slug,
                   canonicalSlug: route.slug,
-                  title: titleFromSegment(route.slug),
+                  title: placeholderTitle,
                   html: streamedHtml,
                   markdown: event.markdown ?? "",
                   plain_text: "",

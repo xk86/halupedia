@@ -425,10 +425,21 @@ export function extractTitle(markdown: string, fallbackSlug: string): string {
   return raw.replace(/\*+([^*]+)\*+/g, "$1").replace(/_+([^_]+)_+/g, "$1");
 }
 
+/**
+ * Remove bold markdown delimiters (`**` / `__`) while leaving italic markers
+ * (single `*` / `_`) intact. Used for display titles: titles shouldn't render
+ * bold, but italics (e.g. a scientific name) are meaningful and kept.
+ */
+export function stripBoldMarkdown(input: string): string {
+  return input.replace(/\*\*/g, "").replace(/__/g, "");
+}
+
 export function extractDisplayTitle(markdown: string): string | undefined {
   const match = markdown.match(/^#\s+(.+)$/m);
   if (!match) return undefined;
-  const raw = match[1].trim();
+  const raw = stripBoldMarkdown(match[1].trim()).trim();
+  // Only worth a separate display title if italics survive — otherwise the
+  // plain canonical title renders identically.
   if (/[*_]/.test(raw)) return raw;
   return undefined;
 }

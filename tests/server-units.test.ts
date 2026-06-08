@@ -21,6 +21,8 @@ import {
   isArticleSectionProtected,
   setArticleSectionProtection,
   listTopArticles,
+  getHeadlineMediaForSlugs,
+  upsertArticleHeadlineMedia,
   getGraphData,
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
@@ -2492,6 +2494,38 @@ test("listTopArticles respects the limit parameter", (t) => {
 
   assert.equal(listTopArticles(db, 3).length, 3);
   assert.equal(listTopArticles(db, 10).length, 5);
+});
+
+// ── getHeadlineMediaForSlugs ───────────────────────────────────────────────
+
+test("getHeadlineMediaForSlugs returns a slug -> media id map for slugs with a headline image", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-headline-media-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const save = (slug: string, title: string) => {
+    const md = `# ${title}\n\nBody.`;
+    saveArticle(db, { slug, canonicalSlug: slug, title, markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now(), summaryMarkdown: "" }, [], [slug], { operation: "generate" });
+  };
+  save("alpha", "Alpha");
+  save("beta", "Beta");
+  save("gamma", "Gamma");
+  upsertArticleHeadlineMedia(db, "alpha", "img-alpha", "");
+  upsertArticleHeadlineMedia(db, "gamma", "img-gamma", "");
+
+  const media = getHeadlineMediaForSlugs(db, ["alpha", "beta", "gamma"]);
+  assert.equal(media.get("alpha"), "img-alpha");
+  assert.equal(media.get("gamma"), "img-gamma");
+  assert.equal(media.has("beta"), false, "beta has no headline image");
+});
+
+test("getHeadlineMediaForSlugs returns an empty map for an empty slug list", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-headline-media-empty-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const media = getHeadlineMediaForSlugs(db, []);
+  assert.equal(media.size, 0);
 });
 
 // ── getGraphData ───────────────────────────────────────────────────────────

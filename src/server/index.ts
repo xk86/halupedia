@@ -51,6 +51,7 @@ import {
   getArchivedArticle,
   deleteArchivedArticle,
   listTopArticles,
+  getHeadlineMediaForSlugs,
   getGraphData,
   isArticleProtected,
   setArticleProtection,
@@ -1637,14 +1638,27 @@ export async function createApp(options: CreateAppOptions = {}) {
     },
   });
 
+  /** Attach `imageId` (headline image, when present) to a featured-article payload. */
+  function withFeaturedImage<T extends { featured: { slug: string } | null }>(payload: T): T & {
+    featured: (T["featured"] & { imageId?: string }) | null;
+  } {
+    if (!payload.featured) return payload as T & { featured: null };
+    const media = getHeadlineMediaForSlugs(db, [payload.featured.slug]);
+    const imageId = media.get(payload.featured.slug);
+    return {
+      ...payload,
+      featured: imageId ? { ...payload.featured, imageId } : payload.featured,
+    };
+  }
+
   app.get("/api/homepage", (c) => {
     const cached = getHomepageCache(db);
     const now = Date.now();
     if (cached && cached.generatedAt + HOMEPAGE_TTL_MS > now) {
-      return c.json({
+      return c.json(withFeaturedImage({
         ...cached,
         expiresAt: cached.generatedAt + HOMEPAGE_TTL_MS,
-      });
+      }));
     }
 
     maintenance.trigger(
@@ -1652,10 +1666,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       cached ? "expired_cache_request" : "missing_cache_request",
     );
     if (cached) {
-      return c.json({
+      return c.json(withFeaturedImage({
         ...cached,
         expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,
-      });
+      }));
     }
     return c.json({
       featured: null,
@@ -1673,7 +1687,14 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/top-articles", (c) => {
     const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? "10")));
-    return c.json({ articles: listTopArticles(db, limit) });
+    const articles = listTopArticles(db, limit);
+    const media = getHeadlineMediaForSlugs(db, articles.map((a) => a.slug));
+    return c.json({
+      articles: articles.map((a) => {
+        const imageId = media.get(a.slug);
+        return imageId ? { ...a, imageId } : a;
+      }),
+    });
   });
 
   app.get("/api/graph", (c) => {

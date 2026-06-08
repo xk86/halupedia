@@ -1929,6 +1929,21 @@ button.admin-danger-btn:hover:not(:disabled) {
   line-height: 1.55;
 }
 
+.homepage-featured-image-link {
+  display: block;
+  border-bottom: none;
+  margin: 0 0 0.75rem;
+}
+
+.homepage-featured-image {
+  display: block;
+  width: 100%;
+  max-height: 16rem;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--rule);
+}
+
 .homepage-summary p {
   margin: 0;
 }
@@ -4739,6 +4754,15 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 0.72rem;
   color: var(--ink-fade);
   flex-shrink: 0;
+}
+
+.homepage-top-thumb {
+  width: 1.6rem;
+  height: 1.6rem;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid var(--rule);
 }
 
 /* ====================== Graph view ======================== */

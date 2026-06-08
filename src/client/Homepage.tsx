@@ -6,12 +6,14 @@ interface TopArticle {
   slug: string;
   title: string;
   inboundCount: number;
+  imageId?: string;
 }
 
 interface FeaturedArticle {
   slug: string;
   title: string;
   summaryMarkdown: string;
+  imageId?: string;
 }
 
 interface DykItem {
@@ -215,6 +217,14 @@ export function Homepage({ onNavigate }: Props) {
             {topArticles.map((a, i) => (
               <li key={a.slug}>
                 <span className="homepage-top-rank">{i + 1}</span>
+                {a.imageId && (
+                  <img
+                    className="homepage-top-thumb"
+                    src={`/api/media/${encodeURIComponent(a.imageId)}`}
+                    alt=""
+                    loading="lazy"
+                  />
+                )}
                 <a
                   href={`/wiki/${toWikiSegment(a.title)}`}
                   onClick={handleClick(a.title)}
@@ -244,6 +254,20 @@ export function Homepage({ onNavigate }: Props) {
                     {displayData.featured.title}
                   </a>
                 </h3>
+                {displayData.featured.imageId && (
+                  <a
+                    href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
+                    onClick={handleClick(displayData.featured.title)}
+                    className="homepage-featured-image-link"
+                  >
+                    <img
+                      className="homepage-featured-image"
+                      src={`/api/media/${encodeURIComponent(displayData.featured.imageId)}`}
+                      alt=""
+                      loading="lazy"
+                    />
+                  </a>
+                )}
                 {displayData.featured.summaryMarkdown && (
                   <div
                     className="homepage-summary"

@@ -19,6 +19,8 @@ import {
   openDatabase,
   saveArticle,
   saveHomepageCache,
+  getHomepageCache,
+  invalidateHomepageCache,
   listHomepageHistory,
   saveArticleReferences,
   getLatestArticleReferences,
@@ -344,6 +346,28 @@ test("saveHomepageCache persists entry visible via listHomepageHistory", (t) => 
   assert.equal(history[0].didYouKnow.length, 1);
 });
 
+test("invalidateHomepageCache drops the cached payload so the next refresh regenerates it", (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const db = openDatabase(databasePath);
+  t.after(() => db.close());
+
+  saveHomepageCache(db, {
+    featured: { slug: "glow-fruit", title: "Glow Fruit", summaryMarkdown: "A luminous orchard product." },
+    didYouKnow: [{ slug: "glow-fruit", title: "Glow Fruit", fact: "... Glow Fruit glows at night." }],
+    generatedAt: 1_720_000_000_000,
+    expiresAt: 1_720_000_000_000 + 3_600_000,
+  });
+  assert.ok(getHomepageCache(db), "cache should be present after saving");
+
+  invalidateHomepageCache(db);
+
+  assert.equal(getHomepageCache(db), null, "cache should be gone after invalidation");
+  // History is untouched — invalidation only clears the current cache row.
+  assert.equal(listHomepageHistory(db, 10).length, 1);
+});
+
 test("listHomepageHistory returns entries newest-first, limited by count", (t) => {
   const { root, databasePath } = createTestDb();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -402,6 +426,42 @@ test("GET /api/homepage/history reflects saved caches", async (t) => {
   // Newest first
   assert.equal(body.history[0].featured?.slug, "entry-2");
   assert.equal(body.history[1].featured?.slug, "entry-1");
+});
+
+test("POST /api/admin/reset-featured-article invalidates the cache so the homepage regenerates", async (t) => {
+  const { root, databasePath } = createTestDb();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // Seed a fresh (non-expired) cache — a plain maintenance trigger would
+  // no-op here since refreshHomepageCacheNode skips regeneration while the
+  // cache is still within its TTL. Resetting must force it regardless.
+  const db = openDatabase(databasePath);
+  const generatedAt = Date.now();
+  saveHomepageCache(db, {
+    featured: { slug: "glow-fruit", title: "Glow Fruit", summaryMarkdown: "A luminous orchard product." },
+    didYouKnow: [{ slug: "glow-fruit", title: "Glow Fruit", fact: "... Glow Fruit glows at night." }],
+    generatedAt,
+    expiresAt: generatedAt + 3_600_000,
+  });
+  db.close();
+
+  const server = await createTestServer(databasePath);
+  t.after(() => server.shutdown());
+
+  const before = await server.request("/api/homepage");
+  const beforeBody = await before.json() as HomepagePayload;
+  assert.equal(beforeBody.featured?.slug, "glow-fruit", "serves the seeded cache before reset");
+
+  const res = await server.request("/api/admin/reset-featured-article", { method: "POST" });
+  assert.equal(res.status, 200);
+  const body = await res.json() as { status: string };
+  assert.equal(body.status, "triggered");
+
+  // The cached payload (featured + DYK + timer) must be cleared as one unit
+  // so the next refresh regenerates all three together — not served stale.
+  const reopened = openDatabase(databasePath);
+  t.after(() => reopened.close());
+  assert.equal(getHomepageCache(reopened), null, "cache must be invalidated by the reset");
 });
 
 test("DYK facts always contain a canonical markdown link to source article", async (t) => {

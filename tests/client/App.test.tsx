@@ -342,7 +342,7 @@ describe("App", () => {
     });
   });
 
-  it("admin can reset the featured article via the maintenance trigger", async () => {
+  it("admin can reset the featured article, forcing a regenerate of featured/DYK/timer together", async () => {
     const overview = {
       articleCount: 1,
       linkCount: 0,
@@ -359,8 +359,8 @@ describe("App", () => {
       if (url === "/api/admin/overview") {
         return new Response(JSON.stringify(overview), { headers: { "content-type": "application/json" } });
       }
-      if (url === "/api/maintenance/trigger") {
-        return new Response(JSON.stringify({ status: "triggered", taskName: "homepage.refresh" }), {
+      if (url === "/api/admin/reset-featured-article") {
+        return new Response(JSON.stringify({ status: "triggered" }), {
           headers: { "content-type": "application/json" },
         });
       }
@@ -384,11 +384,7 @@ describe("App", () => {
     await userEvent.click(button);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/maintenance/trigger", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ taskName: "homepage.refresh", reason: "Manual reset from admin panel" }),
-      });
+      expect(fetchMock).toHaveBeenCalledWith("/api/admin/reset-featured-article", { method: "POST" });
     });
     expect(await screen.findByRole("button", { name: "Reset featured article" })).not.toBeDisabled();
   });
@@ -1274,6 +1270,46 @@ describe("App", () => {
 
     // URL must have underscores, not spaces, before any server response.
     expect(window.location.pathname).toBe("/wiki/Differences_in_penis_size");
+  });
+
+  it("preserves colons and other punctuation typed into the search bar as the requested title", async () => {
+    // The URL path segment is slug-safe and drops punctuation like ":" (e.g.
+    // "Test: The Movie" -> /wiki/Test_The_Movie). The client must carry the
+    // user's literal typed text through as ?title= so the server — and in
+    // turn the model — receives "Test: The Movie" verbatim. The model should
+    // never have to guess back punctuation the client already had and the URL
+    // silently dropped.
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === "/api/homepage") {
+        return new Response(JSON.stringify(emptyHomepagePayload()), { headers: { "content-type": "application/json" } });
+      }
+      if (url.startsWith("/api/top-articles")) {
+        return new Response(JSON.stringify(emptyTopArticlesPayload()), { headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify(pagePayload({
+        article: { ...pagePayload().article, title: "Test: The Movie" },
+      })), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    const input = screen.getByPlaceholderText("Search the register...");
+    await userEvent.type(input, "Test: The Movie");
+    await userEvent.keyboard("{Enter}");
+
+    // The colon can't survive in the URL path segment...
+    expect(window.location.pathname).toBe("/wiki/Test_The_Movie");
+    // ...but it must be preserved verbatim in the ?title= query param, and
+    // forwarded to the API exactly as typed — not reconstructed from the slug.
+    expect(window.location.search).toBe("?title=Test%3A%20The%20Movie");
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/page/Test_The_Movie?title=Test%3A%20The%20Movie");
+    });
   });
 
   it("normalises a URL with spaces when loaded directly (e.g. pasted into address bar)", async () => {

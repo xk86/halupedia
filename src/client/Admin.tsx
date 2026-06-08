@@ -182,11 +182,7 @@ export function Admin({ onNavigate }: Props) {
     setResettingFeatured(true);
     setError(null);
     try {
-      const res = await fetch("/api/maintenance/trigger", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ taskName: "homepage.refresh", reason: "Manual reset from admin panel" }),
-      });
+      const res = await fetch("/api/admin/reset-featured-article", { method: "POST" });
       if (!res.ok) throw new Error(`error ${res.status}`);
     } catch (err: any) {
       setError(err?.message || "failed to reset featured article");

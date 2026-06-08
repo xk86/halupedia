@@ -23,6 +23,7 @@ import {
   getArticleRevision,
   getCanonicalSlugForTarget,
   getHomepageCache,
+  invalidateHomepageCache,
   listArticleRevisions,
   listArticles,
   listBacklinks,
@@ -2977,6 +2978,15 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.post("/api/admin/reload", async (c) => {
     await reloadRuntime();
     return c.json({ ok: true });
+  });
+
+  // Drop the cached homepage payload and re-trigger the refresh task so the
+  // featured article, Did-you-know facts, and timer all regenerate together —
+  // a plain maintenance trigger would no-op while the cache is still fresh.
+  app.post("/api/admin/reset-featured-article", (c) => {
+    invalidateHomepageCache(db);
+    maintenance.trigger(HOMEPAGE_MAINTENANCE_TASK, "Manual reset from admin panel");
+    return c.json({ status: "triggered" });
   });
 
   app.post("/api/admin/prompt-model", async (c) => {

@@ -395,7 +395,9 @@ export function App() {
       try {
         const apiUrl = route.kind === "disambiguation"
           ? `/api/disambiguation/${encodeURIComponent(route.slug)}`
-          : `/api/page/${encodeURIComponent(route.slug)}`;
+          : route.kind === "article" && route.title
+            ? `/api/page/${encodeURIComponent(route.slug)}?title=${encodeURIComponent(route.title)}`
+            : `/api/page/${encodeURIComponent(route.slug)}`;
         const res = await fetch(apiUrl);
         if (!res.ok) {
           const body: any = await res.json().catch(() => ({}));
@@ -603,12 +605,20 @@ export function App() {
     setRoute({ kind: "home" });
   }, []);
 
-  const navigateToArticle = useCallback((slugOrTitleSegment: string) => {
+  const navigateToArticle = useCallback((slugOrTitleSegment: string, explicitTitle?: string) => {
     const clean = articleInputToWikiSegment(slugOrTitleSegment);
     if (!clean) return;
-    window.history.pushState({}, "", `/wiki/${clean}`);
+    // The URL segment is slug-safe (punctuation like ":" is stripped for the
+    // path), so when the caller has the user's literal typed title — e.g.
+    // "Test: The Movie" — carry it through as ?title= so the server (and in
+    // turn the model) receives the exact text rather than reconstructing an
+    // approximation from the slug. The model should never have to guess back
+    // punctuation that the client already had and silently dropped.
+    const title = explicitTitle?.trim();
+    const url = title ? `/wiki/${clean}?title=${encodeURIComponent(title)}` : `/wiki/${clean}`;
+    window.history.pushState({}, "", url);
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "article", slug: clean });
+    setRoute({ kind: "article", slug: clean, title: title || undefined });
   }, []);
 
   const navigateToHistory = useCallback((slugOrTitleSegment: string) => {
@@ -2169,8 +2179,14 @@ export function App() {
           className="header-search"
           onSubmit={(e) => {
             e.preventDefault();
-            if (headerSearchDraft.trim()) {
-              navigateToArticle(headerSearchDraft);
+            const draft = headerSearchDraft.trim();
+            if (draft) {
+              // The same field/submit doubles as a path/URL pasting shortcut
+              // (e.g. "wiki/Archive_scouts", a full URL). Only treat plain
+              // text as a literal title to forward — a path reference already
+              // names its target via the slug, with nothing to preserve.
+              const looksLikePathReference = /wiki\//i.test(draft) || /^https?:\/\//i.test(draft) || draft.includes("/");
+              navigateToArticle(headerSearchDraft, looksLikePathReference ? undefined : headerSearchDraft);
               setHeaderSearchDraft("");
             }
           }}

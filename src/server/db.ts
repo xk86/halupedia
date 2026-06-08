@@ -781,6 +781,15 @@ export function saveHomepageCache(db: DatabaseSync, payload: HomepagePayload): v
 }
 
 /**
+ * Drop the cached homepage payload so the next refresh regenerates the
+ * featured article, Did-you-know facts, and timer timestamps as one unit
+ * rather than serving the still-fresh cache untouched.
+ */
+export function invalidateHomepageCache(db: DatabaseSync): void {
+  db.prepare(`DELETE FROM homepage_cache WHERE id = 1`).run();
+}
+
+/**
  * Return the most-recent `limit` historical homepage snapshots, newest first.
  * Does not include the `expiresAt` field (it is no longer meaningful for history).
  */

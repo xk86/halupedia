@@ -342,6 +342,57 @@ describe("App", () => {
     });
   });
 
+  it("admin can reset the featured article via the maintenance trigger", async () => {
+    const overview = {
+      articleCount: 1,
+      linkCount: 0,
+      aliasCount: 0,
+      latestArticles: [],
+      model: "test-model",
+      databasePath: "test.sqlite",
+      promptConfigPath: "config/prompts",
+      ragMode: "full",
+      promptModelAssociations: [],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/admin/overview") {
+        return new Response(JSON.stringify(overview), { headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/maintenance/trigger") {
+        return new Response(JSON.stringify({ status: "triggered", taskName: "homepage.refresh" }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/admin/generation-queue") {
+        return new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/admin/pipeline/workflows") {
+        return new Response(JSON.stringify({ workflows: [] }), { headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/admin/pipeline/runs?limit=12") {
+        return new Response(JSON.stringify({ traceEnabled: false, runs: [] }), { headers: { "content-type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/admin");
+
+    render(<App />);
+
+    const button = await screen.findByRole("button", { name: "Reset featured article" });
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/maintenance/trigger", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ taskName: "homepage.refresh", reason: "Manual reset from admin panel" }),
+      });
+    });
+    expect(await screen.findByRole("button", { name: "Reset featured article" })).not.toBeDisabled();
+  });
+
   it("shows the DYK section with an empty placeholder instead of hiding it", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({

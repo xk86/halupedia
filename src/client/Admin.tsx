@@ -71,6 +71,7 @@ export function Admin({ onNavigate }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
+  const [resettingFeatured, setResettingFeatured] = useState(false);
   const [wiping, setWiping] = useState(false);
   const [wipeConfirm, setWipeConfirm] = useState(false);
   const [deleteSlug, setDeleteSlug] = useState("");
@@ -176,6 +177,23 @@ export function Admin({ onNavigate }: Props) {
       setReloading(false);
     }
   }, [loadOverview]);
+
+  const resetFeaturedArticle = useCallback(async () => {
+    setResettingFeatured(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/maintenance/trigger", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ taskName: "homepage.refresh", reason: "Manual reset from admin panel" }),
+      });
+      if (!res.ok) throw new Error(`error ${res.status}`);
+    } catch (err: any) {
+      setError(err?.message || "failed to reset featured article");
+    } finally {
+      setResettingFeatured(false);
+    }
+  }, []);
 
   const wipeDatabase = useCallback(async () => {
     setWiping(true);
@@ -358,6 +376,9 @@ export function Admin({ onNavigate }: Props) {
       <div className="all-entries-toolbar">
         <button className="all-entries-more-btn" onClick={reloadRuntime} disabled={reloading}>
           {reloading ? "Reloading..." : "Reload config and prompts"}
+        </button>
+        <button className="all-entries-more-btn" onClick={resetFeaturedArticle} disabled={resettingFeatured}>
+          {resettingFeatured ? "Resetting..." : "Reset featured article"}
         </button>
         <button className="all-entries-more-btn admin-danger-btn" onClick={() => setWipeConfirm(true)} disabled={wiping || wipeConfirm}>
           {wiping ? "Wiping..." : "Reset corpus"}

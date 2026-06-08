@@ -73,7 +73,7 @@ export function Homepage({ onNavigate }: Props) {
     fetch("/api/top-articles?limit=10")
       .then((r) => r.json())
       .then((d) => setTopArticles((d as { articles: TopArticle[] }).articles ?? []))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   useEffect(() => {
@@ -219,15 +219,6 @@ export function Homepage({ onNavigate }: Props) {
             {topArticles.map((a, i) => (
               <li key={a.slug}>
                 <span className="homepage-top-rank">{i + 1}</span>
-                {a.imageId && (
-                  <img
-                    className="homepage-top-thumb"
-                    src={`/api/media/${encodeURIComponent(a.imageId)}`}
-                    alt={a.imageCaption || ""}
-                    title={a.imageCaption || undefined}
-                    loading="lazy"
-                  />
-                )}
                 <a
                   href={`/wiki/${toWikiSegment(a.title)}`}
                   onClick={handleClick(a.title)}

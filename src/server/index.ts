@@ -1639,16 +1639,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     },
   });
 
-  /** Attach `imageId` (headline image, when present) to a featured-article payload. */
+  /** Attach `imageId`/`imageCaption` (headline image, when present) to a featured-article payload. */
   function withFeaturedImage<T extends { featured: { slug: string } | null }>(payload: T): T & {
-    featured: (T["featured"] & { imageId?: string }) | null;
+    featured: (T["featured"] & { imageId?: string; imageCaption?: string }) | null;
   } {
     if (!payload.featured) return payload as T & { featured: null };
     const media = getHeadlineMediaForSlugs(db, [payload.featured.slug]);
-    const imageId = media.get(payload.featured.slug);
+    const headline = media.get(payload.featured.slug);
     return {
       ...payload,
-      featured: imageId ? { ...payload.featured, imageId } : payload.featured,
+      featured: headline
+        ? { ...payload.featured, imageId: headline.mediaId, imageCaption: headline.caption || undefined }
+        : payload.featured,
     };
   }
 
@@ -1692,8 +1694,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     const media = getHeadlineMediaForSlugs(db, articles.map((a) => a.slug));
     return c.json({
       articles: articles.map((a) => {
-        const imageId = media.get(a.slug);
-        return imageId ? { ...a, imageId } : a;
+        const headline = media.get(a.slug);
+        return headline
+          ? { ...a, imageId: headline.mediaId, imageCaption: headline.caption || undefined }
+          : a;
       }),
     });
   });
@@ -1740,8 +1744,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     const segmentTitle = normalizeCanonicalTitle(
       wikiSegmentToRequestedTitle(requestedSegment),
     );
+    // The client sends the user's literal typed title (e.g. "Test: The
+    // Movie") as a header rather than a URL param — keeps the address bar
+    // clean and lets punctuation that can't survive in the slug reach the
+    // model verbatim instead of an approximation reconstructed from it.
+    // ?title= remains supported for old/shared links.
     const requestedTitle = normalizeCanonicalTitle(
-      c.req.query("title") || segmentTitle,
+      c.req.header("x-requested-title") || c.req.query("title") || segmentTitle,
     );
     const lookupSlug = slugify(segmentTitle);
     if (!lookupSlug || !requestedTitle)

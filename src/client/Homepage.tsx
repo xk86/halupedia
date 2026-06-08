@@ -7,6 +7,7 @@ interface TopArticle {
   title: string;
   inboundCount: number;
   imageId?: string;
+  imageCaption?: string;
 }
 
 interface FeaturedArticle {
@@ -14,6 +15,7 @@ interface FeaturedArticle {
   title: string;
   summaryMarkdown: string;
   imageId?: string;
+  imageCaption?: string;
 }
 
 interface DykItem {
@@ -221,7 +223,8 @@ export function Homepage({ onNavigate }: Props) {
                   <img
                     className="homepage-top-thumb"
                     src={`/api/media/${encodeURIComponent(a.imageId)}`}
-                    alt=""
+                    alt={a.imageCaption || ""}
+                    title={a.imageCaption || undefined}
                     loading="lazy"
                   />
                 )}
@@ -255,18 +258,26 @@ export function Homepage({ onNavigate }: Props) {
                   </a>
                 </h3>
                 {displayData.featured.imageId && (
-                  <a
-                    href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
-                    onClick={handleClick(displayData.featured.title)}
-                    className="homepage-featured-image-link"
-                  >
-                    <img
-                      className="homepage-featured-image"
-                      src={`/api/media/${encodeURIComponent(displayData.featured.imageId)}`}
-                      alt=""
-                      loading="lazy"
-                    />
-                  </a>
+                  <figure className="homepage-featured-figure">
+                    <a
+                      href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
+                      onClick={handleClick(displayData.featured.title)}
+                      className="homepage-featured-image-link"
+                    >
+                      <img
+                        className="homepage-featured-image"
+                        src={`/api/media/${encodeURIComponent(displayData.featured.imageId)}`}
+                        alt={displayData.featured.imageCaption || ""}
+                        loading="lazy"
+                      />
+                    </a>
+                    {displayData.featured.imageCaption && (
+                      <figcaption
+                        className="homepage-featured-image-caption"
+                        dangerouslySetInnerHTML={{ __html: renderInlineHtml(displayData.featured.imageCaption) }}
+                      />
+                    )}
+                  </figure>
                 )}
                 {displayData.featured.summaryMarkdown && (
                   <div

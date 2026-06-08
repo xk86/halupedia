@@ -1929,10 +1929,13 @@ button.admin-danger-btn:hover:not(:disabled) {
   line-height: 1.55;
 }
 
+.homepage-featured-figure {
+  margin: 0 0 0.75rem;
+}
+
 .homepage-featured-image-link {
   display: block;
   border-bottom: none;
-  margin: 0 0 0.75rem;
 }
 
 .homepage-featured-image {
@@ -1942,6 +1945,14 @@ button.admin-danger-btn:hover:not(:disabled) {
   object-fit: cover;
   border-radius: 3px;
   border: 1px solid var(--rule);
+}
+
+.homepage-featured-image-caption {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--ink-fade);
+  line-height: 1.4;
 }
 
 .homepage-summary p {

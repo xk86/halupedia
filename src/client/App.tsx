@@ -230,6 +230,10 @@ export function App() {
   const inFlightSlugRef = useRef<string | null>(null);
   // Abort controller for any in-flight rewrite/refresh stream. Cancelled on navigation.
   const activeOperationRef = useRef<AbortController | null>(null);
+  // The user's literal typed title (e.g. from the search bar), remembered
+  // out-of-band for the next page fetch of that slug — sent as a request
+  // header rather than a URL param so the address bar stays clean.
+  const pendingRequestedTitleRef = useRef<{ slug: string; title: string } | null>(null);
   const editIsPartial = editSectionId === "__selection__" || Boolean(editSectionId);
   const editInitialRefSlugSet = useMemo(
     () => new Set(editInitialRefSlugs),
@@ -395,10 +399,11 @@ export function App() {
       try {
         const apiUrl = route.kind === "disambiguation"
           ? `/api/disambiguation/${encodeURIComponent(route.slug)}`
-          : route.kind === "article" && route.title
-            ? `/api/page/${encodeURIComponent(route.slug)}?title=${encodeURIComponent(route.title)}`
-            : `/api/page/${encodeURIComponent(route.slug)}`;
-        const res = await fetch(apiUrl);
+          : `/api/page/${encodeURIComponent(route.slug)}`;
+        const pendingTitle = pendingRequestedTitleRef.current;
+        const res = pendingTitle && pendingTitle.slug === route.slug
+          ? await fetch(apiUrl, { headers: { "x-requested-title": pendingTitle.title } })
+          : await fetch(apiUrl);
         if (!res.ok) {
           const body: any = await res.json().catch(() => ({}));
           throw new Error(body?.error || `error ${res.status}`);
@@ -608,17 +613,19 @@ export function App() {
   const navigateToArticle = useCallback((slugOrTitleSegment: string, explicitTitle?: string) => {
     const clean = articleInputToWikiSegment(slugOrTitleSegment);
     if (!clean) return;
-    // The URL segment is slug-safe (punctuation like ":" is stripped for the
-    // path), so when the caller has the user's literal typed title — e.g.
-    // "Test: The Movie" — carry it through as ?title= so the server (and in
-    // turn the model) receives the exact text rather than reconstructing an
-    // approximation from the slug. The model should never have to guess back
-    // punctuation that the client already had and silently dropped.
+    // The URL stays slug-only and clean — punctuation like ":" doesn't
+    // survive there, and URL params are not where this belongs. When the
+    // caller has the user's literal typed title (e.g. "Test: The Movie"),
+    // remember it out-of-band and send it as a request header on the page
+    // fetch, so the server — and in turn the model — gets the exact text
+    // instead of reconstructing an approximation from the slug. Plain links
+    // to a slug (no remembered title) fall back to that reconstruction, which
+    // is fine — there's nothing more to go on.
     const title = explicitTitle?.trim();
-    const url = title ? `/wiki/${clean}?title=${encodeURIComponent(title)}` : `/wiki/${clean}`;
-    window.history.pushState({}, "", url);
+    if (title) pendingRequestedTitleRef.current = { slug: clean, title };
+    window.history.pushState({}, "", `/wiki/${clean}`);
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "article", slug: clean, title: title || undefined });
+    setRoute({ kind: "article", slug: clean });
   }, []);
 
   const navigateToHistory = useCallback((slugOrTitleSegment: string) => {

@@ -1453,20 +1453,24 @@ export function listTopArticles(db: DatabaseSync, limit: number): { slug: string
 
 /**
  * Batch-look-up the headline image (ordinal 1) for a set of article slugs.
- * Returns a Map of slug -> media id for slugs that have one attached.
+ * Returns a Map of slug -> { mediaId, caption } for slugs that have one
+ * attached (caption is "" when not yet generated/set).
  */
-export function getHeadlineMediaForSlugs(db: DatabaseSync, slugs: string[]): Map<string, string> {
-  const result = new Map<string, string>();
+export function getHeadlineMediaForSlugs(
+  db: DatabaseSync,
+  slugs: string[],
+): Map<string, { mediaId: string; caption: string }> {
+  const result = new Map<string, { mediaId: string; caption: string }>();
   if (slugs.length === 0) return result;
   const placeholders = slugs.map(() => "?").join(", ");
   const rows = db
     .prepare(
-      `SELECT article_slug AS articleSlug, media_id AS mediaId
+      `SELECT article_slug AS articleSlug, media_id AS mediaId, caption
        FROM article_media
        WHERE ordinal = 1 AND article_slug IN (${placeholders})`,
     )
-    .all(...slugs) as { articleSlug: string; mediaId: string }[];
-  for (const row of rows) result.set(row.articleSlug, row.mediaId);
+    .all(...slugs) as { articleSlug: string; mediaId: string; caption: string }[];
+  for (const row of rows) result.set(row.articleSlug, { mediaId: row.mediaId, caption: row.caption });
   return result;
 }
 

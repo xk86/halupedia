@@ -2502,7 +2502,7 @@ test("listTopArticles respects the limit parameter", (t) => {
 
 // ── getHeadlineMediaForSlugs ───────────────────────────────────────────────
 
-test("getHeadlineMediaForSlugs returns a slug -> media id map for slugs with a headline image", (t) => {
+test("getHeadlineMediaForSlugs returns a slug -> {mediaId, caption} map for slugs with a headline image", (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-headline-media-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const db = openDatabase(join(root, TEST_CONFIG.database_path));
@@ -2514,12 +2514,12 @@ test("getHeadlineMediaForSlugs returns a slug -> media id map for slugs with a h
   save("alpha", "Alpha");
   save("beta", "Beta");
   save("gamma", "Gamma");
-  upsertArticleHeadlineMedia(db, "alpha", "img-alpha", "");
+  upsertArticleHeadlineMedia(db, "alpha", "img-alpha", "A glowing orchard at dusk.");
   upsertArticleHeadlineMedia(db, "gamma", "img-gamma", "");
 
   const media = getHeadlineMediaForSlugs(db, ["alpha", "beta", "gamma"]);
-  assert.equal(media.get("alpha"), "img-alpha");
-  assert.equal(media.get("gamma"), "img-gamma");
+  assert.deepEqual(media.get("alpha"), { mediaId: "img-alpha", caption: "A glowing orchard at dusk." });
+  assert.deepEqual(media.get("gamma"), { mediaId: "img-gamma", caption: "" });
   assert.equal(media.has("beta"), false, "beta has no headline image");
 });
 

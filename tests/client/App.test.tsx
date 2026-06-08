@@ -1272,13 +1272,13 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/wiki/Differences_in_penis_size");
   });
 
-  it("preserves colons and other punctuation typed into the search bar as the requested title", async () => {
+  it("preserves colons and other punctuation typed into the search bar as an out-of-band requested title", async () => {
     // The URL path segment is slug-safe and drops punctuation like ":" (e.g.
-    // "Test: The Movie" -> /wiki/Test_The_Movie). The client must carry the
-    // user's literal typed text through as ?title= so the server — and in
-    // turn the model — receives "Test: The Movie" verbatim. The model should
-    // never have to guess back punctuation the client already had and the URL
-    // silently dropped.
+    // "Test: The Movie" -> /wiki/Test_The_Movie, with a clean URL — no query
+    // params). The client must still carry the user's literal typed text to
+    // the server so the model receives "Test: The Movie" verbatim rather than
+    // reconstructing an approximation from the slug — sent out-of-band as a
+    // request header (x-requested-title), invisible in the address bar.
     const fetchMock = withLiveBypass((input) => {
       const url = String(input);
       if (url === "/api/homepage") {
@@ -1302,13 +1302,14 @@ describe("App", () => {
     await userEvent.type(input, "Test: The Movie");
     await userEvent.keyboard("{Enter}");
 
-    // The colon can't survive in the URL path segment...
+    // URL stays slug-only and clean — no query string.
     expect(window.location.pathname).toBe("/wiki/Test_The_Movie");
-    // ...but it must be preserved verbatim in the ?title= query param, and
-    // forwarded to the API exactly as typed — not reconstructed from the slug.
-    expect(window.location.search).toBe("?title=Test%3A%20The%20Movie");
+    expect(window.location.search).toBe("");
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/page/Test_The_Movie?title=Test%3A%20The%20Movie");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/page/Test_The_Movie",
+        expect.objectContaining({ headers: { "x-requested-title": "Test: The Movie" } }),
+      );
     });
   });
 

@@ -28,6 +28,7 @@ describe("Homepage", () => {
             title: "Featured Article",
             summaryMarkdown: "A summary.",
             imageId: "img-featured",
+            imageCaption: "A glowing orchard at dusk.",
           },
           didYouKnow: [],
           generatedAt: now,
@@ -37,7 +38,7 @@ describe("Homepage", () => {
       if (url.startsWith("/api/top-articles")) {
         return Promise.resolve(jsonResponse({
           articles: [
-            { slug: "with-image", title: "Article With Image", inboundCount: 3, imageId: "img-with-image" },
+            { slug: "with-image", title: "Article With Image", inboundCount: 3, imageId: "img-with-image", imageCaption: "Top-list thumbnail caption." },
             { slug: "without-image", title: "Article Without Image", inboundCount: 1 },
           ],
         }));
@@ -62,6 +63,16 @@ describe("Homepage", () => {
     const withoutImageLink = screen.getByRole("link", { name: "Article Without Image" });
     const withoutImageItem = withoutImageLink.closest("li");
     expect(withoutImageItem?.querySelector("img")).toBeNull();
+
+    // Captions are shown alongside their images — visibly under the larger
+    // featured image (a <figcaption>), and as alt/title text on the compact
+    // top-article thumbnails.
+    expect(screen.getByText("A glowing orchard at dusk.")).toBeInTheDocument();
+    const featuredImg = container.querySelector(".homepage-featured-image") as HTMLImageElement;
+    expect(featuredImg.getAttribute("alt")).toBe("A glowing orchard at dusk.");
+    const topThumb = container.querySelector(".homepage-top-thumb") as HTMLImageElement;
+    expect(topThumb.getAttribute("alt")).toBe("Top-list thumbnail caption.");
+    expect(topThumb.getAttribute("title")).toBe("Top-list thumbnail caption.");
   });
 
   it("renders no thumbnails when no articles have images", async () => {

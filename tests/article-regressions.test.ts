@@ -497,6 +497,34 @@ test("new article generation searches RAG with the requested title even without 
   assert.match(llm.embedInputs[0]?.[0] ?? "", /Target Page/);
 });
 
+test("GET /api/page/:slug honours x-requested-title for punctuation the slug can't carry", async (t) => {
+  // The client sends the user's literal typed title — e.g. "Movie Night:
+  // Should it be Allowed?" — as an x-requested-title header rather than
+  // baking it into the URL (clean addresses, no query params; punctuation
+  // like ":" / "?" can't survive in a slug anyway). The server must use that
+  // header verbatim as requestedTitle instead of reconstructing an
+  // approximation from the slug — the model should never have to guess back
+  // punctuation the client already had.
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const literalTitle = "Movie Night: Should it be Allowed?";
+  const llm = new QueueLlmClient(
+    `# ${literalTitle}\n\nBody about whether movie night should be allowed.`,
+    [JSON.stringify({ items: [] }), "Summary."],
+  );
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request("/api/page/Movie_Night_Should_it_be_Allowed?stream=1", {
+    headers: { "x-requested-title": literalTitle },
+  });
+  assert.equal(res.status, 200);
+  const packets = parseNdjson<Record<string, unknown>>(await res.text());
+  const done = packets.find((packet) => packet.type === "done") as { article?: { title?: string } } | undefined;
+  assert.ok(done, "generation should finish");
+  assert.equal(done?.article?.title, literalTitle, "generated title must match the literal requested title verbatim");
+});
+
 test("refresh rewrite preserves prior prompt refs and adds body-linked refs", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));

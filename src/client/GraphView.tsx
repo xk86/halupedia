@@ -368,9 +368,11 @@ interface RenderSettings {
   particleGlow: boolean;     // wrap the travelling particle in a soft glow halo
   traceSpeed: number;        // base traversal speed, nodes/sec: 0.4–5
   traceAccel: number;        // ease-in-out intensity (0 = constant speed): 0–1
+  traceLoopDelay: number;    // seconds to wait after all routes finish before looping: 0–5
   traceLightness: number;    // OKLCH L for the trace colors: 0.4–0.95
   traceChroma: number;       // OKLCH C (vividness) for the trace colors: 0.02–0.37
-  traceBaseHue: number;      // hue rotation offset for the whole palette: 0–360
+  traceStartHue: number;     // hue (deg) at each route's start node: 0–360
+  traceEndHue: number;       // hue (deg) at each route's end node: 0–360
 }
 
 const DEFAULT_SETTINGS: RenderSettings = {
@@ -397,9 +399,11 @@ const DEFAULT_SETTINGS: RenderSettings = {
   particleGlow: true,
   traceSpeed: 1.4,
   traceAccel: 0.5,
+  traceLoopDelay: 0.9,
   traceLightness: 0.72,
   traceChroma: 0.17,
-  traceBaseHue: 0,
+  traceStartHue: 200,
+  traceEndHue: 40,
 };
 
 const BG_PRESETS = [
@@ -557,14 +561,18 @@ export function makeNodeLabelSprite(
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
 
+  // Draw the title in white and the sub-text in grey, then tint the whole
+  // sprite via the material's `color`. Keeping the texture neutral lets the
+  // caller recolor the label live (e.g. as the path trace sweeps through it)
+  // just by setting material.color — no need to regenerate the canvas.
   const titleY = subText ? fontSize * 0.7 : canvas.height / 2;
   ctx.font = font;
-  ctx.fillStyle = color;
+  ctx.fillStyle = "#ffffff";
   ctx.fillText(text, canvas.width / 2, titleY);
 
   if (subText) {
     ctx.font = subFont;
-    ctx.fillStyle = "#aaaaaa";
+    ctx.fillStyle = "#9a9a9a";
     ctx.fillText(subText, canvas.width / 2, titleY + fontSize * 0.7 + lineGap);
   }
 
@@ -573,6 +581,7 @@ export function makeNodeLabelSprite(
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = true;
   const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true });
+  material.color.set(color);
   const sprite = new THREE.Sprite(material);
   // World-space size, independent of canvas resolution — the caller derives
   // `worldHeight` from the node's own radius and the "Label size" knob, so
@@ -688,10 +697,14 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   // Live trace params so the animation loop reads speed/accel/colors without
   // restarting (smooth while dragging sliders); `dirty` forces a trail recolor.
   const traceParamsRef = useRef({
-    speed: settings.traceSpeed, accel: settings.traceAccel,
-    L: settings.traceLightness, C: settings.traceChroma, baseHue: settings.traceBaseHue,
+    speed: settings.traceSpeed, accel: settings.traceAccel, loopDelay: settings.traceLoopDelay,
+    L: settings.traceLightness, C: settings.traceChroma,
+    startHue: settings.traceStartHue, endHue: settings.traceEndHue,
     dirty: false,
   });
+  // All node label sprites' base (community) colors, so trace coloring can be
+  // reverted to the underlying node color once the trace passes / loops.
+  const labelBaseColorRef = useRef(new Map<string, string>());
 
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
@@ -1034,6 +1047,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     // the label sprite alongside it.
     if (settings.alwaysShowLabels) {
       labelSpritesRef.current.clear();
+      labelBaseColorRef.current.clear();
       fg
         .nodeThreeObjectExtend(true)
         .nodeThreeObject((n: FgNode) => {
@@ -1057,6 +1071,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           (sprite.material as THREE.SpriteMaterial).opacity =
             shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id) ? 0.1 : 1;
           labelSpritesRef.current.set(n.id, sprite);
+          labelBaseColorRef.current.set(n.id, color);
           return sprite;
         });
     } else {
@@ -1127,11 +1142,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   // tweaks show immediately (not only after the next node crossing).
   useEffect(() => {
     traceParamsRef.current = {
-      speed: settings.traceSpeed, accel: settings.traceAccel,
-      L: settings.traceLightness, C: settings.traceChroma, baseHue: settings.traceBaseHue,
+      speed: settings.traceSpeed, accel: settings.traceAccel, loopDelay: settings.traceLoopDelay,
+      L: settings.traceLightness, C: settings.traceChroma,
+      startHue: settings.traceStartHue, endHue: settings.traceEndHue,
       dirty: true,
     };
-  }, [settings.traceSpeed, settings.traceAccel, settings.traceLightness, settings.traceChroma, settings.traceBaseHue]);
+  }, [settings.traceSpeed, settings.traceAccel, settings.traceLoopDelay, settings.traceLightness, settings.traceChroma, settings.traceStartHue, settings.traceEndHue]);
 
   // Entering path mode turns shading on (so the path stands out) and makes the
   // path nodes the highlight whitelist; leaving it clears the whitelist.
@@ -1171,16 +1187,18 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       return;
     }
 
-    const numPaths = paths.length;
     const maxLen = Math.max(...paths.map((p) => p.nodes.length));
-    // Per-route hue in OKLCH (perceptually even): base offset by rank + a global
-    // hue knob, with a step that spans the full wheel over the route so every
-    // node band reads distinctly. L/C/speed/accel all read live from the ref.
-    const hueAt = (rank: number, len: number, x: number, baseHue: number) =>
-      ((360 / numPaths) * rank + baseHue + x * (360 / Math.max(2, len))) % 360;
-    const litColor = (rank: number, len: number, i: number) => {
+    const pathNodeIds = new Set<string>();
+    for (const p of paths) for (const n of p.nodes) pathNodeIds.add(n);
+    // Each route's hue interpolates from the Start hue at its first node to the
+    // End hue at its last node, so endpoints are fixed/controllable and the
+    // in-between bands are an even OKLCH gradient. `x` is the node index (or
+    // fractional progress); len is the route's node count.
+    const hueAt = (len: number, x: number, startHue: number, endHue: number) =>
+      len <= 1 ? startHue : startHue + (endHue - startHue) * (x / (len - 1));
+    const litColor = (len: number, i: number) => {
       const p = traceParamsRef.current;
-      return oklch(p.L, p.C, hueAt(rank, len, i, p.baseHue));
+      return oklch(p.L, p.C, hueAt(len, i, p.startHue, p.endHue));
     };
     // Ease-in-out applied to the whole traversal: accel 0 → constant speed,
     // higher → the particle accelerates out of the start and eases into the end.
@@ -1231,7 +1249,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       if (!start) start = ts;
       const prm = traceParamsRef.current;
       const activeDur = Math.max(0.1, (maxLen - 1) / prm.speed); // time to walk the longest route
-      const total = activeDur + 0.9;                              // + hold, then loop
+      const total = activeDur + prm.loopDelay;                   // + delay, then loop
       const tc = ((ts - start) / 1000) % total;
       const phase = Math.min(1, tc / activeDur);
       // distance travelled (in nodes) along the longest route; shorter routes
@@ -1254,7 +1272,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           c.mesh.position.set(x, y, z);
           c.glow?.position.set(x, y, z);
         }
-        const col = oklch(prm.L, prm.C, hueAt(c.rank, c.len, progress, prm.baseHue));
+        const col = oklch(prm.L, prm.C, hueAt(c.len, progress, prm.startHue, prm.endHue));
         (c.mesh.material as THREE.MeshBasicMaterial).color.set(col);
         if (c.glow) (c.glow.material as THREE.MeshBasicMaterial).color.set(col);
         if (i !== lastSegs[idx]) { lastSegs[idx] = i; anyCrossed = true; }
@@ -1269,14 +1287,22 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         cores.forEach((c, idx) => {
           const nodes = paths[idx].nodes;
           for (let k = 0; k <= lastSegs[idx] && k < nodes.length; k++) {
-            nodeMap.set(nodes[k], litColor(c.rank, c.len, k));
+            nodeMap.set(nodes[k], litColor(c.len, k));
             if (k > 0) {
-              const col = litColor(c.rank, c.len, k);
+              const col = litColor(c.len, k);
               edgeMap.set(`${nodes[k - 1]}>${nodes[k]}`, col);
               edgeMap.set(`${nodes[k]}>${nodes[k - 1]}`, col);
             }
           }
         });
+        // Tint each route's node labels to match: lit nodes take the trace hue,
+        // not-yet-reached nodes fall back to their base community color.
+        for (const id of pathNodeIds) {
+          const sprite = labelSpritesRef.current.get(id);
+          if (!sprite) continue;
+          const c = nodeMap.get(id) ?? labelBaseColorRef.current.get(id) ?? "#ffffff";
+          (sprite.material as THREE.SpriteMaterial).color.set(c);
+        }
         fg.refresh();
       }
       raf = requestAnimationFrame(tick);
@@ -1287,6 +1313,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       cancelAnimationFrame(raf);
       nodeMap.clear();
       edgeMap.clear();
+      // Restore each route's label color to its base.
+      for (const id of pathNodeIds) {
+        const sprite = labelSpritesRef.current.get(id);
+        if (sprite) (sprite.material as THREE.SpriteMaterial).color.set(labelBaseColorRef.current.get(id) ?? "#ffffff");
+      }
       for (const m of meshes) {
         scene.remove(m);
         (m as THREE.Mesh).geometry?.dispose();
@@ -1663,12 +1694,18 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 format={(v) => v.toFixed(1)} onChange={(v) => set("traceSpeed", v)} />
               <Knob label="Acceleration" value={settings.traceAccel} min={0} max={1} step={0.05}
                 format={(v) => v.toFixed(2)} onChange={(v) => set("traceAccel", v)} />
+              <Knob label="Loop delay" value={settings.traceLoopDelay} min={0} max={5} step={0.1}
+                format={(v) => `${v.toFixed(1)}s`} onChange={(v) => set("traceLoopDelay", v)} />
               <Knob label="Color lightness" value={settings.traceLightness} min={0.4} max={0.95} step={0.01}
                 format={(v) => v.toFixed(2)} onChange={(v) => set("traceLightness", v)} />
               <Knob label="Color vividness" value={settings.traceChroma} min={0.02} max={0.37} step={0.01}
                 format={(v) => v.toFixed(2)} onChange={(v) => set("traceChroma", v)} />
-              <Knob label="Base hue" value={settings.traceBaseHue} min={0} max={360} step={5}
-                format={(v) => `${v}°`} onChange={(v) => set("traceBaseHue", v)} />
+              <div className="grs-knob-row">
+                <Knob label="Start hue" value={settings.traceStartHue} min={0} max={360} step={5}
+                  format={(v) => `${v}°`} onChange={(v) => set("traceStartHue", v)} />
+                <Knob label="End hue" value={settings.traceEndHue} min={0} max={360} step={5}
+                  format={(v) => `${v}°`} onChange={(v) => set("traceEndHue", v)} />
+              </div>
               <label className="grs-toggle">
                 <input
                   type="checkbox"

@@ -68,11 +68,13 @@ describe("makeNodeLabelSprite", () => {
     expect(sprite.scale.y).toBeGreaterThan(0);
   });
 
-  it("draws the given title text onto the backing canvas", () => {
+  it("draws the title text and tints the sprite via material color", () => {
     const ctx = stubCanvasContext();
-    makeNodeLabelSprite("Some Title", "#abcdef");
+    const sprite = makeNodeLabelSprite("Some Title", "#abcdef");
     expect(ctx.fillText).toHaveBeenCalledWith("Some Title", expect.any(Number), expect.any(Number));
-    expect(ctx.fillStyle).toBe("#abcdef");
+    // Text is drawn white and the color is applied as a material tint so it can
+    // be recolored live (e.g. by the path trace).
+    expect(sprite.material.color.getHexString()).toBe("abcdef");
   });
 
   it("produces a wider sprite for longer text", () => {

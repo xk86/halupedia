@@ -5093,6 +5093,21 @@ button.admin-danger-btn:hover:not(:disabled) {
   white-space: nowrap;
 }
 
+/* Two compact knobs side by side (label+val on top, slider below) */
+.grs-knob-row {
+  display: flex;
+  gap: 0.6rem;
+}
+.grs-knob-row .grs-knob {
+  flex: 1;
+  min-width: 0;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "label val" "slider slider";
+}
+.grs-knob-row .grs-knob .grs-knob-label { grid-area: label; }
+.grs-knob-row .grs-knob .grs-knob-val { grid-area: val; }
+.grs-knob-row .grs-knob input[type="range"] { grid-area: slider; }
+
 .grs-bg-presets {
   display: flex;
   gap: 0.35rem;

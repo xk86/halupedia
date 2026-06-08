@@ -1315,6 +1315,45 @@ describe("App", () => {
     });
   });
 
+  it("shows the typed title (with punctuation) immediately while the article streams in", async () => {
+    // While generating, the placeholder title must be the user's literal typed
+    // text — punctuation and all ("Rat: Eating Test") — not the slug-derived
+    // "Rat Eating Test" that only gets the colon back once generation finishes.
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === "/api/homepage") {
+        return new Response(JSON.stringify(emptyHomepagePayload()), { headers: { "content-type": "application/json" } });
+      }
+      if (url.startsWith("/api/top-articles")) {
+        return new Response(JSON.stringify(emptyTopArticlesPayload()), { headers: { "content-type": "application/json" } });
+      }
+      // A stream that opens with a `start` event and stays open (never sends
+      // `done`) so we observe the placeholder title, not the final one.
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(
+            JSON.stringify({ type: "start", slug: "rat-eating-test", cached: false }) + "\n",
+          ));
+          // intentionally left open
+        },
+      });
+      return new Response(stream, { headers: { "content-type": "application/x-ndjson" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    const input = screen.getByPlaceholderText("Search the register...");
+    await userEvent.click(input);
+    await userEvent.type(input, "Rat: Eating Test");
+    // Navigate via the "Go to:" suggestion button (the path that previously
+    // dropped the typed title), not the form submit.
+    await userEvent.click(await screen.findByRole("button", { name: /Go to:/ }));
+
+    expect(await screen.findByRole("heading", { name: "Rat: Eating Test" })).toBeInTheDocument();
+  });
+
   it("normalises a URL with spaces when loaded directly (e.g. pasted into address bar)", async () => {
     const fetchMock = withLiveBypass(() =>
       new Response(JSON.stringify(pagePayload()), {

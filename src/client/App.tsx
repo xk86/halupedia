@@ -2227,7 +2227,11 @@ export function App() {
                     className="header-search-suggest-item"
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      navigateToArticle(headerSearchDraft);
+                      // Pass the typed text as the literal title (same as the
+                      // form submit) so punctuation the slug can't carry — the
+                      // colon in "Rat: Eating Test" — shows immediately rather
+                      // than only after the article finishes generating.
+                      navigateToArticle(headerSearchDraft, headerSearchDraft);
                       setHeaderSearchDraft("");
                       setSearchSuggestOpen(false);
                     }}

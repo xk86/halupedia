@@ -183,6 +183,66 @@ export function computePathNodes(
   return { nodes, edgeSet };
 }
 
+export interface PathRoute { nodes: string[]; edgeSet: Set<string>; }
+
+/** Edge keys (both orientations) for an ordered node walk. */
+function edgeSetOf(nodes: string[]): Set<string> {
+  const s = new Set<string>();
+  for (let k = 0; k + 1 < nodes.length; k++) {
+    s.add(`${nodes[k]}>${nodes[k + 1]}`);
+    s.add(`${nodes[k + 1]}>${nodes[k]}`);
+  }
+  return s;
+}
+
+/**
+ * Up to `k` shortest loopless paths from a→b in increasing length order. BFS
+ * over partial paths: because edges are unweighted, popping FIFO yields paths
+ * by non-decreasing length. Bounded by an expansion cap so a far/missing
+ * target can't hang the UI.
+ */
+export function kShortestPaths(g: Graph, a: string, b: string, k: number, dir: PathDir): string[][] {
+  if (!g.hasNode(a) || !g.hasNode(b) || k < 1) return [];
+  const neighborsOf = (n: string) => (dir === "directed" ? g.outNeighbors(n) : g.neighbors(n));
+  const results: string[][] = [];
+  const queue: string[][] = [[a]];
+  let expansions = 0;
+  const CAP = 50000;
+  while (queue.length && results.length < k && expansions < CAP) {
+    const path = queue.shift()!;
+    const last = path[path.length - 1];
+    if (last === b) { results.push(path); continue; }
+    expansions++;
+    for (const nb of neighborsOf(last)) {
+      if (path.includes(nb)) continue; // loopless
+      queue.push([...path, nb]);
+    }
+  }
+  return results;
+}
+
+/**
+ * The routes to animate. For exactly two waypoints, race up to `maxPaths`
+ * shortest routes (ranked by length, shortest first); directed falls back to
+ * the reverse waypoint order. For more waypoints, a single stitched route
+ * through the consecutive shortest paths.
+ */
+export function computePaths(
+  g: Graph, waypoints: { slug: string }[], dir: PathDir, maxPaths: number,
+): PathRoute[] {
+  if (waypoints.length < 2) return [];
+  if (waypoints.length === 2) {
+    const a = waypoints[0].slug, b = waypoints[1].slug;
+    let raw = kShortestPaths(g, a, b, maxPaths, dir);
+    if (raw.length === 0 && dir === "directed") {
+      raw = kShortestPaths(g, b, a, maxPaths, dir).map((p) => [...p].reverse());
+    }
+    return raw.map((nodes) => ({ nodes, edgeSet: edgeSetOf(nodes) }));
+  }
+  const stitched = computePathNodes(g, waypoints, dir);
+  return stitched.nodes.length ? [{ nodes: stitched.nodes, edgeSet: stitched.edgeSet }] : [];
+}
+
 // ── Reusable article picker ────────────────────────────────────────────────
 //
 // A self-contained search box with a scroll-paginated suggestion dropdown,
@@ -297,6 +357,9 @@ interface RenderSettings {
   labelSize: number;        // size multiplier for always-on node-name labels: 0.5–5
   dynamicLabelSize: boolean; // scale each label by the node's prominence (scoreNorm)
   directionalParticles: boolean;
+  // Path trace
+  maxPaths: number;          // how many shortest routes to race between 2 waypoints: 1–10
+  particleGlow: boolean;     // wrap the travelling particle in a soft glow halo
 }
 
 const DEFAULT_SETTINGS: RenderSettings = {
@@ -319,6 +382,8 @@ const DEFAULT_SETTINGS: RenderSettings = {
   labelSize: 1.5,
   dynamicLabelSize: false,
   directionalParticles: false,
+  maxPaths: 3,
+  particleGlow: true,
 };
 
 const BG_PRESETS = [
@@ -666,10 +731,22 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   // ── Ordered path through the chosen waypoints ────────────────────────────────
 
-  const pathInfo = useMemo(() => {
-    if (!gInstance || waypoints.length < 2) return { nodes: [] as string[], edgeSet: new Set<string>() };
-    return computePathNodes(gInstance, waypoints, pathDir);
-  }, [gInstance, waypoints, pathDir]);
+  const paths = useMemo(() => {
+    if (!gInstance || waypoints.length < 2) return [] as PathRoute[];
+    return computePaths(gInstance, waypoints, pathDir, settings.maxPaths);
+  }, [gInstance, waypoints, pathDir, settings.maxPaths]);
+
+  // Union of every route's nodes/edges — drives the shading whitelist and the
+  // set of nodes force-included in the rendered subgraph.
+  const pathUnion = useMemo(() => {
+    const nodes = new Set<string>();
+    const edges = new Set<string>();
+    for (const p of paths) {
+      for (const n of p.nodes) nodes.add(n);
+      for (const e of p.edgeSet) edges.add(e);
+    }
+    return { nodes, edges };
+  }, [paths]);
 
   // ── Filtered subgraph for the renderer ─────────────────────────────────────
 
@@ -713,7 +790,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     // Always include the path waypoints + intermediate nodes so the trace has
     // something to draw, even if they fall outside the top-N / neighbor filter.
     if (pathMode) {
-      for (const slug of pathInfo.nodes) if (gInstance.hasNode(slug)) slugSet.add(slug);
+      for (const slug of pathUnion.nodes) if (gInstance.hasNode(slug)) slugSet.add(slug);
     }
 
     const allNodes: FgNode[] = [...slugSet].map((slug) => ({
@@ -752,7 +829,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     }
 
     return { nodes, links, haluCount };
-  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu, largestComponentOnly, pathMode, pathInfo]);
+  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu, largestComponentOnly, pathMode, pathUnion]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -970,7 +1047,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         return base;
       })
       .refresh();
-  }, [colorMode, pathEdgeSet, pathInfo, initialized]);
+  }, [colorMode, pathEdgeSet, pathUnion, initialized]);
 
   // Re-apply colors (without re-heating physics) whenever the shading whitelist
   // or its enabled flag changes — the accessors above read these via refs.
@@ -985,13 +1062,13 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   // path nodes the highlight whitelist; leaving it clears the whitelist.
   useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
   useEffect(() => {
-    pathEdgesRef.current = pathInfo.edgeSet;
+    pathEdgesRef.current = pathUnion.edges;
     if (pathMode) {
-      setHighlightSet(new Set(pathInfo.nodes));
+      setHighlightSet(new Set(pathUnion.nodes));
     } else {
       setHighlightSet(new Set());
     }
-  }, [pathMode, pathInfo]);
+  }, [pathMode, pathUnion]);
 
   // Auto-enable shading the first time path mode is turned on.
   useEffect(() => {
@@ -1000,84 +1077,114 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   // ── Animated path trace ──────────────────────────────────────────────────
   //
-  // A glowing energy particle glides smoothly from the first waypoint to the
-  // last, interpolating between the live node positions every frame. Its hue
-  // rotates continuously (+HUE_STEP° per hop) so you can count the route's
-  // length by the color bands it leaves behind: each node/edge it has passed
-  // stays lit in that node's hue. Loops continuously while path mode is active.
+  // One glowing energy particle per route races from the first waypoint to the
+  // last, interpolating between live node positions every frame. All routes
+  // start together; shorter ones finish first (their rank by distance). Each
+  // route uses a hue band whose *step is 360°/route-length* so the full
+  // spectrum spans the route regardless of how many nodes it has — adjacent
+  // nodes stay distinguishable for counting — and each ranked route is offset
+  // around the wheel so routes are told apart. Particles are sized/faded by
+  // rank (shortest = biggest/brightest); an optional soft halo makes them glow.
   useEffect(() => {
     const nodeMap = traceNodeColorRef.current;
     const edgeMap = traceEdgeColorRef.current;
     nodeMap.clear();
     edgeMap.clear();
     const fg = fgRef.current;
-    if (!fg || !initialized || !pathMode || pathInfo.nodes.length < 2) {
+    if (!fg || !initialized || !pathMode || paths.length === 0) {
       if (fg && initialized) fg.refresh();
       return;
     }
 
-    const nodes = pathInfo.nodes;
-    const N = nodes.length;
-    const SPEED = 1.4;       // nodes traversed per second
-    const HUE_STEP = 40;     // degrees of hue per node, for countability
-    const BASE_HUE = 200;
-    const hueAt = (x: number) => (BASE_HUE + x * HUE_STEP) % 360;
-    const litColor = (i: number) => `hsl(${hueAt(i)}, 90%, 60%)`;
+    const SPEED = 1.4; // nodes traversed per second
+    const numPaths = paths.length;
+    // Per-route hue: base offset by rank, step spans the full wheel over the route.
+    const hueAt = (rank: number, len: number, x: number) =>
+      ((360 / numPaths) * rank + x * (360 / Math.max(2, len))) % 360;
+    const litColor = (rank: number, len: number, i: number) => `hsl(${hueAt(rank, len, i)}, 90%, 60%)`;
 
-    // Live position lookup — these node objects are mutated in place by the
-    // layout, so reading .x/.y/.z each frame tracks the simulation.
+    // Live position lookup — node objects are mutated in place by the layout.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const posMap = new Map<string, any>();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const o of fg.graphData().nodes as any[]) posMap.set(o.id, o);
 
-    // The travelling particle: an additively-blended sphere added to the scene.
-    const radius = Math.max(4, settings.nodeRelSize * 1.8);
-    const geometry = new THREE.SphereGeometry(radius, 16, 16);
-    const material = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(), transparent: true, opacity: 0.95,
-      blending: THREE.AdditiveBlending, depthWrite: false,
+    const scene = fg.scene();
+    const meshes: THREE.Object3D[] = [];
+    const cores: { mesh: THREE.Mesh; glow?: THREE.Mesh; rank: number; len: number }[] = [];
+    const baseRadius = Math.max(2, settings.nodeRelSize * 0.9); // smaller than a node
+
+    paths.forEach((p, rank) => {
+      const rankScale = Math.max(0.45, 1 - rank * 0.13);
+      const r = baseRadius * rankScale;
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(), transparent: true, opacity: 0.7 * rankScale,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      const core = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 16), coreMat);
+      scene.add(core);
+      meshes.push(core);
+      let glow: THREE.Mesh | undefined;
+      if (settings.particleGlow) {
+        const glowMat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(), transparent: true, opacity: 0.16 * rankScale,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        glow = new THREE.Mesh(new THREE.SphereGeometry(r * 2.6, 16, 16), glowMat);
+        scene.add(glow);
+        meshes.push(glow);
+      }
+      cores.push({ mesh: core, glow, rank, len: p.nodes.length });
     });
-    const particle = new THREE.Mesh(geometry, material);
-    fg.scene().add(particle);
 
     let raf = 0;
     let start = 0;
-    let lastSeg = -1;
+    const lastSegs = paths.map(() => -1);
+    const maxLen = Math.max(...paths.map((p) => p.nodes.length));
+
     const tick = (ts: number) => {
       if (!start) start = ts;
-      const total = (N - 1) / SPEED + 0.9; // brief hold on the full path, then loop
+      const total = (maxLen - 1) / SPEED + 0.9; // hold on the full routes, then loop
       const t = ((ts - start) / 1000) % total;
-      const progress = Math.min(N - 1, t * SPEED);
-      const i = Math.floor(progress);
-      const frac = progress - i;
+      let anyCrossed = false;
 
-      // Smoothly interpolate the particle between consecutive nodes.
-      const a = posMap.get(nodes[i]);
-      const b = posMap.get(nodes[Math.min(i + 1, N - 1)]);
-      if (a && b) {
-        particle.position.set(
-          (a.x ?? 0) + ((b.x ?? 0) - (a.x ?? 0)) * frac,
-          (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * frac,
-          (a.z ?? 0) + ((b.z ?? 0) - (a.z ?? 0)) * frac,
-        );
-      }
-      material.color.setHSL(hueAt(progress) / 360, 0.9, 0.6);
+      cores.forEach((c, idx) => {
+        const nodes = paths[idx].nodes;
+        const N = nodes.length;
+        const progress = Math.min(N - 1, t * SPEED);
+        const i = Math.floor(progress);
+        const frac = progress - i;
+        const a = posMap.get(nodes[i]);
+        const b = posMap.get(nodes[Math.min(i + 1, N - 1)]);
+        if (a && b) {
+          const x = (a.x ?? 0) + ((b.x ?? 0) - (a.x ?? 0)) * frac;
+          const y = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * frac;
+          const z = (a.z ?? 0) + ((b.z ?? 0) - (a.z ?? 0)) * frac;
+          c.mesh.position.set(x, y, z);
+          c.glow?.position.set(x, y, z);
+        }
+        const hsl = hueAt(c.rank, c.len, progress) / 360;
+        (c.mesh.material as THREE.MeshBasicMaterial).color.setHSL(hsl, 0.9, 0.6);
+        if (c.glow) (c.glow.material as THREE.MeshBasicMaterial).color.setHSL(hsl, 0.9, 0.6);
+        if (i !== lastSegs[idx]) { lastSegs[idx] = i; anyCrossed = true; }
+      });
 
-      // Light the trail only when we cross into a new segment (cheap: one
-      // graph recolor per hop, not per frame — the particle carries the motion).
-      if (i !== lastSeg) {
-        lastSeg = i;
+      // Rebuild the lit trail (union over all routes) only when some particle
+      // crosses into a new node — the moving particles carry the smooth motion.
+      if (anyCrossed) {
         nodeMap.clear();
         edgeMap.clear();
-        for (let k = 0; k <= i && k < N; k++) {
-          nodeMap.set(nodes[k], litColor(k));
-          if (k > 0) {
-            const c = litColor(k);
-            edgeMap.set(`${nodes[k - 1]}>${nodes[k]}`, c);
-            edgeMap.set(`${nodes[k]}>${nodes[k - 1]}`, c);
+        cores.forEach((c, idx) => {
+          const nodes = paths[idx].nodes;
+          for (let k = 0; k <= lastSegs[idx] && k < nodes.length; k++) {
+            nodeMap.set(nodes[k], litColor(c.rank, c.len, k));
+            if (k > 0) {
+              const col = litColor(c.rank, c.len, k);
+              edgeMap.set(`${nodes[k - 1]}>${nodes[k]}`, col);
+              edgeMap.set(`${nodes[k]}>${nodes[k - 1]}`, col);
+            }
           }
-        }
+        });
         fg.refresh();
       }
       raf = requestAnimationFrame(tick);
@@ -1088,12 +1195,14 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       cancelAnimationFrame(raf);
       nodeMap.clear();
       edgeMap.clear();
-      fg.scene().remove(particle);
-      geometry.dispose();
-      material.dispose();
+      for (const m of meshes) {
+        scene.remove(m);
+        (m as THREE.Mesh).geometry?.dispose();
+        ((m as THREE.Mesh).material as THREE.Material)?.dispose();
+      }
       if (fgRef.current && initialized) fgRef.current.refresh();
     };
-  }, [pathMode, pathInfo, initialized, fgData, settings.nodeRelSize]);
+  }, [pathMode, paths, initialized, fgData, settings.nodeRelSize, settings.particleGlow]);
 
   // ── Resize observer ─────────────────────────────────────────────────────────
 
@@ -1289,7 +1398,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
               {" · "}{graphStats.componentCount} components
               {" · "}density {graphStats.density < 0.001 ? graphStats.density.toExponential(1) : graphStats.density.toFixed(4)}
               {pathEdgeSet.size > 0 && <span className="graph-path-info"> · {pathEdgeSet.size} path edges</span>}
-              {pathMode && pathInfo.nodes.length > 0 && <span className="graph-path-info"> · {pathInfo.nodes.length} path nodes</span>}
+              {pathMode && paths.length > 0 && (
+                <span className="graph-path-info">
+                  {" · "}{paths.length} route{paths.length > 1 ? "s" : ""} ({paths.map((p) => p.nodes.length - 1).join(", ")} hops)
+                </span>
+              )}
             </span>
           )}
           {!loadError && !gInstance && <span>Loading graph…</span>}
@@ -1442,6 +1555,21 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 />
                 <span>Color by direction</span>
                 <span className="grs-toggle-hint">green=in red=out (needs seeds + particles)</span>
+              </label>
+            </div>
+
+            <div className="grs-section">
+              <div className="grs-section-label">Path trace</div>
+              <Knob label="Max routes" value={settings.maxPaths} min={1} max={10} step={1}
+                onChange={(v) => set("maxPaths", v)} />
+              <label className="grs-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.particleGlow}
+                  onChange={(e) => set("particleGlow", e.target.checked)}
+                />
+                <span>Particle glow</span>
+                <span className="grs-toggle-hint">soft halo around the travelling particle (between 2 waypoints)</span>
               </label>
             </div>
 

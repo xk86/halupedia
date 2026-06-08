@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import Graph from "graphology";
 
-import { computePathNodes, dim, makeNodeLabelSprite, summarizeCommunities } from "../../src/client/GraphView";
+import { computePathNodes, computePaths, dim, kShortestPaths, makeNodeLabelSprite, summarizeCommunities } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -158,6 +158,45 @@ describe("computePathNodes", () => {
 
   it("returns empty for fewer than two reachable waypoints", () => {
     expect(computePathNodes(chain(), [{ slug: "a" }], "either").nodes).toEqual([]);
+  });
+});
+
+describe("kShortestPaths / computePaths", () => {
+  // a→b→d and a→c→d (two equal routes), plus a longer a→b→c→d-ish detour
+  function diamond() {
+    const g = new Graph({ type: "directed" });
+    for (const n of ["a", "b", "c", "d"]) g.addNode(n);
+    g.addEdge("a", "b");
+    g.addEdge("a", "c");
+    g.addEdge("b", "d");
+    g.addEdge("c", "d");
+    g.addEdge("b", "c"); // gives a longer a→b→c→d route too
+    return g;
+  }
+
+  it("returns multiple routes in non-decreasing length order", () => {
+    const routes = kShortestPaths(diamond(), "a", "d", 3, "directed");
+    expect(routes.length).toBe(3);
+    expect(routes[0]).toHaveLength(3); // a,b,d
+    expect(routes[1]).toHaveLength(3); // a,c,d
+    expect(routes[2]).toHaveLength(4); // a,b,c,d — longest last
+  });
+
+  it("respects the k cap", () => {
+    expect(kShortestPaths(diamond(), "a", "d", 1, "directed")).toHaveLength(1);
+  });
+
+  it("computePaths races up to maxPaths routes between two waypoints", () => {
+    const routes = computePaths(diamond(), [{ slug: "a" }, { slug: "d" }], "directed", 2);
+    expect(routes).toHaveLength(2);
+    expect(routes[0].edgeSet.has("a>b")).toBe(true);
+    expect(routes[0].edgeSet.has("b>a")).toBe(true); // both orientations
+  });
+
+  it("computePaths falls back to a single stitched route for 3+ waypoints", () => {
+    const routes = computePaths(diamond(), [{ slug: "a" }, { slug: "b" }, { slug: "d" }], "directed", 5);
+    expect(routes).toHaveLength(1);
+    expect(routes[0].nodes).toEqual(["a", "b", "d"]);
   });
 });
 

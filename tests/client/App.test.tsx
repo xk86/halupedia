@@ -7,6 +7,36 @@ function setPath(path: string) {
   window.history.replaceState({}, "", path);
 }
 
+// Minimal well-shaped stand-ins for the homepage/top-articles endpoints —
+// Homepage reads `data.didYouKnow.length` / `data.articles`, so a shared
+// article-page payload (wrong shape) crashes it with "Cannot read properties
+// of undefined (reading 'length')".
+function emptyHomepagePayload() {
+  return { featured: null, didYouKnow: [], generatedAt: Date.now(), expiresAt: Date.now() + 3600_000 };
+}
+function emptyTopArticlesPayload() {
+  return { articles: [] };
+}
+
+// The Sidebar subscribes to /api/article/:slug/live as soon as an article
+// route is active — concurrently with the page-data fetch. Test fixtures
+// built around a single shared mocked Response (mockResolvedValue / a fixed
+// Response instance returned for every URL) break once that body is read
+// twice ("Body is unusable: Body has already been read"). Wrapping the test's
+// fetch implementation so /live requests short-circuit with a non-ok response
+// (Sidebar bails out on `!res.ok` without touching the body) keeps the shared
+// fixture pattern working without each test having to special-case /live.
+function withLiveBypass(
+  impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response,
+) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (/\/live(\?|$)/.test(String(input))) {
+      return new Response(null, { status: 404 });
+    }
+    return impl(input, init);
+  });
+}
+
 function pagePayload(overrides: Partial<any> = {}) {
   return {
     cached: true,
@@ -293,7 +323,11 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("Queued Article")).toBeInTheDocument();
-    expect(screen.getByText("3 waiting")).toBeInTheDocument();
+    // The waiting count is concatenated into the same <span> as the workflow
+    // label/phase (e.g. "Active · 3 waiting"), so match on substring rather
+    // than the exact combined text.
+    expect(screen.getByText((_, el) => el?.className === "admin-queue-meta" && /3 waiting/.test(el.textContent ?? "")))
+      .toBeInTheDocument();
     expect(screen.getByText("article_summary")).toBeInTheDocument();
     expect(screen.getByText("light-model")).toBeInTheDocument();
     expect(screen.getByText("on")).toBeInTheDocument();
@@ -419,7 +453,7 @@ describe("App", () => {
   });
 
   it("loads and renders a cached article route", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = withLiveBypass(() =>
       new Response(JSON.stringify(pagePayload()), {
         headers: { "content-type": "application/json" },
       })
@@ -527,7 +561,7 @@ describe("App", () => {
   });
 
   it("copies the canonical slug from the article toolbar", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = withLiveBypass(() =>
       new Response(JSON.stringify(pagePayload({
         article: {
           ...pagePayload().article,
@@ -554,7 +588,7 @@ describe("App", () => {
   });
 
   it("handles streamed article responses and normalizes the canonical path", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = withLiveBypass(() =>
       ndjsonResponse([
         { type: "start", slug: "fresh-page", cached: false },
         { type: "progress", html: "<h1>Fresh Page</h1><p>Streaming body.</p>" },
@@ -607,7 +641,11 @@ describe("App", () => {
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/page/fresh_page") {
+      if (/\/live(\?|$)/.test(url)) {
+        return new Response(null, { status: 404 });
+      }
+      // toWikiSegment("fresh_page") capitalizes the first letter -> "Fresh_page"
+      if (url === "/api/page/Fresh_page") {
         return ndjsonResponse([
           { type: "start", slug: "fresh-page", cached: false },
           {
@@ -641,7 +679,10 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: "Related Page" })).toBeInTheDocument();
   });
 
-  it("polls for an article after a fast joined generation response", async () => {
+  it("renders a joined generation stream directly from progress/done events without polling", async () => {
+    // Joined streams (the requester arrives mid-generation) now receive live
+    // progress/done events over the same stream — no separate ?wait=0 polling
+    // (see App.tsx: "Joined streams now receive live progress events").
     const generated = {
       slug: "gated-page",
       canonicalSlug: "gated-page",
@@ -651,31 +692,24 @@ describe("App", () => {
       plain_text: "Finished article.",
       generated_at: 1715000002000,
     };
-    let pollCount = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/page/Gated_Page" || url === "/api/page/gated-page") {
+      if (url === "/api/page/Gated_Page") {
         return ndjsonResponse([
           { type: "start", slug: "gated-page", cached: false, joined: true },
           { type: "status", message: "Waiting and contemplating..." },
+          { type: "progress", html: "<h1>Gated Page</h1><p>Drafting…</p>" },
+          {
+            type: "done",
+            cached: true,
+            canonicalPath: "/wiki/Gated_Page",
+            article: generated,
+            backlinks: { existing: [], unwritten: [] },
+          },
         ]);
       }
-      if (url === "/api/page/Gated_Page?wait=0" || url === "/api/page/gated-page?wait=0") {
-        pollCount += 1;
-        if (pollCount === 1) {
-          return new Response(JSON.stringify({ generating: true }), {
-            status: 202,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        return new Response(JSON.stringify({
-          cached: true,
-          canonicalPath: "/wiki/Gated_Page",
-          article: generated,
-          backlinks: { existing: [], unwritten: [] },
-        }), {
-          headers: { "content-type": "application/json" },
-        });
+      if (/\/live(\?|$)/.test(url)) {
+        return new Response(null, { status: 404 });
       }
       return new Response("not found", { status: 404 });
     });
@@ -685,19 +719,20 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("Finished article.", undefined, { timeout: 2500 })).toBeInTheDocument();
-    expect(pollCount).toBeGreaterThanOrEqual(2);
+    // No ?wait=0 polling requests should have been issued for a joined stream.
+    expect(fetchMock.mock.calls.some(([u]) => /\?wait=0/.test(String(u)))).toBe(false);
   });
 
   it("intercepts article link clicks and fetches the next article client-side", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(pagePayload()), {
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === "/api/page/Test_Article") {
+        return new Response(JSON.stringify(pagePayload()), {
           headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(
+        });
+      }
+      if (url === "/api/page/Linked_Article") {
+        return new Response(
           JSON.stringify(
             pagePayload({
               article: {
@@ -713,8 +748,10 @@ describe("App", () => {
             })
           ),
           { headers: { "content-type": "application/json" } }
-        )
-      );
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
@@ -724,29 +761,25 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("link", { name: "Linked Article" }));
 
     expect(await screen.findByRole("heading", { name: "Linked Article" })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/page/Linked_Article");
+    expect(fetchMock).toHaveBeenCalledWith("/api/page/Linked_Article");
     expect(window.location.pathname).toBe("/wiki/Linked_Article");
   });
 
   it("shows an empty-history message instead of a raw 404", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(pagePayload()), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(pagePayload()), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: "article not found" }), {
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === "/api/article/test-article/history") {
+        return new Response(JSON.stringify({ error: "article not found" }), {
           status: 404,
           headers: { "content-type": "application/json" },
-        })
-      );
+        });
+      }
+      // /api/page/Test_Article — both the initial load and the history-route
+      // reload resolve to the same cached article payload.
+      return new Response(JSON.stringify(pagePayload()), {
+        headers: { "content-type": "application/json" },
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
@@ -760,18 +793,18 @@ describe("App", () => {
 
   it("shows refresh feedback when references are unchanged", async () => {
     const payload = pagePayload();
+    const refreshUrl = "/api/article/test-article/refresh-context?stream=1";
     let resolveRefresh: (value: Response) => void = () => {};
     const refreshResponse = new Promise<Response>((resolve) => {
       resolveRefresh = resolve;
     });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(payload), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      .mockReturnValueOnce(refreshResponse);
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === refreshUrl) return refreshResponse;
+      return new Response(JSON.stringify(payload), {
+        headers: { "content-type": "application/json" },
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
@@ -788,10 +821,12 @@ describe("App", () => {
     );
     await clickPromise;
     expect(await screen.findByText("References already up to date.")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/article/test-article/refresh-context?stream=1", {
+    // objectContaining: the refresh request also passes an AbortSignal now,
+    // which isn't relevant to what this test is verifying.
+    expect(fetchMock).toHaveBeenCalledWith(refreshUrl, expect.objectContaining({
       method: "POST",
       headers: { accept: "application/x-ndjson" },
-    });
+    }));
   });
 
   it("reports article refresh when streamed refresh changes body content", async () => {
@@ -803,18 +838,18 @@ describe("App", () => {
       },
       refreshChanged: true,
     });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(pagePayload()), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(`${JSON.stringify({ type: "done", ...payload })}\n`, {
+    const refreshUrl = "/api/article/test-article/refresh-context?stream=1";
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === refreshUrl) {
+        return new Response(`${JSON.stringify({ type: "done", ...payload })}\n`, {
           headers: { "content-type": "application/x-ndjson" },
-        })
-      );
+        });
+      }
+      return new Response(JSON.stringify(pagePayload()), {
+        headers: { "content-type": "application/json" },
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
@@ -828,7 +863,7 @@ describe("App", () => {
   });
 
   it("shows a refresh notice when body references are missing from metadata", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = withLiveBypass(() =>
       new Response(JSON.stringify(pagePayload({
         referenceStatus: {
           missing: [{ slug: "source-article", title: "Source Article" }],
@@ -847,7 +882,7 @@ describe("App", () => {
   });
 
   it("shows a refresh notice when legacy references are embedded in the article body", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = withLiveBypass(() =>
       new Response(JSON.stringify(pagePayload({
         referenceStatus: {
           missing: [],
@@ -1012,28 +1047,24 @@ describe("App", () => {
         generated_at: 1715000001000,
       },
     });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(current), {
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === "/api/article/test-article/history") {
+        return new Response(JSON.stringify({ revisions: [oldRevision] }), {
           headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(current), {
+        });
+      }
+      if (url === "/api/article/test-article/revert") {
+        return new Response(JSON.stringify(restored), {
           headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ revisions: [oldRevision] }), {
-          headers: { "content-type": "application/json" },
-        })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(restored), {
-          headers: { "content-type": "application/json" },
-        })
-      );
+        });
+      }
+      // /api/page/Test_Article — both the initial load and the history-route
+      // reload resolve to the same cached article payload.
+      return new Response(JSON.stringify(current), {
+        headers: { "content-type": "application/json" },
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
@@ -1169,11 +1200,18 @@ describe("App", () => {
   });
 
   it("normalises spaces to underscores in the URL immediately when navigating via the search bar", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(pagePayload()), {
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === "/api/homepage") {
+        return new Response(JSON.stringify(emptyHomepagePayload()), { headers: { "content-type": "application/json" } });
+      }
+      if (url.startsWith("/api/top-articles")) {
+        return new Response(JSON.stringify(emptyTopArticlesPayload()), { headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify(pagePayload()), {
         headers: { "content-type": "application/json" },
-      }),
-    );
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
@@ -1188,7 +1226,7 @@ describe("App", () => {
   });
 
   it("normalises a URL with spaces when loaded directly (e.g. pasted into address bar)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+    const fetchMock = withLiveBypass(() =>
       new Response(JSON.stringify(pagePayload()), {
         headers: { "content-type": "application/json" },
       }),
@@ -1205,11 +1243,18 @@ describe("App", () => {
   });
 
   it("normalises a title with hyphens that also has spaces (previous regression)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(pagePayload()), {
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url === "/api/homepage") {
+        return new Response(JSON.stringify(emptyHomepagePayload()), { headers: { "content-type": "application/json" } });
+      }
+      if (url.startsWith("/api/top-articles")) {
+        return new Response(JSON.stringify(emptyTopArticlesPayload()), { headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify(pagePayload()), {
         headers: { "content-type": "application/json" },
-      }),
-    );
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 

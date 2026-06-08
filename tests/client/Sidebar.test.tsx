@@ -3,137 +3,152 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "../../src/client/Sidebar";
 
+// The Sidebar now renders the article's infobox + headline media (it no
+// longer shows a backlinks list — that UI was removed). `articleTitle` is
+// part of the prop type but unused by the component; pass "" for brevity.
+
 describe("Sidebar", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("renders nothing but the container when no article context is active", () => {
-    render(<Sidebar articleSlug={null} articleTitle="" backlinks={null} onNavigate={vi.fn()} />);
-    expect(screen.getByLabelText("Context")).toBeInTheDocument();
-    expect(screen.queryByText("Referenced By")).not.toBeInTheDocument();
+  it("renders nothing but the container when there is no article context", () => {
+    render(
+      <Sidebar
+        articleSlug={null}
+        articleTitle=""
+        infobox={null}
+        headlineMedia={null}
+        onNavigate={vi.fn()}
+        onNavigateToMedia={vi.fn()}
+      />
+    );
+    const aside = screen.getByLabelText("Context");
+    expect(aside).toBeInTheDocument();
+    expect(aside).toBeEmptyDOMElement();
   });
 
-  it("renders existing and unwritten backlinks and navigates client-side", async () => {
+  it("renders nothing but the container when the article has neither infobox nor headline media", () => {
+    render(
+      <Sidebar
+        articleSlug="test-article"
+        articleTitle="Test Article"
+        infobox={null}
+        headlineMedia={null}
+        onNavigate={vi.fn()}
+        onNavigateToMedia={vi.fn()}
+      />
+    );
+    const aside = screen.getByLabelText("Context");
+    expect(aside).toBeInTheDocument();
+    expect(aside).toBeEmptyDOMElement();
+  });
+
+  it("renders the infobox title, subtitle, and grouped rows", () => {
+    render(
+      <Sidebar
+        articleSlug="test-article"
+        articleTitle="Test Article"
+        infobox={{
+          title: "Test Article",
+          subtitle: "An encyclopedia entry",
+          groups: [
+            { label: "Overview", rows: [{ label: "Founded", value: "1923" }] },
+          ],
+        }}
+        headlineMedia={null}
+        onNavigate={vi.fn()}
+        onNavigateToMedia={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText("Article info")).toBeInTheDocument();
+    // "Test Article" appears both in the mobile-toggle button and the
+    // infobox title; assert on the title element specifically.
+    expect(document.querySelector(".infobox-title")?.textContent).toBe("Test Article");
+    expect(screen.getByText("An encyclopedia entry")).toBeInTheDocument();
+    expect(screen.getByText("Overview")).toBeInTheDocument();
+    expect(screen.getByText("Founded")).toBeInTheDocument();
+    expect(screen.getByText("1923")).toBeInTheDocument();
+  });
+
+  it("navigates client-side when an internal /wiki/ link inside the infobox is clicked", async () => {
     const onNavigate = vi.fn();
     render(
       <Sidebar
         articleSlug="test-article"
         articleTitle="Test Article"
-        backlinks={{
-          existing: [
-            {
-              slug: "archive-entry",
-              title: "Archive Entry",
-              visibleLabel: "Archive Entry",
-              hiddenHint: "Existing backlink hint",
-              createdAt: 1,
-            },
-          ],
-          unwritten: [
-            {
-              slug: "moon-clock",
-              title: "Moon Clock",
-              visibleLabel: "Moon Clock",
-              hiddenHint: "Unwritten backlink hint",
-              createdAt: 2,
-            },
-          ],
+        infobox={{
+          title: 'See also <a href="/wiki/Moon_Clock">Moon Clock</a>',
+          groups: [],
         }}
+        headlineMedia={null}
         onNavigate={onNavigate}
+        onNavigateToMedia={vi.fn()}
       />
     );
-
-    expect(screen.getByText("Existing Articles")).toBeInTheDocument();
-    expect(screen.getByText("Unwritten Articles")).toBeInTheDocument();
-    expect(screen.getByText("Existing backlink hint")).toBeInTheDocument();
-    expect(screen.getByText("Unwritten backlink hint")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("link", { name: "Moon Clock" }));
     expect(onNavigate).toHaveBeenCalledWith("Moon_Clock");
   });
 
-  it("renders inline KaTeX inside backlink summaries", () => {
+  it("renders the headline image and caption, and navigates to the media page on click", async () => {
+    const onNavigateToMedia = vi.fn();
     render(
       <Sidebar
         articleSlug="test-article"
         articleTitle="Test Article"
-        backlinks={{
-          existing: [
-            {
-              slug: "sigma-entry",
-              title: "Sigma Entry",
-              visibleLabel: "Sigma Entry",
-              hiddenHint: "Fallback hint",
-              summaryMarkdown: "The coefficient $\\sigma$ governs drift.",
-              createdAt: 1,
-            },
-          ],
-          unwritten: [],
-        }}
+        infobox={{ title: "Test Article", groups: [] }}
+        headlineMedia={{ mediaId: "img-abc123", caption: "A striking portrait", description: "desc" }}
         onNavigate={vi.fn()}
+        onNavigateToMedia={onNavigateToMedia}
       />
     );
 
-    expect(document.querySelector(".sb-hint .math-inline")).not.toBeNull();
-    expect(document.querySelector(".sb-hint .katex")).not.toBeNull();
+    const link = screen.getByRole("link", { name: "A striking portrait" });
+    expect(link).toHaveAttribute("href", "/media/img-abc123");
+    const img = link.querySelector("img");
+    expect(img).toHaveAttribute("src", "/api/media/img-abc123");
+    expect(screen.getByText("A striking portrait")).toBeInTheDocument();
+
+    await userEvent.click(link);
+    expect(onNavigateToMedia).toHaveBeenCalledWith("img-abc123");
   });
 
-  it("renders markdown-rich backlink summaries inside a block container", () => {
-    render(
-      <Sidebar
-        articleSlug="test-article"
-        articleTitle="Test Article"
-        backlinks={{
-          existing: [
-            {
-              slug: "multi-paragraph-entry",
-              title: "Multi Paragraph Entry",
-              visibleLabel: "Multi Paragraph Entry",
-              hiddenHint: "Fallback hint",
-              summaryMarkdown: "First paragraph.\n\nSecond paragraph.",
-              createdAt: 1,
-            },
-          ],
-          unwritten: [],
-        }}
-        onNavigate={vi.fn()}
-      />
+  it("shows a generating indicator while content is still being produced", () => {
+    // No infobox/headlineMedia yet means hasContent is false; with no
+    // generatingNode the aside renders empty. We can only reach the
+    // "generating" branch via the live stream, which Sidebar wires up to
+    // /api/article/:slug/live — stub it to emit a `generating` event.
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(
+              JSON.stringify({ type: "generating", node: "llm.generate_infobox" }) + "\n"
+            ));
+            // leave the stream open — Sidebar reads until done/abort
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/x-ndjson" } },
+      ))
     );
-
-    const hintNode = document.querySelector(".sb-hint");
-    expect(hintNode?.tagName).toBe("DIV");
-    expect(screen.getByText("Second paragraph.")).toBeInTheDocument();
-  });
-
-  it("renders complete long backlink summaries without clipping text", () => {
-    const longSummary = [
-      "The concept of a pickle-like object is defined by rigid geometry, color, and institutional handling rather than edibility.",
-      "Its taxonomy spans preserved vegetables, mineral formations, and manufactured cylinders that only resemble food under disputed laboratory conditions.",
-      "The article also distinguishes ordinary culinary classification from the administrative registers used by municipal brine offices.",
-    ].join(" ");
+    vi.stubGlobal("fetch", fetchMock);
 
     render(
       <Sidebar
         articleSlug="test-article"
         articleTitle="Test Article"
-        backlinks={{
-          existing: [
-            {
-              slug: "pickle-like-object",
-              title: "Pickle like object",
-              visibleLabel: "Pickle like object",
-              hiddenHint: "Fallback hint",
-              summaryMarkdown: longSummary,
-              createdAt: 1,
-            },
-          ],
-          unwritten: [],
-        }}
+        infobox={null}
+        headlineMedia={null}
         onNavigate={vi.fn()}
+        onNavigateToMedia={vi.fn()}
       />
     );
 
-    expect(document.querySelector(".sb-hint")?.textContent).toBe(longSummary);
+    return screen.findByText("Building infobox…").then((el) => {
+      expect(el).toBeInTheDocument();
+      vi.unstubAllGlobals();
+    });
   });
 });

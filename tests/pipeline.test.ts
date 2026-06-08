@@ -568,7 +568,7 @@ test("buildReferenceList: user additions always survive regardless of rag", () =
       ragSources: [],
       userAdditions: [makeRef("alpha", "Alpha"), makeRef("beta", "Beta")],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
 
     const slugs = refs.map((r) => r.slug);
@@ -597,7 +597,7 @@ test("buildReferenceList: pinned entry survives cap and does not count toward it
       ragSources: [],
       userAdditions,
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 4, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 4, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
 
     // Pinned one must be present even though cap is 4
@@ -623,7 +623,7 @@ test("buildReferenceList: blacklisted slug excluded even when user-added", () =>
       userAdditions: [makeRef("allowed", "Allowed"), makeRef("blocked", "Blocked")],
       blacklistSlugs: ["blocked"],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
 
     assert.ok(refs.some((r) => r.slug === "allowed"), "allowed should be present");
@@ -645,7 +645,7 @@ test("buildReferenceList: self-reference always excluded", () => {
       ragSources: [],
       userAdditions: [makeRef("self-article", "Self Article"), makeRef("other", "Other")],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
 
     assert.ok(!refs.some((r) => r.slug === "self-article"), "self-reference must be excluded");
@@ -666,7 +666,7 @@ test("buildReferenceList: unknown slug rejected (not in articles table)", () => 
       ragSources: [],
       userAdditions: [makeRef("real", "Real"), makeRef("ghost-slug", "Ghost")],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
 
     assert.ok(refs.some((r) => r.slug === "real"), "real article should be in refs");
@@ -689,7 +689,7 @@ test("buildReferenceList: prior refs carried forward when no RAG and no user add
       ragSources: [],
       priorReferences: [makeRef("prior-ref", "Prior Ref")],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
 
     assert.ok(refs.some((r) => r.slug === "prior-ref"), "prior ref should be carried forward");
@@ -710,7 +710,7 @@ test("buildReferenceList: each slug appears at most once", () => {
       userAdditions: [makeRef("dedupe", "Dedupe")],
       priorReferences: [makeRef("dedupe", "Dedupe")],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
 
     const dedupeCount = refs.filter((r) => r.slug === "dedupe").length;
@@ -730,7 +730,7 @@ test("buildReferenceList: RAG entry below min_score excluded", () => {
       articleSlug: "test-article",
       ragSources: [{ slug: "low-score", title: "Low Score", content: "c", score: 0.1 }],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.5, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.5, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
 
     assert.ok(!refs.some((r) => r.slug === "low-score"), "low-score RAG entry should be excluded");
@@ -2021,7 +2021,7 @@ test("buildReferenceList: pinned prior ref survives when re-loaded as prior", ()
       ragSources: [],
       priorReferences: [{ ...makeRef("pinned-prior", "Pinned Prior"), pinned: true }],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
     const entry = refs.find((r) => r.slug === "pinned-prior");
     assert.ok(entry, "pinned prior should survive");
@@ -2041,7 +2041,7 @@ test("buildReferenceList: multiple pinned entries all survive even at small cap"
       ragSources: [],
       userAdditions: pinned,
       revisionId: "current",
-      config: { reference_max_results: 2, reference_min_score: 0.4, max_references: 2, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 2, reference_min_score: 0.4, max_references: 2, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
     const pinnedInResult = refs.filter((r) => r.pinned);
     assert.equal(pinnedInResult.length, 5, "all 5 pinned entries must survive regardless of cap");
@@ -2057,7 +2057,7 @@ test("buildReferenceList: source field set to user for user additions", () => {
       ragSources: [],
       userAdditions: [makeRef("user-added", "User Added")],
       revisionId: "current",
-      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0 },
+      config: { reference_max_results: 8, reference_min_score: 0.4, max_references: 50, reference_recursive_depth: 0, reference_recursive_max_per_article: 0, reference_cull_min_score: 0, reference_cull_top_k: 0 },
     }, noop());
     const entry = refs.find((r) => r.slug === "user-added");
     assert.equal(entry?.source, "user");

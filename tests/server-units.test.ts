@@ -1458,6 +1458,8 @@ test("buildReferenceList preserves carried refs before applying RAG cap", (t) =>
         max_references: 10,
         reference_recursive_depth: 0,
         reference_recursive_max_per_article: 3,
+        reference_cull_min_score: 0,
+        reference_cull_top_k: 0,
       },
     },
     logger,
@@ -1569,6 +1571,8 @@ test("buildReferenceList adds recursive sidecar refs within configured depth", (
         max_references: 10,
         reference_recursive_depth: 2,
         reference_recursive_max_per_article: 1,
+        reference_cull_min_score: 0,
+        reference_cull_top_k: 0,
       },
     },
     logger,
@@ -2692,35 +2696,13 @@ test("prompt revisions: no-op save is skipped", (t) => {
 // ─── Vision / image caption tests ────────────────────────────────────────────
 
 /** Minimal 4×4 BMP: a yellow (#FFFF00) square on a white background. */
-function makeYellowSquareBmp(): Buffer {
-  const width = 4, height = 4;
-  // BMP row must be padded to a multiple of 4 bytes; 4px × 3 bytes = 12 — already aligned.
-  const rowSize = width * 3;
-  const pixelDataSize = rowSize * height;
-  const fileSize = 54 + pixelDataSize;
-  const buf = Buffer.alloc(fileSize, 0xff); // fill with white
-  // File header
-  buf.write("BM", 0);
-  buf.writeUInt32LE(fileSize, 2);
-  buf.writeUInt32LE(54, 10); // pixel data offset
-  // DIB header (BITMAPINFOHEADER)
-  buf.writeUInt32LE(40, 14);
-  buf.writeInt32LE(width, 18);
-  buf.writeInt32LE(-height, 22); // negative = top-down
-  buf.writeUInt16LE(1, 26);  // planes
-  buf.writeUInt16LE(24, 28); // bits per pixel
-  buf.writeUInt32LE(0, 30);  // BI_RGB
-  buf.writeUInt32LE(pixelDataSize, 34);
-  // Paint all pixels yellow (BGR order)
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-      const offset = 54 + row * rowSize + col * 3;
-      buf[offset] = 0x00;   // B
-      buf[offset + 1] = 0xff; // G
-      buf[offset + 2] = 0xff; // R
-    }
-  }
-  return buf;
+// A minimal 1×1 PNG (same fixture as tests/media.test.ts TINY_PNG — proven
+// valid there). Vision models commonly reject BMP input ("invalid image
+// input"); PNG is the format already known to work against the local model.
+const TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+function makeTinyPng(): Buffer {
+  return Buffer.from(TINY_PNG_B64, "base64");
 }
 
 test("wrapLlmDeps proxy preserves supportsVision through the prompt-capture wrapper", () => {
@@ -2747,7 +2729,7 @@ test("wrapLlmDeps proxy preserves supportsVision through the prompt-capture wrap
   assert.equal(wrapped.supportsVision("heavy"), false); // not probed, defaults to false
 });
 
-test("images model returns a non-empty text description for a yellow-square BMP", { timeout: 30_000 }, async () => {
+test("images model returns a non-empty text description for a tiny PNG", { timeout: 30_000 }, async () => {
   const llmConfig = loadConfig().llm;
   if (!llmConfig.images) {
     // No images model configured — skip rather than fail.
@@ -2760,12 +2742,12 @@ test("images model returns a non-empty text description for a yellow-square BMP"
     embeddingsConfig,
   );
 
-  const bmp = makeYellowSquareBmp();
+  const png = makeTinyPng();
   const result = await router.chat(
     "images",
     "Describe what you see in the image in one sentence.",
     "What is in this image?",
-    { images: [{ b64: bmp.toString("base64"), mime: "image/bmp" }] },
+    { images: [{ b64: png.toString("base64"), mime: "image/png" }] },
   );
 
   assert.ok(typeof result === "string" && result.trim().length > 0, "model must return a non-empty description");

@@ -121,6 +121,7 @@ interface RenderSettings {
   bgColor: string;
   alwaysShowLabels: boolean; // show node-name labels above all nodes, not just on hover
   labelSize: number;        // size multiplier for always-on node-name labels: 0.5–5
+  dynamicLabelSize: boolean; // scale each label by the node's prominence (scoreNorm)
   directionalParticles: boolean;
 }
 
@@ -142,6 +143,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   bgColor: "#080810",
   alwaysShowLabels: false,
   labelSize: 1.5,
+  dynamicLabelSize: false,
   directionalParticles: false,
 };
 
@@ -696,7 +698,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           // Scale the label off the node's own radius so it stays legible
           // relative to the node regardless of the "Base size" setting —
           // "Label size" is a multiplier on top of that baseline.
-          const worldHeight = Math.max(2, nodeRadius) * 0.7 * settings.labelSize;
+          // "Size by prominence" scales each label by the node's normalized
+          // score so hubs get visibly larger names; 1× at score 0, up to ~3×.
+          const prominence = settings.dynamicLabelSize ? 0.5 + n.scoreNorm * 2.5 : 1;
+          const worldHeight = Math.max(2, nodeRadius) * 0.7 * settings.labelSize * prominence;
           const sprite = makeNodeLabelSprite(n.title, color, worldHeight, {
             in: n.visibleInDegree,
             out: n.visibleOutDegree,
@@ -1015,6 +1020,17 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
               {settings.alwaysShowLabels && (
                 <Knob label="Label size" value={settings.labelSize} min={0.5} max={15} step={0.25}
                   format={(v) => v.toFixed(1)} onChange={(v) => set("labelSize", v)} />
+              )}
+              {settings.alwaysShowLabels && (
+                <label className="grs-toggle">
+                  <input
+                    type="checkbox"
+                    checked={settings.dynamicLabelSize}
+                    onChange={(e) => set("dynamicLabelSize", e.target.checked)}
+                  />
+                  <span>Size by prominence</span>
+                  <span className="grs-toggle-hint">scale each label by the node's graph prominence</span>
+                </label>
               )}
             </div>
 

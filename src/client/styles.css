@@ -5226,13 +5226,11 @@ button.admin-danger-btn:hover:not(:disabled) {
   margin: 0.2rem 0 0;
   padding: 0 0 0 1.1rem;
   display: flex;
-  flex-direction: column;
-  gap: 0.05rem;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.6rem;
 }
 
 .graph-legend-members button {
-  display: block;
-  width: 100%;
   text-align: left;
   background: transparent;
   border: none;
@@ -5240,11 +5238,14 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-size: 0.74rem;
   color: var(--link);
   cursor: pointer;
+  /* underline so members read as article links, not plain labels */
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
 }
 
 .graph-legend-members button:hover {
   color: var(--accent-hover);
-  text-decoration: underline;
+  text-decoration-color: var(--accent-hover);
 }
 
 /* Prompt editor pane */

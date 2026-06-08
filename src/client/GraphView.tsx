@@ -369,6 +369,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const [shadingEnabled, setShadingEnabled] = useState(() => loadPrefs().shadingEnabled ?? false);
   const [highlightSet, setHighlightSet] = useState<Set<string>>(() => new Set());
   const [pathDir, setPathDir] = useState<PathDir>(() => loadPrefs().pathDir ?? "either");
+  const [pathMode, setPathMode] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
@@ -971,7 +972,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                     <ul className="graph-legend-members">
                       {group.members.map((m) => (
                         <li key={m.id}>
-                          <button type="button" onClick={() => onNavigate(toWikiSegment(m.title))}>
+                          <button
+                            type="button"
+                            onClick={() => onNavigate(toWikiSegment(m.title))}
+                            onMouseEnter={() => { if (!pathMode) setHighlightSet(new Set([m.id])); }}
+                            onMouseLeave={() => { if (!pathMode) setHighlightSet(new Set()); }}
+                          >
                             {m.title}
                           </button>
                         </li>

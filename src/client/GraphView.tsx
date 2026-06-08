@@ -154,14 +154,24 @@ export function computePathNodes(
   const edgeSet = new Set<string>();
   const push = (slug: string) => { if (nodes[nodes.length - 1] !== slug) nodes.push(slug); };
 
+  // A directed route along the arrows. Try the natural waypoint order first,
+  // then the reverse — so the route still follows real edge directions even if
+  // the user listed the endpoints in the opposite order to the link flow.
+  const directedSeg = (a: string, b: string): string[] | null => {
+    const fwd = unweightedPath(g, a, b);
+    if (fwd) return fwd;
+    const rev = unweightedPath(g, b, a);
+    return rev ? [...rev].reverse() : null;
+  };
+
   for (let i = 0; i + 1 < waypoints.length; i++) {
     const a = waypoints[i].slug, b = waypoints[i + 1].slug;
     if (!g.hasNode(a) || !g.hasNode(b)) continue;
     let seg: string[] | null = null;
     try {
-      if (dir === "directed") seg = unweightedPath(g, a, b);
+      if (dir === "directed") seg = directedSeg(a, b);
       else if (dir === "undirected") seg = bfsUndirected(g, a, b);
-      else seg = unweightedPath(g, a, b) ?? bfsUndirected(g, a, b);
+      else seg = directedSeg(a, b) ?? bfsUndirected(g, a, b);
     } catch { seg = null; }
     if (!seg) continue;
     for (const s of seg) push(s);
@@ -553,9 +563,22 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const pathEdgesRef = useRef(new Set<string>());
   const traceNodeColorRef = useRef(new Map<string, string>());
   const traceEdgeColorRef = useRef(new Map<string, string>());
+  const labelSpritesRef = useRef(new Map<string, THREE.Sprite>());
 
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
+  }, []);
+
+  // Fade the floating name labels of shaded (non-whitelisted) nodes so the text
+  // recedes with the node. Reads the live shading refs; called whenever the
+  // whitelist changes and when labels are (re)created.
+  const applyLabelFade = useCallback(() => {
+    const hl = highlightSetRef.current;
+    const shade = shadingEnabledRef.current;
+    for (const [id, sprite] of labelSpritesRef.current) {
+      const faded = shade && hl.size > 0 && !hl.has(id);
+      (sprite.material as THREE.SpriteMaterial).opacity = faded ? 0.1 : 1;
+    }
   }, []);
 
   // Keep refs current so accessors always read fresh values without triggering re-renders
@@ -870,6 +893,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     // hover tooltip. nodeThreeObjectExtend keeps the default sphere and adds
     // the label sprite alongside it.
     if (settings.alwaysShowLabels) {
+      labelSpritesRef.current.clear();
       fg
         .nodeThreeObjectExtend(true)
         .nodeThreeObject((n: FgNode) => {
@@ -889,9 +913,14 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
             out: n.visibleOutDegree,
           });
           sprite.position.set(0, nodeRadius + sprite.scale.y / 2 + 1, 0);
+          const hl = highlightSetRef.current;
+          (sprite.material as THREE.SpriteMaterial).opacity =
+            shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id) ? 0.1 : 1;
+          labelSpritesRef.current.set(n.id, sprite);
           return sprite;
         });
     } else {
+      labelSpritesRef.current.clear();
       fg.nodeThreeObjectExtend(false).nodeThreeObject(null);
     }
 
@@ -948,8 +977,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   useEffect(() => {
     highlightSetRef.current = highlightSet;
     shadingEnabledRef.current = shadingEnabled;
+    applyLabelFade();
     if (fgRef.current && initialized) fgRef.current.refresh();
-  }, [highlightSet, shadingEnabled, initialized]);
+  }, [highlightSet, shadingEnabled, initialized, applyLabelFade]);
 
   // Entering path mode turns shading on (so the path stands out) and makes the
   // path nodes the highlight whitelist; leaving it clears the whitelist.
@@ -970,10 +1000,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   // ── Animated path trace ──────────────────────────────────────────────────
   //
-  // Walk a moving "head" from the first waypoint to the last along the path.
-  // Each node it passes is colored with a hue that rotates per node, so you
-  // can count how many hops the route takes by counting color bands. The head
-  // edge pulses white. Loops continuously while path mode is active.
+  // A glowing energy particle glides smoothly from the first waypoint to the
+  // last, interpolating between the live node positions every frame. Its hue
+  // rotates continuously (+HUE_STEP° per hop) so you can count the route's
+  // length by the color bands it leaves behind: each node/edge it has passed
+  // stays lit in that node's hue. Loops continuously while path mode is active.
   useEffect(() => {
     const nodeMap = traceNodeColorRef.current;
     const edgeMap = traceEdgeColorRef.current;
@@ -987,35 +1018,65 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     const nodes = pathInfo.nodes;
     const N = nodes.length;
-    const SPEED = 1.6;       // nodes traversed per second
+    const SPEED = 1.4;       // nodes traversed per second
     const HUE_STEP = 40;     // degrees of hue per node, for countability
     const BASE_HUE = 200;
-    const litColor = (i: number) => `hsl(${(BASE_HUE + i * HUE_STEP) % 360}, 90%, 60%)`;
+    const hueAt = (x: number) => (BASE_HUE + x * HUE_STEP) % 360;
+    const litColor = (i: number) => `hsl(${hueAt(i)}, 90%, 60%)`;
+
+    // Live position lookup — these node objects are mutated in place by the
+    // layout, so reading .x/.y/.z each frame tracks the simulation.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const posMap = new Map<string, any>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const o of fg.graphData().nodes as any[]) posMap.set(o.id, o);
+
+    // The travelling particle: an additively-blended sphere added to the scene.
+    const radius = Math.max(4, settings.nodeRelSize * 1.8);
+    const geometry = new THREE.SphereGeometry(radius, 16, 16);
+    const material = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(), transparent: true, opacity: 0.95,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const particle = new THREE.Mesh(geometry, material);
+    fg.scene().add(particle);
 
     let raf = 0;
     let start = 0;
-    let lastDraw = 0;
+    let lastSeg = -1;
     const tick = (ts: number) => {
       if (!start) start = ts;
-      const total = (N - 1) / SPEED + 0.8; // brief hold on the full path, then loop
+      const total = (N - 1) / SPEED + 0.9; // brief hold on the full path, then loop
       const t = ((ts - start) / 1000) % total;
       const progress = Math.min(N - 1, t * SPEED);
-      const passed = Math.floor(progress);
-      if (ts - lastDraw > 40) { // ~25fps
-        lastDraw = ts;
+      const i = Math.floor(progress);
+      const frac = progress - i;
+
+      // Smoothly interpolate the particle between consecutive nodes.
+      const a = posMap.get(nodes[i]);
+      const b = posMap.get(nodes[Math.min(i + 1, N - 1)]);
+      if (a && b) {
+        particle.position.set(
+          (a.x ?? 0) + ((b.x ?? 0) - (a.x ?? 0)) * frac,
+          (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * frac,
+          (a.z ?? 0) + ((b.z ?? 0) - (a.z ?? 0)) * frac,
+        );
+      }
+      material.color.setHSL(hueAt(progress) / 360, 0.9, 0.6);
+
+      // Light the trail only when we cross into a new segment (cheap: one
+      // graph recolor per hop, not per frame — the particle carries the motion).
+      if (i !== lastSeg) {
+        lastSeg = i;
         nodeMap.clear();
         edgeMap.clear();
-        for (let i = 0; i <= passed && i < N; i++) {
-          nodeMap.set(nodes[i], litColor(i));
-          if (i > 0) {
-            const c = litColor(i);
-            edgeMap.set(`${nodes[i - 1]}>${nodes[i]}`, c);
-            edgeMap.set(`${nodes[i]}>${nodes[i - 1]}`, c);
+        for (let k = 0; k <= i && k < N; k++) {
+          nodeMap.set(nodes[k], litColor(k));
+          if (k > 0) {
+            const c = litColor(k);
+            edgeMap.set(`${nodes[k - 1]}>${nodes[k]}`, c);
+            edgeMap.set(`${nodes[k]}>${nodes[k - 1]}`, c);
           }
-        }
-        if (passed + 1 < N) { // pulse the edge the head is currently crossing
-          edgeMap.set(`${nodes[passed]}>${nodes[passed + 1]}`, "#ffffff");
-          edgeMap.set(`${nodes[passed + 1]}>${nodes[passed]}`, "#ffffff");
         }
         fg.refresh();
       }
@@ -1027,9 +1088,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       cancelAnimationFrame(raf);
       nodeMap.clear();
       edgeMap.clear();
+      fg.scene().remove(particle);
+      geometry.dispose();
+      material.dispose();
       if (fgRef.current && initialized) fgRef.current.refresh();
     };
-  }, [pathMode, pathInfo, initialized]);
+  }, [pathMode, pathInfo, initialized, fgData, settings.nodeRelSize]);
 
   // ── Resize observer ─────────────────────────────────────────────────────────
 

@@ -134,11 +134,20 @@ describe("computePathNodes", () => {
     expect(nodes).toEqual(["a", "b", "c", "d"]);
   });
 
-  it("directed mode fails across a backwards-only link; undirected succeeds", () => {
-    const directed = computePathNodes(chain(), [{ slug: "d" }, { slug: "e" }], "directed");
-    expect(directed.nodes).toEqual([]);
-    const undirected = computePathNodes(chain(), [{ slug: "d" }, { slug: "e" }], "undirected");
-    expect(undirected.nodes).toEqual(["d", "e"]);
+  it("directed finds a route even when waypoints are listed against the arrows", () => {
+    // arrows go a→b→c→d; asking for c then a still follows the edges, reversed
+    const { nodes } = computePathNodes(chain(), [{ slug: "c" }, { slug: "a" }], "directed");
+    expect(nodes).toEqual(["c", "b", "a"]);
+  });
+
+  it("directed respects arrows where neither order connects; undirected bridges it", () => {
+    // f → x ← h : convergent edges, no directed path either way
+    const g = new Graph({ type: "directed" });
+    for (const n of ["f", "x", "h"]) g.addNode(n);
+    g.addEdge("f", "x");
+    g.addEdge("h", "x");
+    expect(computePathNodes(g, [{ slug: "f" }, { slug: "h" }], "directed").nodes).toEqual([]);
+    expect(computePathNodes(g, [{ slug: "f" }, { slug: "h" }], "undirected").nodes).toEqual(["f", "x", "h"]);
   });
 
   it("records edge keys in both orientations for robust link coloring", () => {

@@ -306,6 +306,31 @@ describe("image backlinks", () => {
     db.close();
   });
 
+  test("listImageBacklinks: finds articles that use the image as a sidebar/headline image", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const md = "# Article A\n\nNo inline media reference here.\n\nBody text.";
+    saveArticle(db, { slug: "article-a", canonicalSlug: "article-a", title: "Article A", markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now() }, [], ["article-a"]);
+    upsertArticleHeadlineMedia(db, "article-a", "crystal-img", "");
+
+    const results = listImageBacklinks(db, "crystal-img");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].slug, "article-a");
+    db.close();
+  });
+
+  test("listImageBacklinks: dedupes an article that references the image both inline and as headline", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    seedArticleWithImage(db, "article-a", "Article A", "crystal-img");
+    upsertArticleHeadlineMedia(db, "article-a", "crystal-img", "");
+
+    const results = listImageBacklinks(db, "crystal-img");
+    assert.equal(results.length, 1);
+    assert.equal(results[0].slug, "article-a");
+    db.close();
+  });
+
   test("GET /api/media/:id/backlinks: returns backlinks from server", async (t) => {
     const s = await makeTestServer(); t.after(s.cleanup);
     seedMedia(s.mediaDatabasePath, "ref-img");
@@ -959,11 +984,8 @@ describe("pipeline-nodes", () => {
     // Seed a media record so the node can find it
     insertMedia(mediaDb, { ...baseMediaRecord("cap-img"), sha256: "cap".padEnd(64, "0") });
 
-    const descJson = JSON.stringify({
-      title_slug: "test-image-slug",
-      description: "A fictional compound used in metallurgy.",
-    });
-    const llm = new FakeLlm(descJson);
+    const description = "A fictional compound used in metallurgy.";
+    const llm = new FakeLlm(description);
     const deps = makeDeps(db, llm);
     const depsWithMedia = { ...deps, mediaDb };
 
@@ -974,8 +996,11 @@ describe("pipeline-nodes", () => {
 
     const patch = await generateImageCaptionNode.run(state as any, depsWithMedia as any);
     assert.ok(patch.imageCaptionResult);
-    assert.equal(patch.imageCaptionResult.titleSlug, "test-image-slug");
-    assert.equal(patch.imageCaptionResult.description, "A fictional compound used in metallurgy.");
+    // titleSlug is derived from the first words of the (plain-prose) description —
+    // see captionImage.ts, which slugifies the response rather than parsing JSON
+    // (image_description.toml sets json = false).
+    assert.equal(patch.imageCaptionResult.titleSlug, "a-fictional-compound-used-in-metallurgy");
+    assert.equal(patch.imageCaptionResult.description, description);
 
     // Verify no vision images were attached (text-only model)
     assert.equal(llm.capturedOptions[0]?.images, undefined);

@@ -1404,8 +1404,9 @@ export function deleteArchivedArticle(db: DatabaseSync, slug: string): void {
 }
 
 /**
- * Return articles whose markdown body references the given image slug via
- * the media: scheme (e.g. ![caption](media:some-slug)).
+ * Return articles that reference the given image slug — either inline in the
+ * markdown body via the media: scheme (e.g. ![caption](media:some-slug)) or
+ * as a sidebar/headline image recorded in article_media.
  */
 export function listImageBacklinks(
   db: DatabaseSync,
@@ -1413,13 +1414,16 @@ export function listImageBacklinks(
 ): Array<{ slug: string; title: string }> {
   return (db
     .prepare(
-      `SELECT slug, title
-       FROM articles
-       WHERE is_disambiguation = 0
-         AND markdown LIKE ?
-       ORDER BY title COLLATE NOCASE ASC`,
+      `SELECT DISTINCT a.slug AS slug, a.title AS title
+       FROM articles a
+       WHERE a.is_disambiguation = 0
+         AND (
+           a.markdown LIKE ?
+           OR a.slug IN (SELECT article_slug FROM article_media WHERE media_id = ?)
+         )
+       ORDER BY a.title COLLATE NOCASE ASC`,
     )
-    .all(`%(media:${imageSlug})%`) as unknown) as Array<{ slug: string; title: string }>;
+    .all(`%(media:${imageSlug})%`, imageSlug) as unknown) as Array<{ slug: string; title: string }>;
 }
 
 export function listTopArticles(db: DatabaseSync, limit: number): { slug: string; title: string; inboundCount: number }[] {

@@ -897,6 +897,30 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const nodes = showHalu ? allNodes : allNodes.filter((n) => n.exists);
     const visibleIds = new Set(nodes.map((n) => n.id));
 
+    // Force every chosen waypoint to appear — even ones with no links at all
+    // (not in the link graph) or hidden by the halu filter. Synthesize a node
+    // when it isn't already present so the article you searched is always shown.
+    if (pathMode) {
+      for (const w of waypoints) {
+        if (visibleIds.has(w.slug)) continue;
+        const inG = gInstance.hasNode(w.slug);
+        nodes.push({
+          id: w.slug,
+          title: inG ? (gInstance.getNodeAttribute(w.slug, "title") as string) || w.title : w.title,
+          exists: true,
+          score: nodeStats.get(w.slug)?.score ?? 0,
+          scoreNorm: nodeStats.get(w.slug)?.scoreNorm ?? 0,
+          community: nodeStats.get(w.slug)?.community ?? 0,
+          componentId: nodeStats.get(w.slug)?.componentId ?? 0,
+          inDegree: inG ? gInstance.inDegree(w.slug) : 0,
+          outDegree: inG ? gInstance.outDegree(w.slug) : 0,
+          visibleInDegree: 0,
+          visibleOutDegree: 0,
+        });
+        visibleIds.add(w.slug);
+      }
+    }
+
     const links: { source: string; target: string }[] = [];
     for (const edge of gInstance.edges()) {
       const [src, tgt] = gInstance.extremities(edge);

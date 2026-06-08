@@ -119,6 +119,7 @@ interface RenderSettings {
   // Appearance
   bgColor: string;
   alwaysShowLabels: boolean; // show node-name labels above all nodes, not just on hover
+  labelSize: number;        // size multiplier for always-on node-name labels: 0.5–5
   directionalParticles: boolean;
 }
 
@@ -139,6 +140,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   velocityDecay: 0.4,
   bgColor: "#080810",
   alwaysShowLabels: false,
+  labelSize: 1.5,
   directionalParticles: false,
 };
 
@@ -161,6 +163,37 @@ function communityColor(id: number): string {
   return COMMUNITY_COLORS[id % COMMUNITY_COLORS.length];
 }
 
+// ── Community legend ─────────────────────────────────────────────────────────
+
+interface CommunityGroup {
+  id: number;
+  color: string;
+  members: { id: string; title: string }[];
+}
+
+/**
+ * Group the currently-visible nodes by community (or component, matching
+ * whichever coloring mode is active) so the legend always reflects what's
+ * actually drawn on screen — same grouping key the renderer uses for color.
+ * Largest groups first; members alphabetical by title.
+ */
+export function summarizeCommunities(nodes: FgNode[], colorMode: ColorMode): CommunityGroup[] {
+  const groups = new Map<number, CommunityGroup>();
+  for (const n of nodes) {
+    const key = colorMode === "component" ? n.componentId : n.community;
+    let group = groups.get(key);
+    if (!group) {
+      group = { id: key, color: communityColor(key), members: [] };
+      groups.set(key, group);
+    }
+    group.members.push({ id: n.id, title: n.title });
+  }
+  for (const group of groups.values()) {
+    group.members.sort((a, b) => a.title.localeCompare(b.title));
+  }
+  return [...groups.values()].sort((a, b) => b.members.length - a.members.length);
+}
+
 // ── Persistent node-name labels ──────────────────────────────────────────────
 //
 // The hover tooltip (`.nodeLabel`) already shows each node's title when you
@@ -169,14 +202,17 @@ function communityColor(id: number): string {
 // Built on a canvas texture rather than pulling in a label-sprite dependency,
 // since `three` is already available.
 
-export function makeNodeLabelSprite(text: string, color: string): THREE.Sprite {
-  const fontSize = 28;
+export function makeNodeLabelSprite(text: string, color: string, sizeMultiplier: number = 1): THREE.Sprite {
+  // Render at a high resolution so the text stays crisp whether the camera
+  // is close or far — a low-res canvas stretched to a large world size is
+  // what made earlier attempts look blurry/illegible.
+  const fontSize = 64;
   const font = `${fontSize}px sans-serif`;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
   ctx.font = font;
   const textWidth = ctx.measureText(text).width;
-  const padding = 8;
+  const padding = 16;
   canvas.width = Math.ceil(textWidth + padding * 2);
   canvas.height = Math.ceil(fontSize * 1.4);
 
@@ -191,9 +227,10 @@ export function makeNodeLabelSprite(text: string, color: string): THREE.Sprite {
   texture.minFilter = THREE.LinearFilter;
   const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true });
   const sprite = new THREE.Sprite(material);
-  // Scale so the sprite reads at a consistent on-screen size relative to nodes
-  const scale = canvas.height / 90;
-  sprite.scale.set((canvas.width / canvas.height) * scale * 4, scale * 4, 1);
+  // World-space size, independent of canvas resolution — tunable via the
+  // "Label size" knob (sizeMultiplier) so it can be matched to node scale.
+  const worldHeight = 6 * sizeMultiplier;
+  sprite.scale.set((canvas.width / canvas.height) * worldHeight, worldHeight, 1);
   return sprite;
 }
 
@@ -279,6 +316,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const [largestComponentOnly, setLargestComponentOnly] = useState(() => loadPrefs().largestComponentOnly ?? false);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [settings, setSettings] = useState<RenderSettings>(() => ({ ...DEFAULT_SETTINGS, ...loadPrefs().settings }));
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -596,7 +634,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           const color = n.exists
             ? (colorModeRef.current === "component" ? communityColor(n.componentId) : communityColor(n.community))
             : "#999999";
-          const sprite = makeNodeLabelSprite(n.title, color);
+          const sprite = makeNodeLabelSprite(n.title, color, settings.labelSize);
           const nodeRadius = Math.cbrt(Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6)) * settings.nodeRelSize;
           sprite.position.set(0, nodeRadius + sprite.scale.y / 2 + 1, 0);
           return sprite;
@@ -662,6 +700,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const removeSeed = useCallback((slug: string) => {
     setSeeds((prev) => prev.filter((s) => s.slug !== slug));
   }, []);
+
+  const communityGroups = useMemo(
+    () => summarizeCommunities(fgData.nodes, colorMode),
+    [fgData.nodes, colorMode],
+  );
 
   const nodeCount = fgData.nodes.length;
   const edgeCount = fgData.links.length;
@@ -801,6 +844,14 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
         <button
           type="button"
+          className={`graph-settings-btn${legendOpen ? " active" : ""}`}
+          onClick={() => setLegendOpen((o) => !o)}
+        >
+          ▦ {colorMode === "component" ? "Components" : "Communities"}
+        </button>
+
+        <button
+          type="button"
           className={`graph-settings-btn${settingsOpen ? " active" : ""}`}
           onClick={() => setSettingsOpen((o) => !o)}
         >
@@ -808,8 +859,43 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         </button>
       </div>
 
-      {/* ── Body: canvas + settings side panel ── */}
+      {/* ── Body: legend + canvas + settings side panel ── */}
       <div className="graph-body">
+        {legendOpen && (
+          <div className="graph-legend-panel">
+            <div className="graph-legend-heading">
+              {colorMode === "component" ? "Components" : "Communities"}
+              <span className="graph-legend-count">{communityGroups.length}</span>
+            </div>
+            {communityGroups.length === 0 ? (
+              <p className="graph-legend-empty">No nodes visible.</p>
+            ) : (
+              <ul className="graph-legend-list">
+                {communityGroups.map((group) => (
+                  <li key={group.id} className="graph-legend-group">
+                    <div className="graph-legend-group-header">
+                      <span className="graph-legend-swatch" style={{ background: group.color }} />
+                      <span className="graph-legend-group-label">
+                        {colorMode === "component" ? "Component" : "Community"} {group.id}
+                      </span>
+                      <span className="graph-legend-group-count">{group.members.length}</span>
+                    </div>
+                    <ul className="graph-legend-members">
+                      {group.members.map((m) => (
+                        <li key={m.id}>
+                          <button type="button" onClick={() => onNavigate(toWikiSegment(m.title))}>
+                            {m.title}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         <div className="graph-canvas" ref={containerRef} />
 
         {settingsOpen && (
@@ -832,6 +918,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 <span>Always show names</span>
                 <span className="grs-toggle-hint">show node labels above all nodes, not just on hover</span>
               </label>
+              {settings.alwaysShowLabels && (
+                <Knob label="Label size" value={settings.labelSize} min={0.5} max={5} step={0.1}
+                  format={(v) => v.toFixed(1)} onChange={(v) => set("labelSize", v)} />
+              )}
             </div>
 
             <div className="grs-section">

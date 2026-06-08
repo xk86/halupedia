@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 
-import { makeNodeLabelSprite, summarizeCommunities } from "../../src/client/GraphView";
+import { dim, makeNodeLabelSprite, summarizeCommunities } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -85,6 +85,28 @@ describe("makeNodeLabelSprite", () => {
     expect(big.scale.y).toBeCloseTo(normal.scale.y * 2);
     expect(big.scale.x).toBeCloseTo(normal.scale.x * 2);
     expect(normal.scale.y).toBeCloseTo(6);
+  });
+});
+
+describe("dim", () => {
+  it("blends a color toward dark grey", () => {
+    // fully dimmed white lands near the target grey, not pure white/black
+    const dimmed = dim("#ffffff", 1);
+    expect(dimmed).toBe("#222222");
+  });
+
+  it("leaves a color unchanged at amount 0", () => {
+    expect(dim("#e63946", 0)).toBe("#e63946");
+  });
+
+  it("partially dims by default and stays a valid hex", () => {
+    const d = dim("#ffffff");
+    expect(d).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(d).not.toBe("#ffffff");
+  });
+
+  it("returns input unchanged for non-hex strings", () => {
+    expect(dim("rebeccapurple")).toBe("rebeccapurple");
   });
 });
 

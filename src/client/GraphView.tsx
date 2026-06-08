@@ -36,6 +36,7 @@ type ColorMode = "community" | "component";
 
 type FilterMode = "top" | "search";
 type NeighborhoodMode = "refs" | "backlinks" | "both";
+type PathDir = "directed" | "undirected" | "either";
 type Metric =
   | "pagerank" | "betweenness" | "closeness" | "eigenvector"
   | "degree" | "inDegree" | "outDegree"
@@ -161,6 +162,27 @@ const COMMUNITY_COLORS = [
 
 function communityColor(id: number): string {
   return COMMUNITY_COLORS[id % COMMUNITY_COLORS.length];
+}
+
+// ── Shading ──────────────────────────────────────────────────────────────────
+//
+// The "shading" whitelist dims everything that isn't in the highlight set so the
+// nodes the user cares about (a hovered article, the waypoints of a path) pop
+// out. We dim the *color* toward a dark grey rather than touching opacity:
+// 3d-force-graph's nodeOpacity is a single global value, so per-node fading
+// isn't available on the default spheres — and "shade, don't hide" is exactly
+// what we want anyway (the rest of the graph stays faintly visible for context).
+
+/** Blend a #rrggbb color toward dark grey. amount=0 → unchanged, 1 → grey. */
+export function dim(hex: string, amount = 0.78): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+  const t = 0x22; // target grey channel
+  const mix = (c: number) => Math.round(c + (t - c) * amount);
+  const to2 = (c: number) => mix(c).toString(16).padStart(2, "0");
+  return `#${to2(r)}${to2(g)}${to2(b)}`;
 }
 
 // ── Community legend ─────────────────────────────────────────────────────────
@@ -305,6 +327,8 @@ interface SavedPrefs {
   metric: Metric;
   colorMode: ColorMode;
   largestComponentOnly: boolean;
+  shadingEnabled: boolean;
+  pathDir: PathDir;
 }
 
 function loadPrefs(): Partial<SavedPrefs> {
@@ -342,6 +366,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const [metric, setMetric] = useState<Metric>(() => loadPrefs().metric ?? "pagerank");
   const [colorMode, setColorMode] = useState<ColorMode>(() => loadPrefs().colorMode ?? "community");
   const [largestComponentOnly, setLargestComponentOnly] = useState(() => loadPrefs().largestComponentOnly ?? false);
+  const [shadingEnabled, setShadingEnabled] = useState(() => loadPrefs().shadingEnabled ?? false);
+  const [highlightSet, setHighlightSet] = useState<Set<string>>(() => new Set());
+  const [pathDir, setPathDir] = useState<PathDir>(() => loadPrefs().pathDir ?? "either");
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
@@ -352,6 +379,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const seedsRef = useRef(seeds);
   const colorModeRef = useRef(colorMode);
   const pathEdgeSetRef = useRef(new Set<string>());
+  const highlightSetRef = useRef(highlightSet);
+  const shadingEnabledRef = useRef(shadingEnabled);
 
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
@@ -363,8 +392,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   // Persist preferences whenever any user-controlled value changes (seeds are transient, not saved)
   useEffect(() => {
-    savePrefs({ settings, showHalu, topN, filterMode, neighborMode, metric, colorMode, largestComponentOnly });
-  }, [settings, showHalu, topN, filterMode, neighborMode, metric, colorMode, largestComponentOnly]);
+    savePrefs({ settings, showHalu, topN, filterMode, neighborMode, metric, colorMode, largestComponentOnly, shadingEnabled, pathDir });
+  }, [settings, showHalu, topN, filterMode, neighborMode, metric, colorMode, largestComponentOnly, shadingEnabled, pathDir]);
 
   // ── Graphology: build directed graph + stats ────────────────────────────────
 
@@ -694,18 +723,33 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     if (!fgRef.current || !initialized) return;
     fgRef.current
       .nodeColor((n: FgNode) => {
-        if (!n.exists) return "#555566";
-        return colorModeRef.current === "component"
-          ? communityColor(n.componentId)
-          : communityColor(n.community);
+        const base = !n.exists
+          ? "#555566"
+          : colorModeRef.current === "component"
+            ? communityColor(n.componentId)
+            : communityColor(n.community);
+        const hl = highlightSetRef.current;
+        if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return dim(base);
+        return base;
       })
       .linkColor((l: { source: FgNode | string; target: FgNode | string }) => {
         const src = typeof l.source === "object" ? l.source.id : l.source;
         const tgt = typeof l.target === "object" ? l.target.id : l.target;
-        return pathEdgeSetRef.current.has(`${src}>${tgt}`) ? "#ffd700" : "#ffffff";
+        const base = pathEdgeSetRef.current.has(`${src}>${tgt}`) ? "#ffd700" : "#ffffff";
+        const hl = highlightSetRef.current;
+        if (shadingEnabledRef.current && hl.size > 0 && !(hl.has(src) && hl.has(tgt))) return dim(base);
+        return base;
       })
       .refresh();
   }, [colorMode, pathEdgeSet, initialized]);
+
+  // Re-apply colors (without re-heating physics) whenever the shading whitelist
+  // or its enabled flag changes — the accessors above read these via refs.
+  useEffect(() => {
+    highlightSetRef.current = highlightSet;
+    shadingEnabledRef.current = shadingEnabled;
+    if (fgRef.current && initialized) fgRef.current.refresh();
+  }, [highlightSet, shadingEnabled, initialized]);
 
   // ── Resize observer ─────────────────────────────────────────────────────────
 
@@ -875,6 +919,15 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           onClick={() => setShowHalu((v) => !v)}
         >
           {showHalu ? "Hide halu" : "Show halu"}
+        </button>
+
+        <button
+          type="button"
+          className={`graph-settings-btn${shadingEnabled ? " active" : ""}`}
+          onClick={() => setShadingEnabled((v) => !v)}
+          title="Dim nodes outside the highlight set (hovered article or path waypoints)"
+        >
+          {shadingEnabled ? "Shading on" : "Shading off"}
         </button>
 
         <button

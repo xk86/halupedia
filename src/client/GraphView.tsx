@@ -366,6 +366,11 @@ interface RenderSettings {
   // Path trace
   maxPaths: number;          // how many shortest routes to race between 2 waypoints: 1–10
   particleGlow: boolean;     // wrap the travelling particle in a soft glow halo
+  traceSpeed: number;        // base traversal speed, nodes/sec: 0.4–5
+  traceAccel: number;        // ease-in-out intensity (0 = constant speed): 0–1
+  traceLightness: number;    // OKLCH L for the trace colors: 0.4–0.95
+  traceChroma: number;       // OKLCH C (vividness) for the trace colors: 0.02–0.37
+  traceBaseHue: number;      // hue rotation offset for the whole palette: 0–360
 }
 
 const DEFAULT_SETTINGS: RenderSettings = {
@@ -390,6 +395,11 @@ const DEFAULT_SETTINGS: RenderSettings = {
   directionalParticles: false,
   maxPaths: 3,
   particleGlow: true,
+  traceSpeed: 1.4,
+  traceAccel: 0.5,
+  traceLightness: 0.72,
+  traceChroma: 0.17,
+  traceBaseHue: 0,
 };
 
 const BG_PRESETS = [
@@ -675,6 +685,13 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const traceNodeColorRef = useRef(new Map<string, string>());
   const traceEdgeColorRef = useRef(new Map<string, string>());
   const labelSpritesRef = useRef(new Map<string, THREE.Sprite>());
+  // Live trace params so the animation loop reads speed/accel/colors without
+  // restarting (smooth while dragging sliders); `dirty` forces a trail recolor.
+  const traceParamsRef = useRef({
+    speed: settings.traceSpeed, accel: settings.traceAccel,
+    L: settings.traceLightness, C: settings.traceChroma, baseHue: settings.traceBaseHue,
+    dirty: false,
+  });
 
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
@@ -1106,6 +1123,16 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     if (fgRef.current && initialized) fgRef.current.refresh();
   }, [highlightSet, shadingEnabled, initialized, applyLabelFade]);
 
+  // Keep the live trace params current; flag the trail for a recolor so color
+  // tweaks show immediately (not only after the next node crossing).
+  useEffect(() => {
+    traceParamsRef.current = {
+      speed: settings.traceSpeed, accel: settings.traceAccel,
+      L: settings.traceLightness, C: settings.traceChroma, baseHue: settings.traceBaseHue,
+      dirty: true,
+    };
+  }, [settings.traceSpeed, settings.traceAccel, settings.traceLightness, settings.traceChroma, settings.traceBaseHue]);
+
   // Entering path mode turns shading on (so the path stands out) and makes the
   // path nodes the highlight whitelist; leaving it clears the whitelist.
   useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
@@ -1144,14 +1171,23 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       return;
     }
 
-    const SPEED = 1.4; // nodes traversed per second
     const numPaths = paths.length;
-    // Per-route hue in OKLCH (perceptually even): base offset by rank, step
-    // spans the full wheel over the route so every node band reads distinctly.
-    const TRACE_L = 0.72, TRACE_C = 0.17;
-    const hueAt = (rank: number, len: number, x: number) =>
-      ((360 / numPaths) * rank + x * (360 / Math.max(2, len))) % 360;
-    const litColor = (rank: number, len: number, i: number) => oklch(TRACE_L, TRACE_C, hueAt(rank, len, i));
+    const maxLen = Math.max(...paths.map((p) => p.nodes.length));
+    // Per-route hue in OKLCH (perceptually even): base offset by rank + a global
+    // hue knob, with a step that spans the full wheel over the route so every
+    // node band reads distinctly. L/C/speed/accel all read live from the ref.
+    const hueAt = (rank: number, len: number, x: number, baseHue: number) =>
+      ((360 / numPaths) * rank + baseHue + x * (360 / Math.max(2, len))) % 360;
+    const litColor = (rank: number, len: number, i: number) => {
+      const p = traceParamsRef.current;
+      return oklch(p.L, p.C, hueAt(rank, len, i, p.baseHue));
+    };
+    // Ease-in-out applied to the whole traversal: accel 0 → constant speed,
+    // higher → the particle accelerates out of the start and eases into the end.
+    const easeAccel = (x: number, accel: number) => {
+      const pe = 1 + accel * 3;
+      return x < 0.5 ? 0.5 * Math.pow(2 * x, pe) : 1 - 0.5 * Math.pow(2 * (1 - x), pe);
+    };
 
     // Live position lookup — node objects are mutated in place by the layout.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1190,18 +1226,23 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     let raf = 0;
     let start = 0;
     const lastSegs = paths.map(() => -1);
-    const maxLen = Math.max(...paths.map((p) => p.nodes.length));
 
     const tick = (ts: number) => {
       if (!start) start = ts;
-      const total = (maxLen - 1) / SPEED + 0.9; // hold on the full routes, then loop
-      const t = ((ts - start) / 1000) % total;
+      const prm = traceParamsRef.current;
+      const activeDur = Math.max(0.1, (maxLen - 1) / prm.speed); // time to walk the longest route
+      const total = activeDur + 0.9;                              // + hold, then loop
+      const tc = ((ts - start) / 1000) % total;
+      const phase = Math.min(1, tc / activeDur);
+      // distance travelled (in nodes) along the longest route; shorter routes
+      // reach their end sooner — that staggered finish is the distance ranking.
+      const d = easeAccel(phase, prm.accel) * (maxLen - 1);
       let anyCrossed = false;
 
       cores.forEach((c, idx) => {
         const nodes = paths[idx].nodes;
         const N = nodes.length;
-        const progress = Math.min(N - 1, t * SPEED);
+        const progress = Math.min(N - 1, d);
         const i = Math.floor(progress);
         const frac = progress - i;
         const a = posMap.get(nodes[i]);
@@ -1213,15 +1254,16 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           c.mesh.position.set(x, y, z);
           c.glow?.position.set(x, y, z);
         }
-        const col = oklch(TRACE_L, TRACE_C, hueAt(c.rank, c.len, progress));
+        const col = oklch(prm.L, prm.C, hueAt(c.rank, c.len, progress, prm.baseHue));
         (c.mesh.material as THREE.MeshBasicMaterial).color.set(col);
         if (c.glow) (c.glow.material as THREE.MeshBasicMaterial).color.set(col);
         if (i !== lastSegs[idx]) { lastSegs[idx] = i; anyCrossed = true; }
       });
 
-      // Rebuild the lit trail (union over all routes) only when some particle
-      // crosses into a new node — the moving particles carry the smooth motion.
-      if (anyCrossed) {
+      // Rebuild the lit trail when a particle crosses a node, or when a color
+      // slider changed (dirty) — the moving particles carry the smooth motion.
+      if (anyCrossed || prm.dirty) {
+        prm.dirty = false;
         nodeMap.clear();
         edgeMap.clear();
         cores.forEach((c, idx) => {
@@ -1617,6 +1659,16 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
               <div className="grs-section-label">Path trace</div>
               <Knob label="Max routes" value={settings.maxPaths} min={1} max={10} step={1}
                 onChange={(v) => set("maxPaths", v)} />
+              <Knob label="Speed" value={settings.traceSpeed} min={0.4} max={5} step={0.1}
+                format={(v) => v.toFixed(1)} onChange={(v) => set("traceSpeed", v)} />
+              <Knob label="Acceleration" value={settings.traceAccel} min={0} max={1} step={0.05}
+                format={(v) => v.toFixed(2)} onChange={(v) => set("traceAccel", v)} />
+              <Knob label="Color lightness" value={settings.traceLightness} min={0.4} max={0.95} step={0.01}
+                format={(v) => v.toFixed(2)} onChange={(v) => set("traceLightness", v)} />
+              <Knob label="Color vividness" value={settings.traceChroma} min={0.02} max={0.37} step={0.01}
+                format={(v) => v.toFixed(2)} onChange={(v) => set("traceChroma", v)} />
+              <Knob label="Base hue" value={settings.traceBaseHue} min={0} max={360} step={5}
+                format={(v) => `${v}°`} onChange={(v) => set("traceBaseHue", v)} />
               <label className="grs-toggle">
                 <input
                   type="checkbox"

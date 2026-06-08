@@ -97,6 +97,170 @@ function computeMetric(g: Graph, metric: Metric, seeds?: Seed[]): Record<string,
 
 interface Suggestion { slug: string; title: string; }
 
+// ── Article search (shared) ────────────────────────────────────────────────
+//
+// Both the seed search and the path-mode pickers hit the same /api/search
+// endpoint and keep only real (exists) articles. Centralizing the fetch shape
+// here keeps a single source of truth for the request/response handling.
+
+async function fetchArticleSuggestions(
+  q: string, offset: number, signal?: AbortSignal,
+): Promise<{ hits: Suggestion[]; hasMore: boolean }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d: any = await fetch(`/api/search?q=${encodeURIComponent(q)}&offset=${offset}`, { signal }).then((r) => r.json());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hits = (d.results ?? []).filter((r: any) => r.exists).map((r: any) => ({ slug: r.slug, title: r.title }));
+  return { hits, hasMore: d.has_more ?? false };
+}
+
+// ── Waypoint pathfinding ───────────────────────────────────────────────────
+
+/** BFS treating the directed graph as undirected (neighbors in either direction). */
+function bfsUndirected(g: Graph, a: string, b: string): string[] | null {
+  if (a === b) return [a];
+  const prev = new Map<string, string>();
+  const visited = new Set<string>([a]);
+  const queue: string[] = [a];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const nb of g.neighbors(cur)) {
+      if (visited.has(nb)) continue;
+      visited.add(nb);
+      prev.set(nb, cur);
+      if (nb === b) {
+        const path = [b];
+        let c = b;
+        while (c !== a) { c = prev.get(c)!; path.push(c); }
+        return path.reverse();
+      }
+      queue.push(nb);
+    }
+  }
+  return null;
+}
+
+/**
+ * Stitch the shortest paths between each *consecutive* pair of waypoints into
+ * one ordered node walk, plus the set of edges it uses (both orientations, so
+ * link coloring matches regardless of the underlying edge direction).
+ *  - "directed": follow link direction only
+ *  - "undirected": ignore direction
+ *  - "either": try directed first, fall back to undirected
+ */
+export function computePathNodes(
+  g: Graph, waypoints: { slug: string }[], dir: PathDir,
+): { nodes: string[]; edgeSet: Set<string> } {
+  const nodes: string[] = [];
+  const edgeSet = new Set<string>();
+  const push = (slug: string) => { if (nodes[nodes.length - 1] !== slug) nodes.push(slug); };
+
+  for (let i = 0; i + 1 < waypoints.length; i++) {
+    const a = waypoints[i].slug, b = waypoints[i + 1].slug;
+    if (!g.hasNode(a) || !g.hasNode(b)) continue;
+    let seg: string[] | null = null;
+    try {
+      if (dir === "directed") seg = unweightedPath(g, a, b);
+      else if (dir === "undirected") seg = bfsUndirected(g, a, b);
+      else seg = unweightedPath(g, a, b) ?? bfsUndirected(g, a, b);
+    } catch { seg = null; }
+    if (!seg) continue;
+    for (const s of seg) push(s);
+    for (let k = 0; k + 1 < seg.length; k++) {
+      edgeSet.add(`${seg[k]}>${seg[k + 1]}`);
+      edgeSet.add(`${seg[k + 1]}>${seg[k]}`);
+    }
+  }
+  return { nodes, edgeSet };
+}
+
+// ── Reusable article picker ────────────────────────────────────────────────
+//
+// A self-contained search box with a scroll-paginated suggestion dropdown,
+// reusing the existing .graph-search-wrap / .graph-suggest styling. Used for
+// each path-mode waypoint slot.
+
+function ArticlePicker({ onPick, placeholder, autoFocus }: {
+  onPick: (s: Suggestion) => void;
+  placeholder: string;
+  autoFocus?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<Suggestion[]>([]);
+  const [open, setOpen] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const offsetRef = useRef(0);
+  const queryRef = useRef("");
+
+  useEffect(() => {
+    if (!query.trim()) { setItems([]); setHasMore(false); offsetRef.current = 0; queryRef.current = ""; return; }
+    queryRef.current = query;
+    offsetRef.current = 0;
+    setItems([]);
+    setHasMore(false);
+    const ctrl = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const { hits, hasMore: more } = await fetchArticleSuggestions(query, 0, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        setItems(hits);
+        setHasMore(more);
+        offsetRef.current = hits.length;
+      } catch { /* aborted or network error */ }
+    }, 180);
+    return () => { clearTimeout(timer); ctrl.abort(); };
+  }, [query]);
+
+  const loadMore = useCallback(async () => {
+    if (loading || !hasMore || !queryRef.current.trim()) return;
+    setLoading(true);
+    const q = queryRef.current, offset = offsetRef.current;
+    try {
+      const { hits, hasMore: more } = await fetchArticleSuggestions(q, offset);
+      if (queryRef.current !== q) return;
+      setItems((prev) => [...prev, ...hits]);
+      setHasMore(more);
+      offsetRef.current = offset + hits.length;
+    } catch { /* network error */ }
+    setLoading(false);
+  }, [loading, hasMore]);
+
+  return (
+    <div className="graph-search-wrap">
+      <input
+        type="text"
+        className="graph-search-input"
+        placeholder={placeholder}
+        value={query}
+        autoFocus={autoFocus}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && items.length > 0 && (
+        <ul
+          className="graph-suggest"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) loadMore();
+          }}
+        >
+          {items.map((s) => (
+            <li key={s.slug}>
+              <button type="button" onMouseDown={() => { onPick(s); setQuery(""); setItems([]); setOpen(false); }}>
+                {s.title}
+              </button>
+            </li>
+          ))}
+          {hasMore && (
+            <li className="graph-suggest-more">{loading ? "Loading…" : "Scroll for more"}</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Render settings ──────────────────────────────────────────────────────────
 
 interface RenderSettings {
@@ -372,6 +536,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const [highlightSet, setHighlightSet] = useState<Set<string>>(() => new Set());
   const [pathDir, setPathDir] = useState<PathDir>(() => loadPrefs().pathDir ?? "either");
   const [pathMode, setPathMode] = useState(false);
+  const [waypoints, setWaypoints] = useState<Seed[]>([]);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
@@ -384,6 +549,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const pathEdgeSetRef = useRef(new Set<string>());
   const highlightSetRef = useRef(highlightSet);
   const shadingEnabledRef = useRef(shadingEnabled);
+  const pathModeRef = useRef(pathMode);
+  const pathEdgesRef = useRef(new Set<string>());
 
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
@@ -472,6 +639,13 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     return edgeSet;
   }, [gInstance, seeds]);
 
+  // ── Ordered path through the chosen waypoints ────────────────────────────────
+
+  const pathInfo = useMemo(() => {
+    if (!gInstance || waypoints.length < 2) return { nodes: [] as string[], edgeSet: new Set<string>() };
+    return computePathNodes(gInstance, waypoints, pathDir);
+  }, [gInstance, waypoints, pathDir]);
+
   // ── Filtered subgraph for the renderer ─────────────────────────────────────
 
   const fgData = useMemo(() => {
@@ -511,6 +685,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       } catch { /* ignore */ }
     }
 
+    // Always include the path waypoints + intermediate nodes so the trace has
+    // something to draw, even if they fall outside the top-N / neighbor filter.
+    if (pathMode) {
+      for (const slug of pathInfo.nodes) if (gInstance.hasNode(slug)) slugSet.add(slug);
+    }
+
     const allNodes: FgNode[] = [...slugSet].map((slug) => ({
       id: slug,
       title: (gInstance.getNodeAttribute(slug, "title") as string) || slug,
@@ -547,7 +727,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     }
 
     return { nodes, links, haluCount };
-  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu, largestComponentOnly]);
+  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu, largestComponentOnly, pathMode, pathInfo]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -741,13 +921,16 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       .linkColor((l: { source: FgNode | string; target: FgNode | string }) => {
         const src = typeof l.source === "object" ? l.source.id : l.source;
         const tgt = typeof l.target === "object" ? l.target.id : l.target;
-        const base = pathEdgeSetRef.current.has(`${src}>${tgt}`) ? "#ffd700" : "#ffffff";
+        const key = `${src}>${tgt}`;
+        // Path-mode trace edges win over the seed-pair gold highlight.
+        const onPath = pathModeRef.current && pathEdgesRef.current.has(key);
+        const base = (onPath || pathEdgeSetRef.current.has(key)) ? "#ffd700" : "#ffffff";
         const hl = highlightSetRef.current;
         if (shadingEnabledRef.current && hl.size > 0 && !(hl.has(src) && hl.has(tgt))) return dim(base);
         return base;
       })
       .refresh();
-  }, [colorMode, pathEdgeSet, initialized]);
+  }, [colorMode, pathEdgeSet, pathInfo, initialized]);
 
   // Re-apply colors (without re-heating physics) whenever the shading whitelist
   // or its enabled flag changes — the accessors above read these via refs.
@@ -756,6 +939,23 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     shadingEnabledRef.current = shadingEnabled;
     if (fgRef.current && initialized) fgRef.current.refresh();
   }, [highlightSet, shadingEnabled, initialized]);
+
+  // Entering path mode turns shading on (so the path stands out) and makes the
+  // path nodes the highlight whitelist; leaving it clears the whitelist.
+  useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
+  useEffect(() => {
+    pathEdgesRef.current = pathInfo.edgeSet;
+    if (pathMode) {
+      setHighlightSet(new Set(pathInfo.nodes));
+    } else {
+      setHighlightSet(new Set());
+    }
+  }, [pathMode, pathInfo]);
+
+  // Auto-enable shading the first time path mode is turned on.
+  useEffect(() => {
+    if (pathMode) setShadingEnabled(true);
+  }, [pathMode]);
 
   // ── Resize observer ─────────────────────────────────────────────────────────
 
@@ -786,6 +986,19 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     setSeeds((prev) => prev.filter((s) => s.slug !== slug));
   }, []);
 
+  // Path waypoints: append in order. In find-article mode, also fold the pick
+  // into the seed list so it shows up as a seed chip and joins that subgraph.
+  const addWaypoint = useCallback((s: Suggestion) => {
+    setWaypoints((prev) => prev.some((w) => w.slug === s.slug) ? prev : [...prev, { slug: s.slug, title: s.title }]);
+    if (filterMode === "search") {
+      setSeeds((prev) => prev.some((x) => x.slug === s.slug) ? prev : [...prev, { slug: s.slug, title: s.title }]);
+    }
+  }, [filterMode]);
+
+  const removeWaypoint = useCallback((slug: string) => {
+    setWaypoints((prev) => prev.filter((w) => w.slug !== slug));
+  }, []);
+
   const communityGroups = useMemo(
     () => summarizeCommunities(fgData.nodes, colorMode),
     [fgData.nodes, colorMode],
@@ -811,6 +1024,38 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
             Find article
           </button>
         </div>
+
+        <label className="graph-path-toggle">
+          <input type="checkbox" checked={pathMode} onChange={(e) => setPathMode(e.target.checked)} />
+          <span>Path</span>
+        </label>
+
+        {pathMode && (
+          <div className="graph-path-control">
+            <div className="graph-path-pickers">
+              {waypoints.map((w, i) => (
+                <span key={w.slug} className="graph-seed-chip">
+                  <span className="graph-path-index">{i + 1}</span>
+                  {w.title}
+                  <button type="button" aria-label={`Remove ${w.title}`} onClick={() => removeWaypoint(w.slug)}>×</button>
+                </span>
+              ))}
+              {/* trailing empty box: picking here spawns the next slot */}
+              <ArticlePicker
+                key={waypoints.length}
+                placeholder={waypoints.length === 0 ? "Path: pick first article…" : "next article…"}
+                onPick={addWaypoint}
+              />
+            </div>
+            <div className="graph-neighbor-tabs">
+              {(["directed", "undirected", "either"] as PathDir[]).map((d) => (
+                <button key={d} className={pathDir === d ? "active" : ""} onClick={() => setPathDir(d)}>
+                  {d === "directed" ? "Directed" : d === "undirected" ? "Undirected" : "Either"}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <select
           className="graph-metric-select"
@@ -906,6 +1151,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
               {" · "}{graphStats.componentCount} components
               {" · "}density {graphStats.density < 0.001 ? graphStats.density.toExponential(1) : graphStats.density.toFixed(4)}
               {pathEdgeSet.size > 0 && <span className="graph-path-info"> · {pathEdgeSet.size} path edges</span>}
+              {pathMode && pathInfo.nodes.length > 0 && <span className="graph-path-info"> · {pathInfo.nodes.length} path nodes</span>}
             </span>
           )}
           {!loadError && !gInstance && <span>Loading graph…</span>}

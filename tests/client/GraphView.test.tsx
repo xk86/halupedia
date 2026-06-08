@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 
-import { dim, makeNodeLabelSprite, summarizeCommunities } from "../../src/client/GraphView";
+import Graph from "graphology";
+
+import { computePathNodes, dim, makeNodeLabelSprite, summarizeCommunities } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -107,6 +109,46 @@ describe("dim", () => {
 
   it("returns input unchanged for non-hex strings", () => {
     expect(dim("rebeccapurple")).toBe("rebeccapurple");
+  });
+});
+
+describe("computePathNodes", () => {
+  // a → b → c → d, plus a stray reverse-only link e → d
+  function chain() {
+    const g = new Graph({ type: "directed" });
+    for (const n of ["a", "b", "c", "d", "e"]) g.addNode(n);
+    g.addEdge("a", "b");
+    g.addEdge("b", "c");
+    g.addEdge("c", "d");
+    g.addEdge("e", "d"); // only reachable from e going backwards
+    return g;
+  }
+
+  it("stitches consecutive waypoints into one ordered walk", () => {
+    const { nodes } = computePathNodes(chain(), [{ slug: "a" }, { slug: "d" }], "directed");
+    expect(nodes).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("dedupes the shared node when chaining multiple waypoints", () => {
+    const { nodes } = computePathNodes(chain(), [{ slug: "a" }, { slug: "c" }, { slug: "d" }], "directed");
+    expect(nodes).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("directed mode fails across a backwards-only link; undirected succeeds", () => {
+    const directed = computePathNodes(chain(), [{ slug: "d" }, { slug: "e" }], "directed");
+    expect(directed.nodes).toEqual([]);
+    const undirected = computePathNodes(chain(), [{ slug: "d" }, { slug: "e" }], "undirected");
+    expect(undirected.nodes).toEqual(["d", "e"]);
+  });
+
+  it("records edge keys in both orientations for robust link coloring", () => {
+    const { edgeSet } = computePathNodes(chain(), [{ slug: "a" }, { slug: "b" }], "directed");
+    expect(edgeSet.has("a>b")).toBe(true);
+    expect(edgeSet.has("b>a")).toBe(true);
+  });
+
+  it("returns empty for fewer than two reachable waypoints", () => {
+    expect(computePathNodes(chain(), [{ slug: "a" }], "either").nodes).toEqual([]);
   });
 });
 

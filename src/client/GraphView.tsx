@@ -37,6 +37,7 @@ type ColorMode = "community" | "component";
 type FilterMode = "top" | "search";
 type NeighborhoodMode = "refs" | "backlinks" | "both";
 type PathDir = "directed" | "undirected" | "either";
+type DegreeMode = "in" | "out" | "both";
 type Metric =
   | "pagerank" | "betweenness" | "closeness" | "eigenvector"
   | "degree" | "inDegree" | "outDegree"
@@ -361,7 +362,9 @@ interface RenderSettings {
   bgColor: string;
   alwaysShowLabels: boolean; // show node-name labels above all nodes, not just on hover
   labelSize: number;        // size multiplier for always-on node-name labels: 0.5–5
-  dynamicLabelSize: boolean; // scale each label by the node's prominence (scoreNorm)
+  dynamicLabelSize: boolean; // scale each label by the node's link count
+  labelSizeInfluence: number; // how strongly the count affects label size: 0–1
+  labelDegreeMode: DegreeMode; // which links to count for sizing: in / out / both
   directionalParticles: boolean;
   // Path trace
   maxPaths: number;          // how many shortest routes to race between 2 waypoints: 1–10
@@ -373,6 +376,7 @@ interface RenderSettings {
   traceChroma: number;       // OKLCH C (vividness) for the trace colors: 0.02–0.37
   traceStartHue: number;     // hue (deg) at each route's start node: 0–360
   traceEndHue: number;       // hue (deg) at each route's end node: 0–360
+  pathLinkBrightness: number; // how bright the (untraced) path edges are: 0–1
 }
 
 const DEFAULT_SETTINGS: RenderSettings = {
@@ -394,6 +398,8 @@ const DEFAULT_SETTINGS: RenderSettings = {
   alwaysShowLabels: false,
   labelSize: 1.5,
   dynamicLabelSize: false,
+  labelSizeInfluence: 0.5,
+  labelDegreeMode: "both",
   directionalParticles: false,
   maxPaths: 3,
   particleGlow: true,
@@ -404,6 +410,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   traceChroma: 0.17,
   traceStartHue: 200,
   traceEndHue: 40,
+  pathLinkBrightness: 0.35,
 };
 
 const BG_PRESETS = [
@@ -691,6 +698,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const shadingEnabledRef = useRef(shadingEnabled);
   const pathModeRef = useRef(pathMode);
   const pathEdgesRef = useRef(new Set<string>());
+  const pathLinkBrightnessRef = useRef(settings.pathLinkBrightness);
   const traceNodeColorRef = useRef(new Map<string, string>());
   const traceEdgeColorRef = useRef(new Map<string, string>());
   const labelSpritesRef = useRef(new Map<string, THREE.Sprite>());
@@ -1058,9 +1066,13 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           // Scale the label off the node's own radius so it stays legible
           // relative to the node regardless of the "Base size" setting —
           // "Label size" is a multiplier on top of that baseline.
-          // "Size by prominence" scales each label by the node's normalized
-          // score so hubs get visibly larger names; 1× at score 0, up to ~3×.
-          const prominence = settings.dynamicLabelSize ? 0.5 + n.scoreNorm * 2.5 : 1;
+          // "Size by link count" scales each label by how many links the node
+          // has (in / out / both, per the dropdown), with an influence knob.
+          // log keeps very high-degree hubs from dwarfing everything.
+          const degCount = settings.labelDegreeMode === "in" ? n.visibleInDegree
+            : settings.labelDegreeMode === "out" ? n.visibleOutDegree
+            : n.visibleInDegree + n.visibleOutDegree;
+          const prominence = settings.dynamicLabelSize ? 1 + settings.labelSizeInfluence * Math.log2(1 + degCount) : 1;
           const worldHeight = Math.max(2, nodeRadius) * 0.7 * settings.labelSize * prominence;
           const sprite = makeNodeLabelSprite(n.title, color, worldHeight, {
             in: n.visibleInDegree,
@@ -1117,9 +1129,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           // A route edge already swept by a particle keeps its hue band.
           const tc = traceEdgeColorRef.current.get(key);
           if (tc) return tc;
-          // Route edges not yet reached are hinted faintly (not loud gold) so
-          // the moving particles stay the focus.
-          if (pathEdgesRef.current.has(key)) return "#4a4a5e";
+          // Route edges not yet reached are brightened by the "Path edges"
+          // slider so the route stays visible without stealing focus.
+          if (pathEdgesRef.current.has(key)) {
+            const v = Math.round((0.25 + 0.75 * pathLinkBrightnessRef.current) * 255);
+            return `rgb(${v},${v},${v})`;
+          }
         }
         const base = pathEdgeSetRef.current.has(key) ? "#ffd700" : "#ffffff";
         const hl = highlightSetRef.current;
@@ -1147,7 +1162,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       startHue: settings.traceStartHue, endHue: settings.traceEndHue,
       dirty: true,
     };
-  }, [settings.traceSpeed, settings.traceAccel, settings.traceLoopDelay, settings.traceLightness, settings.traceChroma, settings.traceStartHue, settings.traceEndHue]);
+    pathLinkBrightnessRef.current = settings.pathLinkBrightness;
+    if (fgRef.current && initialized) fgRef.current.refresh();
+  }, [settings.traceSpeed, settings.traceAccel, settings.traceLoopDelay, settings.traceLightness, settings.traceChroma, settings.traceStartHue, settings.traceEndHue, settings.pathLinkBrightness, initialized]);
 
   // Entering path mode turns shading on (so the path stands out) and makes the
   // path nodes the highlight whitelist; leaving it clears the whitelist.
@@ -1295,15 +1312,16 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
             }
           }
         });
-        // Tint each route's node labels to match: lit nodes take the trace hue,
-        // not-yet-reached nodes fall back to their base community color.
-        for (const id of pathNodeIds) {
-          const sprite = labelSpritesRef.current.get(id);
-          if (!sprite) continue;
-          const c = nodeMap.get(id) ?? labelBaseColorRef.current.get(id) ?? "#ffffff";
-          (sprite.material as THREE.SpriteMaterial).color.set(c);
-        }
         fg.refresh();
+      }
+      // Tint each route's node labels to exactly the node's current color every
+      // frame (lit nodes take the trace hue, others their base color) so the
+      // title always follows the node it sits on.
+      for (const id of pathNodeIds) {
+        const sprite = labelSpritesRef.current.get(id);
+        if (!sprite) continue;
+        const c = nodeMap.get(id) ?? labelBaseColorRef.current.get(id) ?? "#ffffff";
+        (sprite.material as THREE.SpriteMaterial).color.set(c);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -1424,6 +1442,15 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              className="graph-settings-btn"
+              onClick={() => setWaypoints((w) => [...w].reverse())}
+              disabled={waypoints.length < 2}
+              title="Reverse the order of the path waypoints"
+            >
+              ⇄ Reverse
+            </button>
           </div>
         )}
 
@@ -1552,14 +1579,6 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           {showHalu ? "Hide halu" : "Show halu"}
         </button>
 
-        <button
-          type="button"
-          className={`graph-settings-btn${shadingEnabled ? " active" : ""}`}
-          onClick={() => setShadingEnabled((v) => !v)}
-          title="Dim nodes outside the highlight set (hovered article or path waypoints)"
-        >
-          {shadingEnabled ? "Shading on" : "Shading off"}
-        </button>
 
         <button
           type="button"
@@ -1627,6 +1646,15 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
             <div className="grs-section">
               <div className="grs-section-label">Nodes</div>
+              <label className="grs-toggle">
+                <input
+                  type="checkbox"
+                  checked={shadingEnabled}
+                  onChange={(e) => setShadingEnabled(e.target.checked)}
+                />
+                <span>Shading</span>
+                <span className="grs-toggle-hint">dim nodes outside the highlight set (hover / path waypoints)</span>
+              </label>
               <Knob label="Resolution" value={settings.nodeResolution} min={4} max={32} step={2}
                 onChange={(v) => set("nodeResolution", v)} />
               <Knob label="Base size" value={settings.nodeRelSize} min={1} max={12} step={0.5}
@@ -1653,9 +1681,27 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                     checked={settings.dynamicLabelSize}
                     onChange={(e) => set("dynamicLabelSize", e.target.checked)}
                   />
-                  <span>Size by prominence</span>
-                  <span className="grs-toggle-hint">scale each label by the node's graph prominence</span>
+                  <span>Size by link count</span>
+                  <span className="grs-toggle-hint">scale each label by how many links the node has</span>
                 </label>
+              )}
+              {settings.alwaysShowLabels && settings.dynamicLabelSize && (
+                <>
+                  <Knob label="Count influence" value={settings.labelSizeInfluence} min={0} max={1} step={0.05}
+                    format={(v) => v.toFixed(2)} onChange={(v) => set("labelSizeInfluence", v)} />
+                  <label className="grs-knob">
+                    <span className="grs-knob-label">Count</span>
+                    <select
+                      className="graph-metric-select"
+                      value={settings.labelDegreeMode}
+                      onChange={(e) => set("labelDegreeMode", e.target.value as DegreeMode)}
+                    >
+                      <option value="in">In links</option>
+                      <option value="out">Out links</option>
+                      <option value="both">Both</option>
+                    </select>
+                  </label>
+                </>
               )}
             </div>
 
@@ -1706,6 +1752,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 <Knob label="End hue" value={settings.traceEndHue} min={0} max={360} step={5}
                   format={(v) => `${v}°`} onChange={(v) => set("traceEndHue", v)} />
               </div>
+              <Knob label="Path edges" value={settings.pathLinkBrightness} min={0} max={1} step={0.05}
+                format={(v) => v.toFixed(2)} onChange={(v) => set("pathLinkBrightness", v)} />
               <label className="grs-toggle">
                 <input
                   type="checkbox"

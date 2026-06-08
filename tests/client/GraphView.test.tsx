@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import Graph from "graphology";
 
-import { computePathNodes, computePaths, dim, kShortestPaths, makeNodeLabelSprite, summarizeCommunities } from "../../src/client/GraphView";
+import { computePathNodes, computePaths, dim, kShortestPaths, makeNodeLabelSprite, oklch, summarizeCommunities } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -90,11 +90,31 @@ describe("makeNodeLabelSprite", () => {
   });
 });
 
+describe("oklch", () => {
+  it("produces valid sRGB hex for in-gamut colors", () => {
+    expect(oklch(0.72, 0.17, 200)).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+
+  it("gives distinct colors as hue rotates", () => {
+    const a = oklch(0.72, 0.17, 30);
+    const b = oklch(0.72, 0.17, 210);
+    expect(a).not.toBe(b);
+  });
+
+  it("near-zero chroma is roughly grey (r≈g≈b)", () => {
+    const m = /^#(..)(..)(..)$/.exec(oklch(0.6, 0, 0))!;
+    const [r, g, b] = [1, 2, 3].map((i) => parseInt(m[i], 16));
+    expect(Math.abs(r - g)).toBeLessThan(6);
+    expect(Math.abs(g - b)).toBeLessThan(6);
+  });
+});
+
 describe("dim", () => {
-  it("blends a color toward dark grey", () => {
-    // fully dimmed white lands near the target grey, not pure white/black
-    const dimmed = dim("#ffffff", 1);
-    expect(dimmed).toBe("#222222");
+  it("darkens a color (lower luminance) while staying valid hex", () => {
+    const d = dim("#ffffff", 1);
+    expect(d).toMatch(/^#[0-9a-f]{6}$/i);
+    const lum = parseInt(d.slice(1, 3), 16);
+    expect(lum).toBeLessThan(160); // clearly darker than white
   });
 
   it("leaves a color unchanged at amount 0", () => {

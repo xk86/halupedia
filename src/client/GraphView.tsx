@@ -234,8 +234,14 @@ export function computePaths(
   if (waypoints.length === 2) {
     const a = waypoints[0].slug, b = waypoints[1].slug;
     let raw = kShortestPaths(g, a, b, maxPaths, dir);
-    if (raw.length === 0 && dir === "directed") {
-      raw = kShortestPaths(g, b, a, maxPaths, dir).map((p) => [...p].reverse());
+    if (dir === "directed") {
+      // Also include routes that follow the arrows the other way (waypoints
+      // listed against the link flow), then keep the shortest overall.
+      const rev = kShortestPaths(g, b, a, maxPaths, dir).map((p) => [...p].reverse());
+      const seen = new Set(raw.map((p) => p.join(">")));
+      for (const p of rev) { const key = p.join(">"); if (!seen.has(key)) { seen.add(key); raw.push(p); } }
+      raw.sort((x, y) => x.length - y.length);
+      raw = raw.slice(0, maxPaths);
     }
     return raw.map((nodes) => ({ nodes, edgeSet: edgeSetOf(nodes) }));
   }
@@ -405,25 +411,65 @@ function communityColor(id: number): string {
   return COMMUNITY_COLORS[id % COMMUNITY_COLORS.length];
 }
 
-// ── Shading ──────────────────────────────────────────────────────────────────
+// ── Color (OKLCH) ──────────────────────────────────────────────────────────
 //
-// The "shading" whitelist dims everything that isn't in the highlight set so the
-// nodes the user cares about (a hovered article, the waypoints of a path) pop
-// out. We dim the *color* toward a dark grey rather than touching opacity:
-// 3d-force-graph's nodeOpacity is a single global value, so per-node fading
-// isn't available on the default spheres — and "shade, don't hide" is exactly
-// what we want anyway (the rest of the graph stays faintly visible for context).
+// OKLCH is a perceptually-uniform space: stepping hue by a fixed amount gives
+// evenly-spaced, equally-vivid colors (unlike HSL, where some hues read much
+// brighter/muddier than others). We use it for the path-trace rainbow so the
+// per-node color bands are perceptually even, and for the shading dim so faded
+// nodes desaturate cleanly instead of turning muddy brown.
 
-/** Blend a #rrggbb color toward dark grey. amount=0 → unchanged, 1 → grey. */
-export function dim(hex: string, amount = 0.78): string {
+function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function linearToSrgb(c: number): number {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+/** OKLCH (L 0–1, C chroma, H degrees) → "#rrggbb" (clamped to sRGB gamut). */
+export function oklch(L: number, C: number, H: number): string {
+  const h = (H * Math.PI) / 180;
+  const a = C * Math.cos(h), b = C * Math.sin(h);
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  const lr = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  const to2 = (v: number) => {
+    const n = Math.round(Math.min(1, Math.max(0, linearToSrgb(v))) * 255);
+    return n.toString(16).padStart(2, "0");
+  };
+  return `#${to2(lr)}${to2(lg)}${to2(lb)}`;
+}
+
+/** "#rrggbb" → OKLCH { L, C, H }. */
+function hexToOklch(hex: string): { L: number; C: number; H: number } | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return hex;
+  if (!m) return null;
   const n = parseInt(m[1], 16);
-  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
-  const t = 0x22; // target grey channel
-  const mix = (c: number) => Math.round(c + (t - c) * amount);
-  const to2 = (c: number) => mix(c).toString(16).padStart(2, "0");
-  return `#${to2(r)}${to2(g)}${to2(b)}`;
+  const r = srgbToLinear(((n >> 16) & 0xff) / 255);
+  const g = srgbToLinear(((n >> 8) & 0xff) / 255);
+  const b = srgbToLinear((n & 0xff) / 255);
+  const l_ = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m_ = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s_ = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
+  const a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_;
+  const bb = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_;
+  return { L, C: Math.hypot(a, bb), H: (Math.atan2(bb, a) * 180) / Math.PI };
+}
+
+/**
+ * Fade a #rrggbb color for shading: darken its lightness and drop its chroma in
+ * OKLCH so it recedes cleanly. amount=0 → unchanged, 1 → near-black desaturated.
+ */
+export function dim(hex: string, amount = 0.78): string {
+  if (amount <= 0) return hex;
+  const o = hexToOklch(hex);
+  if (!o) return hex;
+  return oklch(o.L * (1 - 0.6 * amount), o.C * (1 - amount), o.H);
 }
 
 // ── Community legend ─────────────────────────────────────────────────────────
@@ -1036,12 +1082,14 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         const tgt = typeof l.target === "object" ? l.target.id : l.target;
         const key = `${src}>${tgt}`;
         if (pathModeRef.current) {
+          // A route edge already swept by a particle keeps its hue band.
           const tc = traceEdgeColorRef.current.get(key);
           if (tc) return tc;
+          // Route edges not yet reached are hinted faintly (not loud gold) so
+          // the moving particles stay the focus.
+          if (pathEdgesRef.current.has(key)) return "#4a4a5e";
         }
-        // Path-mode route edges win over the seed-pair gold highlight.
-        const onPath = pathModeRef.current && pathEdgesRef.current.has(key);
-        const base = (onPath || pathEdgeSetRef.current.has(key)) ? "#ffd700" : "#ffffff";
+        const base = pathEdgeSetRef.current.has(key) ? "#ffd700" : "#ffffff";
         const hl = highlightSetRef.current;
         if (shadingEnabledRef.current && hl.size > 0 && !(hl.has(src) && hl.has(tgt))) return dim(base);
         return base;
@@ -1098,10 +1146,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     const SPEED = 1.4; // nodes traversed per second
     const numPaths = paths.length;
-    // Per-route hue: base offset by rank, step spans the full wheel over the route.
+    // Per-route hue in OKLCH (perceptually even): base offset by rank, step
+    // spans the full wheel over the route so every node band reads distinctly.
+    const TRACE_L = 0.72, TRACE_C = 0.17;
     const hueAt = (rank: number, len: number, x: number) =>
       ((360 / numPaths) * rank + x * (360 / Math.max(2, len))) % 360;
-    const litColor = (rank: number, len: number, i: number) => `hsl(${hueAt(rank, len, i)}, 90%, 60%)`;
+    const litColor = (rank: number, len: number, i: number) => oklch(TRACE_L, TRACE_C, hueAt(rank, len, i));
 
     // Live position lookup — node objects are mutated in place by the layout.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1163,9 +1213,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           c.mesh.position.set(x, y, z);
           c.glow?.position.set(x, y, z);
         }
-        const hsl = hueAt(c.rank, c.len, progress) / 360;
-        (c.mesh.material as THREE.MeshBasicMaterial).color.setHSL(hsl, 0.9, 0.6);
-        if (c.glow) (c.glow.material as THREE.MeshBasicMaterial).color.setHSL(hsl, 0.9, 0.6);
+        const col = oklch(TRACE_L, TRACE_C, hueAt(c.rank, c.len, progress));
+        (c.mesh.material as THREE.MeshBasicMaterial).color.set(col);
+        if (c.glow) (c.glow.material as THREE.MeshBasicMaterial).color.set(col);
         if (i !== lastSegs[idx]) { lastSegs[idx] = i; anyCrossed = true; }
       });
 
@@ -1401,6 +1451,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
               {pathMode && paths.length > 0 && (
                 <span className="graph-path-info">
                   {" · "}{paths.length} route{paths.length > 1 ? "s" : ""} ({paths.map((p) => p.nodes.length - 1).join(", ")} hops)
+                </span>
+              )}
+              {pathMode && waypoints.length >= 2 && paths.length === 0 && (
+                <span className="graph-path-info">
+                  {" · "}no {pathDir === "directed" ? "directed " : ""}route{pathDir === "directed" ? " (try Undirected)" : ""}
                 </span>
               )}
             </span>

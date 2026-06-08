@@ -528,6 +528,38 @@ test("GET /api/page/:slug honours x-requested-title for punctuation/emoji the sl
   }
 });
 
+test("emoji-titled article resolves from its emoji URL without redirecting to a stripped slug", async (t) => {
+  // Regression: titleToWikiSegment used to strip emoji, so "Chiquita 🍌"
+  // produced "/wiki/Chiquita_" — which slugified to a *different* article
+  // ("chiquita") and triggered a fresh generation. The emoji must survive in
+  // the URL segment, resolve back to the original slug, and report a canonical
+  // path that still carries the emoji (so the client never redirects away).
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  saveMarkdownArticle(databasePath, {
+    slug: "chiquita-banana-emoji",
+    title: "Chiquita 🍌",
+    markdown: "# Chiquita 🍌\n\nA banana article.",
+  });
+
+  // An LLM that throws if touched — a correct cache hit must not generate.
+  const llm = new QueueLlmClient("SHOULD NOT GENERATE", []);
+  const server = await createServer(databasePath, llm);
+
+  const res = await server.request(`/api/page/${encodeURIComponent("Chiquita_🍌")}`);
+  assert.equal(res.status, 200);
+  const body = await res.json() as {
+    cached: boolean;
+    canonicalPath?: string;
+    article: { slug: string; title: string };
+  };
+  assert.equal(body.cached, true, "must hit the existing article, not regenerate");
+  assert.equal(body.article.slug, "chiquita-banana-emoji");
+  assert.equal(body.article.title, "Chiquita 🍌");
+  assert.equal(body.canonicalPath, "/wiki/Chiquita_🍌", "canonical path must keep the emoji");
+});
+
 test("refresh rewrite preserves prior prompt refs and adds body-linked refs", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));

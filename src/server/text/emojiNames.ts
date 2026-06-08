@@ -3,10 +3,12 @@ import emojiNames from "./emojiNames.generated.json" with { type: "json" };
 const NAMES: Record<string, string> = emojiNames as Record<string, string>;
 
 /**
- * Replace emoji with their short CLDR text-to-speech names ("🍌" -> " banana ")
- * so slugify() can fold them into a plain-alpha slug as ordinary words instead
- * of dropping them — "Banana 🍌" and "Banana 🍍" should not collide on
- * "banana". Unrecognised symbols are left as-is for slugify's normal handling.
+ * Replace emoji with their short CLDR text-to-speech name plus the literal
+ * word "emoji" ("🍌" -> " banana emoji ") so slugify() can fold them into a
+ * plain-alpha slug as ordinary words instead of dropping them — "Banana 🍌"
+ * and "Banana 🍍" should not collide on "banana", and the trailing "emoji"
+ * makes it obvious in the slug ("chiquita-banana-emoji") that a symbol stood
+ * there. Unrecognised symbols are left as-is for slugify's normal handling.
  *
  * Display titles are never passed through this — only slug derivation.
  *
@@ -19,7 +21,7 @@ export function emojiToSlugWords(input: string): string {
   let out = "";
   for (const ch of input) {
     const name = NAMES[ch];
-    out += name ? ` ${name} ` : ch;
+    out += name ? ` ${name} emoji ` : ch;
   }
   return out;
 }

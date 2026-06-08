@@ -911,15 +911,30 @@ test("slugify preserves unicode letters and digits", () => {
   assert.equal(slugify("café"), "café");
 });
 
-test("slugify decomposes emoji into their CLDR names instead of dropping them", () => {
+test("slugify decomposes emoji into their CLDR name + 'emoji' instead of dropping them", () => {
   // Slugs stay plain-alpha, but distinct emoji shouldn't collide on the same
-  // slug just because they'd otherwise both be stripped to nothing.
-  assert.equal(slugify("Banana 🍌"), "banana-banana");
-  assert.equal(slugify("Banana 🍍"), "banana-pineapple");
-  assert.equal(slugify("Test: PPx🍌"), "test-ppx-banana");
+  // slug just because they'd otherwise both be stripped to nothing. The
+  // trailing "emoji" word marks where a symbol stood.
+  assert.equal(slugify("Banana 🍌"), "banana-banana-emoji");
+  assert.equal(slugify("Banana 🍍"), "banana-pineapple-emoji");
+  assert.equal(slugify("Test: PPx🍌"), "test-ppx-banana-emoji");
   // Plain ASCII punctuation keeps its existing (stripped) behaviour —
   // CLDR also annotates ":" as "colon" etc., but only emoji get decomposed.
   assert.equal(slugify("Cost: $5"), "cost-5");
+});
+
+test("titleToWikiSegment preserves emoji so the URL round-trips to the same slug", () => {
+  // The bug: stripping the emoji turned "Chiquita 🍌" into "/wiki/Chiquita_",
+  // which slugified back to a *different* article ("chiquita"). Emoji must
+  // survive in the segment, and the segment must re-derive the same slug.
+  const seg = titleToWikiSegment("Chiquita 🍌");
+  assert.equal(seg, "Chiquita_🍌");
+  assert.equal(slugify("Chiquita 🍌"), "chiquita-banana-emoji");
+  assert.equal(
+    slugify(normalizeCanonicalTitle(wikiSegmentToRequestedTitle(seg))),
+    slugify("Chiquita 🍌"),
+    "segment must re-derive the same slug it came from",
+  );
 });
 
 test("slug → title → wikiSegment → title round-trips are stable", () => {

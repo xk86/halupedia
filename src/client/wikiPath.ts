@@ -2,8 +2,13 @@ export function toWikiSegment(titleOrSlug: string): string {
   let segment = titleOrSlug
     .trim()
     .replace(/\s+/g, "_")
-    // Keep letters, numbers, emoji/symbols (\p{S}), underscore, and safe ASCII punctuation.
-    .replace(/[^\p{L}\p{N}\p{S}_'(),.-]+/gu, "");
+    // Keep letters, numbers, pictographic emoji, underscore, and safe ASCII
+    // punctuation. Must match the server's titleToWikiSegment allowed-set
+    // exactly so client- and server-built /wiki/ URLs are byte-identical —
+    // a mismatch (e.g. emoji kept on one side, stripped on the other) lands
+    // the user on a different slug. Emoji are kept (not stripped) so a title
+    // like "Chiquita 🍌" round-trips through its URL.
+    .replace(/[^\p{L}\p{N}\p{Extended_Pictographic}_'(),.-]+/gu, "");
   const firstLetterIndex = segment.search(/\p{L}/u);
   if (firstLetterIndex >= 0) {
     segment = segment.slice(0, firstLetterIndex) + segment[firstLetterIndex].toUpperCase() + segment.slice(firstLetterIndex + 1);

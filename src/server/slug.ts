@@ -34,11 +34,19 @@ export function slugToTitle(slug: string): string {
   return normalizeCanonicalTitle(title);
 }
 
+// Characters allowed verbatim in a /wiki/ URL segment: letters, numbers,
+// pictographic emoji, and a small safe-punctuation set. Emoji are KEPT (not
+// stripped) so a title like "Chiquita 🍌" round-trips through its URL —
+// dropping it produced "/wiki/Chiquita_", which slugified back to a different
+// article ("chiquita"). Must stay identical to the client's toWikiSegment so
+// both sides build byte-identical URLs.
+const WIKI_SEGMENT_DISALLOWED = /[^\p{L}\p{N}\p{Extended_Pictographic} _'(),.-]+/gu;
+
 export function titleToWikiSegment(title: string): string {
   let segment = normalizeCanonicalTitle(title)
     .trim()
     .replace(/\s+/g, " ")
-    .replace(/[^\p{L}\p{N} _'(),.-]+/gu, "")
+    .replace(WIKI_SEGMENT_DISALLOWED, "")
     .replace(/ /g, "_");
   const firstLetterIndex = segment.search(/\p{L}/u);
   if (firstLetterIndex >= 0) {

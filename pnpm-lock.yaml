@@ -95,6 +95,9 @@ importers:
       smol-toml:
         specifier: ^1.6.1
         version: 1.6.1
+      three:
+        specifier: ^0.184.0
+        version: 0.184.0
       toml:
         specifier: ^4.1.1
         version: 4.1.1

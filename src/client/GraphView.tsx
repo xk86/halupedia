@@ -11,6 +11,7 @@ import { density } from "graphology-metrics/graph";
 import { singleSourceLength, bidirectional as unweightedPath } from "graphology-shortest-path/unweighted";
 import { connectedComponents, largestConnectedComponent } from "graphology-components";
 import louvain from "graphology-communities-louvain";
+import * as THREE from "three";
 import { toWikiSegment } from "./wikiPath";
 
 interface RawNode { slug: string; title: string; exists: boolean; }
@@ -117,7 +118,7 @@ interface RenderSettings {
   velocityDecay: number;    // 0.1–0.99
   // Appearance
   bgColor: string;
-  labelThreshold: number;   // inDegree >= this shows a persistent label: 0–20
+  alwaysShowLabels: boolean; // show node-name labels above all nodes, not just on hover
   directionalParticles: boolean;
 }
 
@@ -137,7 +138,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   alphaDecay: 0.0228,
   velocityDecay: 0.4,
   bgColor: "#080810",
-  labelThreshold: 999, // off by default
+  alwaysShowLabels: false,
   directionalParticles: false,
 };
 
@@ -158,6 +159,42 @@ const COMMUNITY_COLORS = [
 
 function communityColor(id: number): string {
   return COMMUNITY_COLORS[id % COMMUNITY_COLORS.length];
+}
+
+// ── Persistent node-name labels ──────────────────────────────────────────────
+//
+// The hover tooltip (`.nodeLabel`) already shows each node's title when you
+// mouse over it. "Always show names" renders that same title as a floating
+// text sprite hovering above the node, so it stays visible without hovering.
+// Built on a canvas texture rather than pulling in a label-sprite dependency,
+// since `three` is already available.
+
+export function makeNodeLabelSprite(text: string, color: string): THREE.Sprite {
+  const fontSize = 28;
+  const font = `${fontSize}px sans-serif`;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d")!;
+  ctx.font = font;
+  const textWidth = ctx.measureText(text).width;
+  const padding = 8;
+  canvas.width = Math.ceil(textWidth + padding * 2);
+  canvas.height = Math.ceil(fontSize * 1.4);
+
+  // Re-apply font after resizing (canvas resize clears context state)
+  ctx.font = font;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  ctx.fillStyle = color;
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true });
+  const sprite = new THREE.Sprite(material);
+  // Scale so the sprite reads at a consistent on-screen size relative to nodes
+  const scale = canvas.height / 90;
+  sprite.scale.set((canvas.width / canvas.height) * scale * 4, scale * 4, 1);
+  return sprite;
 }
 
 // ── Knob helpers ─────────────────────────────────────────────────────────────
@@ -548,6 +585,26 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       .d3AlphaDecay(settings.alphaDecay)
       .d3VelocityDecay(settings.velocityDecay);
 
+    // "Always show names": render the same title shown on hover as a
+    // permanent floating sprite above each node, instead of only in the
+    // hover tooltip. nodeThreeObjectExtend keeps the default sphere and adds
+    // the label sprite alongside it.
+    if (settings.alwaysShowLabels) {
+      fg
+        .nodeThreeObjectExtend(true)
+        .nodeThreeObject((n: FgNode) => {
+          const color = n.exists
+            ? (colorModeRef.current === "component" ? communityColor(n.componentId) : communityColor(n.community))
+            : "#999999";
+          const sprite = makeNodeLabelSprite(n.title, color);
+          const nodeRadius = Math.cbrt(Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6)) * settings.nodeRelSize;
+          sprite.position.set(0, nodeRadius + sprite.scale.y / 2 + 1, 0);
+          return sprite;
+        });
+    } else {
+      fg.nodeThreeObjectExtend(false).nodeThreeObject(null);
+    }
+
     const charge = fg.d3Force("charge");
     if (charge) charge.strength(settings.chargeStrength);
 
@@ -766,6 +823,15 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 format={(v) => v.toFixed(1)} onChange={(v) => set("nodeRelSize", v)} />
               <Knob label="Opacity" value={settings.nodeOpacity} min={0.1} max={1} step={0.05}
                 format={(v) => v.toFixed(2)} onChange={(v) => set("nodeOpacity", v)} />
+              <label className="grs-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.alwaysShowLabels}
+                  onChange={(e) => set("alwaysShowLabels", e.target.checked)}
+                />
+                <span>Always show names</span>
+                <span className="grs-toggle-hint">show node labels above all nodes, not just on hover</span>
+              </label>
             </div>
 
             <div className="grs-section">

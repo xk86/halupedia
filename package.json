@@ -21,6 +21,7 @@
     "test:media": "node --import tsx --test tests/media.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.vitest.json",
     "rag:audit": "node --import tsx/esm scripts/rag-audit.ts",
+    "generate:emoji-names": "node --import tsx/esm scripts/generate-emoji-names.ts",
     "rag:audit:dry": "node --import tsx/esm scripts/rag-audit.ts --dry-run"
   },
   "dependencies": {

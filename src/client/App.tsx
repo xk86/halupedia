@@ -402,7 +402,11 @@ export function App() {
           : `/api/page/${encodeURIComponent(route.slug)}`;
         const pendingTitle = pendingRequestedTitleRef.current;
         const res = pendingTitle && pendingTitle.slug === route.slug
-          ? await fetch(apiUrl, { headers: { "x-requested-title": pendingTitle.title } })
+          // HTTP header values must be ASCII/Latin-1 — titles with emoji or
+          // other non-Latin1 characters (e.g. "Banana 🍌") would make fetch
+          // throw synchronously ("invalid header value") if sent raw. Percent
+          // -encode for transport; the server decodes it back to the literal.
+          ? await fetch(apiUrl, { headers: { "x-requested-title": encodeURIComponent(pendingTitle.title) } })
           : await fetch(apiUrl);
         if (!res.ok) {
           const body: any = await res.json().catch(() => ({}));

@@ -869,6 +869,38 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.llm.images,
     );
   const app = new Hono();
+
+  // Log every request that reaches the server — method, path, status, and
+  // duration — plus any exception a handler throws (which Hono would
+  // otherwise turn into a bare 500 with nothing in the logs). Skip static
+  // asset/vite-internal noise so this stays useful for actual page/API hits.
+  app.use("*", async (c, next) => {
+    const { method } = c.req;
+    const { pathname, search } = new URL(c.req.url);
+    if (pathname.startsWith("/assets/") || pathname.startsWith("/@") || pathname.startsWith("/node_modules/")) {
+      return next();
+    }
+    const startedAt = Date.now();
+    try {
+      await next();
+      logger.info("http.request", {
+        method,
+        path: pathname + search,
+        status: c.res.status,
+        duration_ms: Date.now() - startedAt,
+      });
+    } catch (error) {
+      logger.error("http.request_error", {
+        method,
+        path: pathname + search,
+        duration_ms: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw error;
+    }
+  });
+
   const distRoot = options.distRoot
     ? resolve(options.distRoot)
     : resolve(process.cwd(), "dist");
@@ -1745,12 +1777,23 @@ export async function createApp(options: CreateAppOptions = {}) {
       wikiSegmentToRequestedTitle(requestedSegment),
     );
     // The client sends the user's literal typed title (e.g. "Test: The
-    // Movie") as a header rather than a URL param — keeps the address bar
-    // clean and lets punctuation that can't survive in the slug reach the
-    // model verbatim instead of an approximation reconstructed from it.
-    // ?title= remains supported for old/shared links.
+    // Movie", "Banana 🍌") as a header rather than a URL param — keeps the
+    // address bar clean and lets punctuation/emoji that can't survive in the
+    // slug reach the model verbatim instead of an approximation reconstructed
+    // from it. Header values must be ASCII/Latin-1, so the client
+    // percent-encodes it for transport — decode it back here. ?title= remains
+    // supported for old/shared links.
+    const requestedTitleHeader = c.req.header("x-requested-title");
+    let decodedRequestedTitle: string | undefined;
+    if (requestedTitleHeader) {
+      try {
+        decodedRequestedTitle = decodeURIComponent(requestedTitleHeader);
+      } catch {
+        // malformed encoding — fall through to the other sources
+      }
+    }
     const requestedTitle = normalizeCanonicalTitle(
-      c.req.header("x-requested-title") || c.req.query("title") || segmentTitle,
+      decodedRequestedTitle || c.req.query("title") || segmentTitle,
     );
     const lookupSlug = slugify(segmentTitle);
     if (!lookupSlug || !requestedTitle)
@@ -4027,6 +4070,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       path: new URL(c.req.url).pathname,
     });
     return c.text("404 Not Found", 404);
+  });
+
+  // Final safety net: an uncaught handler exception would otherwise reach the
+  // client as an opaque, unlogged 500. The request-logging middleware above
+  // already records it; this just shapes a clean JSON response to match the
+  // rest of the API instead of Hono's bare-text default.
+  app.onError((error, c) => {
+    logger.error("http.unhandled_error", {
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
   });
 
   return { app, runtime, shutdown };

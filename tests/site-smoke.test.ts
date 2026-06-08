@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle, saveArticleReferences, saveHomepageCache, listArticleRevisions } from "../src/server/db";
+import { openDatabase, saveArticle, saveArticleReferences, saveHomepageCache, listArticleRevisions, setArticleInfobox } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmRouter } from "../src/server/llm";
@@ -268,6 +268,12 @@ function createSeedDatabasePath() {
     ],
     ["test-article"]
   );
+  // Seed an infobox so the page route's auto-post-process ("no infobox yet ->
+  // fire post_process in the background") never fires for this article — that
+  // background workflow makes its own LLM/embedding calls, racing against
+  // assertions like "cached reads make zero LLM calls" in a way that depends
+  // entirely on event-loop timing.
+  setArticleInfobox(db, "test-article", { title: "Test Article", groups: [] });
 
   const backlinkMarkdown = [
     "# Linking Article",
@@ -494,6 +500,9 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       [],
       ["target-article"],
     );
+    // Seed an infobox so the auto-post-process background workflow never
+    // fires (it would race the "zero LLM calls" assertions below on timing).
+    setArticleInfobox(db, "target-article", { title: "Target Article", groups: [] });
     db.close();
 
     const llm = new CountingLlmClient();
@@ -557,6 +566,9 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
         revisionId: "current",
       },
     ]);
+    // Seed an infobox so the auto-post-process background workflow never
+    // fires (it would race the "zero LLM calls" assertions below on timing).
+    setArticleInfobox(db, "target-article", { title: "Target Article", groups: [] });
     db.close();
 
     const llm = new CountingLlmClient();
@@ -616,6 +628,9 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       [],
       ["target-article"],
     );
+    // Seed an infobox so the auto-post-process background workflow never
+    // fires (it would race the "zero LLM calls" assertions below on timing).
+    setArticleInfobox(db, "target-article", { title: "Target Article", groups: [] });
     db.close();
 
     const llm = new CountingLlmClient();
@@ -658,6 +673,9 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       [],
       ["cache-repair"],
     );
+    // Seed an infobox so the auto-post-process background workflow never
+    // fires (it would race the "zero LLM calls" assertions below on timing).
+    setArticleInfobox(db, "cache-repair", { title: "Cache Repair", groups: [] });
     db.close();
 
     const entries: CapturedLogEntry[] = [];

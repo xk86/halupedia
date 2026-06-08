@@ -911,6 +911,17 @@ test("slugify preserves unicode letters and digits", () => {
   assert.equal(slugify("café"), "café");
 });
 
+test("slugify decomposes emoji into their CLDR names instead of dropping them", () => {
+  // Slugs stay plain-alpha, but distinct emoji shouldn't collide on the same
+  // slug just because they'd otherwise both be stripped to nothing.
+  assert.equal(slugify("Banana 🍌"), "banana-banana");
+  assert.equal(slugify("Banana 🍍"), "banana-pineapple");
+  assert.equal(slugify("Test: PPx🍌"), "test-ppx-banana");
+  // Plain ASCII punctuation keeps its existing (stripped) behaviour —
+  // CLDR also annotates ":" as "colon" etc., but only emoji get decomposed.
+  assert.equal(slugify("Cost: $5"), "cost-5");
+});
+
 test("slug → title → wikiSegment → title round-trips are stable", () => {
   const slugs = [
     "glow-fruit",

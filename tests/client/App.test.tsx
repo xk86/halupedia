@@ -1306,9 +1306,11 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/wiki/Test_The_Movie");
     expect(window.location.search).toBe("");
     await waitFor(() => {
+      // HTTP header values must be ASCII/Latin-1 — titles with punctuation or
+      // emoji are percent-encoded for transport (the server decodes them back).
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/page/Test_The_Movie",
-        expect.objectContaining({ headers: { "x-requested-title": "Test: The Movie" } }),
+        expect.objectContaining({ headers: { "x-requested-title": encodeURIComponent("Test: The Movie") } }),
       );
     });
   });

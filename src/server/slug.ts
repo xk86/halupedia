@@ -1,5 +1,7 @@
+import { emojiToSlugWords } from "./text/emojiNames";
+
 export function slugify(input: string): string {
-  return input
+  return emojiToSlugWords(input)
     .normalize("NFC")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, "-")

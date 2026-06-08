@@ -202,29 +202,57 @@ export function summarizeCommunities(nodes: FgNode[], colorMode: ColorMode): Com
 // Built on a canvas texture rather than pulling in a label-sprite dependency,
 // since `three` is already available.
 
-export function makeNodeLabelSprite(text: string, color: string, worldHeight: number = 6): THREE.Sprite {
-  // Render at a high resolution so the text stays crisp whether the camera
-  // is close or far — a low-res canvas stretched to a large world size is
-  // what made earlier attempts look blurry/illegible.
-  const fontSize = 64;
+export function makeNodeLabelSprite(
+  text: string,
+  color: string,
+  worldHeight: number = 6,
+  degrees?: { in: number; out: number },
+): THREE.Sprite {
+  // Render at a high base resolution so the text stays crisp up close, and
+  // let the GPU's mipmapping handle the "dynamic resolution" for distant
+  // labels — far-away sprites sample down-filtered mips (cheap, no shimmer)
+  // while close-up sprites read the full-res texture (sharp). This is far
+  // cheaper than regenerating the canvas per-frame based on camera distance.
+  const fontSize = 96;
+  const subFontSize = Math.round(fontSize * 0.55);
   const font = `${fontSize}px sans-serif`;
+  const subFont = `${subFontSize}px sans-serif`;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
   ctx.font = font;
   const textWidth = ctx.measureText(text).width;
-  const padding = 16;
-  canvas.width = Math.ceil(textWidth + padding * 2);
-  canvas.height = Math.ceil(fontSize * 1.4);
 
-  // Re-apply font after resizing (canvas resize clears context state)
-  ctx.font = font;
+  const subText = degrees ? `↓ ${degrees.in} in   ↑ ${degrees.out} out` : null;
+  let subWidth = 0;
+  if (subText) {
+    ctx.font = subFont;
+    subWidth = ctx.measureText(subText).width;
+  }
+
+  const padding = 16;
+  const lineGap = subText ? subFontSize * 0.3 : 0;
+  canvas.width = Math.ceil(Math.max(textWidth, subWidth) + padding * 2);
+  canvas.height = Math.ceil(fontSize * 1.4 + (subText ? subFontSize * 1.2 + lineGap : 0));
+
+  // Re-apply font/state after resizing (canvas resize clears context state)
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
+
+  const titleY = subText ? fontSize * 0.7 : canvas.height / 2;
+  ctx.font = font;
   ctx.fillStyle = color;
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  ctx.fillText(text, canvas.width / 2, titleY);
+
+  if (subText) {
+    ctx.font = subFont;
+    ctx.fillStyle = "#aaaaaa";
+    ctx.fillText(subText, canvas.width / 2, titleY + fontSize * 0.7 + lineGap);
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
   const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true });
   const sprite = new THREE.Sprite(material);
   // World-space size, independent of canvas resolution — the caller derives
@@ -639,7 +667,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           // relative to the node regardless of the "Base size" setting —
           // "Label size" is a multiplier on top of that baseline.
           const worldHeight = Math.max(2, nodeRadius) * 0.7 * settings.labelSize;
-          const sprite = makeNodeLabelSprite(n.title, color, worldHeight);
+          const sprite = makeNodeLabelSprite(n.title, color, worldHeight, {
+            in: n.visibleInDegree,
+            out: n.visibleOutDegree,
+          });
           sprite.position.set(0, nodeRadius + sprite.scale.y / 2 + 1, 0);
           return sprite;
         });

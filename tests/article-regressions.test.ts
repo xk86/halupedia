@@ -497,32 +497,35 @@ test("new article generation searches RAG with the requested title even without 
   assert.match(llm.embedInputs[0]?.[0] ?? "", /Target Page/);
 });
 
-test("GET /api/page/:slug honours x-requested-title for punctuation the slug can't carry", async (t) => {
+test("GET /api/page/:slug honours x-requested-title for punctuation/emoji the slug can't carry", async (t) => {
   // The client sends the user's literal typed title — e.g. "Movie Night:
-  // Should it be Allowed?" — as an x-requested-title header rather than
-  // baking it into the URL (clean addresses, no query params; punctuation
-  // like ":" / "?" can't survive in a slug anyway). The server must use that
-  // header verbatim as requestedTitle instead of reconstructing an
-  // approximation from the slug — the model should never have to guess back
-  // punctuation the client already had.
-  const { root, databasePath } = createTempDbPath();
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // Should it be Allowed?" or "Banana 🍌" — as a percent-encoded
+  // x-requested-title header (HTTP header values must stay ASCII/Latin-1;
+  // emoji sent raw would make fetch throw) rather than baking it into the URL
+  // (clean addresses, no query params — punctuation/emoji can't survive in a
+  // slug anyway). The server must decode it and use it verbatim as
+  // requestedTitle instead of reconstructing an approximation from the slug —
+  // the model should never have to guess back what the client already had.
+  const cases = ["Movie Night: Should it be Allowed?", "Banana 🍌"];
+  for (const literalTitle of cases) {
+    const { root, databasePath } = createTempDbPath();
+    t.after(() => rmSync(root, { recursive: true, force: true }));
 
-  const literalTitle = "Movie Night: Should it be Allowed?";
-  const llm = new QueueLlmClient(
-    `# ${literalTitle}\n\nBody about whether movie night should be allowed.`,
-    [JSON.stringify({ items: [] }), "Summary."],
-  );
-  const server = await createServer(databasePath, llm);
+    const llm = new QueueLlmClient(
+      `# ${literalTitle}\n\nBody about the requested topic.`,
+      [JSON.stringify({ items: [] }), "Summary."],
+    );
+    const server = await createServer(databasePath, llm);
 
-  const res = await server.request("/api/page/Movie_Night_Should_it_be_Allowed?stream=1", {
-    headers: { "x-requested-title": literalTitle },
-  });
-  assert.equal(res.status, 200);
-  const packets = parseNdjson<Record<string, unknown>>(await res.text());
-  const done = packets.find((packet) => packet.type === "done") as { article?: { title?: string } } | undefined;
-  assert.ok(done, "generation should finish");
-  assert.equal(done?.article?.title, literalTitle, "generated title must match the literal requested title verbatim");
+    const res = await server.request("/api/page/Requested_Title_Test?stream=1", {
+      headers: { "x-requested-title": encodeURIComponent(literalTitle) },
+    });
+    assert.equal(res.status, 200);
+    const packets = parseNdjson<Record<string, unknown>>(await res.text());
+    const done = packets.find((packet) => packet.type === "done") as { article?: { title?: string } } | undefined;
+    assert.ok(done, "generation should finish");
+    assert.equal(done?.article?.title, literalTitle, `generated title must match "${literalTitle}" verbatim`);
+  }
 });
 
 test("refresh rewrite preserves prior prompt refs and adds body-linked refs", async (t) => {

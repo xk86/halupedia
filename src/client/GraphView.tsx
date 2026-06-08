@@ -551,6 +551,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const shadingEnabledRef = useRef(shadingEnabled);
   const pathModeRef = useRef(pathMode);
   const pathEdgesRef = useRef(new Set<string>());
+  const traceNodeColorRef = useRef(new Map<string, string>());
+  const traceEdgeColorRef = useRef(new Map<string, string>());
 
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
@@ -909,6 +911,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     if (!fgRef.current || !initialized) return;
     fgRef.current
       .nodeColor((n: FgNode) => {
+        // Animated trace color (a per-node hue) wins so passed nodes stay lit.
+        if (pathModeRef.current) {
+          const tc = traceNodeColorRef.current.get(n.id);
+          if (tc) return tc;
+        }
         const base = !n.exists
           ? "#555566"
           : colorModeRef.current === "component"
@@ -922,7 +929,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         const src = typeof l.source === "object" ? l.source.id : l.source;
         const tgt = typeof l.target === "object" ? l.target.id : l.target;
         const key = `${src}>${tgt}`;
-        // Path-mode trace edges win over the seed-pair gold highlight.
+        if (pathModeRef.current) {
+          const tc = traceEdgeColorRef.current.get(key);
+          if (tc) return tc;
+        }
+        // Path-mode route edges win over the seed-pair gold highlight.
         const onPath = pathModeRef.current && pathEdgesRef.current.has(key);
         const base = (onPath || pathEdgeSetRef.current.has(key)) ? "#ffd700" : "#ffffff";
         const hl = highlightSetRef.current;
@@ -956,6 +967,69 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   useEffect(() => {
     if (pathMode) setShadingEnabled(true);
   }, [pathMode]);
+
+  // ── Animated path trace ──────────────────────────────────────────────────
+  //
+  // Walk a moving "head" from the first waypoint to the last along the path.
+  // Each node it passes is colored with a hue that rotates per node, so you
+  // can count how many hops the route takes by counting color bands. The head
+  // edge pulses white. Loops continuously while path mode is active.
+  useEffect(() => {
+    const nodeMap = traceNodeColorRef.current;
+    const edgeMap = traceEdgeColorRef.current;
+    nodeMap.clear();
+    edgeMap.clear();
+    const fg = fgRef.current;
+    if (!fg || !initialized || !pathMode || pathInfo.nodes.length < 2) {
+      if (fg && initialized) fg.refresh();
+      return;
+    }
+
+    const nodes = pathInfo.nodes;
+    const N = nodes.length;
+    const SPEED = 1.6;       // nodes traversed per second
+    const HUE_STEP = 40;     // degrees of hue per node, for countability
+    const BASE_HUE = 200;
+    const litColor = (i: number) => `hsl(${(BASE_HUE + i * HUE_STEP) % 360}, 90%, 60%)`;
+
+    let raf = 0;
+    let start = 0;
+    let lastDraw = 0;
+    const tick = (ts: number) => {
+      if (!start) start = ts;
+      const total = (N - 1) / SPEED + 0.8; // brief hold on the full path, then loop
+      const t = ((ts - start) / 1000) % total;
+      const progress = Math.min(N - 1, t * SPEED);
+      const passed = Math.floor(progress);
+      if (ts - lastDraw > 40) { // ~25fps
+        lastDraw = ts;
+        nodeMap.clear();
+        edgeMap.clear();
+        for (let i = 0; i <= passed && i < N; i++) {
+          nodeMap.set(nodes[i], litColor(i));
+          if (i > 0) {
+            const c = litColor(i);
+            edgeMap.set(`${nodes[i - 1]}>${nodes[i]}`, c);
+            edgeMap.set(`${nodes[i]}>${nodes[i - 1]}`, c);
+          }
+        }
+        if (passed + 1 < N) { // pulse the edge the head is currently crossing
+          edgeMap.set(`${nodes[passed]}>${nodes[passed + 1]}`, "#ffffff");
+          edgeMap.set(`${nodes[passed + 1]}>${nodes[passed]}`, "#ffffff");
+        }
+        fg.refresh();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      nodeMap.clear();
+      edgeMap.clear();
+      if (fgRef.current && initialized) fgRef.current.refresh();
+    };
+  }, [pathMode, pathInfo, initialized]);
 
   // ── Resize observer ─────────────────────────────────────────────────────────
 

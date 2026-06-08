@@ -871,9 +871,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       } catch { /* ignore */ }
     }
 
-    // Always include the path waypoints + intermediate nodes so the trace has
-    // something to draw, even if they fall outside the top-N / neighbor filter.
+    // Always include the path waypoints + intermediate route nodes so the trace
+    // has something to draw, even if they fall outside the top-N / neighbor
+    // filter — and the waypoints themselves even when no route connects them.
     if (pathMode) {
+      for (const w of waypoints) if (gInstance.hasNode(w.slug)) slugSet.add(w.slug);
       for (const slug of pathUnion.nodes) if (gInstance.hasNode(slug)) slugSet.add(slug);
     }
 
@@ -913,7 +915,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     }
 
     return { nodes, links, haluCount };
-  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu, largestComponentOnly, pathMode, pathUnion]);
+  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu, largestComponentOnly, pathMode, pathUnion, waypoints]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 

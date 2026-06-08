@@ -79,11 +79,12 @@ describe("makeNodeLabelSprite", () => {
     expect(long.scale.x).toBeGreaterThan(short.scale.x);
   });
 
-  it("scales the sprite by the given size multiplier", () => {
-    const normal = makeNodeLabelSprite("Halupedia Article", "#ffffff", 1);
-    const big = makeNodeLabelSprite("Halupedia Article", "#ffffff", 2);
+  it("scales the sprite proportionally to the requested world height", () => {
+    const normal = makeNodeLabelSprite("Halupedia Article", "#ffffff", 6);
+    const big = makeNodeLabelSprite("Halupedia Article", "#ffffff", 12);
     expect(big.scale.y).toBeCloseTo(normal.scale.y * 2);
     expect(big.scale.x).toBeCloseTo(normal.scale.x * 2);
+    expect(normal.scale.y).toBeCloseTo(6);
   });
 });
 

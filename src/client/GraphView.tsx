@@ -202,7 +202,7 @@ export function summarizeCommunities(nodes: FgNode[], colorMode: ColorMode): Com
 // Built on a canvas texture rather than pulling in a label-sprite dependency,
 // since `three` is already available.
 
-export function makeNodeLabelSprite(text: string, color: string, sizeMultiplier: number = 1): THREE.Sprite {
+export function makeNodeLabelSprite(text: string, color: string, worldHeight: number = 6): THREE.Sprite {
   // Render at a high resolution so the text stays crisp whether the camera
   // is close or far — a low-res canvas stretched to a large world size is
   // what made earlier attempts look blurry/illegible.
@@ -227,9 +227,9 @@ export function makeNodeLabelSprite(text: string, color: string, sizeMultiplier:
   texture.minFilter = THREE.LinearFilter;
   const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true });
   const sprite = new THREE.Sprite(material);
-  // World-space size, independent of canvas resolution — tunable via the
-  // "Label size" knob (sizeMultiplier) so it can be matched to node scale.
-  const worldHeight = 6 * sizeMultiplier;
+  // World-space size, independent of canvas resolution — the caller derives
+  // `worldHeight` from the node's own radius and the "Label size" knob, so
+  // labels stay legible relative to nodes regardless of node-size settings.
   sprite.scale.set((canvas.width / canvas.height) * worldHeight, worldHeight, 1);
   return sprite;
 }
@@ -634,8 +634,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           const color = n.exists
             ? (colorModeRef.current === "component" ? communityColor(n.componentId) : communityColor(n.community))
             : "#999999";
-          const sprite = makeNodeLabelSprite(n.title, color, settings.labelSize);
           const nodeRadius = Math.cbrt(Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6)) * settings.nodeRelSize;
+          // Scale the label off the node's own radius so it stays legible
+          // relative to the node regardless of the "Base size" setting —
+          // "Label size" is a multiplier on top of that baseline.
+          const worldHeight = Math.max(2, nodeRadius) * 0.7 * settings.labelSize;
+          const sprite = makeNodeLabelSprite(n.title, color, worldHeight);
           sprite.position.set(0, nodeRadius + sprite.scale.y / 2 + 1, 0);
           return sprite;
         });
@@ -919,7 +923,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 <span className="grs-toggle-hint">show node labels above all nodes, not just on hover</span>
               </label>
               {settings.alwaysShowLabels && (
-                <Knob label="Label size" value={settings.labelSize} min={0.5} max={5} step={0.1}
+                <Knob label="Label size" value={settings.labelSize} min={0.5} max={15} step={0.25}
                   format={(v) => v.toFixed(1)} onChange={(v) => set("labelSize", v)} />
               )}
             </div>

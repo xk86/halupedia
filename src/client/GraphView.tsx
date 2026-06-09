@@ -520,18 +520,33 @@ export function makeNodeLabelSprite(
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
 
-  // Draw the title in white and the sub-text in grey, then tint the whole
-  // sprite via the material's `color`. Keeping the texture neutral lets the
-  // caller recolor the label live (e.g. as the path trace sweeps through it)
-  // just by setting material.color — no need to regenerate the canvas.
+  // Translucent black backdrop so labels stay legible over bright nodes/links.
+  // Black survives the material's `color` multiply (black × anything = black),
+  // so the backdrop reads the same regardless of how the caller tints the
+  // sprite. A soft rounded rect when the API is available, else a plain fill.
+  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+  const radius = Math.min(canvas.width, canvas.height) * 0.18;
+  if (typeof ctx.roundRect === "function") {
+    ctx.beginPath();
+    ctx.roundRect(0, 0, canvas.width, canvas.height, radius);
+    ctx.fill();
+  } else {
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // Draw the title in (near-opaque) white and the sub-text in grey, then tint
+  // the whole sprite via the material's `color`. Keeping the texture neutral
+  // lets the caller recolor the label live (e.g. as the path trace sweeps
+  // through it) just by setting material.color — no need to regenerate the
+  // canvas. The slight title transparency softens the text against the backdrop.
   const titleY = subText ? fontSize * 0.7 : canvas.height / 2;
   ctx.font = font;
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
   ctx.fillText(text, canvas.width / 2, titleY);
 
   if (subText) {
     ctx.font = subFont;
-    ctx.fillStyle = "#9a9a9a";
+    ctx.fillStyle = "rgba(154, 154, 154, 0.9)";
     ctx.fillText(subText, canvas.width / 2, titleY + fontSize * 0.7 + lineGap);
   }
 

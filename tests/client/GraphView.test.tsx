@@ -44,6 +44,10 @@ function stubCanvasContext() {
     fillStyle: "",
     measureText: vi.fn((text: string) => ({ width: text.length * 10 })),
     fillText: vi.fn(),
+    fillRect: vi.fn(),
+    beginPath: vi.fn(),
+    roundRect: vi.fn(),
+    fill: vi.fn(),
   };
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
   return ctx;
@@ -75,6 +79,14 @@ describe("makeNodeLabelSprite", () => {
     // Text is drawn white and the color is applied as a material tint so it can
     // be recolored live (e.g. by the path trace).
     expect(sprite.material.color.getHexString()).toBe("abcdef");
+  });
+
+  it("paints a rounded translucent backdrop behind the label", () => {
+    const ctx = stubCanvasContext();
+    makeNodeLabelSprite("Backdrop Test", "#ffffff");
+    // The backdrop box is drawn via roundRect + fill before the text.
+    expect(ctx.roundRect).toHaveBeenCalled();
+    expect(ctx.fill).toHaveBeenCalled();
   });
 
   it("produces a wider sprite for longer text", () => {

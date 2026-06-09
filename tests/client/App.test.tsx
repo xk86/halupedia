@@ -563,6 +563,64 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Archive_scouts");
   });
 
+  it("header search dropdown shows live article results and navigates on click", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/homepage") {
+        return new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/top-articles?limit=10") {
+        return new Response(JSON.stringify({ articles: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.startsWith("/api/search?")) {
+        return new Response(JSON.stringify({
+          results: [
+            { slug: "clock-tower", title: "Clock Tower", exists: true },
+            { slug: "ghost-clock", title: "Ghost Clock", exists: false },
+          ],
+          has_more: false,
+        }), { headers: { "content-type": "application/json" } });
+      }
+      if (url === "/api/page/Clock-tower") {
+        return new Response(JSON.stringify(pagePayload({
+          article: {
+            ...pagePayload().article,
+            slug: "clock-tower",
+            canonicalSlug: "clock-tower",
+            title: "Clock Tower",
+            html: "<h1>Clock Tower</h1><p>Body.</p>",
+            markdown: "# Clock Tower\n\nBody.",
+            plain_text: "Body.",
+          },
+        })), { headers: { "content-type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/");
+
+    render(<App />);
+
+    const input = screen.getByPlaceholderText("Search the register...");
+    await userEvent.type(input, "clock");
+
+    // The existing article surfaces as a live suggestion; the unwritten one is filtered out.
+    const result = await screen.findByRole("button", { name: "Clock Tower" });
+    expect(screen.queryByRole("button", { name: "Ghost Clock" })).toBeNull();
+    // The "Go to" literal-title option still appears alongside the live results.
+    expect(screen.getByText(/Go to:/)).toBeInTheDocument();
+
+    await userEvent.click(result);
+
+    expect(await screen.findByRole("heading", { name: "Clock Tower" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/wiki/Clock-tower");
+    expect(fetchMock).toHaveBeenCalledWith("/api/page/Clock-tower");
+  });
+
   it("header Go accepts a full URL containing a wiki path", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

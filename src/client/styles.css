@@ -312,6 +312,20 @@ a:hover {
   background: var(--parchment);
   border: 1px solid var(--rule);
   box-shadow: 0 4px 12px var(--shadow-soft);
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.header-search-suggest-divider {
+  border-top: 1px solid var(--rule);
+}
+
+.header-search-suggest-more {
+  padding: 0.4rem 0.6rem;
+  font-family: var(--serif);
+  font-size: 0.8rem;
+  color: var(--muted, #888);
+  text-align: center;
 }
 
 .header-search-suggest-item {

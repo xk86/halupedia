@@ -8,6 +8,7 @@ import { MediaPage } from "./MediaPage";
 import { MediaListPage } from "./MediaListPage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
+import { useArticleSuggestions } from "./articleSuggest";
 import { renderInlineHtml } from "./summaryHtml";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
 
@@ -176,6 +177,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [headerSearchDraft, setHeaderSearchDraft] = useState("");
   const [searchSuggestOpen, setSearchSuggestOpen] = useState(false);
+  // Live scroll-paginated article results for the header search dropdown,
+  // sharing the same widget the graph seed/waypoint pickers use.
+  const headerSuggest = useArticleSuggestions(headerSearchDraft);
   const [linkMenu, setLinkMenu] = useState<LinkMenuState | null>(null);
   const [linkMenuBusy, setLinkMenuBusy] = useState(false);
   const [linkMenuError, setLinkMenuError] = useState<string | null>(null);
@@ -2239,19 +2243,40 @@ export function App() {
                     Go to: <strong>{headerSearchDraft.trim()}</strong>
                   </button>
                 </li>
-                <li>
-                  <button
-                    type="button"
-                    className="header-search-suggest-item"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      navigateToSearch(headerSearchDraft);
-                      setSearchSuggestOpen(false);
+                {headerSuggest.items.length > 0 && (
+                  <li
+                    className="header-search-suggest-divider"
+                    onScroll={(e) => {
+                      const el = e.currentTarget;
+                      if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) headerSuggest.loadMore();
                     }}
+                    style={{ maxHeight: "14rem", overflowY: "auto" }}
                   >
-                    Search: <strong>{headerSearchDraft.trim()}</strong>
-                  </button>
-                </li>
+                    <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                      {headerSuggest.items.map((s) => (
+                        <li key={s.slug}>
+                          <button
+                            type="button"
+                            className="header-search-suggest-item"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              navigateToArticle(s.slug);
+                              setHeaderSearchDraft("");
+                              setSearchSuggestOpen(false);
+                            }}
+                          >
+                            {s.title}
+                          </button>
+                        </li>
+                      ))}
+                      {headerSuggest.hasMore && (
+                        <li className="header-search-suggest-more">
+                          {headerSuggest.loading ? "Loading…" : "Scroll for more"}
+                        </li>
+                      )}
+                    </ul>
+                  </li>
+                )}
               </ul>
             )}
           </div>

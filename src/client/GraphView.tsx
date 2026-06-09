@@ -522,6 +522,48 @@ export function labelDrawState(faded: boolean, shadedOpacity: number): { opacity
   return { opacity, visible: opacity > 0.01 };
 }
 
+/**
+ * Compute the display color for a node, applying all transformations in priority order:
+ * 1. Animated trace color (if in pathMode and node is being traced)
+ * 2. Grey for unvisited path nodes (if in pathMode and not in highlight set)
+ * 3. Base color desaturated and blended toward background (if node is shaded)
+ * 4. Base color (default)
+ */
+export function computeNodeDisplayColor(
+  nodeId: string,
+  nodeObj: FgNode | null,
+  pathMode: boolean,
+  traceNodeColor: Map<string, string>,
+  highlightSet: Set<string>,
+  shadingEnabled: boolean,
+  colorMode: ColorMode,
+  bgColor: string,
+  shadedOpacity: number,
+): string {
+  // Animated trace color wins so passed nodes stay lit.
+  if (pathMode) {
+    const tc = traceNodeColor.get(nodeId);
+    if (tc) return tc;
+    // A path node the trace hasn't reached yet stays neutral grey.
+    if (highlightSet.has(nodeId)) return "#888888";
+  }
+
+  if (!nodeObj) return "#ffffff";
+
+  const base = !nodeObj.exists
+    ? "#555566"
+    : colorMode === "component"
+      ? communityColor(nodeObj.componentId)
+      : communityColor(nodeObj.community);
+
+  // Shaded nodes desaturate and fade toward the background.
+  if (shadingEnabled && highlightSet.size > 0 && !highlightSet.has(nodeId)) {
+    return blendHex(desaturate(base, 0.7), bgColor, shadedOpacity);
+  }
+
+  return base;
+}
+
 // ── Persistent node-name labels ──────────────────────────────────────────────
 //
 // The hover tooltip (`.nodeLabel`) already shows each node's title when you
@@ -728,6 +770,21 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   // All node label sprites' base (community) colors, so trace coloring can be
   // reverted to the underlying node color once the trace passes / loops.
   const labelBaseColorRef = useRef(new Map<string, string>());
+
+  // Wrapper that reads from refs for use in accessors.
+  const computeNodeColorFromRefs = useCallback((nodeId: string, nodeObj: FgNode | null): string => {
+    return computeNodeDisplayColor(
+      nodeId,
+      nodeObj,
+      pathModeRef.current,
+      traceNodeColorRef.current,
+      highlightSetRef.current,
+      shadingEnabledRef.current,
+      colorModeRef.current,
+      bgColorRef.current,
+      shadedOpacityRef.current,
+    );
+  }, []);
 
   const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
     setSettings((s) => ({ ...s, [key]: value }));
@@ -1158,27 +1215,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     pathEdgeSetRef.current = pathEdgeSet;
     if (!fgRef.current || !initialized) return;
     fgRef.current
-      .nodeColor((n: FgNode) => {
-        // Animated trace color (a per-node hue) wins so passed nodes stay lit.
-        if (pathModeRef.current) {
-          const tc = traceNodeColorRef.current.get(n.id);
-          if (tc) return tc;
-          // A path node the trace hasn't reached yet stays neutral grey rather
-          // than its community color, so only visited nodes carry color.
-          if (highlightSetRef.current.has(n.id)) return "#888888";
-        }
-        const base = !n.exists
-          ? "#555566"
-          : colorModeRef.current === "component"
-            ? communityColor(n.componentId)
-            : communityColor(n.community);
-        const hl = highlightSetRef.current;
-        // Shaded nodes desaturate (lose their community color) and fade toward
-        // the background by the "Shaded opacity" slider (1 = full, 0 = ~gone),
-        // matching the faded labels.
-        if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return blendHex(desaturate(base, 0.7), bgColorRef.current, shadedOpacityRef.current);
-        return base;
-      })
+      .nodeColor((n: FgNode) => computeNodeColorFromRefs(n.id, n))
       .linkColor((l: { source: FgNode | string; target: FgNode | string }) => {
         const src = typeof l.source === "object" ? l.source.id : l.source;
         const tgt = typeof l.target === "object" ? l.target.id : l.target;
@@ -1375,12 +1412,23 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         fg.refresh();
       }
       // Tint each route's node labels to exactly the node's current color every
-      // frame (lit nodes take the trace hue, others their base color) so the
-      // title always follows the node it sits on.
+      // frame, applying the same logic as nodeColor so labels undergo the same
+      // transformations (desaturate, blend toward background, grey unvisited).
       for (const id of pathNodeIds) {
         const sprite = labelSpritesRef.current.get(id);
         if (!sprite) continue;
-        const c = nodeMap.get(id) ?? labelBaseColorRef.current.get(id) ?? "#ffffff";
+        const nodeObj = posMap.get(id) as FgNode | undefined;
+        const c = computeNodeDisplayColor(
+          id,
+          nodeObj ?? null,
+          pathModeRef.current,
+          traceNodeColorRef.current,
+          highlightSetRef.current,
+          shadingEnabledRef.current,
+          colorModeRef.current,
+          bgColorRef.current,
+          shadedOpacityRef.current,
+        );
         (sprite.material as THREE.SpriteMaterial).color.set(c);
       }
       raf = requestAnimationFrame(tick);
@@ -1391,10 +1439,23 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       cancelAnimationFrame(raf);
       nodeMap.clear();
       edgeMap.clear();
-      // Restore each route's label color to its base.
+      // Restore each route's label color to its proper display color (accounting for shading).
       for (const id of pathNodeIds) {
         const sprite = labelSpritesRef.current.get(id);
-        if (sprite) (sprite.material as THREE.SpriteMaterial).color.set(labelBaseColorRef.current.get(id) ?? "#ffffff");
+        if (!sprite) continue;
+        const nodeObj = posMap.get(id) as FgNode | undefined;
+        const c = computeNodeDisplayColor(
+          id,
+          nodeObj ?? null,
+          pathModeRef.current,
+          traceNodeColorRef.current,
+          highlightSetRef.current,
+          shadingEnabledRef.current,
+          colorModeRef.current,
+          bgColorRef.current,
+          shadedOpacityRef.current,
+        );
+        (sprite.material as THREE.SpriteMaterial).color.set(c);
       }
       for (const m of meshes) {
         scene.remove(m);

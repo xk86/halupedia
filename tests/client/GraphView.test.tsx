@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import Graph from "graphology";
 
-import { blendHex, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities } from "../../src/client/GraphView";
+import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -198,6 +198,123 @@ describe("desaturate", () => {
 
   it("passes non-hex strings through", () => {
     expect(desaturate("rebeccapurple", 1)).toBe("rebeccapurple");
+  });
+});
+
+describe("computeNodeDisplayColor", () => {
+  const baseNode = makeNode({ id: "n1", title: "Test Node", community: 0, exists: true });
+
+  it("returns trace color when in pathMode and node is being traced", () => {
+    const traceColor = new Map<string, string>([["n1", "#ff0000"]]);
+    const result = computeNodeDisplayColor(
+      "n1",
+      baseNode,
+      true, // pathMode
+      traceColor,
+      new Set(), // highlightSet
+      false, // shadingEnabled
+      "community", // colorMode
+      "#000000", // bgColor
+      0.5, // shadedOpacity
+    );
+    expect(result).toBe("#ff0000");
+  });
+
+  it("returns grey for unvisited path nodes (in highlightSet but no trace color)", () => {
+    const result = computeNodeDisplayColor(
+      "n1",
+      baseNode,
+      true, // pathMode
+      new Map(), // no trace color
+      new Set(["n1"]), // in highlightSet but not traced
+      false,
+      "community",
+      "#000000",
+      0.5,
+    );
+    expect(result).toBe("#888888");
+  });
+
+  it("returns base community color when not shaded", () => {
+    const result = computeNodeDisplayColor(
+      "n1",
+      baseNode,
+      false, // pathMode
+      new Map(),
+      new Set(), // empty highlightSet
+      false, // shadingEnabled
+      "community",
+      "#000000",
+      0.5,
+    );
+    // Should be the community color for community 0
+    expect(result).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+
+  it("desaturates and blends shaded nodes toward background", () => {
+    const highlightSet = new Set(["other-node"]); // n1 not in the highlight set
+    const result = computeNodeDisplayColor(
+      "n1",
+      baseNode,
+      false,
+      new Map(),
+      highlightSet,
+      true, // shadingEnabled
+      "community",
+      "#000000", // dark background
+      0.5, // fade to 50% opacity
+    );
+    // Should be darker and more greyish than the original community color
+    expect(result).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(result).not.toBe("#e63946"); // not the base red color
+  });
+
+  it("returns white fallback for null node", () => {
+    const result = computeNodeDisplayColor(
+      "nonexistent",
+      null,
+      false,
+      new Map(),
+      new Set(),
+      false,
+      "community",
+      "#000000",
+      0.5,
+    );
+    expect(result).toBe("#ffffff");
+  });
+
+  it("returns grey color for non-existent nodes (exists: false)", () => {
+    const deadNode = makeNode({ id: "dead", title: "Dead Link", exists: false });
+    const result = computeNodeDisplayColor(
+      "dead",
+      deadNode,
+      false,
+      new Map(),
+      new Set(),
+      false,
+      "community",
+      "#000000",
+      0.5,
+    );
+    expect(result).toBe("#555566");
+  });
+
+  it("respects colorMode to use componentId instead of community", () => {
+    const node = makeNode({ id: "n1", title: "Node", community: 1, componentId: 5, exists: true });
+    const result = computeNodeDisplayColor(
+      "n1",
+      node,
+      false,
+      new Map(),
+      new Set(),
+      false,
+      "component", // use componentId instead
+      "#000000",
+      0.5,
+    );
+    // Result should be based on componentId 5, not community 1
+    expect(result).toMatch(/^#[0-9a-f]{6}$/i);
   });
 });
 

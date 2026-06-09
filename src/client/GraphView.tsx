@@ -13,6 +13,7 @@ import { connectedComponents, largestConnectedComponent } from "graphology-compo
 import louvain from "graphology-communities-louvain";
 import * as THREE from "three";
 import { toWikiSegment } from "./wikiPath";
+import { type Suggestion, fetchArticleSuggestions, useArticleSuggestions } from "./articleSuggest";
 
 interface RawNode { slug: string; title: string; exists: boolean; }
 interface RawLink { source: string; target: string; }
@@ -94,24 +95,6 @@ function computeMetric(g: Graph, metric: Metric, seeds?: Seed[]): Record<string,
   } catch {
     return zero();
   }
-}
-
-interface Suggestion { slug: string; title: string; }
-
-// ── Article search (shared) ────────────────────────────────────────────────
-//
-// Both the seed search and the path-mode pickers hit the same /api/search
-// endpoint and keep only real (exists) articles. Centralizing the fetch shape
-// here keeps a single source of truth for the request/response handling.
-
-async function fetchArticleSuggestions(
-  q: string, offset: number, signal?: AbortSignal,
-): Promise<{ hits: Suggestion[]; hasMore: boolean }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d: any = await fetch(`/api/search?q=${encodeURIComponent(q)}&offset=${offset}`, { signal }).then((r) => r.json());
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hits = (d.results ?? []).filter((r: any) => r.exists).map((r: any) => ({ slug: r.slug, title: r.title }));
-  return { hits, hasMore: d.has_more ?? false };
 }
 
 // ── Waypoint pathfinding ───────────────────────────────────────────────────
@@ -268,45 +251,8 @@ function ArticlePicker({ onPick, placeholder, autoFocus }: {
   autoFocus?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<Suggestion[]>([]);
   const [open, setOpen] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const offsetRef = useRef(0);
-  const queryRef = useRef("");
-
-  useEffect(() => {
-    if (!query.trim()) { setItems([]); setHasMore(false); offsetRef.current = 0; queryRef.current = ""; return; }
-    queryRef.current = query;
-    offsetRef.current = 0;
-    setItems([]);
-    setHasMore(false);
-    const ctrl = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const { hits, hasMore: more } = await fetchArticleSuggestions(query, 0, ctrl.signal);
-        if (ctrl.signal.aborted) return;
-        setItems(hits);
-        setHasMore(more);
-        offsetRef.current = hits.length;
-      } catch { /* aborted or network error */ }
-    }, 180);
-    return () => { clearTimeout(timer); ctrl.abort(); };
-  }, [query]);
-
-  const loadMore = useCallback(async () => {
-    if (loading || !hasMore || !queryRef.current.trim()) return;
-    setLoading(true);
-    const q = queryRef.current, offset = offsetRef.current;
-    try {
-      const { hits, hasMore: more } = await fetchArticleSuggestions(q, offset);
-      if (queryRef.current !== q) return;
-      setItems((prev) => [...prev, ...hits]);
-      setHasMore(more);
-      offsetRef.current = offset + hits.length;
-    } catch { /* network error */ }
-    setLoading(false);
-  }, [loading, hasMore]);
+  const { items, hasMore, loading, loadMore } = useArticleSuggestions(query);
 
   return (
     <div className="graph-search-wrap">
@@ -330,7 +276,7 @@ function ArticlePicker({ onPick, placeholder, autoFocus }: {
         >
           {items.map((s) => (
             <li key={s.slug}>
-              <button type="button" onMouseDown={() => { onPick(s); setQuery(""); setItems([]); setOpen(false); }}>
+              <button type="button" onMouseDown={() => { onPick(s); setQuery(""); setOpen(false); }}>
                 {s.title}
               </button>
             </li>
@@ -977,14 +923,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const ctrl = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d: any = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&offset=0`, { signal: ctrl.signal }).then((r) => r.json());
+        const { hits, hasMore } = await fetchArticleSuggestions(searchQuery, 0, ctrl.signal);
         if (ctrl.signal.aborted) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const hits = (d.results ?? []).filter((r: any) => r.exists);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setSuggestions(hits.map((r: any) => ({ slug: r.slug, title: r.title })));
-        setSuggestHasMore(d.has_more ?? false);
+        setSuggestions(hits);
+        setSuggestHasMore(hasMore);
         suggestOffsetRef.current = hits.length;
       } catch { /* aborted or network error */ }
     }, 180);
@@ -997,14 +939,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const q = suggestQueryRef.current;
     const offset = suggestOffsetRef.current;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d: any = await fetch(`/api/search?q=${encodeURIComponent(q)}&offset=${offset}`).then((r) => r.json());
+      const { hits, hasMore } = await fetchArticleSuggestions(q, offset);
       if (suggestQueryRef.current !== q) return; // query changed while loading
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const hits = (d.results ?? []).filter((r: any) => r.exists);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setSuggestions((prev) => [...prev, ...hits.map((r: any) => ({ slug: r.slug, title: r.title }))]);
-      setSuggestHasMore(d.has_more ?? false);
+      setSuggestions((prev) => [...prev, ...hits]);
+      setSuggestHasMore(hasMore);
       suggestOffsetRef.current = offset + hits.length;
     } catch { /* network error */ }
     setSuggestLoading(false);

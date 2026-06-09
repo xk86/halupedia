@@ -313,6 +313,7 @@ interface RenderSettings {
   // Appearance
   bgColor: string;
   alwaysShowLabels: boolean; // show node-name labels above all nodes, not just on hover
+  shadedOpacity: number; // how visible shaded (non-highlighted) nodes, links, and labels are: 0–1; 0 fades them out (labels hidden entirely)
   labelSize: number;        // size multiplier for always-on node-name labels: 0.5–5
   dynamicLabelSize: boolean; // scale each label by the node's link count
   labelSizeInfluence: number; // how strongly the count affects label size: 0–1
@@ -348,6 +349,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   velocityDecay: 0.4,
   bgColor: "#080810",
   alwaysShowLabels: false,
+  shadedOpacity: 0.1,
   labelSize: 1.5,
   dynamicLabelSize: false,
   labelSizeInfluence: 0.5,
@@ -438,6 +440,30 @@ function hexToOklch(hex: string): { L: number; C: number; H: number } | null {
  * Fade a #rrggbb color for shading: darken its lightness and drop its chroma in
  * OKLCH so it recedes cleanly. amount=0 → unchanged, 1 → near-black desaturated.
  */
+function parseHexRgb(hex: string): { r: number; g: number; b: number } | null {
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length !== 6) return null;
+  const n = parseInt(h, 16);
+  if (Number.isNaN(n)) return null;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+/**
+ * Mix `hex` toward `toward` in sRGB. `keep` is how much of `hex` survives
+ * (1 = unchanged, 0 = fully `toward`). Used to fade shaded nodes/links right
+ * down into the background so a low "Shaded opacity" makes them nearly vanish
+ * — matching how the labels fade to the same opacity.
+ */
+export function blendHex(hex: string, toward: string, keep: number): string {
+  const a = parseHexRgb(hex), b = parseHexRgb(toward);
+  if (!a || !b) return hex;
+  const t = Math.max(0, Math.min(1, keep));
+  const mix = (x: number, y: number) => Math.round(x * t + y * (1 - t));
+  const to2 = (v: number) => v.toString(16).padStart(2, "0");
+  return `#${to2(mix(a.r, b.r))}${to2(mix(a.g, b.g))}${to2(mix(a.b, b.b))}`;
+}
+
 export function dim(hex: string, amount = 0.78): string {
   if (amount <= 0) return hex;
   const o = hexToOklch(hex);
@@ -474,6 +500,17 @@ export function summarizeCommunities(nodes: FgNode[], colorMode: ColorMode): Com
     group.members.sort((a, b) => a.title.localeCompare(b.title));
   }
   return [...groups.values()].sort((a, b) => b.members.length - a.members.length);
+}
+
+/**
+ * Resolve a label sprite's draw state from whether it's shaded (outside the
+ * highlight set) and the configured shaded opacity. Fully-faded labels report
+ * `visible: false` so the renderer can skip them entirely — the key cost saver
+ * while the layout is actively rearranging hundreds of sprites.
+ */
+export function labelDrawState(faded: boolean, shadedOpacity: number): { opacity: number; visible: boolean } {
+  const opacity = faded ? shadedOpacity : 1;
+  return { opacity, visible: opacity > 0.01 };
 }
 
 // ── Persistent node-name labels ──────────────────────────────────────────────
@@ -669,6 +706,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const traceNodeColorRef = useRef(new Map<string, string>());
   const traceEdgeColorRef = useRef(new Map<string, string>());
   const labelSpritesRef = useRef(new Map<string, THREE.Sprite>());
+  const shadedOpacityRef = useRef(settings.shadedOpacity);
+  const bgColorRef = useRef(settings.bgColor);
   // Live trace params so the animation loop reads speed/accel/colors without
   // restarting (smooth while dragging sliders); `dirty` forces a trail recolor.
   const traceParamsRef = useRef({
@@ -691,9 +730,18 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const applyLabelFade = useCallback(() => {
     const hl = highlightSetRef.current;
     const shade = shadingEnabledRef.current;
+    const shadedOpacity = shadedOpacityRef.current;
     for (const [id, sprite] of labelSpritesRef.current) {
       const faded = shade && hl.size > 0 && !hl.has(id);
-      (sprite.material as THREE.SpriteMaterial).opacity = faded ? 0.1 : 1;
+      // Hidden sprites are skipped entirely by the renderer — no transparent
+      // draw call and no per-frame depth sort — which is the real cost when the
+      // layout is actively rearranging hundreds of labels. Toggling `visible`
+      // (rather than just lowering opacity) is what makes a fully-faded shaded
+      // set cheap on huge graphs.
+      const { opacity, visible } = labelDrawState(faded, shadedOpacity);
+      const mat = sprite.material as THREE.SpriteMaterial;
+      if (mat.opacity !== opacity) mat.opacity = opacity;
+      if (sprite.visible !== visible) sprite.visible = visible;
     }
   }, []);
 
@@ -981,6 +1029,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         .nodeLabel((n: FgNode) => `${n.title}\n↑ ${n.visibleInDegree} in  ↓ ${n.visibleOutDegree} out`)
         .nodeVal((n: FgNode) => Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6))
         .onNodeClick((n: FgNode) => {
+          // Shaded (non-highlighted) nodes are visually receded — don't let
+          // them be grabbed/navigated, which would be confusing.
+          const hl = highlightSetRef.current;
+          if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return;
           if (n.exists) onNavigate(toWikiSegment(n.title));
         });
 
@@ -1069,8 +1121,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           });
           sprite.position.set(0, nodeRadius + sprite.scale.y / 2 + 1, 0);
           const hl = highlightSetRef.current;
-          (sprite.material as THREE.SpriteMaterial).opacity =
-            shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id) ? 0.1 : 1;
+          const faded = shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id);
+          const { opacity, visible } = labelDrawState(faded, shadedOpacityRef.current);
+          (sprite.material as THREE.SpriteMaterial).opacity = opacity;
+          sprite.visible = visible;
           labelSpritesRef.current.set(n.id, sprite);
           labelBaseColorRef.current.set(n.id, color);
           return sprite;
@@ -1107,7 +1161,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
             ? communityColor(n.componentId)
             : communityColor(n.community);
         const hl = highlightSetRef.current;
-        if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return dim(base);
+        // Shaded nodes fade toward the background by the "Shaded opacity"
+        // slider (1 = full color, 0 = ~invisible), matching the faded labels.
+        if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return blendHex(base, bgColorRef.current, shadedOpacityRef.current);
         return base;
       })
       .linkColor((l: { source: FgNode | string; target: FgNode | string }) => {
@@ -1127,7 +1183,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         }
         const base = pathEdgeSetRef.current.has(key) ? "#ffd700" : "#ffffff";
         const hl = highlightSetRef.current;
-        if (shadingEnabledRef.current && hl.size > 0 && !(hl.has(src) && hl.has(tgt))) return dim(base);
+        if (shadingEnabledRef.current && hl.size > 0 && !(hl.has(src) && hl.has(tgt))) return blendHex(base, bgColorRef.current, shadedOpacityRef.current);
         return base;
       })
       .refresh();
@@ -1138,9 +1194,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   useEffect(() => {
     highlightSetRef.current = highlightSet;
     shadingEnabledRef.current = shadingEnabled;
+    shadedOpacityRef.current = settings.shadedOpacity;
+    bgColorRef.current = settings.bgColor;
     applyLabelFade();
     if (fgRef.current && initialized) fgRef.current.refresh();
-  }, [highlightSet, shadingEnabled, initialized, applyLabelFade]);
+  }, [highlightSet, shadingEnabled, settings.shadedOpacity, settings.bgColor, initialized, applyLabelFade]);
 
   // Keep the live trace params current; flag the trail for a recolor so color
   // tweaks show immediately (not only after the next node crossing).
@@ -1649,6 +1707,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 <span>Shading</span>
                 <span className="grs-toggle-hint">dim nodes outside the highlight set (hover / path waypoints)</span>
               </label>
+              {shadingEnabled && (
+                <Knob label="Shaded opacity" value={settings.shadedOpacity} min={0} max={1} step={0.05}
+                  format={(v) => v.toFixed(2)} onChange={(v) => set("shadedOpacity", v)} />
+              )}
               <Knob label="Resolution" value={settings.nodeResolution} min={4} max={32} step={2}
                 onChange={(v) => set("nodeResolution", v)} />
               <Knob label="Base size" value={settings.nodeRelSize} min={1} max={12} step={0.5}

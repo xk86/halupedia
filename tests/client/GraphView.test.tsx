@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import Graph from "graphology";
 
-import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities } from "../../src/client/GraphView";
+import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities, traceHue } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -198,6 +198,47 @@ describe("desaturate", () => {
 
   it("passes non-hex strings through", () => {
     expect(desaturate("rebeccapurple", 1)).toBe("rebeccapurple");
+  });
+});
+
+describe("traceHue", () => {
+  const start = 200, end = 40, len = 5;
+
+  it("pins both endpoints to the start/end hue regardless of rank or spread", () => {
+    for (const rank of [0, 1, 2, 3]) {
+      for (const spread of [0, 30, 90]) {
+        expect(traceHue(rank, len, 0, start, end, spread)).toBeCloseTo(start);
+        expect(traceHue(rank, len, len - 1, start, end, spread)).toBeCloseTo(end);
+      }
+    }
+  });
+
+  it("leaves the primary (rank 0) route on the plain start→end gradient", () => {
+    // Midpoint of a 5-node route is the average of the endpoints.
+    expect(traceHue(0, len, 2, start, end, 90)).toBeCloseTo((start + end) / 2);
+  });
+
+  it("ignores spread of 0 (single unified gradient)", () => {
+    expect(traceHue(3, len, 2, start, end, 0)).toBeCloseTo((start + end) / 2);
+  });
+
+  it("offsets interior nodes by the spread, tapered by sin(pi*u)", () => {
+    // u = 0.5 at the midpoint of a 5-node route → sin(pi/2) = 1, full offset.
+    const base = (start + end) / 2;
+    expect(traceHue(1, len, 2, start, end, 30)).toBeCloseTo(base + 30); // rank 1 → +1 step
+    expect(traceHue(2, len, 2, start, end, 30)).toBeCloseTo(base - 30); // rank 2 → -1 step
+    expect(traceHue(3, len, 2, start, end, 30)).toBeCloseTo(base + 60); // rank 3 → +2 steps
+  });
+
+  it("tapers the offset toward the endpoints (smaller near the ends)", () => {
+    const mid = Math.abs(traceHue(1, len, 2, start, end, 30) - (start + (end - start) * 0.5));
+    const near = Math.abs(traceHue(1, len, 1, start, end, 30) - (start + (end - start) * 0.25));
+    expect(near).toBeLessThan(mid);
+    expect(near).toBeGreaterThan(0);
+  });
+
+  it("returns the start hue for a degenerate single-node route", () => {
+    expect(traceHue(2, 1, 0, start, end, 50)).toBe(start);
   });
 });
 

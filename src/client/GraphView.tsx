@@ -329,6 +329,7 @@ interface RenderSettings {
   traceChroma: number;       // OKLCH C (vividness) for the trace colors: 0.02–0.37
   traceStartHue: number;     // hue (deg) at each route's start node: 0–360
   traceEndHue: number;       // hue (deg) at each route's end node: 0–360
+  traceHueSpread: number;    // how far apart overlapping routes' hues fan out (deg), tapered to 0 at endpoints: 0–120
   pathLinkBrightness: number; // how bright the (untraced) path edges are: 0–1
 }
 
@@ -364,6 +365,7 @@ const DEFAULT_SETTINGS: RenderSettings = {
   traceChroma: 0.17,
   traceStartHue: 200,
   traceEndHue: 40,
+  traceHueSpread: 28,
   pathLinkBrightness: 0.35,
 };
 
@@ -478,6 +480,34 @@ export function dim(hex: string, amount = 0.78): string {
   const o = hexToOklch(hex);
   if (!o) return hex;
   return oklch(o.L * (1 - 0.6 * amount), o.C * (1 - amount), o.H);
+}
+
+/**
+ * Hue (deg) for node/fraction `x` along a path-trace route of length `len`.
+ *
+ * The base hue interpolates linearly from `startHue` at the first node to
+ * `endHue` at the last, so the route's endpoints are fixed and controllable.
+ * On top of that, each route gets a rank-based offset so that routes which
+ * share nodes (k-shortest paths overlap heavily) fan their hues apart and stay
+ * tellable-apart — `spread` is the per-rank distance in degrees. The offset is
+ * multiplied by `sin(π · u)`, which is zero at both endpoints, so *every* route
+ * still starts exactly on `startHue` and ends exactly on `endHue` no matter the
+ * spread — the fan only bulges out across the middle of the route. Rank 0 (the
+ * shortest/primary route) gets no offset; higher ranks alternate ±1, ±2 … so
+ * they spread symmetrically around the primary gradient.
+ */
+export function traceHue(
+  rank: number, len: number, x: number,
+  startHue: number, endHue: number, spread: number,
+): number {
+  if (len <= 1) return startHue;
+  const u = x / (len - 1);
+  const base = startHue + (endHue - startHue) * u;
+  if (rank <= 0 || spread === 0) return base;
+  const taper = Math.sin(Math.PI * u);                 // 0 at u=0 and u=1
+  const sign = rank % 2 === 1 ? 1 : -1;
+  const step = Math.ceil(rank / 2);                    // 1,1,2,2,3,3 … → ±1,∓1,±2 …
+  return base + sign * step * spread * taper;
 }
 
 // ── Community legend ─────────────────────────────────────────────────────────
@@ -765,6 +795,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     speed: settings.traceSpeed, accel: settings.traceAccel, loopDelay: settings.traceLoopDelay,
     L: settings.traceLightness, C: settings.traceChroma,
     startHue: settings.traceStartHue, endHue: settings.traceEndHue,
+    hueSpread: settings.traceHueSpread,
     dirty: false,
   });
   // All node label sprites' base (community) colors, so trace coloring can be
@@ -1257,11 +1288,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       speed: settings.traceSpeed, accel: settings.traceAccel, loopDelay: settings.traceLoopDelay,
       L: settings.traceLightness, C: settings.traceChroma,
       startHue: settings.traceStartHue, endHue: settings.traceEndHue,
+      hueSpread: settings.traceHueSpread,
       dirty: true,
     };
     pathLinkBrightnessRef.current = settings.pathLinkBrightness;
     if (fgRef.current && initialized) fgRef.current.refresh();
-  }, [settings.traceSpeed, settings.traceAccel, settings.traceLoopDelay, settings.traceLightness, settings.traceChroma, settings.traceStartHue, settings.traceEndHue, settings.pathLinkBrightness, initialized]);
+  }, [settings.traceSpeed, settings.traceAccel, settings.traceLoopDelay, settings.traceLightness, settings.traceChroma, settings.traceStartHue, settings.traceEndHue, settings.traceHueSpread, settings.pathLinkBrightness, initialized]);
 
   // Entering path mode turns shading on (so the path stands out) and makes the
   // path nodes the highlight whitelist; leaving it clears the whitelist.
@@ -1304,15 +1336,20 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const maxLen = Math.max(...paths.map((p) => p.nodes.length));
     const pathNodeIds = new Set<string>();
     for (const p of paths) for (const n of p.nodes) pathNodeIds.add(n);
+    // How much brighter (OKLCH L) the segment the particle is *currently*
+    // crossing glows, and how much the whole completed trail flares for the
+    // beat before the loop resets — both clamped so we stay in gamut.
+    const GLOW_L_BOOST = 0.16;
+    const FINALE_L_BOOST = 0.13;
     // Each route's hue interpolates from the Start hue at its first node to the
-    // End hue at its last node, so endpoints are fixed/controllable and the
-    // in-between bands are an even OKLCH gradient. `x` is the node index (or
-    // fractional progress); len is the route's node count.
-    const hueAt = (len: number, x: number, startHue: number, endHue: number) =>
-      len <= 1 ? startHue : startHue + (endHue - startHue) * (x / (len - 1));
-    const litColor = (len: number, i: number) => {
+    // End hue at its last node (endpoints fixed/controllable), with a tapered
+    // per-rank offset so overlapping routes fan apart in the middle but still
+    // converge on the exact start/end hue. `x` is the node index or fractional
+    // progress; len is the route's node count; rank is the route's distance rank.
+    const litColor = (rank: number, len: number, i: number, lBoost = 0) => {
       const p = traceParamsRef.current;
-      return oklch(p.L, p.C, hueAt(len, i, p.startHue, p.endHue));
+      const L = Math.min(0.99, p.L + lBoost);
+      return oklch(L, p.C, traceHue(rank, len, i, p.startHue, p.endHue, p.hueSpread));
     };
     // Ease-in-out applied to the whole traversal: accel 0 → constant speed,
     // higher → the particle accelerates out of the start and eases into the end.
@@ -1357,6 +1394,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     let raf = 0;
     let start = 0;
+    let finaleActive = false;
     const lastSegs = paths.map(() => -1);
 
     const tick = (ts: number) => {
@@ -1386,27 +1424,46 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           c.mesh.position.set(x, y, z);
           c.glow?.position.set(x, y, z);
         }
-        const col = oklch(prm.L, prm.C, hueAt(c.len, progress, prm.startHue, prm.endHue));
+        const col = oklch(prm.L, prm.C, traceHue(c.rank, c.len, progress, prm.startHue, prm.endHue, prm.hueSpread));
         (c.mesh.material as THREE.MeshBasicMaterial).color.set(col);
         if (c.glow) (c.glow.material as THREE.MeshBasicMaterial).color.set(col);
         if (i !== lastSegs[idx]) { lastSegs[idx] = i; anyCrossed = true; }
       });
 
-      // Rebuild the lit trail when a particle crosses a node, or when a color
-      // slider changed (dirty) — the moving particles carry the smooth motion.
+      // The trail flares brighter for the beat after the last particle lands and
+      // the loop sits in its delay, then resets — a little finale before replay.
+      // Tracked as a transition so it rebuilds once on entry and once on reset
+      // (the loop-wrap node crossing), never per-frame.
+      const inFinale = phase >= 0.999;
+      if (inFinale !== finaleActive) { finaleActive = inFinale; anyCrossed = true; }
+
+      // Rebuild the lit trail when a particle crosses a node, when the finale
+      // flares/resets, or when a color slider changed (dirty) — the moving
+      // particles carry the smooth motion between these events.
       if (anyCrossed || prm.dirty) {
         prm.dirty = false;
         nodeMap.clear();
         edgeMap.clear();
+        const finaleBoost = finaleActive ? FINALE_L_BOOST : 0;
         cores.forEach((c, idx) => {
           const nodes = paths[idx].nodes;
-          for (let k = 0; k <= lastSegs[idx] && k < nodes.length; k++) {
-            nodeMap.set(nodes[k], litColor(c.len, k));
+          const seg = lastSegs[idx];
+          // Completed nodes/edges behind the particle, at the trail brightness.
+          for (let k = 0; k <= seg && k < nodes.length; k++) {
+            nodeMap.set(nodes[k], litColor(c.rank, c.len, k, finaleBoost));
             if (k > 0) {
-              const col = litColor(c.len, k);
+              const col = litColor(c.rank, c.len, k, finaleBoost);
               edgeMap.set(`${nodes[k - 1]}>${nodes[k]}`, col);
               edgeMap.set(`${nodes[k]}>${nodes[k - 1]}`, col);
             }
+          }
+          // The edge the particle is *currently* crossing lights immediately and
+          // glows brighter, so the link illuminates in step with the trace as it
+          // flows through the node; it drops to trail brightness once crossed.
+          if (seg >= 0 && seg + 1 < nodes.length) {
+            const glow = litColor(c.rank, c.len, seg + 1, GLOW_L_BOOST + finaleBoost);
+            edgeMap.set(`${nodes[seg]}>${nodes[seg + 1]}`, glow);
+            edgeMap.set(`${nodes[seg + 1]}>${nodes[seg]}`, glow);
           }
         });
         fg.refresh();
@@ -1882,6 +1939,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 <Knob label="End hue" value={settings.traceEndHue} min={0} max={360} step={5}
                   format={(v) => `${v}°`} onChange={(v) => set("traceEndHue", v)} />
               </div>
+              <Knob label="Hue spread" value={settings.traceHueSpread} min={0} max={120} step={2}
+                format={(v) => `${v}°`} onChange={(v) => set("traceHueSpread", v)} />
               <Knob label="Path edges" value={settings.pathLinkBrightness} min={0} max={1} step={0.05}
                 format={(v) => v.toFixed(2)} onChange={(v) => set("pathLinkBrightness", v)} />
               <label className="grs-toggle">

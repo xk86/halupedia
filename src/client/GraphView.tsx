@@ -1163,6 +1163,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         if (pathModeRef.current) {
           const tc = traceNodeColorRef.current.get(n.id);
           if (tc) return tc;
+          // A path node the trace hasn't reached yet stays neutral grey rather
+          // than its community color, so only visited nodes carry color.
+          if (highlightSetRef.current.has(n.id)) return "#888888";
         }
         const base = !n.exists
           ? "#555566"

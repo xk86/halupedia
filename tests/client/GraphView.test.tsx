@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import Graph from "graphology";
 
-import { computePathNodes, computePaths, dim, kShortestPaths, makeNodeLabelSprite, oklch, summarizeCommunities } from "../../src/client/GraphView";
+import { blendHex, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -52,6 +52,22 @@ function stubCanvasContext() {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
   return ctx;
 }
+
+describe("labelDrawState", () => {
+  it("keeps unshaded labels fully opaque and visible", () => {
+    expect(labelDrawState(false, 0)).toEqual({ opacity: 1, visible: true });
+    expect(labelDrawState(false, 0.5)).toEqual({ opacity: 1, visible: true });
+  });
+
+  it("applies the shaded opacity to faded labels", () => {
+    expect(labelDrawState(true, 0.3)).toEqual({ opacity: 0.3, visible: true });
+  });
+
+  it("hides shaded labels when faded to (near) zero so the renderer skips them", () => {
+    expect(labelDrawState(true, 0)).toEqual({ opacity: 0, visible: false });
+    expect(labelDrawState(true, 0.005)).toEqual({ opacity: 0.005, visible: false });
+  });
+});
 
 describe("makeNodeLabelSprite", () => {
   beforeEach(() => {
@@ -143,6 +159,45 @@ describe("dim", () => {
 
   it("returns input unchanged for non-hex strings", () => {
     expect(dim("rebeccapurple")).toBe("rebeccapurple");
+  });
+});
+
+describe("blendHex", () => {
+  it("returns the source color unchanged when keeping all of it", () => {
+    expect(blendHex("#e63946", "#080810", 1)).toBe("#e63946");
+  });
+
+  it("returns the target color when keeping none of the source", () => {
+    expect(blendHex("#e63946", "#080810", 0)).toBe("#080810");
+  });
+
+  it("mixes halfway toward the background (a faded shaded node)", () => {
+    // #ffffff toward #000000 at 0.5 → mid grey on every channel.
+    expect(blendHex("#ffffff", "#000000", 0.5)).toBe("#808080");
+  });
+
+  it("clamps keep outside 0..1 and passes through bad hex", () => {
+    expect(blendHex("#ffffff", "#000000", 2)).toBe("#ffffff");
+    expect(blendHex("not-a-color", "#000000", 0.5)).toBe("not-a-color");
+  });
+});
+
+describe("desaturate", () => {
+  it("drops chroma toward grey so a shaded node loses its color", () => {
+    const grey = desaturate("#e63946", 1);
+    const r = parseInt(grey.slice(1, 3), 16);
+    const g = parseInt(grey.slice(3, 5), 16);
+    const b = parseInt(grey.slice(5, 7), 16);
+    // Fully desaturated: channels collapse to near-equal (grey).
+    expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThan(12);
+  });
+
+  it("leaves a color unchanged at amount 0", () => {
+    expect(desaturate("#e63946", 0)).toBe("#e63946");
+  });
+
+  it("passes non-hex strings through", () => {
+    expect(desaturate("rebeccapurple", 1)).toBe("rebeccapurple");
   });
 });
 

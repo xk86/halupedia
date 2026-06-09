@@ -436,10 +436,6 @@ function hexToOklch(hex: string): { L: number; C: number; H: number } | null {
   return { L, C: Math.hypot(a, bb), H: (Math.atan2(bb, a) * 180) / Math.PI };
 }
 
-/**
- * Fade a #rrggbb color for shading: darken its lightness and drop its chroma in
- * OKLCH so it recedes cleanly. amount=0 → unchanged, 1 → near-black desaturated.
- */
 function parseHexRgb(hex: string): { r: number; g: number; b: number } | null {
   let h = hex.trim().replace(/^#/, "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
@@ -462,6 +458,19 @@ export function blendHex(hex: string, toward: string, keep: number): string {
   const mix = (x: number, y: number) => Math.round(x * t + y * (1 - t));
   const to2 = (v: number) => v.toString(16).padStart(2, "0");
   return `#${to2(mix(a.r, b.r))}${to2(mix(a.g, b.g))}${to2(mix(a.b, b.b))}`;
+}
+
+/**
+ * Drop a #rrggbb color's OKLCH chroma toward grey. amount=0 → unchanged,
+ * 1 → fully desaturated. Used so shaded nodes lose their community color (not
+ * just their brightness) before they fade into the background.
+ */
+export function desaturate(hex: string, amount: number): string {
+  if (amount <= 0) return hex;
+  const o = hexToOklch(hex);
+  if (!o) return hex;
+  const t = Math.min(1, amount);
+  return oklch(o.L, o.C * (1 - t), o.H);
 }
 
 export function dim(hex: string, amount = 0.78): string {
@@ -1161,9 +1170,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
             ? communityColor(n.componentId)
             : communityColor(n.community);
         const hl = highlightSetRef.current;
-        // Shaded nodes fade toward the background by the "Shaded opacity"
-        // slider (1 = full color, 0 = ~invisible), matching the faded labels.
-        if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return blendHex(base, bgColorRef.current, shadedOpacityRef.current);
+        // Shaded nodes desaturate (lose their community color) and fade toward
+        // the background by the "Shaded opacity" slider (1 = full, 0 = ~gone),
+        // matching the faded labels.
+        if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return blendHex(desaturate(base, 0.7), bgColorRef.current, shadedOpacityRef.current);
         return base;
       })
       .linkColor((l: { source: FgNode | string; target: FgNode | string }) => {
@@ -1183,7 +1193,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         }
         const base = pathEdgeSetRef.current.has(key) ? "#ffd700" : "#ffffff";
         const hl = highlightSetRef.current;
-        if (shadingEnabledRef.current && hl.size > 0 && !(hl.has(src) && hl.has(tgt))) return blendHex(base, bgColorRef.current, shadedOpacityRef.current);
+        if (shadingEnabledRef.current && hl.size > 0 && !(hl.has(src) && hl.has(tgt))) return blendHex(desaturate(base, 0.7), bgColorRef.current, shadedOpacityRef.current);
         return base;
       })
       .refresh();

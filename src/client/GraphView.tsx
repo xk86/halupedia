@@ -184,6 +184,12 @@ export function computePathNodes(
   return { nodes, edgeSet };
 }
 
+/** Prettify a kebab-case slug into a readable title (halu nodes store the slug). */
+export function slugToTitle(slug: string): string {
+  const s = slug.replace(/-/g, " ").trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : slug;
+}
+
 export interface PathRoute { nodes: string[]; edgeSet: Set<string>; }
 
 /** Edge keys (both orientations) for an ordered node walk. */
@@ -879,10 +885,13 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       for (const slug of pathUnion.nodes) if (gInstance.hasNode(slug)) slugSet.add(slug);
     }
 
-    const allNodes: FgNode[] = [...slugSet].map((slug) => ({
+    const allNodes: FgNode[] = [...slugSet].map((slug) => {
+      const exists = (gInstance.getNodeAttribute(slug, "exists") as boolean) ?? false;
+      const rawTitle = (gInstance.getNodeAttribute(slug, "title") as string) || slug;
+      return {
       id: slug,
-      title: (gInstance.getNodeAttribute(slug, "title") as string) || slug,
-      exists: (gInstance.getNodeAttribute(slug, "exists") as boolean) ?? false,
+      title: exists ? rawTitle : slugToTitle(rawTitle),
+      exists,
       score: nodeStats.get(slug)?.score ?? 0,
       scoreNorm: nodeStats.get(slug)?.scoreNorm ?? 0,
       community: nodeStats.get(slug)?.community ?? 0,
@@ -891,7 +900,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       outDegree: gInstance.outDegree(slug),
       visibleInDegree: 0,
       visibleOutDegree: 0,
-    }));
+      };
+    });
 
     const haluCount = allNodes.filter((n) => !n.exists).length;
     const nodes = showHalu ? allNodes : allNodes.filter((n) => n.exists);
@@ -1582,6 +1592,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
               {pathMode && waypoints.length >= 2 && paths.length === 0 && (
                 <span className="graph-path-info">
                   {" · "}no {pathDir === "directed" ? "directed " : ""}route{pathDir === "directed" ? " (try Undirected)" : ""}
+                </span>
+              )}
+              {pathMode && gInstance && waypoints.some((w) => !gInstance.hasNode(w.slug)) && (
+                <span className="graph-error-inline">
+                  {" · "}{waypoints.filter((w) => !gInstance.hasNode(w.slug)).map((w) => w.title).join(", ")} not in link graph
                 </span>
               )}
             </span>

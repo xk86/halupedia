@@ -2260,7 +2260,13 @@ export function App() {
                             className="header-search-suggest-item"
                             onMouseDown={(e) => {
                               e.preventDefault();
-                              navigateToArticle(s.slug);
+                              // Navigate by the article's title — that's what
+                              // builds the canonical /wiki/ URL (same derivation
+                              // as the search-results page). The slug is a DB
+                              // tracking key, not a routing key. Pass the title
+                              // as the literal title too so the server gets the
+                              // exact text (punctuation a slug can't carry).
+                              navigateToArticle(s.title, s.title);
                               setHeaderSearchDraft("");
                               setSearchSuggestOpen(false);
                             }}

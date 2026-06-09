@@ -585,7 +585,7 @@ describe("App", () => {
           has_more: false,
         }), { headers: { "content-type": "application/json" } });
       }
-      if (url === "/api/page/Clock-tower") {
+      if (url === "/api/page/Clock_Tower") {
         return new Response(JSON.stringify(pagePayload({
           article: {
             ...pagePayload().article,
@@ -617,8 +617,12 @@ describe("App", () => {
     await userEvent.click(result);
 
     expect(await screen.findByRole("heading", { name: "Clock Tower" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/wiki/Clock-tower");
-    expect(fetchMock).toHaveBeenCalledWith("/api/page/Clock-tower");
+    expect(window.location.pathname).toBe("/wiki/Clock_Tower");
+    // Passing the literal title forwards it out-of-band as a request header,
+    // so the page fetch carries the exact text alongside the canonical URL.
+    expect(fetchMock).toHaveBeenCalledWith("/api/page/Clock_Tower", {
+      headers: { "x-requested-title": "Clock%20Tower" },
+    });
   });
 
   it("header Go accepts a full URL containing a wiki path", async () => {

@@ -2219,7 +2219,7 @@ export function App() {
               className="header-search-input"
               placeholder="Search the register..."
               value={headerSearchDraft}
-              onChange={(e) => setHeaderSearchDraft(e.target.value)}
+              onChange={(e) => { setHeaderSearchDraft(e.target.value); setSearchSuggestOpen(true); }}
               onFocus={() => setSearchSuggestOpen(true)}
               onBlur={() => setTimeout(() => setSearchSuggestOpen(false), 150)}
             />

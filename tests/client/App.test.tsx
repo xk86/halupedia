@@ -623,6 +623,11 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Clock_Tower", {
       headers: { "x-requested-title": "Clock%20Tower" },
     });
+
+    // Regression: after navigating via a result the input keeps focus, so
+    // typing again must reopen the dropdown without needing a re-focus.
+    await userEvent.type(input, "clock");
+    expect(await screen.findByText(/Go to:/)).toBeInTheDocument();
   });
 
   it("header Go accepts a full URL containing a wiki path", async () => {

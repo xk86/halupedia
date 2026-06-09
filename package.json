@@ -13,6 +13,7 @@
     "check": "npm run typecheck && npm run build",
     "db:reset": "rm -f data/halupedia.sqlite data/halupedia.sqlite-shm data/halupedia.sqlite-wal",
     "server": "node --import tsx/esm src/server/index.ts",
+    "prestart": "npm run build",
     "start": "node --import tsx/esm src/server/index.ts",
     "pretest": "npm run build",
     "test": "npm run test:server && npm run test:client",

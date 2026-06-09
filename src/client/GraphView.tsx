@@ -510,6 +510,24 @@ export function traceHue(
   return base + sign * step * spread * taper;
 }
 
+/**
+ * OKLCH lightness for a node on the trace trail. The node lights up by *how much
+ * traffic flows through it*: `passes` route-fronts have crossed it out of `total`
+ * routes, ramping from `dimL` (untouched) toward `fullL` (every route passes —
+ * e.g. the shared start/end nodes). `pulse` (0–1) is the subtle decaying flash
+ * fired the moment a front first crosses; `finale` adds the big sustained flare
+ * (`finaleL`) held through the loop delay once the whole trace has finished.
+ * The result is clamped into a sane lightness range.
+ */
+export function trailNodeLightness(
+  passes: number, total: number, dimL: number, fullL: number,
+  pulse: number, pulseL: number, finale: boolean, finaleL: number,
+): number {
+  const accum = total > 0 ? Math.min(1, Math.max(0, passes / total)) : 0;
+  const L = dimL + (fullL - dimL) * accum + Math.max(0, pulse) * pulseL + (finale ? finaleL : 0);
+  return Math.min(0.99, Math.max(0, L));
+}
+
 // ── Community legend ─────────────────────────────────────────────────────────
 
 interface CommunityGroup {
@@ -1149,6 +1167,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   useEffect(() => {
     if (!fgRef.current || !initialized || fgData.nodes.length === 0) return;
+    // Drop the cached label sprites so they rebuild against the new data (titles
+    // / sizes / colors) — nodeThreeObject otherwise reuses the stale cached one.
+    labelSpritesRef.current.clear();
+    labelBaseColorRef.current.clear();
     fgRef.current.graphData({
       nodes: fgData.nodes.map((n) => ({ ...n })),
       links: fgData.links.map((l) => ({ ...l })),
@@ -1197,6 +1219,14 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       fg
         .nodeThreeObjectExtend(true)
         .nodeThreeObject((n: FgNode) => {
+          // Reuse the existing sprite if we already built one for this node.
+          // `refresh()` re-invokes this accessor on its own frame; rebuilding
+          // here would reset the sprite to its base community color and fight
+          // the live trace tint (a visible community↔trace strobe). The cache
+          // is cleared above whenever settings actually change, so size/opacity
+          // still rebuild then.
+          const cached = labelSpritesRef.current.get(n.id);
+          if (cached) return cached;
           const color = n.exists
             ? (colorModeRef.current === "component" ? communityColor(n.componentId) : communityColor(n.community))
             : "#999999";
@@ -1239,6 +1269,24 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     fg.d3ReheatSimulation();
   }, [settings, initialized]);
+
+  // The label sprites are cached (so refresh() doesn't strobe their live trace
+  // tint), which means a color-mode flip no longer rebuilds them — re-tint each
+  // cached sprite to its node's new base color here instead. The trace tint, if
+  // active, overrides per-frame; we still refresh the stored base so the trail
+  // resets to the right color when path mode ends.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg || !initialized || !settings.alwaysShowLabels) return;
+    for (const o of fg.graphData().nodes as FgNode[]) {
+      const sprite = labelSpritesRef.current.get(o.id);
+      if (!sprite) continue;
+      const color = !o.exists ? "#999999"
+        : colorMode === "component" ? communityColor(o.componentId) : communityColor(o.community);
+      labelBaseColorRef.current.set(o.id, color);
+      if (!pathModeRef.current) (sprite.material as THREE.SpriteMaterial).color.set(color);
+    }
+  }, [colorMode, initialized, settings.alwaysShowLabels]);
 
   // ── Node colour + path highlighting (no physics re-heat) ─────────────────────
 
@@ -1336,20 +1384,24 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const maxLen = Math.max(...paths.map((p) => p.nodes.length));
     const pathNodeIds = new Set<string>();
     for (const p of paths) for (const n of p.nodes) pathNodeIds.add(n);
-    // How much brighter (OKLCH L) the segment the particle is *currently*
-    // crossing glows, and how much the whole completed trail flares for the
-    // beat before the loop resets — both clamped so we stay in gamut.
-    const GLOW_L_BOOST = 0.16;
-    const FINALE_L_BOOST = 0.13;
-    // Each route's hue interpolates from the Start hue at its first node to the
-    // End hue at its last node (endpoints fixed/controllable), with a tapered
-    // per-rank offset so overlapping routes fan apart in the middle but still
-    // converge on the exact start/end hue. `x` is the node index or fractional
-    // progress; len is the route's node count; rank is the route's distance rank.
-    const litColor = (rank: number, len: number, i: number, lBoost = 0) => {
+    // Animation feel constants (all OKLCH, clamped to stay in gamut):
+    const EDGE_L_BOOST = 0.16;   // how much brighter an edge pulses as the trace crosses it
+    const TAU = 0.18;            // settle time-constant (s) for the brightness pulses
+    const NODE_L_DIM = 0.40;     // lightness of a path node before any front has crossed it
+    const NODE_PULSE_L = 0.12;   // subtle flash the instant a front first crosses a node
+    const FINALE_L = 0.18;       // big flare held over the loop delay once the trace finishes
+    const REFRESH_CAP_MS = 8;    // ≈120fps ceiling on recolor refreshes while pulses settle
+    // Color for a node/edge on a route. Hue follows the start→end gradient with
+    // the tapered per-rank fan (overlapping routes stay tellable-apart, endpoints
+    // exact). `lBoost` brightens (a transient pulse); `fill` 0→1 scales chroma so
+    // an edge *saturates* as the trace flows along it, then keeps its color when
+    // calm. `x` is the node index or fractional progress; len the route length.
+    const traceColor = (rank: number, len: number, x: number, lBoost = 0, fill = 1) => {
       const p = traceParamsRef.current;
       const L = Math.min(0.99, p.L + lBoost);
-      return oklch(L, p.C, traceHue(rank, len, i, p.startHue, p.endHue, p.hueSpread));
+      const f = Math.max(0, Math.min(1, fill));
+      const C = p.C * (0.25 + 0.75 * f); // keep a little color even at fill 0, full color at 1
+      return oklch(L, C, traceHue(rank, len, x, p.startHue, p.endHue, p.hueSpread));
     };
     // Ease-in-out applied to the whole traversal: accel 0 → constant speed,
     // higher → the particle accelerates out of the start and eases into the end.
@@ -1394,20 +1446,43 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     let raf = 0;
     let start = 0;
-    let finaleActive = false;
+    let lastTs = 0;
+    let lastRefreshTs = 0;
+    let prevFinale = false;
     const lastSegs = paths.map(() => -1);
+    // Brightness pulse maps that decay toward calm: edge brightness keyed by the
+    // path-ordered edge, per-node flash keyed by the node id (fired when a front
+    // first crosses it). Node accumulation itself is derived from `lastSegs`.
+    const edgeHeat = new Map<string, number>();
+    const nodePulse = new Map<string, number>();
+    // How many routes pass through each node at all — the denominator for its
+    // brightness, so a node on a single route is full once that route crosses it,
+    // while a node where several routes converge ramps up as each one arrives.
+    const nodeTotals = new Map<string, number>();
+    for (const p of paths) for (const id of p.nodes) nodeTotals.set(id, (nodeTotals.get(id) ?? 0) + 1);
 
     const tick = (ts: number) => {
       if (!start) start = ts;
       const prm = traceParamsRef.current;
+      const dt = lastTs ? Math.min(0.1, (ts - lastTs) / 1000) : 0;
+      lastTs = ts;
       const activeDur = Math.max(0.1, (maxLen - 1) / prm.speed); // time to walk the longest route
       const total = activeDur + prm.loopDelay;                   // + delay, then loop
       const tc = ((ts - start) / 1000) % total;
       const phase = Math.min(1, tc / activeDur);
+      let anyCrossed = false;
+      // Once the longest route has finished we're in the loop-delay tail — hold a
+      // big finale flare on the whole trail for that remaining time, then reset.
+      const finaleActive = prm.loopDelay > 0 && tc >= activeDur;
+      if (finaleActive !== prevFinale) { prevFinale = finaleActive; anyCrossed = true; }
       // distance travelled (in nodes) along the longest route; shorter routes
       // reach their end sooner — that staggered finish is the distance ranking.
       const d = easeAccel(phase, prm.accel) * (maxLen - 1);
-      let anyCrossed = false;
+
+      // Settle the pulses toward calm (exponential decay); drop the tiny tails.
+      const decay = Math.exp(-dt / TAU);
+      for (const [k, v] of edgeHeat) { const nv = v * decay; if (nv < 0.01) edgeHeat.delete(k); else edgeHeat.set(k, nv); }
+      for (const [k, v] of nodePulse) { const nv = v * decay; if (nv < 0.01) nodePulse.delete(k); else nodePulse.set(k, nv); }
 
       cores.forEach((c, idx) => {
         const nodes = paths[idx].nodes;
@@ -1427,45 +1502,69 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         const col = oklch(prm.L, prm.C, traceHue(c.rank, c.len, progress, prm.startHue, prm.endHue, prm.hueSpread));
         (c.mesh.material as THREE.MeshBasicMaterial).color.set(col);
         if (c.glow) (c.glow.material as THREE.MeshBasicMaterial).color.set(col);
-        if (i !== lastSegs[idx]) { lastSegs[idx] = i; anyCrossed = true; }
+        // The edge the particle is on heats up as it travels along it (frac), so
+        // it brightens while crossed; once the particle moves on, the heat decays
+        // and the edge settles to calm.
+        if (i + 1 < N) {
+          const key = `${nodes[i]}>${nodes[i + 1]}`;
+          edgeHeat.set(key, Math.max(edgeHeat.get(key) ?? 0, frac));
+        }
+        // Each time the front first reaches a new node, fire that node's subtle
+        // flash; its steady brightness comes from how many routes pass through it.
+        if (i !== lastSegs[idx]) {
+          lastSegs[idx] = i;
+          anyCrossed = true;
+          nodePulse.set(nodes[i], 1);
+        }
       });
 
-      // The trail flares brighter for the beat after the last particle lands and
-      // the loop sits in its delay, then resets — a little finale before replay.
-      // Tracked as a transition so it rebuilds once on entry and once on reset
-      // (the loop-wrap node crossing), never per-frame.
-      const inFinale = phase >= 0.999;
-      if (inFinale !== finaleActive) { finaleActive = inFinale; anyCrossed = true; }
-
-      // Rebuild the lit trail when a particle crosses a node, when the finale
-      // flares/resets, or when a color slider changed (dirty) — the moving
-      // particles carry the smooth motion between these events.
-      if (anyCrossed || prm.dirty) {
+      // Recolor on a node crossing / finale flip / slider change, otherwise
+      // refresh up to ~120fps while anything is still settling — and stop
+      // entirely once calm (idle loop-delay costs nothing on big graphs).
+      const animating = edgeHeat.size > 0 || nodePulse.size > 0;
+      if (anyCrossed || prm.dirty || (animating && ts - lastRefreshTs >= REFRESH_CAP_MS)) {
         prm.dirty = false;
+        lastRefreshTs = ts;
         nodeMap.clear();
         edgeMap.clear();
-        const finaleBoost = finaleActive ? FINALE_L_BOOST : 0;
+        // Tally how many route-fronts have crossed each node and remember the
+        // first (lowest-rank) route's hue for it — so a node's color is its
+        // trace hue and its brightness grows with the traffic flowing through it.
+        const passes = new Map<string, number>();
+        const hueOf = new Map<string, { rank: number; len: number; k: number }>();
         cores.forEach((c, idx) => {
           const nodes = paths[idx].nodes;
           const seg = lastSegs[idx];
-          // Completed nodes/edges behind the particle, at the trail brightness.
           for (let k = 0; k <= seg && k < nodes.length; k++) {
-            nodeMap.set(nodes[k], litColor(c.rank, c.len, k, finaleBoost));
+            const id = nodes[k];
+            passes.set(id, (passes.get(id) ?? 0) + 1);
+            if (!hueOf.has(id)) hueOf.set(id, { rank: c.rank, len: c.len, k });
+            // Crossed edges keep full saturation, plus any brightness pulse still settling.
             if (k > 0) {
-              const col = litColor(c.rank, c.len, k, finaleBoost);
+              const heat = edgeHeat.get(`${nodes[k - 1]}>${nodes[k]}`) ?? 0;
+              const col = traceColor(c.rank, c.len, k, heat * EDGE_L_BOOST, 1);
               edgeMap.set(`${nodes[k - 1]}>${nodes[k]}`, col);
               edgeMap.set(`${nodes[k]}>${nodes[k - 1]}`, col);
             }
           }
           // The edge the particle is *currently* crossing lights immediately and
-          // glows brighter, so the link illuminates in step with the trace as it
-          // flows through the node; it drops to trail brightness once crossed.
+          // both brightens and saturates with the trace's progress along it.
           if (seg >= 0 && seg + 1 < nodes.length) {
-            const glow = litColor(c.rank, c.len, seg + 1, GLOW_L_BOOST + finaleBoost);
-            edgeMap.set(`${nodes[seg]}>${nodes[seg + 1]}`, glow);
-            edgeMap.set(`${nodes[seg + 1]}>${nodes[seg]}`, glow);
+            const fill = Math.min(nodes.length - 1, d) - seg; // 0→1 across this segment
+            const heat = edgeHeat.get(`${nodes[seg]}>${nodes[seg + 1]}`) ?? 0;
+            const col = traceColor(c.rank, c.len, seg + 1, heat * EDGE_L_BOOST, fill);
+            edgeMap.set(`${nodes[seg]}>${nodes[seg + 1]}`, col);
+            edgeMap.set(`${nodes[seg + 1]}>${nodes[seg]}`, col);
           }
         });
+        // Each crossed node: brightness accumulates with the traffic through it
+        // (full where every route converges — the shared start/end), a subtle
+        // flash when first hit, and the big finale flare held over the loop delay.
+        for (const [id, count] of passes) {
+          const src = hueOf.get(id)!;
+          const L = trailNodeLightness(count, nodeTotals.get(id) ?? 1, NODE_L_DIM, prm.L, nodePulse.get(id) ?? 0, NODE_PULSE_L, finaleActive, FINALE_L);
+          nodeMap.set(id, oklch(L, prm.C, traceHue(src.rank, src.len, src.k, prm.startHue, prm.endHue, prm.hueSpread)));
+        }
         fg.refresh();
       }
       // Tint each route's node labels to exactly the node's current color every

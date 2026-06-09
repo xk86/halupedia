@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import Graph from "graphology";
 
-import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities, traceHue } from "../../src/client/GraphView";
+import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities, traceHue, trailNodeLightness } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -239,6 +239,46 @@ describe("traceHue", () => {
 
   it("returns the start hue for a degenerate single-node route", () => {
     expect(traceHue(2, 1, 0, start, end, 50)).toBe(start);
+  });
+});
+
+describe("trailNodeLightness", () => {
+  const dimL = 0.4, fullL = 0.72, pulseL = 0.12, finaleL = 0.18;
+
+  it("keeps an untouched node at the dim base", () => {
+    expect(trailNodeLightness(0, 3, dimL, fullL, 0, pulseL, false, finaleL)).toBeCloseTo(dimL);
+  });
+
+  it("reaches full brightness where every route passes through (e.g. start/end)", () => {
+    expect(trailNodeLightness(3, 3, dimL, fullL, 0, pulseL, false, finaleL)).toBeCloseTo(fullL);
+  });
+
+  it("lights a node in proportion to how many routes pass through it", () => {
+    const oneOfThree = trailNodeLightness(1, 3, dimL, fullL, 0, pulseL, false, finaleL);
+    const twoOfThree = trailNodeLightness(2, 3, dimL, fullL, 0, pulseL, false, finaleL);
+    expect(oneOfThree).toBeCloseTo(dimL + (fullL - dimL) / 3);
+    // Even spacing: each additional pass adds the same brightness step.
+    expect(twoOfThree - oneOfThree).toBeCloseTo(oneOfThree - dimL);
+  });
+
+  it("adds the subtle per-pass flash on top of the accumulated brightness", () => {
+    const calm = trailNodeLightness(1, 3, dimL, fullL, 0, pulseL, false, finaleL);
+    const flashing = trailNodeLightness(1, 3, dimL, fullL, 1, pulseL, false, finaleL);
+    expect(flashing).toBeCloseTo(calm + pulseL);
+  });
+
+  it("adds the big finale flare when active", () => {
+    const calm = trailNodeLightness(3, 3, dimL, fullL, 0, pulseL, false, finaleL);
+    const flared = trailNodeLightness(3, 3, dimL, fullL, 0, pulseL, true, finaleL);
+    expect(flared).toBeGreaterThan(calm);
+  });
+
+  it("clamps the combined lightness to stay in gamut (<= 0.99)", () => {
+    expect(trailNodeLightness(3, 3, dimL, 0.95, 1, 0.4, true, 0.4)).toBeLessThanOrEqual(0.99);
+  });
+
+  it("treats a zero-route node as the dim base (no divide-by-zero)", () => {
+    expect(trailNodeLightness(0, 0, dimL, fullL, 0, pulseL, false, finaleL)).toBeCloseTo(dimL);
   });
 });
 

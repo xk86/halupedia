@@ -12,6 +12,15 @@ import { singleSourceLength, bidirectional as unweightedPath } from "graphology-
 import { connectedComponents, largestConnectedComponent } from "graphology-components";
 import louvain from "graphology-communities-louvain";
 import * as THREE from "three";
+import {
+  makeNodeLabel,
+  setLabelColor,
+  setLabelOpacity,
+  labelWorldHeight,
+  faceCamera,
+  disposeLabels,
+  type NodeLabel,
+} from "./graphLabels";
 import { toWikiSegment } from "./wikiPath";
 import { type Suggestion, fetchArticleSuggestions, useArticleSuggestions } from "./articleSuggest";
 
@@ -628,121 +637,9 @@ export function isMobileDevice(): boolean {
   return /iPhone|iPad|iPod|Android.*Mobile/i.test(navigator.userAgent);
 }
 
-// Largest texture we'll allocate for a label. Long titles are never truncated:
-// instead the whole string is rendered at a proportionally smaller font so the
-// texture stays inside this budget — a resolution LOD. The sprite's
-// world-space size is unchanged (same label height as everyone else, width
-// grows with the text), so only the texel density drops for very long titles.
-const LABEL_MAX_TEXTURE_WIDTH = 2048;
-const LABEL_MAX_TEXTURE_WIDTH_LOWRES = 1024;
-
-export function makeNodeLabelSprite(
-  text: string,
-  color: string,
-  worldHeight: number = 6,
-  degrees?: { in: number; out: number },
-  opts?: { lowRes?: boolean },
-): THREE.Sprite {
-  // Render at a high base resolution so the text stays crisp up close, and
-  // let the GPU's mipmapping handle the "dynamic resolution" for distant
-  // labels — far-away sprites sample down-filtered mips (cheap, no shimmer)
-  // while close-up sprites read the full-res texture (sharp). This is far
-  // cheaper than regenerating the canvas per-frame based on camera distance.
-  // On phones (lowRes) halve the resolution and skip mipmaps: with 1000+
-  // labels the texture pool alone can crash mobile Safari, and at phone
-  // viewing sizes the difference isn't visible.
-  const lowRes = opts?.lowRes ?? false;
-  const baseFontSize = lowRes ? 48 : 96;
-  const baseSubFontSize = Math.round(baseFontSize * 0.55);
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d")!;
-  const padding = 16;
-
-  // Measure at the base font, then shrink the font (never the text) just
-  // enough that the full string fits the texture budget. Text width scales
-  // linearly with font size, so the measured width is scaled rather than
-  // re-measured.
-  ctx.font = `${baseFontSize}px sans-serif`;
-  const measuredText = ctx.measureText(text).width;
-  const subText = degrees ? `↓ ${degrees.in} in   ↑ ${degrees.out} out` : null;
-  let measuredSub = 0;
-  if (subText) {
-    ctx.font = `${baseSubFontSize}px sans-serif`;
-    measuredSub = ctx.measureText(subText).width;
-  }
-  const maxTextWidth = (lowRes ? LABEL_MAX_TEXTURE_WIDTH_LOWRES : LABEL_MAX_TEXTURE_WIDTH) - padding * 2;
-  const fit = Math.min(1, maxTextWidth / Math.max(measuredText, measuredSub, 1));
-  const fontSize = baseFontSize * fit;
-  const subFontSize = baseSubFontSize * fit;
-  const font = `${fontSize}px sans-serif`;
-  const subFont = `${subFontSize}px sans-serif`;
-  const textWidth = measuredText * fit;
-  const subWidth = measuredSub * fit;
-
-  const lineGap = subText ? subFontSize * 0.3 : 0;
-  canvas.width = Math.ceil(Math.max(textWidth, subWidth) + padding * 2);
-  canvas.height = Math.ceil(fontSize * 1.4 + (subText ? subFontSize * 1.2 + lineGap : 0));
-
-  // Re-apply font/state after resizing (canvas resize clears context state)
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "center";
-
-  // Translucent black backdrop so labels stay legible over bright nodes/links.
-  // Black survives the material's `color` multiply (black × anything = black),
-  // so the backdrop reads the same regardless of how the caller tints the
-  // sprite. A soft rounded rect when the API is available, else a plain fill.
-  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
-  const radius = Math.min(canvas.width, canvas.height) * 0.18;
-  if (typeof ctx.roundRect === "function") {
-    ctx.beginPath();
-    ctx.roundRect(0, 0, canvas.width, canvas.height, radius);
-    ctx.fill();
-  } else {
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-
-  // Draw the title in (near-opaque) white and the sub-text in grey, then tint
-  // the whole sprite via the material's `color`. Keeping the texture neutral
-  // lets the caller recolor the label live (e.g. as the path trace sweeps
-  // through it) just by setting material.color — no need to regenerate the
-  // canvas. The slight title transparency softens the text against the backdrop.
-  const titleY = subText ? fontSize * 0.7 : canvas.height / 2;
-  ctx.font = font;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-  ctx.fillText(text, canvas.width / 2, titleY);
-
-  if (subText) {
-    ctx.font = subFont;
-    ctx.fillStyle = "rgba(154, 154, 154, 0.9)";
-    ctx.fillText(subText, canvas.width / 2, titleY + fontSize * 0.7 + lineGap);
-  }
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = lowRes ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.generateMipmaps = !lowRes;
-  const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true });
-  material.color.set(color);
-  const sprite = new THREE.Sprite(material);
-  // World-space size, independent of canvas resolution — the caller derives
-  // `worldHeight` from the node's own radius and the "Label size" knob, so
-  // labels stay legible relative to nodes regardless of node-size settings.
-  sprite.scale.set((canvas.width / canvas.height) * worldHeight, worldHeight, 1);
-  return sprite;
-}
-
-/** Free the GPU resources behind cached label sprites before dropping them.
- *  Clearing the Map alone leaks the canvas textures — THREE keeps the GL
- *  textures alive until dispose() is called, which shows up as steadily
- *  climbing VRAM every time the label cache is rebuilt. */
-export function disposeLabelSprites(sprites: Map<string, THREE.Sprite>): void {
-  for (const sprite of sprites.values()) {
-    const material = sprite.material as THREE.SpriteMaterial;
-    material.map?.dispose();
-    material.dispose();
-  }
-  sprites.clear();
-}
+// SDF labels (troika-three-text) live in graphLabels.ts — text is rendered
+// from a shared glyph atlas, so it's crisp at any zoom, never truncated, and
+// costs a small geometry per label instead of a per-node canvas texture.
 
 // ── Knob helpers ─────────────────────────────────────────────────────────────
 
@@ -848,7 +745,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const pathLinkBrightnessRef = useRef(settings.pathLinkBrightness);
   const traceNodeColorRef = useRef(new Map<string, string>());
   const traceEdgeColorRef = useRef(new Map<string, string>());
-  const labelSpritesRef = useRef(new Map<string, THREE.Sprite>());
+  const labelSpritesRef = useRef(new Map<string, NodeLabel>());
   const shadedOpacityRef = useRef(settings.shadedOpacity);
   const bgColorRef = useRef(settings.bgColor);
   // Live trace params so the animation loop reads speed/accel/colors without
@@ -890,17 +787,16 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const hl = highlightSetRef.current;
     const shade = shadingEnabledRef.current;
     const shadedOpacity = shadedOpacityRef.current;
-    for (const [id, sprite] of labelSpritesRef.current) {
+    for (const [id, label] of labelSpritesRef.current) {
       const faded = shade && hl.size > 0 && !hl.has(id);
-      // Hidden sprites are skipped entirely by the renderer — no transparent
+      // Hidden labels are skipped entirely by the renderer — no transparent
       // draw call and no per-frame depth sort — which is the real cost when the
       // layout is actively rearranging hundreds of labels. Toggling `visible`
       // (rather than just lowering opacity) is what makes a fully-faded shaded
       // set cheap on huge graphs.
       const { opacity, visible } = labelDrawState(faded, shadedOpacity);
-      const mat = sprite.material as THREE.SpriteMaterial;
-      if (mat.opacity !== opacity) mat.opacity = opacity;
-      if (sprite.visible !== visible) sprite.visible = visible;
+      setLabelOpacity(label, opacity);
+      if (label.visible !== visible) label.visible = visible;
     }
   }, []);
 
@@ -1200,7 +1096,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     return () => {
       destroyed = true;
-      disposeLabelSprites(labelSpritesRef.current);
+      disposeLabels(labelSpritesRef.current);
       if (fgRef.current) {
         try { fgRef.current._destructor?.(); } catch { /* ignore */ }
         fgRef.current = null;
@@ -1214,7 +1110,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     if (!fgRef.current || !initialized || fgData.nodes.length === 0) return;
     // Drop the cached label sprites so they rebuild against the new data (titles
     // / sizes / colors) — nodeThreeObject otherwise reuses the stale cached one.
-    disposeLabelSprites(labelSpritesRef.current);
+    disposeLabels(labelSpritesRef.current);
     labelBaseColorRef.current.clear();
     // Cap the framebuffer's pixel ratio: 3x phone screens triple-account every
     // canvas pixel and are the main reason big graphs crash mobile Safari.
@@ -1263,7 +1159,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     // hover tooltip. nodeThreeObjectExtend keeps the default sphere and adds
     // the label sprite alongside it.
     if (settings.alwaysShowLabels) {
-      disposeLabelSprites(labelSpritesRef.current);
+      disposeLabels(labelSpritesRef.current);
       labelBaseColorRef.current.clear();
       fg
         .nodeThreeObjectExtend(true)
@@ -1291,22 +1187,22 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
             : n.visibleInDegree + n.visibleOutDegree;
           const prominence = settings.dynamicLabelSize ? 1 + settings.labelSizeInfluence * Math.log2(1 + degCount) : 1;
           const worldHeight = Math.max(2, nodeRadius) * 0.7 * settings.labelSize * prominence;
-          const sprite = makeNodeLabelSprite(n.title, color, worldHeight, {
+          const sprite = makeNodeLabel(n.title, color, worldHeight, {
             in: n.visibleInDegree,
             out: n.visibleOutDegree,
-          }, { lowRes: isMobileDevice() });
-          sprite.position.set(0, nodeRadius + sprite.scale.y / 2 + 1, 0);
+          });
+          sprite.position.set(0, nodeRadius + labelWorldHeight(sprite) / 2 + 1, 0);
           const hl = highlightSetRef.current;
           const faded = shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id);
           const { opacity, visible } = labelDrawState(faded, shadedOpacityRef.current);
-          (sprite.material as THREE.SpriteMaterial).opacity = opacity;
+          setLabelOpacity(sprite, opacity);
           sprite.visible = visible;
           labelSpritesRef.current.set(n.id, sprite);
           labelBaseColorRef.current.set(n.id, color);
           return sprite;
         });
     } else {
-      disposeLabelSprites(labelSpritesRef.current);
+      disposeLabels(labelSpritesRef.current);
       fg.nodeThreeObjectExtend(false).nodeThreeObject(null);
     }
 
@@ -1318,6 +1214,22 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     fg.d3ReheatSimulation();
   }, [settings, initialized]);
+
+  // SDF label meshes don't billboard on their own the way sprites did — turn
+  // every visible label toward the camera each frame (a quaternion copy per
+  // label; trivial CPU even at thousands of labels).
+  useEffect(() => {
+    if (!fgRef.current || !initialized || !settings.alwaysShowLabels) return;
+    let raf = 0;
+    const tick = () => {
+      const fg = fgRef.current;
+      const camera = fg?.camera?.();
+      if (camera) faceCamera(labelSpritesRef.current.values(), camera);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [settings.alwaysShowLabels, initialized]);
 
   // The label sprites are cached (so refresh() doesn't strobe their live trace
   // tint), which means a color-mode flip no longer rebuilds them — re-tint each
@@ -1333,7 +1245,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       const color = !o.exists ? "#999999"
         : colorMode === "component" ? communityColor(o.componentId) : communityColor(o.community);
       labelBaseColorRef.current.set(o.id, color);
-      if (!pathModeRef.current) (sprite.material as THREE.SpriteMaterial).color.set(color);
+      if (!pathModeRef.current) setLabelColor(sprite, color);
     }
   }, [colorMode, initialized, settings.alwaysShowLabels]);
 
@@ -1646,7 +1558,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           );
           if (lastLabelColor.get(id) !== c) {
             lastLabelColor.set(id, c);
-            (sprite.material as THREE.SpriteMaterial).color.set(c);
+            setLabelColor(sprite, c);
           }
         }
       }
@@ -1674,7 +1586,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           bgColorRef.current,
           shadedOpacityRef.current,
         );
-        (sprite.material as THREE.SpriteMaterial).color.set(c);
+        setLabelColor(sprite, c);
       }
       for (const m of meshes) {
         scene.remove(m);

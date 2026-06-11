@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import Graph from "graphology";
 
-import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, disposeLabelSprites, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities, traceHue, trailNodeLightness } from "../../src/client/GraphView";
+import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, oklch, summarizeCommunities, traceHue, trailNodeLightness } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -66,113 +66,6 @@ describe("labelDrawState", () => {
   it("hides shaded labels when faded to (near) zero so the renderer skips them", () => {
     expect(labelDrawState(true, 0)).toEqual({ opacity: 0, visible: false });
     expect(labelDrawState(true, 0.005)).toEqual({ opacity: 0.005, visible: false });
-  });
-});
-
-describe("makeNodeLabelSprite", () => {
-  beforeEach(() => {
-    stubCanvasContext();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("builds a sprite textured with the node title", () => {
-    const sprite = makeNodeLabelSprite("Halupedia Article", "#ff0000");
-    expect(sprite).toBeInstanceOf(THREE.Sprite);
-    expect(sprite.material).toBeInstanceOf(THREE.SpriteMaterial);
-    expect(sprite.material.map).toBeInstanceOf(THREE.CanvasTexture);
-    // Sized so it reads at a consistent on-screen size, not zero/negative
-    expect(sprite.scale.x).toBeGreaterThan(0);
-    expect(sprite.scale.y).toBeGreaterThan(0);
-  });
-
-  it("draws the title text and tints the sprite via material color", () => {
-    const ctx = stubCanvasContext();
-    const sprite = makeNodeLabelSprite("Some Title", "#abcdef");
-    expect(ctx.fillText).toHaveBeenCalledWith("Some Title", expect.any(Number), expect.any(Number));
-    // Text is drawn white and the color is applied as a material tint so it can
-    // be recolored live (e.g. by the path trace).
-    expect(sprite.material.color.getHexString()).toBe("abcdef");
-  });
-
-  it("paints a rounded translucent backdrop behind the label", () => {
-    const ctx = stubCanvasContext();
-    makeNodeLabelSprite("Backdrop Test", "#ffffff");
-    // The backdrop box is drawn via roundRect + fill before the text.
-    expect(ctx.roundRect).toHaveBeenCalled();
-    expect(ctx.fill).toHaveBeenCalled();
-  });
-
-  it("produces a wider sprite for longer text", () => {
-    const short = makeNodeLabelSprite("A", "#ffffff");
-    const long = makeNodeLabelSprite("A Much Longer Article Title Here", "#ffffff");
-    expect(long.scale.x).toBeGreaterThan(short.scale.x);
-  });
-
-  it("scales the sprite proportionally to the requested world height", () => {
-    const normal = makeNodeLabelSprite("Halupedia Article", "#ffffff", 6);
-    const big = makeNodeLabelSprite("Halupedia Article", "#ffffff", 12);
-    expect(big.scale.y).toBeCloseTo(normal.scale.y * 2);
-    expect(big.scale.x).toBeCloseTo(normal.scale.x * 2);
-    expect(normal.scale.y).toBeCloseTo(6);
-  });
-
-  it("renders pathological titles in full while capping the texture width", () => {
-    const ctx = stubCanvasContext();
-    // 10px per char (stubbed) → 300 chars = 3000px, over the 2048 texture cap.
-    const title = "x".repeat(300);
-    makeNodeLabelSprite(title, "#ffffff");
-    const drawn = (ctx.fillText.mock.calls as Array<[string]>).map(([text]) => text);
-    // Never truncated — the full string is drawn (at a smaller font instead).
-    expect(drawn).toContain(title);
-    expect(drawn.some((text) => text.endsWith("…"))).toBe(false);
-  });
-
-  it("keeps long-title sprites at full world height with width proportional to the text", () => {
-    stubCanvasContext();
-    const short = makeNodeLabelSprite("Short", "#ffffff", 6);
-    const long = makeNodeLabelSprite("y".repeat(300), "#ffffff", 6);
-    // Same on-screen label height; the long title just gets a wider sprite —
-    // the texture cap lowers texel density, not the rendered size.
-    expect(long.scale.y).toBeCloseTo(short.scale.y);
-    expect(long.scale.x).toBeGreaterThan(short.scale.x * 10);
-    // Texture itself stays within the budget despite the full text.
-    const canvas = (long.material.map as THREE.CanvasTexture).image as HTMLCanvasElement;
-    expect(canvas.width).toBeLessThanOrEqual(2048);
-  });
-
-  it("skips mipmaps and halves resolution in lowRes (phone) mode", () => {
-    const full = makeNodeLabelSprite("Phone Test", "#ffffff");
-    const low = makeNodeLabelSprite("Phone Test", "#ffffff", 6, undefined, { lowRes: true });
-    expect(full.material.map?.generateMipmaps).toBe(true);
-    expect(full.material.map?.minFilter).toBe(THREE.LinearMipmapLinearFilter);
-    expect(low.material.map?.generateMipmaps).toBe(false);
-    expect(low.material.map?.minFilter).toBe(THREE.LinearFilter);
-  });
-});
-
-describe("disposeLabelSprites", () => {
-  beforeEach(() => {
-    stubCanvasContext();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("disposes each sprite's texture and material, then empties the map", () => {
-    const sprites = new Map<string, THREE.Sprite>();
-    sprites.set("a", makeNodeLabelSprite("A", "#ffffff"));
-    sprites.set("b", makeNodeLabelSprite("B", "#ffffff"));
-    const spies = [...sprites.values()].flatMap((sprite) => {
-      const material = sprite.material as THREE.SpriteMaterial;
-      return [vi.spyOn(material.map!, "dispose"), vi.spyOn(material, "dispose")];
-    });
-    disposeLabelSprites(sprites);
-    for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1);
-    expect(sprites.size).toBe(0);
   });
 });
 

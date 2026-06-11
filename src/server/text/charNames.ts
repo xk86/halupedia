@@ -1,0 +1,91 @@
+/**
+ * Word names for non-alphanumeric characters, used by slugify() the same way
+ * emoji are expanded by emojiToSlugWords(): instead of silently collapsing
+ * punctuation into "-" (which made "--Apples", "(Apples)" and "Apples" all
+ * collide on "apples"), each symbol contributes a word token to the slug.
+ * Characters without a curated name fall back to "u<codepoint hex>" so the
+ * mapping is total — no character is ever dropped from slug derivation.
+ */
+const CHAR_NAMES: Record<string, string> = {
+  "!": "exclamation",
+  '"': "quote",
+  "#": "hash",
+  $: "dollar",
+  "%": "percent",
+  "&": "and",
+  "'": "apostrophe",
+  "(": "lparen",
+  ")": "rparen",
+  "*": "star",
+  "+": "plus",
+  ",": "comma",
+  "-": "dash",
+  ".": "dot",
+  "/": "slash",
+  ":": "colon",
+  ";": "semicolon",
+  "<": "lt",
+  "=": "equals",
+  ">": "gt",
+  "?": "question",
+  "@": "at",
+  "[": "lbracket",
+  "\\": "backslash",
+  "]": "rbracket",
+  "^": "caret",
+  "`": "backtick",
+  "{": "lbrace",
+  "|": "pipe",
+  "}": "rbrace",
+  "~": "tilde",
+  "¡": "exclamation",
+  "¢": "cent",
+  "£": "pound",
+  "¥": "yen",
+  "§": "section",
+  "©": "copyright",
+  "®": "registered",
+  "°": "degree",
+  "·": "dot",
+  "¿": "question",
+  "×": "times",
+  "÷": "divide",
+  "–": "dash",
+  "—": "dash",
+  "―": "dash",
+  "‘": "apostrophe",
+  "’": "apostrophe",
+  "‚": "comma",
+  "“": "quote",
+  "”": "quote",
+  "„": "quote",
+  "†": "dagger",
+  "‡": "dagger",
+  "•": "bullet",
+  "…": "ellipsis",
+  "‰": "permille",
+  "′": "prime",
+  "″": "prime",
+  "‹": "lt",
+  "›": "gt",
+  "€": "euro",
+  "™": "trademark",
+  "√": "root",
+  "∞": "infinity",
+  "≈": "approx",
+  "≠": "neq",
+  "≤": "lte",
+  "≥": "gte",
+  "¶": "pilcrow",
+  "±": "plusminus",
+  "¤": "currency",
+  "«": "quote",
+  "»": "quote",
+};
+
+export function charSlugName(ch: string): string {
+  const named = CHAR_NAMES[ch];
+  if (named) return named;
+  const codePoint = ch.codePointAt(0);
+  return codePoint === undefined ? "" : `u${codePoint.toString(16)}`;
+}

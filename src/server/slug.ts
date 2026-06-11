@@ -1,6 +1,14 @@
 import { emojiToSlugWords } from "./text/emojiNames";
+import { charSlugName } from "./text/charNames";
 
-export function slugify(input: string): string {
+/**
+ * The original lossy slugifier: every non-alphanumeric run collapses into a
+ * single "-". Kept because every article stored before the robust slugifier
+ * landed is keyed by this form — it backs the startup alias backfill and the
+ * automatic legacy alias written on every save, so old links and old-style
+ * model-emitted slugs keep resolving.
+ */
+export function legacySlugify(input: string): string {
   return emojiToSlugWords(input)
     .normalize("NFC")
     .toLowerCase()
@@ -8,6 +16,55 @@ export function slugify(input: string): string {
     .replace(/^-+|-+$/g, "")
     .replace(/-{2,}/g, "-")
     .slice(0, 120);
+}
+
+const ALNUM_RE = /[\p{L}\p{N}]/u;
+
+function isAlnum(ch: string | undefined): boolean {
+  return !!ch && ALNUM_RE.test(ch);
+}
+
+/**
+ * Robust slug derivation: no character is silently dropped. Emoji expand to
+ * their CLDR names (as before) and every other non-alphanumeric character
+ * contributes a word token via charSlugName(), so "--Apples", "(Apples)" and
+ * "Apples" all get distinct slugs instead of colliding on "apples".
+ *
+ * Compatibility invariants:
+ *  - Whitespace and "_" are separators (wiki segments use "_" for spaces, and
+ *    model-emitted Wiki_Case targets must keep normalizing to their slug).
+ *  - A single "-" between alphanumerics is a separator, which makes every
+ *    previously-issued slug a fixed point: slugify("x-men") === "x-men".
+ *    Hyphens anywhere else (leading, trailing, doubled, beside punctuation)
+ *    are named "dash" — that's what distinguishes "--Apples".
+ *  - Output is idempotent: slugify(slugify(x)) === slugify(x), since named
+ *    tokens are plain words joined by single separators.
+ */
+export function slugify(input: string): string {
+  const expanded = emojiToSlugWords(input).normalize("NFC").toLowerCase();
+  const chars = [...expanded];
+  const tokens: string[] = [];
+  let word = "";
+  const flush = () => {
+    if (word) {
+      tokens.push(word);
+      word = "";
+    }
+  };
+  for (let i = 0; i < chars.length; i += 1) {
+    const ch = chars[i];
+    if (isAlnum(ch)) {
+      word += ch;
+      continue;
+    }
+    flush();
+    if (/\s/.test(ch) || ch === "_") continue;
+    if (ch === "-" && isAlnum(chars[i - 1]) && isAlnum(chars[i + 1])) continue;
+    const name = charSlugName(ch);
+    if (name) tokens.push(name);
+  }
+  flush();
+  return tokens.join("-").slice(0, 120);
 }
 
 export function normalizeCanonicalTitle(title: string): string {

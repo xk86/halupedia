@@ -1010,12 +1010,12 @@ test("add-link wraps unicode text with parentheses and rejects self-link suggest
 
   assert.match(
     body.article.markdown,
-    /\[Signal Units \(信号体\)\]\(halu:signal-units-信号体 "[^"]+"\)/,
+    /\[Signal Units \(信号体\)\]\(halu:signal-units-lparen-信号体-rparen "[^"]+"\)/,
     "unicode text with parentheses should be wrapped as a halu link",
   );
   assert.match(
     body.article.markdown,
-    /\[Signal Units \(信号体\)\]\(halu:signal-units-信号体 "[^"]+"\) are self-organizing/,
+    /\[Signal Units \(信号体\)\]\(halu:signal-units-lparen-信号体-rparen "[^"]+"\) are self-organizing/,
     "surrounding text should remain intact",
   );
   assert.doesNotMatch(
@@ -1726,9 +1726,9 @@ test("disambiguation pages can be created and retrieved via API", async (t) => {
   const created = await createRes.json();
   assert.equal(created.article.isDisambiguation, true);
   assert.match(created.article.title, /disambiguation/);
-  assert.match(created.article.markdown, /\(halu:mercury-planet/);
-  assert.match(created.article.markdown, /\(halu:mercury-element/);
-  assert.match(created.article.markdown, /\(halu:mercury-mythology/);
+  assert.match(created.article.markdown, /\(halu:mercury-lparen-planet-rparen/);
+  assert.match(created.article.markdown, /\(halu:mercury-lparen-element-rparen/);
+  assert.match(created.article.markdown, /\(halu:mercury-lparen-mythology-rparen/);
 
   const getRes = await server.request("/api/disambiguation/Mercury");
   assert.equal(getRes.status, 200);

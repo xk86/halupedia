@@ -48,6 +48,7 @@ import {
 } from "../src/server/markdown";
 import {
   slugify,
+  legacySlugify,
   slugToTitle,
   titleToWikiSegment,
   wikiSegmentToTitle,
@@ -167,15 +168,33 @@ test("slugify: basic lowercase and hyphenation", () => {
   assert.equal(slugify("already-kebab-case"), "already-kebab-case");
 });
 
-test("slugify: strips punctuation but keeps hyphens", () => {
-  assert.equal(slugify("Hello, World!"), "hello-world");
-  assert.equal(slugify("A (parenthetical) note"), "a-parenthetical-note");
-  assert.equal(slugify("dots.and.dots"), "dots-and-dots");
+test("slugify: punctuation contributes named word tokens", () => {
+  assert.equal(slugify("Hello, World!"), "hello-comma-world-exclamation");
+  assert.equal(slugify("A (parenthetical) note"), "a-lparen-parenthetical-rparen-note");
+  assert.equal(slugify("dots.and.dots"), "dots-dot-and-dot-dots");
 });
 
-test("slugify: apostrophes and quotes become hyphens", () => {
-  assert.equal(slugify("Obama's Method"), "obama-s-method");
-  assert.equal(slugify(`"quoted title"`), "quoted-title");
+test("slugify: apostrophes and quotes are named, not collapsed", () => {
+  assert.equal(slugify("Obama's Method"), "obama-apostrophe-s-method");
+  assert.equal(slugify(`"quoted title"`), "quote-quoted-title-quote");
+});
+
+test("legacySlugify keeps the old lossy collapse for alias back-compat", () => {
+  assert.equal(legacySlugify("Hello, World!"), "hello-world");
+  assert.equal(legacySlugify("A (parenthetical) note"), "a-parenthetical-note");
+  assert.equal(legacySlugify("Obama's Method"), "obama-s-method");
+  assert.equal(legacySlugify("--Apples"), "apples");
+});
+
+test("slugify distinguishes titles that legacy slugs collided on", () => {
+  assert.equal(slugify("--Apples"), "dash-dash-apples");
+  assert.notEqual(slugify("--Apples"), slugify("Apples"));
+  assert.notEqual(slugify("Title (x)"), slugify("Title x"));
+  // Every robust slug is itself a fixed point.
+  for (const title of ["--Apples", "Title (x)", "Hello, World!", "a---b", "!@#$%"]) {
+    const s = slugify(title);
+    assert.equal(slugify(s), s, `slugify("${s}") should be idempotent`);
+  }
 });
 
 test("slugify: numbers are preserved", () => {
@@ -184,15 +203,16 @@ test("slugify: numbers are preserved", () => {
   assert.equal(slugify("42nd Street"), "42nd-street");
 });
 
-test("slugify: collapses multiple hyphens", () => {
-  assert.equal(slugify("a---b"), "a-b");
-  assert.equal(slugify("  ---  "), "");
+test("slugify: extra hyphens are named instead of collapsed", () => {
+  assert.equal(slugify("a---b"), "a-dash-dash-dash-b");
+  assert.equal(slugify("a-b"), "a-b");
+  assert.equal(slugify("  ---  "), "dash-dash-dash");
 });
 
 test("slugify: empty and whitespace-only returns empty string", () => {
   assert.equal(slugify(""), "");
   assert.equal(slugify("   "), "");
-  assert.equal(slugify("!@#$%"), "");
+  assert.equal(slugify("!@#$%"), "exclamation-at-hash-dollar-percent");
 });
 
 test("slugify: unicode letters become hyphens or are stripped", () => {
@@ -479,7 +499,7 @@ test("normalizeHaluLinks: already-linked halu not double-wrapped", () => {
 
 test("normalizeHaluLinks: apostrophe title ok", () => {
   const result = normalizeHaluLinks("[Obama's Method]");
-  assert.match(result, /halu:obama-s-method/);
+  assert.match(result, /halu:obama-apostrophe-s-method/);
 });
 
 test("normalizeHaluLinks: double-quote in label rejected", () => {
@@ -1809,7 +1829,7 @@ test("normalizeHaluLinks: ALL CAPS title", () => {
 test("normalizeHaluLinks: title with ampersand", () => {
   const result = normalizeHaluLinks("[AT&T Corporation]");
   // ampersand becomes hyphen in slug
-  assert.match(result, /halu:at-t-corporation|halu:at-corporation/);
+  assert.match(result, /halu:at-and-t-corporation/);
 });
 
 test("normalizeHaluLinks: title with numbers and roman numerals", () => {

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { ArticleRecord, ArticleRevision, BacklinkItem, DisambiguationEntry, HomepagePayload, ParsedInternalLink } from "./types";
 import { summaryMarkdownFromArticle } from "./markdown";
-import { slugify } from "./slug";
+import { slugify, legacySlugify } from "./slug";
 import { makeReversePatch, applyPatch } from "./promptDiff";
 
 // node:sqlite re-parses SQL on every prepare(); memoize statements per
@@ -314,7 +314,31 @@ export function openDatabase(databasePath: string): DatabaseSync {
   // Serves the All Pages listing (WHERE is_disambiguation = 0 ORDER BY title
   // COLLATE NOCASE) without a full scan + sort per request.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_title_nocase ON articles(is_disambiguation, title COLLATE NOCASE)`);
+  backfillRobustSlugAliases(db);
   return db;
+}
+
+/**
+ * Articles stored before the robust slugifier are keyed by legacy slugs
+ * (punctuation collapsed). Alias each title's robust slug to the stored row so
+ * fresh slugify(title) computations — page lookups, body-ref matching, link
+ * resolution — keep finding them. Idempotent; never shadows a real article or
+ * steals an existing alias.
+ */
+function backfillRobustSlugAliases(db: DatabaseSync): void {
+  const rows = db
+    .prepare(`SELECT slug, title FROM articles`)
+    .all() as Array<{ slug: string; title: string }>;
+  if (rows.length === 0) return;
+  const articleSlugs = new Set(rows.map((row) => row.slug));
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO article_aliases (alias_slug, article_slug) VALUES (?, ?)`,
+  );
+  for (const row of rows) {
+    const robust = slugify(row.title);
+    if (!robust || robust === row.slug || articleSlugs.has(robust)) continue;
+    insert.run(robust, row.slug);
+  }
 }
 
 export function getArticle(db: DatabaseSync, slug: string): ArticleRecord | null {
@@ -429,6 +453,12 @@ export function saveArticle(
 ): void {
   const now = article.generated_at;
   const summaryMarkdown = article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(article.markdown);
+  // Always alias the title's legacy (punctuation-collapsing) slug so links and
+  // model-emitted slugs in the old style keep resolving to this article.
+  const aliasSet = new Set(aliases.filter((alias) => alias && alias !== article.slug));
+  const legacyAlias = legacySlugify(article.title);
+  if (legacyAlias && legacyAlias !== article.slug) aliasSet.add(legacyAlias);
+  aliases = Array.from(aliasSet);
   const insertArticle = db.prepare(`
     INSERT INTO articles (slug, canonical_slug, title, display_title, markdown, html, summary_markdown, plain_text, generated_at, is_disambiguation)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

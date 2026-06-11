@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { slugify } from "../src/server/slug";
 import {
   addArticleBlacklistSlugs,
   getArticle,
+  getArticleByLookup,
   getLatestArticleReferences,
   listArticleBlacklistSlugs,
   openDatabase,
@@ -152,4 +154,33 @@ test("post-process reference rebuild keeps pins for slugs that are also body ref
   const pinnedRef = rebuilt.find((r) => r.slug === "pinned-ref");
   assert.ok(pinnedRef, "pinned ref must survive the rebuild");
   assert.equal(pinnedRef!.pinned, true, "pin must not be demoted by the body-ref addition");
+});
+
+// ── robust-slug back-compat (alias backfill + auto legacy alias) ─────────────
+
+test("openDatabase backfills robust-slug aliases for legacy-keyed articles", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-slug-compat-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const path = join(root, "test.db");
+  let db = openDatabase(path);
+  // Simulate a pre-robust-slugifier article: legacy slug, punctuated title.
+  db.prepare(
+    `INSERT INTO articles (slug, canonical_slug, title, markdown, html, plain_text, generated_at)
+     VALUES ('title-x', 'title-x', 'Title (x)', '# Title (x)', '', 'Title x', 100)`,
+  ).run();
+  db.close();
+  db = openDatabase(path);
+  // A fresh slugify("Title (x)") lookup must reach the legacy row via alias.
+  const hit = getArticleByLookup(db, slugify("Title (x)"));
+  assert.ok(hit, "robust slug should resolve via backfilled alias");
+  assert.equal(hit!.slug, "title-x");
+});
+
+test("saveArticle auto-aliases the legacy slug of punctuated titles", (t) => {
+  const db = makeDb(t);
+  save(db, "dash-dash-apples", "--Apples");
+  // Model-emitted legacy-style slug still resolves to the robust-keyed row.
+  const viaLegacy = getArticleByLookup(db, "apples");
+  assert.ok(viaLegacy, "legacy slug should alias to the article");
+  assert.equal(viaLegacy!.slug, "dash-dash-apples");
 });

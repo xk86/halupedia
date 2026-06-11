@@ -955,10 +955,10 @@ test("slugify decomposes emoji into their CLDR name + 'emoji' instead of droppin
   // trailing "emoji" word marks where a symbol stood.
   assert.equal(slugify("Banana 🍌"), "banana-banana-emoji");
   assert.equal(slugify("Banana 🍍"), "banana-pineapple-emoji");
-  assert.equal(slugify("Test: PPx🍌"), "test-ppx-banana-emoji");
-  // Plain ASCII punctuation keeps its existing (stripped) behaviour —
-  // CLDR also annotates ":" as "colon" etc., but only emoji get decomposed.
-  assert.equal(slugify("Cost: $5"), "cost-5");
+  assert.equal(slugify("Test: PPx🍌"), "test-colon-ppx-banana-emoji");
+  // ASCII punctuation is decomposed the same way emoji are (robust slugs);
+  // the legacy form remains reachable via legacySlugify-based aliases.
+  assert.equal(slugify("Cost: $5"), "cost-colon-dollar-5");
 });
 
 test("titleToWikiSegment preserves emoji so the URL round-trips to the same slug", () => {
@@ -2073,7 +2073,7 @@ test("normalizeHaluLinks: title with apostrophe like [Obama's Method] becomes a 
   const input = `discussed in [Obama's Method].`;
   const result = normalizeHaluLinks(input);
   // Apostrophe in title is fine — only double-quote is rejected
-  assert.match(result, /halu:obama-s-method/);
+  assert.match(result, /halu:obama-apostrophe-s-method/);
 });
 
 // Halu slug normalization (wiki-format → kebab-case)

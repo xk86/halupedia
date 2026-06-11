@@ -78,6 +78,7 @@ import {
   type SidebarOperation,
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
+import { makeVersionedCache } from "./responseCache";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
 import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
 import { renderInfoboxHtml } from "./articleRender";
@@ -826,6 +827,8 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
   const db = openDatabase(runtime.app.storage.database_path);
   const mediaDb = openMediaDatabase(options.mediaDatabasePath ?? runtime.app.images.media_database_path);
+  const indexResponseCache = makeVersionedCache(db);
+  const mediaResponseCache = makeVersionedCache(mediaDb);
 
   // Startup sync: ingest any TOML edits made outside the UI into DB, and write
   // TOML for any DB-current entries whose files are missing.
@@ -2971,12 +2974,21 @@ export async function createApp(options: CreateAppOptions = {}) {
       Math.max(parseInt(c.req.query("limit") ?? (all ? "10000" : "200"), 10) || 200, 1),
       all ? 10000 : 500,
     );
-    const page = listArticles(db, offset, limit);
-    return c.json({
-      items: page.items,
-      cursor: page.nextOffset === null ? null : String(page.nextOffset),
-      complete: page.nextOffset === null,
-      total: page.total,
+    const cached = indexResponseCache.get(`idx:${offset}:${limit}:${all ? 1 : 0}`, () => {
+      const page = listArticles(db, offset, limit);
+      return JSON.stringify({
+        items: page.items,
+        cursor: page.nextOffset === null ? null : String(page.nextOffset),
+        complete: page.nextOffset === null,
+        total: page.total,
+      });
+    });
+    if (c.req.header("if-none-match") === cached.etag) {
+      return c.body(null, 304, { etag: cached.etag });
+    }
+    return c.body(cached.body, 200, {
+      "content-type": "application/json",
+      etag: cached.etag,
     });
   });
 
@@ -3528,9 +3540,21 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/media", (c) => {
     const q = c.req.query("q") ?? "";
-    const records = listMedia(mediaDb, q || undefined);
-    const safe = records.map(({ model_b64: _b64, ...r }) => r);
-    return c.json({ media: safe });
+    const buildBody = () => {
+      const records = listMedia(mediaDb, q || undefined);
+      const safe = records.map(({ model_b64: _b64, ...r }) => r);
+      return JSON.stringify({ media: safe });
+    };
+    // Search queries are unbounded as cache keys, so only the full list is cached.
+    if (q) return c.body(buildBody(), 200, { "content-type": "application/json" });
+    const cached = mediaResponseCache.get("media:", buildBody);
+    if (c.req.header("if-none-match") === cached.etag) {
+      return c.body(null, 304, { etag: cached.etag });
+    }
+    return c.body(cached.body, 200, {
+      "content-type": "application/json",
+      etag: cached.etag,
+    });
   });
 
   app.get("/api/media/:id/backlinks", (c) => {

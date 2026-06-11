@@ -1448,7 +1448,7 @@ test("section rewrite streams only the selected section and records revertable h
   assert.equal(revertedHistory.revisions[0].revertedFromRevisionId, history.revisions[1].id);
 });
 
-test("section rewrite preserves existing references even when the UI omits them", async (t) => {
+test("section rewrite preserves prior references but honors the blacklist", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -1515,9 +1515,11 @@ test("section rewrite preserves existing references even when the UI omits them"
   assert.equal(res.status, 200);
   const savedDb = openDatabase(databasePath);
   t.after(() => savedDb.close());
+  // The blacklisted ref is excluded even on a partial (section) edit; the
+  // other prior reference is preserved despite the UI omitting referenceSlugs.
   assert.deepEqual(
     getLatestArticleReferences(savedDb, "survey-page").map((ref) => ref.slug),
-    ["archive-index", "field-report"],
+    ["field-report"],
   );
 });
 

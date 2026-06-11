@@ -155,6 +155,13 @@ export const rebuildReferenceListNode = defineNode({
       backlinkCtx,
     );
 
+    const priorRefs = loadPriorReferenceList(deps.db, slug) ?? [];
+    // Auto-derived additions (backlinks, body refs) must not demote a ref the
+    // user pinned: additions are merged before prior refs in
+    // buildReferenceList, so an unpinned addition for the same slug would win
+    // and silently drop the pin on every post-process run.
+    const priorPinned = new Set(priorRefs.filter((r) => r.pinned).map((r) => r.slug));
+
     const bodyRefs = findBodyReferencedArticles(deps.db, finalArticleBody, slug);
     const backlinkAdditions = backlinkSlugs
       .map((s) => getArticleByLookup(deps.db, s))
@@ -171,7 +178,7 @@ export const rebuildReferenceListNode = defineNode({
 
     const additionsBySlug = new Map<string, ReferenceListEntry>();
     for (const ref of [...backlinkAdditions, ...bodyRefs]) {
-      additionsBySlug.set(ref.slug, ref);
+      additionsBySlug.set(ref.slug, { ...ref, pinned: ref.pinned || priorPinned.has(ref.slug) });
     }
 
     const refs = buildReferenceList(
@@ -179,7 +186,7 @@ export const rebuildReferenceListNode = defineNode({
       {
         articleSlug: slug,
         ragSources: merged.sourceArticles,
-        priorReferences: loadPriorReferenceList(deps.db, slug) ?? [],
+        priorReferences: priorRefs,
         userAdditions: Array.from(additionsBySlug.values()),
         blacklistSlugs: input.blacklistSlugs ?? [],
         revisionId: "current",

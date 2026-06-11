@@ -1,0 +1,155 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  addArticleBlacklistSlugs,
+  getArticle,
+  getLatestArticleReferences,
+  listArticleBlacklistSlugs,
+  openDatabase,
+  removeArticleBlacklistSlugs,
+  saveArticle,
+  saveArticleReferences,
+} from "../src/server/db";
+import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
+import { buildReferenceList } from "../src/server/referenceList";
+import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "../src/server/referenceEdits";
+import { rebuildReferenceListNode } from "../src/server/pipeline/nodes/postProcess";
+
+const RAG_CONFIG = {
+  reference_max_results: 8,
+  reference_min_score: 0,
+  max_references: 10,
+  reference_recursive_depth: 0,
+  reference_recursive_max_per_article: 0,
+  reference_cull_min_score: 0,
+  reference_cull_top_k: 0,
+};
+
+function makeDb(t: { after: (fn: () => void) => void }) {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-edit-refs-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return openDatabase(join(root, "test.db"));
+}
+
+function save(db: ReturnType<typeof openDatabase>, slug: string, title: string, body?: string) {
+  const markdown = `# ${title}\n\n${body ?? `Body of ${title}.`}`;
+  saveArticle(
+    db,
+    {
+      slug,
+      canonicalSlug: slug,
+      title,
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: 100,
+      summaryMarkdown: `${title} summary.`,
+    },
+    [],
+    [slug],
+    { operation: "generate" },
+  );
+}
+
+test("blacklist persistence: add, list, remove", (t) => {
+  const db = makeDb(t);
+  addArticleBlacklistSlugs(db, "alpha", ["Bad Ref", "worse-ref"]);
+  assert.deepEqual(listArticleBlacklistSlugs(db, "alpha").sort(), ["bad-ref", "worse-ref"]);
+  // Re-adding is idempotent.
+  addArticleBlacklistSlugs(db, "alpha", ["bad-ref"]);
+  assert.equal(listArticleBlacklistSlugs(db, "alpha").length, 2);
+  removeArticleBlacklistSlugs(db, "alpha", ["bad-ref"]);
+  assert.deepEqual(listArticleBlacklistSlugs(db, "alpha"), ["worse-ref"]);
+});
+
+test("buildReferenceList excludes persistently blacklisted slugs from every source", (t) => {
+  const db = makeDb(t);
+  save(db, "alpha", "Alpha");
+  save(db, "blocked", "Blocked");
+  save(db, "kept", "Kept");
+  addArticleBlacklistSlugs(db, "alpha", ["blocked"]);
+
+  const refs = buildReferenceList(db, {
+    articleSlug: "alpha",
+    ragSources: [
+      { slug: "blocked", title: "Blocked", content: "x", score: 0.9 },
+      { slug: "kept", title: "Kept", content: "y", score: 0.9 },
+    ],
+    priorReferences: [
+      { slug: "blocked", title: "Blocked", content: "x", kind: "summary", pinned: false, revisionId: "current", source: "prior" },
+    ],
+    revisionId: "current",
+    config: RAG_CONFIG,
+  });
+  const slugs = refs.map((r) => r.slug);
+  assert.ok(slugs.includes("kept"));
+  assert.ok(!slugs.includes("blocked"), "stored blacklist must apply without request plumbing");
+});
+
+test("refs-only edit replaces sidecar refs without touching the article body", (t) => {
+  const db = makeDb(t);
+  save(db, "alpha", "Alpha");
+  save(db, "ref-one", "Ref One");
+  save(db, "ref-two", "Ref Two");
+  saveArticleReferences(db, "alpha", 200, [
+    { slug: "ref-one", title: "Ref One", content: "", kind: "summary", pinned: false, revisionId: "current", source: "user" },
+  ]);
+  const before = getArticle(db, "alpha")!;
+
+  assert.equal(hasReferenceEditFields({}), false);
+  assert.equal(hasReferenceEditFields({ referenceSlugs: [] }), true);
+
+  const refs = applyReferenceOnlyEdit(
+    db,
+    "alpha",
+    { referenceSlugs: ["ref-two"], pinnedSlugs: ["ref-two"], blacklistSlugs: ["ref-one"] },
+    RAG_CONFIG,
+  );
+  assert.deepEqual(refs.map((r) => r.slug), ["ref-two"]);
+  assert.equal(refs[0].pinned, true);
+
+  const stored = getLatestArticleReferences(db, "alpha");
+  assert.deepEqual(stored.map((r) => `${r.slug}:${r.pinned}`), ["ref-two:true"]);
+  assert.equal(listArticleBlacklistSlugs(db, "alpha").includes("ref-one"), true);
+  assert.equal(getArticle(db, "alpha")!.markdown, before.markdown, "body must be untouched");
+});
+
+test("re-adding a blocked slug as a reference unblocks it", (t) => {
+  const db = makeDb(t);
+  save(db, "alpha", "Alpha");
+  save(db, "blocked", "Blocked");
+  addArticleBlacklistSlugs(db, "alpha", ["blocked"]);
+  persistBlacklistForEdit(db, "alpha", { referenceSlugs: ["blocked"] });
+  assert.deepEqual(listArticleBlacklistSlugs(db, "alpha"), []);
+});
+
+test("post-process reference rebuild keeps pins for slugs that are also body refs", async (t) => {
+  const db = makeDb(t);
+  save(db, "alpha", "Alpha", "Alpha mentions [Pinned Ref](ref:pinned-ref) inline.");
+  save(db, "pinned-ref", "Pinned Ref");
+  saveArticleReferences(db, "alpha", 200, [
+    { slug: "pinned-ref", title: "Pinned Ref", content: "", kind: "summary", pinned: true, revisionId: "current", source: "pinned" },
+  ]);
+
+  const deps = {
+    db,
+    llm: {},
+    logger: undefined,
+    runtime: { app: { rag: { ...RAG_CONFIG, mode: "summary", max_results: 8 } } },
+  };
+  const out = await rebuildReferenceListNode.run(
+    {
+      input: { requestId: "t", workflow: "article.post_process", slug: "alpha" },
+      finalArticleBody: "Alpha mentions [Pinned Ref](ref:pinned-ref) inline.",
+      retrievedContext: undefined,
+    } as never,
+    deps as never,
+  );
+  const rebuilt = (out as { references: Array<{ slug: string; pinned: boolean }> }).references;
+  const pinnedRef = rebuilt.find((r) => r.slug === "pinned-ref");
+  assert.ok(pinnedRef, "pinned ref must survive the rebuild");
+  assert.equal(pinnedRef!.pinned, true, "pin must not be demoted by the body-ref addition");
+});

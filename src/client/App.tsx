@@ -244,6 +244,13 @@ export function App() {
     [editInitialRefSlugs],
   );
   const editRefsToggleLocked = editIsPartial && editInitialRefSlugs.length > 0;
+  // Reference selection differs from what was loaded — enough to submit an
+  // edit even with an empty prompt (the server applies it without an LLM call).
+  const editRefsChanged =
+    (editRefsEnabled &&
+      (editRefs.length !== editInitialRefSlugs.length ||
+        editRefs.some((r) => !editInitialRefSlugSet.has(r.slug)))) ||
+    editBlacklist.length > 0;
 
   useEffect(() => {
     if (themeMode === "dark") {
@@ -930,7 +937,8 @@ export function App() {
   }, [page, rawEditMarkdown, editBusy, editRefsEnabled, editRefs, loadEditRefs]);
 
   const rewriteArticle = useCallback(async () => {
-    if (!page?.article.slug || !editDraft.trim() || editBusy) return;
+    if (!page?.article.slug || editBusy) return;
+    if (!editDraft.trim() && !editRefsChanged) return;
     const previousPage = page;
     const targetSlug = page.article.slug;
     const ac = new AbortController();
@@ -949,12 +957,12 @@ export function App() {
           ...(editSectionId === "__selection__"
             ? { selectedText: editSelectedText }
             : { sectionId: editSectionId || undefined }),
-          ...(editRefsEnabled && editRefs.length > 0
+          ...(editRefsEnabled && (editRefs.length > 0 || editInitialRefSlugs.length > 0)
             ? {
+                // Sent even when emptied: the panel state is authoritative, so
+                // an empty array means "remove all refs" / "unpin all".
                 referenceSlugs: editRefs.map((r) => r.slug),
-                ...(editRefs.some((r) => r.pinned)
-                  ? { pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug) }
-                  : {}),
+                pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug),
               }
             : {}),
           ...(editBlacklist.length > 0 ? { blacklistSlugs: editBlacklist } : {}),
@@ -1085,7 +1093,7 @@ export function App() {
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
     }
-  }, [page, editDraft, editSectionId, editSelectedText, editRefsEnabled, editRefs, editBlacklist, editIncludeRecentPrompts, editRewriteMode, editBusy, loadEditRefs]);
+  }, [page, editDraft, editSectionId, editSelectedText, editRefsEnabled, editRefs, editRefsChanged, editInitialRefSlugs, editBlacklist, editIncludeRecentPrompts, editRewriteMode, editBusy, loadEditRefs]);
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
@@ -1971,7 +1979,7 @@ export function App() {
               </div>
             )}
             <div className="edit-modal-actions">
-              <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || !editDraft.trim() || !!page.isProtected}>
+              <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || (!editDraft.trim() && !editRefsChanged) || !!page.isProtected}>
                 {editBusy ? "Rewriting..." : "Apply edit"}
               </button>
               <button type="button" className="edit-raw-btn" onClick={openRawEdit} disabled={editBusy} title="Edit raw markdown directly">

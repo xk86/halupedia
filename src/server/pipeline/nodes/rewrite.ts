@@ -283,7 +283,9 @@ export const buildRewriteReferenceListNode = defineNode({
             source: "user" as const,
           };
         }).filter(Boolean) as ReferenceListEntry[],
-        blacklistSlugs: isPartial ? [] : blacklistSlugs,
+        // Blocked refs are excluded in all edit modes — partial edits included
+        // (they previously dropped the blacklist, letting blocked refs return).
+        blacklistSlugs,
         revisionId: "current",
         config: deps.runtime.app.rag,
       },

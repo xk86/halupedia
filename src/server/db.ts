@@ -146,6 +146,16 @@ export function openDatabase(databasePath: string): DatabaseSync {
     CREATE INDEX IF NOT EXISTS idx_article_references_slug
       ON article_references(article_slug, saved_at DESC);
 
+    -- Slugs the user has blocked from ever being auto-added as references to
+    -- an article. Persisted so post-process / refresh / future edits respect
+    -- the block until the user re-adds the reference (which unblocks it).
+    CREATE TABLE IF NOT EXISTS article_blacklist (
+      article_slug TEXT NOT NULL,
+      blocked_slug TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (article_slug, blocked_slug)
+    );
+
     -- See-also entries are sidecar metadata, similar in shape to references
     -- but semantically distinct: the target article does not necessarily
     -- exist yet (it is created lazily when the user clicks the link).
@@ -927,6 +937,47 @@ export function saveArticleReferences(
     db.exec("ROLLBACK");
     throw err;
   }
+}
+
+/** Persistently block slugs from being auto-added as references to an article. */
+export function addArticleBlacklistSlugs(
+  db: DatabaseSync,
+  articleSlug: string,
+  blockedSlugs: string[],
+): void {
+  if (blockedSlugs.length === 0) return;
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO article_blacklist (article_slug, blocked_slug, created_at)
+     VALUES (?, ?, ?)`,
+  );
+  const now = Date.now();
+  for (const blocked of blockedSlugs) {
+    const normalized = slugify(blocked);
+    if (normalized) insert.run(articleSlug, normalized, now);
+  }
+}
+
+/** Unblock slugs (e.g. the user re-added them as references). */
+export function removeArticleBlacklistSlugs(
+  db: DatabaseSync,
+  articleSlug: string,
+  blockedSlugs: string[],
+): void {
+  if (blockedSlugs.length === 0) return;
+  const remove = db.prepare(
+    `DELETE FROM article_blacklist WHERE article_slug = ? AND blocked_slug = ?`,
+  );
+  for (const blocked of blockedSlugs) {
+    const normalized = slugify(blocked);
+    if (normalized) remove.run(articleSlug, normalized);
+  }
+}
+
+export function listArticleBlacklistSlugs(db: DatabaseSync, articleSlug: string): string[] {
+  const rows = db
+    .prepare(`SELECT blocked_slug FROM article_blacklist WHERE article_slug = ?`)
+    .all(articleSlug) as Array<{ blocked_slug: string }>;
+  return rows.map((row) => row.blocked_slug);
 }
 
 /**

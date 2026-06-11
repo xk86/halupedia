@@ -30,7 +30,7 @@ import type {
   ParsedInternalLink,
 } from "./types";
 import type { RetrievedSourceArticle } from "./retrieval";
-import { getArticleByLookup, getLatestArticleReferences } from "./db";
+import { getArticleByLookup, getLatestArticleReferences, listArticleBlacklistSlugs } from "./db";
 import { slugify, slugToTitle } from "./slug";
 
 /**
@@ -149,9 +149,13 @@ export function buildReferenceList(
 
   // Slugs that are always excluded regardless of source. Self-referencing
   // entries and user-blacklisted ones are rejected before anything else.
+  // The persisted blacklist is merged in here so every reference-list build
+  // (generation, refresh, rewrite, post-process) honors blocks the user made
+  // in earlier sessions, not just the ones sent with this request.
   const blacklist = new Set<string>([
     slugify(articleSlug),
     ...blacklistSlugs.map((s) => slugify(s)).filter(Boolean),
+    ...listArticleBlacklistSlugs(db, slugify(articleSlug)),
   ]);
   // Track which slugs we've already accepted so each appears once.
   const seen = new Set<string>(blacklist);

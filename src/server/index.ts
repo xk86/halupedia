@@ -36,6 +36,7 @@ import {
   saveArticleReferences,
   saveArticleSeeAlso,
   getLatestArticleReferences,
+  listArticleBlacklistSlugs,
   type ArticleReference,
   getRandomSuggestions,
   searchCorpus,
@@ -79,6 +80,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { makeVersionedCache } from "./responseCache";
+import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
 import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
 import { renderInfoboxHtml } from "./articleRender";
@@ -88,7 +90,6 @@ import {
 } from "./editReferences";
 import { OpenAICompatRouter, type LlmRouter } from "./llm";
 import { createConsoleLogger, type Logger } from "./logger";
-import { formatIncomingHintsForPrompt } from "./linkHints";
 import { MaintenanceScheduler } from "./maintenance";
 import {
   articleSectionMarkdown,
@@ -2507,11 +2508,23 @@ export async function createApp(options: CreateAppOptions = {}) {
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 2500);
-    if (!instructions)
+    if (!instructions && !hasReferenceEditFields(body))
       return c.json({ error: "missing rewrite instructions" }, 400);
 
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
+
+    // Refs-only edit: the user changed the reference selection (add/remove/
+    // pin/block) without rewrite instructions. Update the sidecar directly —
+    // no LLM call, no retrieval, no post-process.
+    if (!instructions) {
+      const refs = applyReferenceOnlyEdit(db, article.slug, body, runtime.app.rag, logger);
+      invalidateArticleHtml(article.slug);
+      logger.info("article.reference_only_edit", { slug: article.slug, refs: refs.length });
+      const response = buildArticleResponseFor(article.slug);
+      if (!response) return c.json({ error: "failed to hydrate response" }, 500);
+      return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(article) }));
+    }
 
     // ── Protection check ──────────────────────────────────────────────────────
     const isManualEdit = body.isManualEdit === true;
@@ -2577,8 +2590,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     const effectiveExplicitSlugs = partialEdit
       ? Array.from(new Set([...priorReferenceSlugs, ...newExplicitSlugs]))
       : explicitSlugs;
-    const effectiveUserAdditionSlugs = partialEdit ? newExplicitSlugs : explicitSlugs;
-    const effectiveBlacklistSlugs = partialEdit ? [] : blacklistSlugs;
+    // Blocked refs apply in all edit modes (partial edits previously dropped
+    // them) and persist: stored blocks survive future edits/refreshes until
+    // the user re-adds the reference.
+    persistBlacklistForEdit(db, article.slug, body);
+    const effectiveBlacklistSlugs = Array.from(
+      new Set([...blacklistSlugs, ...listArticleBlacklistSlugs(db, article.slug)]),
+    );
 
     const rewriteReason = selectionRange ? "selection_edit" : sectionId ? "section_edit" : "full_rewrite";
     logger.debug("rewrite.starting", {
@@ -2592,112 +2610,6 @@ export async function createApp(options: CreateAppOptions = {}) {
       instructions_length: instructions.length,
     });
 
-    const hints = listIncomingHints(db, article.slug);
-    let retrieved: Awaited<ReturnType<typeof retrieveContext>>;
-
-    // todo: make prints prettier instead of json
-    if (effectiveExplicitSlugs.length > 0) {
-      // User explicitly selected references — use them directly, skip automatic RAG.
-      // Also include saved prior-session references for continuity.
-      logger.debug("rewrite.using_explicit_references", { slug: lookupSlug, count: effectiveExplicitSlugs.length });
-      const savedRefSlugs = priorReferenceSlugs;
-      const allDirectSlugs = Array.from(new Set([...effectiveExplicitSlugs, ...savedRefSlugs]));
-      const direct = retrieveDirectArticleContext(
-        db,
-        article.slug,
-        allDirectSlugs,
-        runtime.app.rag.mode,
-        runtime.app.rag.max_results,
-        logger,
-      );
-      logger.info("rag.explicit_references", {
-        slug: article.slug,
-        explicit_count: effectiveExplicitSlugs.length,
-        explicit: effectiveExplicitSlugs.join(", "),
-        saved_extra: savedRefSlugs.filter((s) => !effectiveExplicitSlugs.includes(s)).join(", ") || "(none)",
-        total_direct_slugs: allDirectSlugs.length,
-        all_direct: allDirectSlugs.join(", "),
-      });
-      logger.debug("rag.explicit_references_detail", {
-        slug: article.slug,
-        explicit_slugs: JSON.stringify(effectiveExplicitSlugs),
-        all_direct_slugs: JSON.stringify(allDirectSlugs),
-        direct_context_sources: JSON.stringify(
-          direct.sourceArticles.map((a) => ({ slug: a.slug, title: a.title })),
-        ),
-      });
-      retrieved = direct;
-    } else if (ragEnabled) {
-      const hintStrings = hintsToSearchStrings(hints);
-      const userSearchText = ragQuery || instructions;
-      const articleRetrieved = await retrieveContext(
-        db,
-        llm,
-        article.slug,
-        userSearchText ? [userSearchText] : hintStrings,
-        runtime.app.rag.enabled,
-        runtime.app.rag.mode,
-        runtime.app.rag.max_results,
-        runtime.app.rag.min_score,
-        runtime.llm.embeddings.enabled,
-        logger,
-        userSearchText || undefined,
-      );
-      const editReferences = findReferencedArticlesInEditText(
-        db,
-        `${ragQuery} ${instructions}`,
-        article.slug,
-      );
-      const fuzzyTitleMatches = findFuzzyTitleMatchesInEditText(
-        db,
-        `${userSearchText} ${instructions}`,
-        article.slug,
-        runtime.app.rag.max_results,
-        editReferences.articles.map((a) => a.slug),
-      );
-      const savedRefSlugs = priorReferenceSlugs;
-      const allDirectSlugs = Array.from(
-        new Set([
-          ...savedRefSlugs,
-          ...[...editReferences.articles, ...fuzzyTitleMatches].map((a) => a.slug),
-        ]),
-      );
-      const editRetrieved = retrieveDirectArticleContext(
-        db,
-        article.slug,
-        allDirectSlugs,
-        runtime.app.rag.mode,
-        runtime.app.rag.max_results,
-        logger,
-      );
-      logger.info("rag.edit_references", {
-        slug: article.slug,
-        ragQuery,
-        requested: editReferences.requested.length,
-        resolved: editReferences.articles.length,
-        fuzzy_resolved: fuzzyTitleMatches.length,
-        missing: editReferences.missing.length,
-        resolved_slugs:
-          [...editReferences.articles, ...fuzzyTitleMatches]
-            .map((a) => a.slug)
-            .join(", ") || "(none)",
-      });
-      retrieved = mergeRetrievedContextPackets(editRetrieved, articleRetrieved);
-    } else {
-      retrieved = { context: "", relatedTitles: [], sourceArticles: [] };
-    }
-
-    const requestedMode = (body.rewriteMode ?? "aggressive").toLowerCase();
-    const modeConfig =
-      runtime.prompts.rewriteModes[requestedMode] ??
-      runtime.prompts.rewriteModes.aggressive;
-    const modePrompt = modeConfig?.prompt ?? "";
-
-    const prompt = getPrompt(runtime.prompts, "article_rewrite");
-    const renderedSystemPrompt = renderTemplate(prompt.system, {
-      rewrite_mode: modePrompt,
-      link_hints: formatIncomingHintsForPrompt(hints, article.slug),
-    });
     const wantsStream =
       c.req.query("stream") === "1" ||
       (c.req.header("accept") ?? "").includes("application/x-ndjson");

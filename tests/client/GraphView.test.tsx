@@ -3,7 +3,7 @@ import * as THREE from "three";
 
 import Graph from "graphology";
 
-import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities, traceHue, trailNodeLightness } from "../../src/client/GraphView";
+import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, disposeLabelSprites, kShortestPaths, labelDrawState, makeNodeLabelSprite, oklch, summarizeCommunities, traceHue, trailNodeLightness } from "../../src/client/GraphView";
 
 interface FgNodeLike {
   id: string;
@@ -117,6 +117,51 @@ describe("makeNodeLabelSprite", () => {
     expect(big.scale.y).toBeCloseTo(normal.scale.y * 2);
     expect(big.scale.x).toBeCloseTo(normal.scale.x * 2);
     expect(normal.scale.y).toBeCloseTo(6);
+  });
+
+  it("caps the texture canvas width and ellipsizes pathological titles", () => {
+    const ctx = stubCanvasContext();
+    // 10px per char (stubbed) → 200 chars = 2000px, well over the 1024 cap.
+    makeNodeLabelSprite("x".repeat(200), "#ffffff");
+    const drawn = (ctx.fillText.mock.calls as Array<[string]>).map(([text]) => text);
+    expect(drawn.some((text) => text.endsWith("…"))).toBe(true);
+    // The sprite aspect ratio comes from canvas.width / canvas.height, so a
+    // capped canvas keeps the aspect bounded too.
+    const sprite = makeNodeLabelSprite("y".repeat(200), "#ffffff", 6);
+    const uncapped = (200 * 10 + 32) / sprite.scale.y;
+    expect(sprite.scale.x).toBeLessThan(uncapped);
+  });
+
+  it("skips mipmaps and halves resolution in lowRes (phone) mode", () => {
+    const full = makeNodeLabelSprite("Phone Test", "#ffffff");
+    const low = makeNodeLabelSprite("Phone Test", "#ffffff", 6, undefined, { lowRes: true });
+    expect(full.material.map?.generateMipmaps).toBe(true);
+    expect(full.material.map?.minFilter).toBe(THREE.LinearMipmapLinearFilter);
+    expect(low.material.map?.generateMipmaps).toBe(false);
+    expect(low.material.map?.minFilter).toBe(THREE.LinearFilter);
+  });
+});
+
+describe("disposeLabelSprites", () => {
+  beforeEach(() => {
+    stubCanvasContext();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("disposes each sprite's texture and material, then empties the map", () => {
+    const sprites = new Map<string, THREE.Sprite>();
+    sprites.set("a", makeNodeLabelSprite("A", "#ffffff"));
+    sprites.set("b", makeNodeLabelSprite("B", "#ffffff"));
+    const spies = [...sprites.values()].flatMap((sprite) => {
+      const material = sprite.material as THREE.SpriteMaterial;
+      return [vi.spyOn(material.map!, "dispose"), vi.spyOn(material, "dispose")];
+    });
+    disposeLabelSprites(sprites);
+    for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1);
+    expect(sprites.size).toBe(0);
   });
 });
 

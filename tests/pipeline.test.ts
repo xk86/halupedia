@@ -186,6 +186,14 @@ test("legacySlugify keeps the old lossy collapse for alias back-compat", () => {
   assert.equal(legacySlugify("--Apples"), "apples");
 });
 
+test("hyphenated titles slug differently from spaced titles", () => {
+  // "Foo-bar" (the title) and "Foo bar" must be different articles; the
+  // lowercase slug-form "foo-bar" still refers to the spaced article's slug.
+  assert.equal(slugify("Foo-bar"), "foo-dash-bar");
+  assert.equal(slugify("Foo bar"), "foo-bar");
+  assert.equal(slugify("foo-bar"), "foo-bar"); // already a slug — unchanged
+});
+
 test("slugify distinguishes titles that legacy slugs collided on", () => {
   assert.equal(slugify("--Apples"), "dash-dash-apples");
   assert.notEqual(slugify("--Apples"), slugify("Apples"));

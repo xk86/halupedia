@@ -1,4 +1,4 @@
-import { slugify, wikiSegmentToTitle } from "../slug";
+import { slugify, normalizeSlug, wikiSegmentToTitle } from "../slug";
 
 export type MarkdownLinkKind =
   | "halu"
@@ -215,20 +215,23 @@ function classifyTarget(target: string, title?: string): Pick<ParsedMarkdownLink
     return { kind: "external" };
   }
   if (trimmed.toLowerCase().startsWith("halu:")) {
+    // Targets are slugs by contract — normalizeSlug keeps hyphens as
+    // separators so halu:Foo-Bar means the slug "foo-bar", never the
+    // hyphenated title "Foo-Bar".
     const raw = decodeWikiSegment(trimmed.slice("halu:".length).replace(/-+$/, "").trim());
-    const slug = slugify(raw);
+    const slug = normalizeSlug(raw);
     return { kind: "halu", slug, hint: title?.trim() ?? "" };
   }
   if (trimmed.toLowerCase().startsWith("ref:")) {
     const raw = decodeWikiSegment(trimmed.slice("ref:".length).trim());
-    return { kind: "ref", slug: slugify(raw) };
+    return { kind: "ref", slug: normalizeSlug(raw) };
   }
   if (/^\/?wiki\//i.test(trimmed)) {
     const segment = trimmed.replace(/^\/?wiki\//i, "").replace(/[?#].*$/, "");
     return { kind: "wiki", slug: slugify(wikiSegmentToTitle(decodeWikiSegment(segment))) };
   }
   if (/^\/?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(trimmed) && trimmed.includes("-")) {
-    return { kind: "plain-slug", slug: slugify(decodeWikiSegment(trimmed.replace(/^\//, ""))) };
+    return { kind: "plain-slug", slug: normalizeSlug(decodeWikiSegment(trimmed.replace(/^\//, ""))) };
   }
   return { kind: "unknown" };
 }
@@ -255,10 +258,10 @@ function isInsideParsedRange(
 function classifyBareBracket(label: string): Pick<ParsedBareBracket, "kind" | "slug"> {
   const trimmed = label.trim();
   if (trimmed.toLowerCase().startsWith("ref:")) {
-    return { kind: "ref-marker", slug: slugify(trimmed.slice("ref:".length).trim()) };
+    return { kind: "ref-marker", slug: normalizeSlug(trimmed.slice("ref:".length).trim()) };
   }
   if (trimmed.toLowerCase().startsWith("halu:")) {
-    return { kind: "halu-marker", slug: slugify(trimmed.slice("halu:".length).trim()) };
+    return { kind: "halu-marker", slug: normalizeSlug(trimmed.slice("halu:".length).trim()) };
   }
   if (
     trimmed.length > 0 &&
@@ -325,7 +328,7 @@ function parseLooseInternalMarkers(
       start: match.index,
       end: match.index + match[0].length,
       kind,
-      slug: slugify(target),
+      slug: normalizeSlug(target),
     });
   }
   const nakedPattern = /\b(ref|halu):([a-z0-9][a-z0-9-]*)(?:[ \t]+(["'])(.*?)\3)?/gi;

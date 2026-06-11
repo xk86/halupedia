@@ -70,10 +70,10 @@ describe("graphLabels (SDF node labels)", () => {
     expect(parts(label).backdrop.material.color.getHex()).toBe(0x000000);
   });
 
-  it("applies opacity to text fill and backdrop together", () => {
+  it("fades the backdrop while keeping the text fill fully opaque", () => {
     const label = makeNodeLabel("Fade", "#ffffff", 6);
     setLabelOpacity(label, 0.5);
-    expect(parts(label).title.fillOpacity).toBeCloseTo(0.45);
+    expect(parts(label).title.fillOpacity).toBe(1.0);
     expect(parts(label).backdrop.material.opacity).toBeCloseTo(0.275);
   });
 

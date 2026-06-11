@@ -24,24 +24,54 @@ function isAlnum(ch: string | undefined): boolean {
   return !!ch && ALNUM_RE.test(ch);
 }
 
+// A string that is already a valid slug: lowercase letters/numbers in tokens
+// joined by single hyphens. (The lowercase check is separate because \p{L}
+// must still admit caseless scripts — "signal-units-lparen-信号体-rparen" is a
+// valid slug.)
+const SLUG_FORM_RE = /^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u;
+
+export function isSlugForm(input: string): boolean {
+  return input === input.toLowerCase() && SLUG_FORM_RE.test(input);
+}
+
+/**
+ * Normalize a string that is supposed to BE a slug already (halu:/ref: link
+ * targets, model-emitted kebab identifiers). Valid slugs pass through
+ * unchanged; malformed ones (caps, stray words, punctuation) get the legacy
+ * collapse — every article save aliases its legacy slug, so the collapsed
+ * form always resolves through the alias table. Crucially this never names
+ * hyphens: "Example-Topic" here means the slug "example-topic", not the
+ * hyphenated title "Example-Topic".
+ */
+export function normalizeSlug(input: string): string {
+  const direct = input.normalize("NFC").trim().toLowerCase();
+  if (isSlugForm(direct)) return direct.slice(0, 120);
+  return legacySlugify(direct);
+}
+
 /**
  * Robust slug derivation: no character is silently dropped. Emoji expand to
  * their CLDR names (as before) and every other non-alphanumeric character
  * contributes a word token via charSlugName(), so "--Apples", "(Apples)" and
  * "Apples" all get distinct slugs instead of colliding on "apples".
  *
- * Compatibility invariants:
- *  - Whitespace and "_" are separators (wiki segments use "_" for spaces, and
- *    model-emitted Wiki_Case targets must keep normalizing to their slug).
- *  - A single "-" between alphanumerics is a separator, which makes every
- *    previously-issued slug a fixed point: slugify("x-men") === "x-men".
- *    Hyphens anywhere else (leading, trailing, doubled, beside punctuation)
- *    are named "dash" — that's what distinguishes "--Apples".
- *  - Output is idempotent: slugify(slugify(x)) === slugify(x), since named
- *    tokens are plain words joined by single separators.
+ * Invariants:
+ *  - Already-valid slugs are returned unchanged (idempotency is structural:
+ *    title-mode output is always lowercase tokens joined by single hyphens,
+ *    i.e. slug-form, so every output is a fixed point). This also keeps
+ *    model-emitted kebab targets like halu:foo-bar stable.
+ *  - In title-mode, whitespace and "_" are separators (wiki segments use "_"
+ *    for spaces, and Wiki_Case targets must keep normalizing to their slug).
+ *  - In title-mode, EVERY hyphen is named "dash": the title "Foo-bar" slugs
+ *    to "foo-dash-bar" and stays distinct from "Foo bar" → "foo-bar".
+ *    Titles reach slugify in canonical (capitalized) form, so they never
+ *    take the slug-form fast path.
  */
 export function slugify(input: string): string {
-  const expanded = emojiToSlugWords(input).normalize("NFC").toLowerCase();
+  const direct = input.normalize("NFC").trim();
+  if (isSlugForm(direct)) return direct.slice(0, 120);
+
+  const expanded = emojiToSlugWords(direct).toLowerCase();
   const chars = [...expanded];
   const tokens: string[] = [];
   let word = "";
@@ -51,15 +81,13 @@ export function slugify(input: string): string {
       word = "";
     }
   };
-  for (let i = 0; i < chars.length; i += 1) {
-    const ch = chars[i];
+  for (const ch of chars) {
     if (isAlnum(ch)) {
       word += ch;
       continue;
     }
     flush();
     if (/\s/.test(ch) || ch === "_") continue;
-    if (ch === "-" && isAlnum(chars[i - 1]) && isAlnum(chars[i + 1])) continue;
     const name = charSlugName(ch);
     if (name) tokens.push(name);
   }
@@ -119,7 +147,12 @@ export function wikiSegmentToTitle(segment: string): string {
 export function isSlugStyleWikiSegment(segment: string): boolean {
   const decoded = decodeURIComponent(segment).replace(/^\/+|\/+$/g, "");
   if (decoded.includes("_")) return false;
-  if ((decoded.match(/-/g) ?? []).length < 2) return false;
+  if (!decoded.includes("-")) return false;
+  // A lowercase slug-form segment is a slug reference (/wiki/foo-bar means
+  // the slug "foo-bar"); hyphenated TITLES arrive capitalized ("Foo-bar")
+  // via titleToWikiSegment and fall through to title handling, which is what
+  // keeps "Foo-bar" (→ foo-dash-bar) distinct from "Foo bar" (→ foo-bar).
+  if (isSlugForm(decoded)) return true;
   return slugify(wikiSegmentToTitle(decoded)) === decoded.toLowerCase();
 }
 

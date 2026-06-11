@@ -11,6 +11,7 @@ import { Sidebar } from "./Sidebar";
 import { useArticleSuggestions } from "./articleSuggest";
 import { renderInlineHtml } from "./summaryHtml";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
+import { slugify, normalizeCanonicalTitle } from "../server/slug";
 
 type Route =
   | { kind: "home" }
@@ -419,6 +420,10 @@ export function App() {
         // renders. Falls back to reconstructing from the URL segment.
         const matchedPending = pendingTitle && pendingTitle.slug === route.slug ? pendingTitle.title : null;
         const placeholderTitle = matchedPending ?? titleFromSegment(route.slug);
+        // The article's real slug, derived the same way the server derives it,
+        // so the placeholder page shows the correct slug immediately instead
+        // of echoing the raw URL segment until generation finishes.
+        const placeholderSlug = slugify(normalizeCanonicalTitle(placeholderTitle));
         const res = pendingTitle && pendingTitle.slug === route.slug
           // HTTP header values must be ASCII/Latin-1 — titles with emoji or
           // other non-Latin1 characters (e.g. "Banana 🍌") would make fetch
@@ -537,8 +542,8 @@ export function App() {
               setPage((current) => current ?? {
                 cached: false,
                 article: {
-                  slug: route.slug,
-                  canonicalSlug: route.slug,
+                  slug: placeholderSlug,
+                  canonicalSlug: placeholderSlug,
                   title: placeholderTitle,
                   html: "",
                   markdown: "",
@@ -561,8 +566,8 @@ export function App() {
               setPage((current) => ({
                 cached: false,
                 article: current?.article ?? {
-                  slug: route.slug,
-                  canonicalSlug: route.slug,
+                  slug: placeholderSlug,
+                  canonicalSlug: placeholderSlug,
                   title: placeholderTitle,
                   html: streamedHtml,
                   markdown: event.markdown ?? "",

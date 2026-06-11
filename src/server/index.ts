@@ -122,6 +122,7 @@ import {
   retrieveDirectArticleContext,
 } from "./retrieval";
 import {
+  isSlugForm,
   isSlugStyleWikiSegment,
   normalizeCanonicalTitle,
   slugToTitle,
@@ -600,7 +601,13 @@ function normalizeRandomPageChoice(raw: string): { title: string; slug: string }
   let slug = "";
   try {
     const json = JSON.parse(cleaned) as { title?: unknown; slug?: unknown };
-    title = normalizeCanonicalTitle(String(json.title ?? ""));
+    let rawTitle = String(json.title ?? "").trim();
+    // A slug-shaped title ("archive-rotation-protocol") must expand to words
+    // BEFORE canonical capitalization — capitalizing first would turn it into
+    // a hyphenated title ("Archive-rotation-protocol"), which now slugs with
+    // named dashes and is a different article.
+    if (isSlugForm(rawTitle.normalize("NFC"))) rawTitle = slugToTitle(rawTitle);
+    title = normalizeCanonicalTitle(rawTitle);
     slug = slugify(String(json.slug ?? ""));
   } catch {
     const wikiMatch = cleaned.match(/(?:^|[/\s"'])wiki\/([^\n"'<>#?]+)/i);

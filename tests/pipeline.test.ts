@@ -49,6 +49,7 @@ import {
 import {
   slugify,
   legacySlugify,
+  isSlugStyleWikiSegment,
   slugToTitle,
   titleToWikiSegment,
   wikiSegmentToTitle,
@@ -184,6 +185,21 @@ test("legacySlugify keeps the old lossy collapse for alias back-compat", () => {
   assert.equal(legacySlugify("A (parenthetical) note"), "a-parenthetical-note");
   assert.equal(legacySlugify("Obama's Method"), "obama-s-method");
   assert.equal(legacySlugify("--Apples"), "apples");
+});
+
+test("wiki segments are title-style: underscored, capital first letter", () => {
+  assert.equal(titleToWikiSegment("Foo bar"), "Foo_bar");
+  assert.equal(titleToWikiSegment("foo bar"), "Foo_bar");
+  // Hyphenated titles keep their hyphen in the URL — they are NOT slugs.
+  assert.equal(titleToWikiSegment("Foo-bar"), "Foo-bar");
+  // A lowercase single-hyphen segment is the literal title "Foo-bar", never
+  // a slug reference; title-style segments are never slug-style either.
+  assert.equal(isSlugStyleWikiSegment("foo-bar"), false);
+  assert.equal(isSlugStyleWikiSegment("Foo_bar"), false);
+  assert.equal(isSlugStyleWikiSegment("Foo-bar"), false);
+  // Only unambiguous slugify round-trips redirect as legacy slug URLs.
+  assert.equal(isSlugStyleWikiSegment("dash-dash-apples"), true);
+  assert.equal(isSlugStyleWikiSegment("the-american-trade-bloc"), true);
 });
 
 test("hyphenated titles slug differently from spaced titles", () => {
@@ -2105,7 +2121,10 @@ test("generation: GET /api/page/:slug creates article via pipeline, body has no 
   const { request, db, shutdown } = await makeTestApp(databasePath, new PipelineLlm());
   t.after(() => shutdown());
 
-  const res = await request("/api/page/test-article");
+  // Canonical request form: title-style wiki segment (underscored, capital
+  // first letter). The bare-slug form is covered by the exact-slug fallback
+  // tests — for a NEW article the segment is a title.
+  const res = await request("/api/page/Test_article");
   // Generation endpoint returns NDJSON — read the done event.
   const payload = await readNdjsonDone(res);
   const article = payload.article as { body?: string; slug?: string } | undefined;

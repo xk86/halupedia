@@ -454,10 +454,25 @@ export function saveArticle(
   const now = article.generated_at;
   const summaryMarkdown = article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(article.markdown);
   // Always alias the title's legacy (punctuation-collapsing) slug so links and
-  // model-emitted slugs in the old style keep resolving to this article.
+  // model-emitted slugs in the old style keep resolving to this article — but
+  // never at another article's expense: if the legacy form is already a real
+  // article's slug (e.g. "Foo-bar" collapsing onto the existing "Foo bar"
+  // article at "foo-bar") or already someone else's alias, leave it alone.
+  // Articles win over aliases at lookup time anyway; this guard is what keeps
+  // a production DB with historically-colliding titles from being shadowed.
   const aliasSet = new Set(aliases.filter((alias) => alias && alias !== article.slug));
   const legacyAlias = legacySlugify(article.title);
-  if (legacyAlias && legacyAlias !== article.slug) aliasSet.add(legacyAlias);
+  if (legacyAlias && legacyAlias !== article.slug && !aliasSet.has(legacyAlias)) {
+    const occupiedByArticle = db
+      .prepare(`SELECT slug FROM articles WHERE slug = ?`)
+      .get(legacyAlias) as { slug: string } | undefined;
+    const occupiedByAlias = db
+      .prepare(`SELECT article_slug FROM article_aliases WHERE alias_slug = ?`)
+      .get(legacyAlias) as { article_slug: string } | undefined;
+    const occupied =
+      !!occupiedByArticle || (!!occupiedByAlias && occupiedByAlias.article_slug !== article.slug);
+    if (!occupied) aliasSet.add(legacyAlias);
+  }
   aliases = Array.from(aliasSet);
   const insertArticle = db.prepare(`
     INSERT INTO articles (slug, canonical_slug, title, display_title, markdown, html, summary_markdown, plain_text, generated_at, is_disambiguation)

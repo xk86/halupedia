@@ -184,3 +184,43 @@ test("saveArticle auto-aliases the legacy slug of punctuated titles", (t) => {
   assert.ok(viaLegacy, "legacy slug should alias to the article");
   assert.equal(viaLegacy!.slug, "dash-dash-apples");
 });
+
+
+// ── production-DB safety: legacy collisions must never be shadowed ──────────
+
+test("saving a hyphen-titled article never shadows the existing spaced-title article", (t) => {
+  const db = makeDb(t);
+  save(db, "foo-bar", "Foo bar");
+  // "Foo-bar"'s legacy slug collapses to "foo-bar" — occupied by a real
+  // article, so no alias may be written for it.
+  save(db, "foo-dash-bar", "Foo-bar");
+  const spaced = getArticleByLookup(db, "foo-bar");
+  assert.equal(spaced?.slug, "foo-bar");
+  assert.equal(spaced?.title, "Foo bar", "existing article must keep winning its own slug");
+  assert.equal(getArticleByLookup(db, "foo-dash-bar")?.title, "Foo-bar");
+});
+
+test("auto legacy alias never steals another article's alias", (t) => {
+  const db = makeDb(t);
+  // Article A owns the alias "shared-alias".
+  saveArticle(
+    db,
+    {
+      slug: "a-article",
+      canonicalSlug: "a-article",
+      title: "A Article",
+      markdown: "# A Article\n\nBody.",
+      html: "",
+      plain_text: "A Article Body.",
+      generated_at: 100,
+      summaryMarkdown: "A.",
+    },
+    [],
+    ["a-article", "shared-alias"],
+    { operation: "generate" },
+  );
+  // "Shared, alias" legacy-collapses to "shared-alias" — already A's alias.
+  save(db, "shared-comma-alias", "Shared, alias");
+  assert.equal(getArticleByLookup(db, "shared-alias")?.slug, "a-article");
+  assert.equal(getArticleByLookup(db, "shared-comma-alias")?.title, "Shared, alias");
+});

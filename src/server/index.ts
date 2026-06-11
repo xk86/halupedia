@@ -1848,6 +1848,26 @@ export async function createApp(options: CreateAppOptions = {}) {
       if (titleMatch) record = repairStoredArticleIdentity(titleMatch, lookupSlug);
     }
     if (!record) {
+      // A slug-form segment that didn't match as a title may be an EXACT
+      // existing slug (legacy shared links like /wiki/test-article from
+      // before hyphenated titles slugged distinctly). Lookup-only: it never
+      // changes what new articles get generated or what URLs we emit.
+      const rawSegment = (() => {
+        try {
+          return decodeURIComponent(requestedSegment);
+        } catch {
+          return requestedSegment;
+        }
+      })().replace(/^\/+|\/+$/g, "");
+      if (rawSegment !== lookupSlug && isSlugForm(rawSegment)) {
+        const exactSlugMatch = getArticleByLookup(db, rawSegment);
+        if (exactSlugMatch) {
+          logger.info("page.exact_slug_hit", { segment: rawSegment, slug: exactSlugMatch.slug });
+          record = exactSlugMatch;
+        }
+      }
+    }
+    if (!record) {
       const equivalentMatch = getArticleByEquivalentLookup(db, lookupSlug);
       if (equivalentMatch) {
         logger.info("page.equivalent_hit", {

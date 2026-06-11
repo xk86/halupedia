@@ -144,15 +144,17 @@ export function wikiSegmentToTitle(segment: string): string {
   return segment.trim().replace(/_/g, " ").replace(/\s+/g, " ");
 }
 
+// Canonical wiki URLs are ALWAYS title-style: underscored, capital first
+// letter, punctuation/emoji preserved (/wiki/Foo-bar, /wiki/Foo_bar). The
+// slug-style detection below exists only so legacy slug-shaped URLs redirect
+// to their canonical title path. It is deliberately conservative: a segment
+// must have ≥2 hyphens AND round-trip through slugify to count as a slug —
+// a short hyphenated segment like "foo-bar" is the literal title "Foo-bar",
+// never a slug reference.
 export function isSlugStyleWikiSegment(segment: string): boolean {
   const decoded = decodeURIComponent(segment).replace(/^\/+|\/+$/g, "");
   if (decoded.includes("_")) return false;
-  if (!decoded.includes("-")) return false;
-  // A lowercase slug-form segment is a slug reference (/wiki/foo-bar means
-  // the slug "foo-bar"); hyphenated TITLES arrive capitalized ("Foo-bar")
-  // via titleToWikiSegment and fall through to title handling, which is what
-  // keeps "Foo-bar" (→ foo-dash-bar) distinct from "Foo bar" (→ foo-bar).
-  if (isSlugForm(decoded)) return true;
+  if ((decoded.match(/-/g) ?? []).length < 2) return false;
   return slugify(wikiSegmentToTitle(decoded)) === decoded.toLowerCase();
 }
 

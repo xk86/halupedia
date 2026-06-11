@@ -11,7 +11,7 @@ import { Sidebar } from "./Sidebar";
 import { useArticleSuggestions } from "./articleSuggest";
 import { renderInlineHtml } from "./summaryHtml";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
-import { slugify, normalizeCanonicalTitle } from "../server/slug";
+import { slugify, normalizeCanonicalTitle, wikiSegmentToRequestedTitle } from "../server/slug";
 
 type Route =
   | { kind: "home" }
@@ -111,14 +111,6 @@ function stripLeadingH1(html: string): string {
 function countInternalLinks(markdown: string): number {
   const matches = markdown.match(/\]\(halu:[^) "\t\r\n]+(?:\s+"[^"]*")?\)/g);
   return matches?.length ?? 0;
-}
-
-function titleFromSegment(segment: string): string {
-  return decodeURIComponent(segment)
-    .replace(/^\/+|\/+$/g, "")
-    .replace(/_/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 type ThemeMode = "auto" | "dark";
@@ -419,11 +411,13 @@ export function App() {
         // immediately instead of snapping in only once the article fully
         // renders. Falls back to reconstructing from the URL segment.
         const matchedPending = pendingTitle && pendingTitle.slug === route.slug ? pendingTitle.title : null;
-        const placeholderTitle = matchedPending ?? titleFromSegment(route.slug);
-        // The article's real slug, derived the same way the server derives it,
-        // so the placeholder page shows the correct slug immediately instead
-        // of echoing the raw URL segment until generation finishes.
-        const placeholderSlug = slugify(normalizeCanonicalTitle(placeholderTitle));
+        // Derive the title exactly the way the server will: slug-style URLs
+        // (legacy /wiki/some-old-slug links) expand to their word-form title
+        // immediately, instead of the raw segment flashing as the title/slug
+        // until generation finishes.
+        const placeholderTitle = matchedPending ?? normalizeCanonicalTitle(wikiSegmentToRequestedTitle(route.slug));
+        // The article's real slug, derived the same way the server derives it.
+        const placeholderSlug = slugify(placeholderTitle);
         const res = pendingTitle && pendingTitle.slug === route.slug
           // HTTP header values must be ASCII/Latin-1 — titles with emoji or
           // other non-Latin1 characters (e.g. "Banana 🍌") would make fetch

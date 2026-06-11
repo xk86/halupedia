@@ -172,8 +172,8 @@ export function setLabelOpacity(label: NodeLabel, opacity: number): void {
   const parts = label.userData.label;
   if (parts.baseOpacity === opacity) return;
   parts.baseOpacity = opacity;
-  parts.title.fillOpacity = 0.9 * opacity;
-  if (parts.sub) parts.sub.fillOpacity = 0.9 * opacity;
+  parts.title.fillOpacity = 1.0;
+  if (parts.sub) parts.sub.fillOpacity = 1.0;
   parts.backdrop.material.opacity = BACKDROP_OPACITY * opacity;
 }
 

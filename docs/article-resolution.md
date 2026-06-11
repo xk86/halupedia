@@ -1,8 +1,17 @@
 # How articles are resolved (and where slugs collide)
 
-Status: **investigation notes — no behavior changes**. Written 2026-06 while
-mapping why `Titles (with parentheses)` and `Titles with parentheses` share the
-slug `titles-with-parentheses` yet resolve to distinct articles.
+Status: investigation notes, written 2026-06 while mapping why
+`Titles (with parentheses)` and `Titles with parentheses` shared the slug
+`titles-with-parentheses` yet resolved to distinct articles.
+
+> **Update (2026-06):** the collision class described below is now fixed.
+> `slugify()` names every non-alphanumeric character as a word token (like the
+> emoji handling — see `src/server/text/charNames.ts`), so `--Apples` →
+> `dash-dash-apples` and `Title (x)` → `title-lparen-x-rparen`. The old lossy
+> form lives on as `legacySlugify()`: `saveArticle` auto-aliases each title's
+> legacy slug, and `openDatabase` backfills robust-slug aliases for articles
+> stored before the change, so both styles resolve. The resolution cascade
+> below is unchanged and remains accurate.
 
 ## TL;DR
 

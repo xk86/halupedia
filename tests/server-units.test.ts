@@ -34,6 +34,7 @@ import {
   leadBoldsTitle,
   markdownToPlainText,
   normalizeHaluLinks,
+  buildHaluLink,
   renderInlineMarkdown,
   renderMarkdown,
   normalizeMarkdown,
@@ -282,6 +283,42 @@ test("extractInternalLinks accepts halu links with unterminated quoted hints", (
       hiddenHint: "a short unclosed hint",
     },
   ]);
+});
+
+test("halu hints with escaped closing quotes are repaired, normalized, and render as links", () => {
+  // The model escapes its own closing quote: `"the brain\")` — per CommonMark
+  // that leaves the title unterminated, so markdown-it refuses the link and
+  // the raw markdown leaks into the page.
+  const markdown =
+    'Career centered on [neurological plasticity](halu:neurological-plasticity "the brain\\") topics.';
+
+  const links = extractInternalLinks(markdown);
+  assert.deepEqual(links, [
+    {
+      targetSlug: "neurological-plasticity",
+      visibleLabel: "neurological plasticity",
+      hiddenHint: "the brain",
+    },
+  ]);
+
+  // Normalization re-emits a valid CommonMark title (no backslash survives),
+  // which also makes cachedArticleNeedsRepair self-heal stored articles.
+  const normalized = normalizeHaluLinks(markdown);
+  assert.match(normalized, /\(halu:neurological-plasticity "the brain"\)/);
+  assert.doesNotMatch(normalized, /\\/);
+
+  const html = renderMarkdown(normalized);
+  assert.match(html, /href="\/wiki\/Neurological_plasticity"/i);
+  assert.doesNotMatch(html, /halu:/);
+});
+
+test("buildHaluLink can never emit a hint that breaks the CommonMark title", () => {
+  const link = buildHaluLink("Label", "some-slug", 'tricky \\ hint "quoted" [x] (y)');
+  assert.equal(link, '[Label](halu:some-slug "tricky hint \'quoted\' x y")');
+  // Round-trip: the emitted link must parse back with the same slug.
+  const links = extractInternalLinks(`See ${link}.`);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].targetSlug, "some-slug");
 });
 
 test("formatIncomingHintsForPrompt preserves the requested target slug for mismatched labels", () => {

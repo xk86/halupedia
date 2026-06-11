@@ -152,6 +152,30 @@ function findLenientClosingParen(markdown: string, start: number): number {
   return -1;
 }
 
+/** Find the next quote that isn't backslash-escaped (CommonMark title rules). */
+function findUnescapedQuote(text: string, quote: string, from: number): number {
+  let escaped = false;
+  for (let i = from; i < text.length; i += 1) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === quote) return i;
+  }
+  return -1;
+}
+
+/** Resolve CommonMark backslash escapes inside a link title and drop any
+ *  dangling trailing backslash (an unterminated escape is junk, not content). */
+function unescapeLinkTitle(title: string): string {
+  return title.replace(/\\([\s\S])/g, "$1").replace(/\\+$/, "");
+}
+
 function splitTarget(rawTarget: string): { target: string; title?: string } {
   const trimmed = rawTarget.trim();
   if (!trimmed) return { target: "" };
@@ -168,11 +192,16 @@ function splitTarget(rawTarget: string): { target: string; title?: string } {
     const quote = trimmed[quoteIndex];
     const target = trimmed.slice(0, quoteIndex).trim();
     const titleStart = quoteIndex + 1;
-    const titleEnd = trimmed.indexOf(quote, titleStart);
-    const title = (titleEnd >= 0
-      ? trimmed.slice(titleStart, titleEnd)
-      : trimmed.slice(titleStart)
-    ).trim();
+    const titleEnd = findUnescapedQuote(trimmed, quote, titleStart);
+    let title: string;
+    if (titleEnd >= 0) {
+      title = unescapeLinkTitle(trimmed.slice(titleStart, titleEnd)).trim();
+    } else {
+      // Unterminated title — the model escaped its own closing quote (e.g.
+      // `"the brain\"`). Unescape, then strip the stray closing quote so the
+      // intended hint text survives.
+      title = unescapeLinkTitle(trimmed.slice(titleStart)).trim().replace(/["']+$/, "");
+    }
     return { target, ...(title ? { title } : {}) };
   }
 

@@ -3,7 +3,12 @@ import type { ParsedInternalLink } from "../../types";
 import { parseMarkdownLinks, type ParsedMarkdownLink } from "../markdownLinkParser";
 
 export function buildHaluLink(title: string, slug: string, hint: string): string {
+  // The hint becomes a CommonMark link title; the emitted charset must never
+  // be able to terminate or escape it (backslashes break the closing quote —
+  // `"hint\"` renders as raw text), so quotes, backslashes, brackets and
+  // parens are all removed up front.
   const safeHint = hint
+    .replace(/\\/g, " ")
     .replace(/"/g, "'")
     .replace(/[\[\]()]/g, "")
     .replace(/\s+/g, " ")

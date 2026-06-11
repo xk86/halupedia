@@ -24,6 +24,7 @@ import {
   getHeadlineMediaForSlugs,
   upsertArticleHeadlineMedia,
   getGraphData,
+  prepared,
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import {
@@ -2782,4 +2783,34 @@ test("images model returns a non-empty text description for a tiny PNG", { timeo
   );
 
   assert.ok(typeof result === "string" && result.trim().length > 0, "model must return a non-empty description");
+});
+
+// ── perf plumbing: indexes, prepared-statement memoizer, media pagination ────
+
+test("hot-path indexes exist after openDatabase", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-perf-idx-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const indexes = (db.prepare(`PRAGMA index_list(articles)`).all() as Array<{ name: string }>).map((r) => r.name);
+  assert.ok(indexes.includes("idx_articles_title_nocase"), `missing title index, have: ${indexes.join(", ")}`);
+  // The All Pages query must be served by the index, not a scan+sort.
+  const plan = db
+    .prepare(`EXPLAIN QUERY PLAN SELECT slug FROM articles WHERE is_disambiguation = 0 ORDER BY title COLLATE NOCASE ASC`)
+    .all() as Array<{ detail: string }>;
+  assert.ok(
+    plan.some((row) => row.detail.includes("idx_articles_title_nocase")),
+    `query plan does not use the index: ${JSON.stringify(plan)}`,
+  );
+});
+
+test("prepared() memoizes statements per connection", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-perf-stmt-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const a = prepared(db, `SELECT COUNT(*) AS c FROM articles`);
+  const b = prepared(db, `SELECT COUNT(*) AS c FROM articles`);
+  assert.equal(a, b, "same SQL on same connection must return the same statement");
+  const other = openDatabase(join(root, "other.db"));
+  const c = prepared(other, `SELECT COUNT(*) AS c FROM articles`);
+  assert.notEqual(a, c, "different connections must not share statements");
 });

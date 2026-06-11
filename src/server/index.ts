@@ -3473,13 +3473,25 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/media", (c) => {
     const q = c.req.query("q") ?? "";
+    // Optional pagination (?cursor & ?limit, mirroring /api/index); without
+    // params the full list is returned for existing clients.
+    const limitParam = c.req.query("limit");
+    const offset = Math.max(parseInt(c.req.query("cursor") ?? "0", 10) || 0, 0);
+    const page = limitParam
+      ? { limit: Math.min(Math.max(parseInt(limitParam, 10) || 200, 1), 500), offset }
+      : undefined;
     const buildBody = () => {
-      const records = listMedia(mediaDb, q || undefined);
-      const safe = records.map(({ model_b64: _b64, ...r }) => r);
-      return JSON.stringify({ media: safe });
+      const { items, total } = listMedia(mediaDb, q || undefined, page);
+      const nextOffset = page && offset + items.length < total ? offset + items.length : null;
+      return JSON.stringify({
+        media: items,
+        total,
+        cursor: nextOffset === null ? null : String(nextOffset),
+        complete: nextOffset === null,
+      });
     };
-    // Search queries are unbounded as cache keys, so only the full list is cached.
-    if (q) return c.body(buildBody(), 200, { "content-type": "application/json" });
+    // Search/paged queries are unbounded as cache keys, so only the full list is cached.
+    if (q || page) return c.body(buildBody(), 200, { "content-type": "application/json" });
     const cached = mediaResponseCache.get("media:", buildBody);
     if (c.req.header("if-none-match") === cached.etag) {
       return c.body(null, 304, { etag: cached.etag });

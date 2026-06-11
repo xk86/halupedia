@@ -88,6 +88,7 @@ export function openMediaDatabase(databasePath: string): DatabaseSync {
         ON media_revisions(media_id, changed_at DESC);
     `);
   }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_media_created ON media(created_at DESC)`);
   return db;
 }
 
@@ -197,22 +198,29 @@ export function listMediaRevisions(mediaDb: DatabaseSync, id: string): MediaRevi
     .all(id) as unknown as MediaRevision[];
 }
 
-export function listMedia(mediaDb: DatabaseSync, query?: string): MediaRecord[] {
-  if (query && query.trim()) {
-    const pattern = `%${query.trim()}%`;
-    return mediaDb
-      .prepare(
-        `SELECT id, sha256, source_url, mime, width, height, byte_size,
-                model_b64, model_mime, model_width, model_height, description, created_at
-         FROM media WHERE description LIKE ? ORDER BY created_at DESC`,
-      )
-      .all(pattern) as unknown as MediaRecord[];
-  }
-  return mediaDb
-    .prepare(
-      `SELECT id, sha256, source_url, mime, width, height, byte_size,
-              model_b64, model_mime, model_width, model_height, description, created_at
-       FROM media ORDER BY created_at DESC`,
-    )
-    .all() as unknown as MediaRecord[];
+export type MediaListRecord = Omit<MediaRecord, "model_b64">;
+
+// Listing intentionally never selects model_b64 — that's a base64-encoded
+// image per row, and fetching it just to strip it server-side dominated the
+// cost of the media index page.
+const MEDIA_LIST_COLUMNS = `id, sha256, source_url, mime, width, height, byte_size,
+              model_mime, model_width, model_height, description, created_at`;
+
+export function listMedia(
+  mediaDb: DatabaseSync,
+  query?: string,
+  page?: { limit: number; offset: number },
+): { items: MediaListRecord[]; total: number } {
+  const trimmed = query?.trim();
+  const where = trimmed ? `WHERE description LIKE ?` : "";
+  const params: Array<string | number> = trimmed ? [`%${trimmed}%`] : [];
+  const total = (
+    mediaDb.prepare(`SELECT COUNT(*) AS count FROM media ${where}`).get(...params) as { count: number }
+  ).count;
+  const pageSql = page ? ` LIMIT ? OFFSET ?` : "";
+  const pageParams = page ? [page.limit, page.offset] : [];
+  const items = mediaDb
+    .prepare(`SELECT ${MEDIA_LIST_COLUMNS} FROM media ${where} ORDER BY created_at DESC${pageSql}`)
+    .all(...params, ...pageParams) as unknown as MediaListRecord[];
+  return { items, total };
 }

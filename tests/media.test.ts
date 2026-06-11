@@ -239,7 +239,8 @@ describe("mediaDb", () => {
     insertMedia(db, baseMediaRecord("img-list-1"));
     insertMedia(db, { ...baseMediaRecord("img-list-2"), sha256: "l2".padEnd(64, "2"), description: "Another image" });
     const all = listMedia(db);
-    assert.equal(all.length, 2);
+    assert.equal(all.items.length, 2);
+    assert.equal(all.total, 2);
     db.close();
   });
 
@@ -248,9 +249,24 @@ describe("mediaDb", () => {
     const db = openMediaDatabase(join(dir, "m.sqlite"));
     insertMedia(db, baseMediaRecord("img-filter-1")); // description: "A test image"
     insertMedia(db, { ...baseMediaRecord("img-filter-2"), sha256: "f2".padEnd(64, "2"), description: "A completely different image" });
-    const results = listMedia(db, "test");
+    const { items: results } = listMedia(db, "test");
     assert.equal(results.length, 1);
     assert.equal(results[0].id, "img-filter-1");
+    db.close();
+  });
+
+  test("listMedia paginates and never returns model_b64", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openMediaDatabase(join(dir, "m.sqlite"));
+    for (let i = 0; i < 3; i++) {
+      insertMedia(db, { ...baseMediaRecord(`img-page-${i}`), sha256: `p${i}`.padEnd(64, String(i)) });
+    }
+    const page = listMedia(db, undefined, { limit: 2, offset: 0 });
+    assert.equal(page.items.length, 2);
+    assert.equal(page.total, 3);
+    assert.ok(!("model_b64" in page.items[0]), "list rows must not carry the base64 image payload");
+    const rest = listMedia(db, undefined, { limit: 2, offset: 2 });
+    assert.equal(rest.items.length, 1);
     db.close();
   });
 });

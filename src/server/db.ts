@@ -1,10 +1,29 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 import type { ArticleRecord, ArticleRevision, BacklinkItem, DisambiguationEntry, HomepagePayload, ParsedInternalLink } from "./types";
 import { summaryMarkdownFromArticle } from "./markdown";
 import { slugify } from "./slug";
 import { makeReversePatch, applyPatch } from "./promptDiff";
+
+// node:sqlite re-parses SQL on every prepare(); memoize statements per
+// connection for the hot read paths. Statements are tied to their connection,
+// hence the WeakMap keyed by handle (entries die with the connection).
+const statementCaches = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
+
+export function prepared(db: DatabaseSync, sql: string): StatementSync {
+  let cache = statementCaches.get(db);
+  if (!cache) {
+    cache = new Map();
+    statementCaches.set(db, cache);
+  }
+  let statement = cache.get(sql);
+  if (!statement) {
+    statement = db.prepare(sql);
+    cache.set(sql, statement);
+  }
+  return statement;
+}
 
 function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
@@ -292,12 +311,15 @@ export function openDatabase(databasePath: string): DatabaseSync {
     db.exec(`ALTER TABLE articles ADD COLUMN is_protected INTEGER NOT NULL DEFAULT 0`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
+  // Serves the All Pages listing (WHERE is_disambiguation = 0 ORDER BY title
+  // COLLATE NOCASE) without a full scan + sort per request.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_title_nocase ON articles(is_disambiguation, title COLLATE NOCASE)`);
   return db;
 }
 
 export function getArticle(db: DatabaseSync, slug: string): ArticleRecord | null {
-  const row = db
-    .prepare(
+  const row = prepared(
+    db,
       `SELECT slug,
               COALESCE(canonical_slug, slug) AS canonicalSlug,
               title,
@@ -321,8 +343,8 @@ export function getArticleByLookup(db: DatabaseSync, lookupSlug: string): Articl
   const direct = getArticle(db, lookupSlug);
   if (direct) return direct;
 
-  const alias = db
-    .prepare(
+  const alias = prepared(
+    db,
       `SELECT article_slug
        FROM article_aliases
        WHERE alias_slug = ?`
@@ -991,8 +1013,8 @@ export function getLatestArticleReferences(
   db: DatabaseSync,
   articleSlug: string,
 ): ReferenceList {
-  const latest = db
-    .prepare(
+  const latest = prepared(
+    db,
       `SELECT saved_at FROM article_references
        WHERE article_slug = ?
        ORDER BY saved_at DESC
@@ -1001,8 +1023,8 @@ export function getLatestArticleReferences(
     .get(articleSlug) as { saved_at: number } | undefined;
   if (!latest) return [];
 
-  const rows = db
-    .prepare(
+  const rows = prepared(
+    db,
       `SELECT referenced_slug AS slug,
               referenced_title AS title,
               referenced_summary_markdown AS summaryMarkdown,
@@ -1024,12 +1046,12 @@ export function getLatestArticleReferences(
 }
 
 export function countArticles(db: DatabaseSync): number {
-  return (db.prepare(`SELECT COUNT(*) AS count FROM articles WHERE is_disambiguation = 0`).get() as { count: number }).count;
+  return (prepared(db, `SELECT COUNT(*) AS count FROM articles WHERE is_disambiguation = 0`).get() as { count: number }).count;
 }
 
 export function listArticles(db: DatabaseSync, offset: number, limit: number) {
-  const items = db
-    .prepare(
+  const items = prepared(
+    db,
       `SELECT slug,
               COALESCE(canonical_slug, slug) AS canonicalSlug,
               title,
@@ -1041,7 +1063,7 @@ export function listArticles(db: DatabaseSync, offset: number, limit: number) {
        LIMIT ? OFFSET ?`
     )
     .all(limit, offset) as Array<{ slug: string; canonicalSlug: string; title: string; summaryMarkdown: string; generatedAt: number }>;
-  const totalRow = db.prepare(`SELECT COUNT(*) AS count FROM articles WHERE is_disambiguation = 0`).get() as { count: number };
+  const totalRow = prepared(db, `SELECT COUNT(*) AS count FROM articles WHERE is_disambiguation = 0`).get() as { count: number };
   return {
     items,
     total: totalRow.count,
@@ -1055,8 +1077,8 @@ export function searchCorpus(db: DatabaseSync, query: string, limit: number, off
   const likeStarts = `${q}%`;
 
   // Fetch limit+1 to determine if another page exists
-  const rawExisting = db
-    .prepare(
+  const rawExisting = prepared(
+    db,
       `SELECT slug,
               COALESCE(canonical_slug, slug) AS canonicalSlug,
               title,

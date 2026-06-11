@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { LlmRouter } from "./llm";
 import type { Logger } from "./logger";
+import { prepared } from "./db";
 
 /**
  * A single chunk surfaced by the RAG pipeline.
@@ -298,8 +299,8 @@ export async function retrieveContext(
 
   await awaitPendingRagIndexing();
 
-  const rows = db
-    .prepare(
+  const rows = prepared(
+    db,
       `SELECT c.slug,
               COALESCE(a.title, c.slug) AS title,
               c.content,

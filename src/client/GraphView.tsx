@@ -628,21 +628,13 @@ export function isMobileDevice(): boolean {
   return /iPhone|iPad|iPod|Android.*Mobile/i.test(navigator.userAgent);
 }
 
-// Longest label canvas we'll allocate — pathological titles otherwise produce
-// multi-thousand-pixel textures. Text wider than this is ellipsized.
-const LABEL_MAX_CANVAS_WIDTH = 1024;
-
-function ellipsizeToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let lo = 0;
-  let hi = text.length;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (ctx.measureText(`${text.slice(0, mid)}…`).width <= maxWidth) lo = mid;
-    else hi = mid - 1;
-  }
-  return `${text.slice(0, lo)}…`;
-}
+// Largest texture we'll allocate for a label. Long titles are never truncated:
+// instead the whole string is rendered at a proportionally smaller font so the
+// texture stays inside this budget — a resolution LOD. The sprite's
+// world-space size is unchanged (same label height as everyone else, width
+// grows with the text), so only the texel density drops for very long titles.
+const LABEL_MAX_TEXTURE_WIDTH = 2048;
+const LABEL_MAX_TEXTURE_WIDTH_LOWRES = 1024;
 
 export function makeNodeLabelSprite(
   text: string,
@@ -660,25 +652,33 @@ export function makeNodeLabelSprite(
   // labels the texture pool alone can crash mobile Safari, and at phone
   // viewing sizes the difference isn't visible.
   const lowRes = opts?.lowRes ?? false;
-  const fontSize = lowRes ? 48 : 96;
-  const subFontSize = Math.round(fontSize * 0.55);
-  const font = `${fontSize}px sans-serif`;
-  const subFont = `${subFontSize}px sans-serif`;
+  const baseFontSize = lowRes ? 48 : 96;
+  const baseSubFontSize = Math.round(baseFontSize * 0.55);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
-  ctx.font = font;
-  const maxTextWidth = LABEL_MAX_CANVAS_WIDTH - 32;
-  text = ellipsizeToWidth(ctx, text, maxTextWidth);
-  const textWidth = ctx.measureText(text).width;
-
-  const subText = degrees ? `↓ ${degrees.in} in   ↑ ${degrees.out} out` : null;
-  let subWidth = 0;
-  if (subText) {
-    ctx.font = subFont;
-    subWidth = ctx.measureText(subText).width;
-  }
-
   const padding = 16;
+
+  // Measure at the base font, then shrink the font (never the text) just
+  // enough that the full string fits the texture budget. Text width scales
+  // linearly with font size, so the measured width is scaled rather than
+  // re-measured.
+  ctx.font = `${baseFontSize}px sans-serif`;
+  const measuredText = ctx.measureText(text).width;
+  const subText = degrees ? `↓ ${degrees.in} in   ↑ ${degrees.out} out` : null;
+  let measuredSub = 0;
+  if (subText) {
+    ctx.font = `${baseSubFontSize}px sans-serif`;
+    measuredSub = ctx.measureText(subText).width;
+  }
+  const maxTextWidth = (lowRes ? LABEL_MAX_TEXTURE_WIDTH_LOWRES : LABEL_MAX_TEXTURE_WIDTH) - padding * 2;
+  const fit = Math.min(1, maxTextWidth / Math.max(measuredText, measuredSub, 1));
+  const fontSize = baseFontSize * fit;
+  const subFontSize = baseSubFontSize * fit;
+  const font = `${fontSize}px sans-serif`;
+  const subFont = `${subFontSize}px sans-serif`;
+  const textWidth = measuredText * fit;
+  const subWidth = measuredSub * fit;
+
   const lineGap = subText ? subFontSize * 0.3 : 0;
   canvas.width = Math.ceil(Math.max(textWidth, subWidth) + padding * 2);
   canvas.height = Math.ceil(fontSize * 1.4 + (subText ? subFontSize * 1.2 + lineGap : 0));

@@ -119,17 +119,28 @@ describe("makeNodeLabelSprite", () => {
     expect(normal.scale.y).toBeCloseTo(6);
   });
 
-  it("caps the texture canvas width and ellipsizes pathological titles", () => {
+  it("renders pathological titles in full while capping the texture width", () => {
     const ctx = stubCanvasContext();
-    // 10px per char (stubbed) → 200 chars = 2000px, well over the 1024 cap.
-    makeNodeLabelSprite("x".repeat(200), "#ffffff");
+    // 10px per char (stubbed) → 300 chars = 3000px, over the 2048 texture cap.
+    const title = "x".repeat(300);
+    makeNodeLabelSprite(title, "#ffffff");
     const drawn = (ctx.fillText.mock.calls as Array<[string]>).map(([text]) => text);
-    expect(drawn.some((text) => text.endsWith("…"))).toBe(true);
-    // The sprite aspect ratio comes from canvas.width / canvas.height, so a
-    // capped canvas keeps the aspect bounded too.
-    const sprite = makeNodeLabelSprite("y".repeat(200), "#ffffff", 6);
-    const uncapped = (200 * 10 + 32) / sprite.scale.y;
-    expect(sprite.scale.x).toBeLessThan(uncapped);
+    // Never truncated — the full string is drawn (at a smaller font instead).
+    expect(drawn).toContain(title);
+    expect(drawn.some((text) => text.endsWith("…"))).toBe(false);
+  });
+
+  it("keeps long-title sprites at full world height with width proportional to the text", () => {
+    stubCanvasContext();
+    const short = makeNodeLabelSprite("Short", "#ffffff", 6);
+    const long = makeNodeLabelSprite("y".repeat(300), "#ffffff", 6);
+    // Same on-screen label height; the long title just gets a wider sprite —
+    // the texture cap lowers texel density, not the rendered size.
+    expect(long.scale.y).toBeCloseTo(short.scale.y);
+    expect(long.scale.x).toBeGreaterThan(short.scale.x * 10);
+    // Texture itself stays within the budget despite the full text.
+    const canvas = (long.material.map as THREE.CanvasTexture).image as HTMLCanvasElement;
+    expect(canvas.width).toBeLessThanOrEqual(2048);
   });
 
   it("skips mipmaps and halves resolution in lowRes (phone) mode", () => {

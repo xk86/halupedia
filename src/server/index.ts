@@ -116,6 +116,7 @@ import {
   indexArticleChunks,
   flattenInfoboxForRag,
   mergeRetrievedContextPackets,
+  registerPendingRagIndex,
   retrieveContext,
   retrieveDirectArticleContext,
 } from "./retrieval";
@@ -1086,25 +1087,38 @@ export async function createApp(options: CreateAppOptions = {}) {
    * the full postProcessArticle pipeline (e.g. add-link, revert).
    * Non-blocking — fires via trackGeneration and logs failures.
    */
+  /** Index an article's body into RAG chunks right now, returning the promise.
+   *  Failures are logged, never thrown — indexing is best-effort. */
+  function indexArticleNow(slug: string, markdown: string): Promise<void> {
+    return (async () => {
+      const headlineMedia = getArticleHeadlineMedia(db, slug);
+      const imageDescriptions: Array<{ id: string; description: string }> = [];
+      if (headlineMedia) {
+        const rec = getMediaById(mediaDb, headlineMedia.mediaId);
+        if (rec?.description) imageDescriptions.push({ id: rec.id, description: rec.description });
+      }
+      await indexArticleChunks(
+        db,
+        llm,
+        slug,
+        markdown,
+        runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
+        runtime.app.rag.chunk_size,
+        logger,
+        imageDescriptions,
+      );
+    })().catch((error) => {
+      logger.warn("rag.index_failed", {
+        slug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
   function afterArticleSaved(slug: string, title: string, markdown: string, generatedAt: number): void {
     trackGeneration(
       (async () => {
-        const headlineMedia = getArticleHeadlineMedia(db, slug);
-        const imageDescriptions: Array<{ id: string; description: string }> = [];
-        if (headlineMedia) {
-          const rec = getMediaById(mediaDb, headlineMedia.mediaId);
-          if (rec?.description) imageDescriptions.push({ id: rec.id, description: rec.description });
-        }
-        await indexArticleChunks(
-          db,
-          llm,
-          slug,
-          markdown,
-          runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
-          runtime.app.rag.chunk_size,
-          logger,
-          imageDescriptions,
-        );
+        await indexArticleNow(slug, markdown);
         const summaryMarkdown = await generateArticleSummary(
           llm,
           runtime.prompts,
@@ -1553,6 +1567,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       nodes: result.nodesExecuted,
     });
 
+    const article = getArticleByLookup(db, canonicalSlug);
+    if (!article) throw new Error(`article not found after generation: ${canonicalSlug}`);
+
+    // Index the raw persisted body immediately so back-to-back generations can
+    // retrieve this article via RAG without waiting for post-process (which
+    // re-indexes the final body as its last step). Retrieval awaits registered
+    // pending indexes before scanning the chunk corpus.
+    registerPendingRagIndex(canonicalSlug, indexArticleNow(canonicalSlug, article.markdown));
+
     // Post-process async: link repair, see-also, summary, RAG indexing.
     const ppOp = trackActiveOperation(canonicalSlug, requestedTitle, "article.post_process");
     const ppPromise = runWorkflow(postProcessWorkflow, {
@@ -1572,8 +1595,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     ppOp.register(ppPromise);
     trackGeneration(ppPromise);
 
-    const article = getArticleByLookup(db, canonicalSlug);
-    if (!article) throw new Error(`article not found after generation: ${canonicalSlug}`);
     return article;
   }
 

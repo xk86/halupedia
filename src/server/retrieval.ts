@@ -23,6 +23,42 @@ export interface RetrievedContextPacket {
   sourceArticles: RetrievedSourceArticle[];
 }
 
+// Promises for RAG indexing runs that have been kicked off but not yet
+// finished. Retrieval waits on these (bounded by a timeout) so that an article
+// persisted moments ago is visible to the next generation's RAG pass instead
+// of racing the async post-process pipeline.
+const pendingRagIndexes = new Map<string, Promise<unknown>>();
+
+const PENDING_INDEX_MAX_AGE_MS = 30_000;
+
+export function registerPendingRagIndex(slug: string, promise: Promise<unknown>): void {
+  pendingRagIndexes.set(slug, promise);
+  const evict = () => {
+    if (pendingRagIndexes.get(slug) === promise) pendingRagIndexes.delete(slug);
+  };
+  // Evict on settle, but also after a max age so a wedged indexing run can't
+  // tax every future retrieval with the wait timeout.
+  const timer = setTimeout(evict, PENDING_INDEX_MAX_AGE_MS);
+  timer.unref?.();
+  void promise.catch(() => {}).finally(() => {
+    clearTimeout(timer);
+    evict();
+  });
+}
+
+export async function awaitPendingRagIndexing(timeoutMs = 5000): Promise<void> {
+  if (pendingRagIndexes.size === 0) return;
+  const pending = [...pendingRagIndexes.values()];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    Promise.allSettled(pending),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
 function chunkText(text: string, chunkSize: number): string[] {
   const paragraphs = text
     .split(/\n\s*\n/)
@@ -259,6 +295,8 @@ export async function retrieveContext(
     });
     return { context: "", relatedTitles: [], sourceArticles: [] };
   }
+
+  await awaitPendingRagIndexing();
 
   const rows = db
     .prepare(

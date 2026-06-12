@@ -24,7 +24,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.vitest.json",
     "rag:audit": "node --import tsx/esm scripts/rag-audit.ts",
     "generate:emoji-names": "node --import tsx/esm scripts/generate-emoji-names.ts",
-    "rag:audit:dry": "node --import tsx/esm scripts/rag-audit.ts --dry-run"
+    "rag:audit:dry": "node --import tsx/esm scripts/rag-audit.ts --dry-run",
+    "db:slug-dupe-check": "node --import tsx/esm scripts/slug-dupe-check.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

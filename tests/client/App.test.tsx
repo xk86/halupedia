@@ -1067,6 +1067,8 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Test Article" });
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+    // The markdown editor starts empty — click the add-block area, then type.
+    await userEvent.click(screen.getByText("Describe your changes."));
     await userEvent.type(screen.getByPlaceholderText("Describe your changes."), "tighten the ending");
     await userEvent.click(screen.getByRole("button", { name: "Use last 2 edit prompts" }));
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
@@ -1125,6 +1127,7 @@ describe("App", () => {
     expect(screen.getByText("Original retained energy body.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+    await userEvent.click(screen.getByText("Describe your changes."));
     await userEvent.type(screen.getByPlaceholderText("Describe your changes."), "make this article to be about your mom");
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
 
@@ -1138,7 +1141,7 @@ describe("App", () => {
     expect(screen.queryByText("Rejected renamed article body.")).not.toBeInTheDocument();
   });
 
-  it("opens history as a read-only page and restores only after confirmation", async () => {
+  it("opens history in-page and restores only after confirmation", async () => {
     const current = pagePayload();
     const oldRevision = {
       id: 7,
@@ -1187,11 +1190,11 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Test Article" });
     await userEvent.click(screen.getByRole("button", { name: "View history" }));
 
-    await waitFor(() => {
-      expect(window.location.pathname).toBe("/wiki/Test_Article/history");
-    });
-    expect(await screen.findByRole("heading", { name: "History: Test Article" })).toBeInTheDocument();
-    expect(screen.getByText("Earlier edit.")).toBeInTheDocument();
+    // History renders in-page: the URL never changes (a /history suffix used
+    // to be mangled into "..._urlhistory" by back-button navigation).
+    expect(window.location.pathname).toBe("/wiki/Test_Article");
+    expect(await screen.findByRole("heading", { name: "History" })).toBeInTheDocument();
+    expect(await screen.findByText("Earlier edit.")).toBeInTheDocument();
     expect(document.querySelector(".history-summary .math-inline")).not.toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "View revision 7" }));
@@ -1268,11 +1271,12 @@ describe("App", () => {
     const select = await screen.findByRole("combobox");
     await userEvent.selectOptions(select, "runnable:article");
 
-    // Textareas load with existing content
+    // Prompt text loads as rendered markdown blocks — click to destructure
+    // into the raw source textarea.
+    await userEvent.click(await screen.findByText("original system text"));
     const systemTA = await screen.findByDisplayValue("original system text");
-    expect(systemTA).toBeInTheDocument();
 
-    // Edit the system textarea
+    // Edit the system block
     await userEvent.clear(systemTA);
     await userEvent.type(systemTA, "updated system text");
 

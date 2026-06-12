@@ -1,4 +1,4 @@
-import { RefObject } from "react";
+import { MutableRefObject } from "react";
 import { Pane } from "../Pane";
 
 interface AliasResult {
@@ -24,7 +24,7 @@ interface Props {
   onAliasSearchChange: (v: string) => void;
   aliasResults: AliasResult[];
   aliasSearching: boolean;
-  aliasSearchTimer: RefObject<ReturnType<typeof setTimeout> | null>;
+  aliasSearchTimer: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   onDoAliasSearch: (q: string) => void;
   newAliasSlug: string;
   onNewAliasSlugChange: (v: string) => void;

@@ -1,7 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { LlmRouter } from "./llm";
 import type { Logger } from "./logger";
-import { prepared } from "./db";
+import { listArticleBlacklistSlugs, prepared } from "./db";
+import { slugify } from "./slug";
 
 /**
  * A single chunk surfaced by the RAG pipeline.
@@ -210,6 +211,33 @@ export function mergeRetrievedContextPackets(
     context: [primary.context, secondary.context].filter(Boolean).join("\n"),
     relatedTitles,
     sourceArticles,
+  };
+}
+
+/**
+ * Strip user-blacklisted articles out of a retrieved-context block before it
+ * reaches any prompt. Merges the slugs sent with the current request with the
+ * article's persisted blacklist, so blocks made in earlier sessions hold for
+ * every retrieval (generation, refresh, rewrite) — not just reference-list
+ * builds.
+ */
+export function excludeBlacklistedSources<
+  T extends { sourceArticles: RetrievedSourceArticle[]; ragTitles: string[] },
+>(db: DatabaseSync, articleSlug: string, retrieved: T, requestBlacklistSlugs: string[] = []): T {
+  const blocked = new Set<string>([
+    ...requestBlacklistSlugs.map((s) => slugify(s)).filter(Boolean),
+    ...listArticleBlacklistSlugs(db, slugify(articleSlug)),
+  ]);
+  if (blocked.size === 0) return retrieved;
+  const blockedTitles = new Set(
+    retrieved.sourceArticles.filter((a) => blocked.has(a.slug)).map((a) => a.title),
+  );
+  return {
+    ...retrieved,
+    sourceArticles: retrieved.sourceArticles.filter((a) => !blocked.has(a.slug)),
+    ragTitles: retrieved.ragTitles.filter(
+      (t) => !blockedTitles.has(t) && !blocked.has(slugify(t)),
+    ),
   };
 }
 

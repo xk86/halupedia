@@ -2099,7 +2099,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       seen.add(r.slug);
       return true;
     });
-    return c.json({ references });
+    // The persisted blacklist rides along so the edit panel can show (and
+    // edit) blocks made in earlier sessions instead of starting empty.
+    return c.json({ references, blacklist: listArticleBlacklistSlugs(db, article.slug) });
   });
 
   // Toggle the pinned flag on a saved reference without triggering a full rewrite.
@@ -3874,7 +3876,14 @@ export async function createApp(options: CreateAppOptions = {}) {
               }
             }
             invalidateArticleHtml(articleSlug);
-            // Fire post-process so the infobox regenerates with the new image context.
+            // Fire post-process so the infobox regenerates with the new image
+            // context — but only when the article row actually exists. If the
+            // image was attached while generation was still streaming, the
+            // generation's own post-process pass will pick the image up.
+            if (!getArticleByLookup(db, articleSlug)) {
+              logger.info("image.post_process_deferred_no_article", { slug: articleSlug, mediaId });
+              return;
+            }
             const finalSlug = titleSlug && titleSlug !== mediaId ? titleSlug : mediaId;
             trackGeneration(
               runWorkflow(postProcessWorkflow, {

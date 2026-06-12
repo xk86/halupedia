@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Context, Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
-import { OpenAICompatClient } from "./llm";
+import type { OpenAICompatClient } from "./llm";
 import { getPrompt, renderTemplate } from "./prompts";
 import type { PromptConfig } from "./types";
 

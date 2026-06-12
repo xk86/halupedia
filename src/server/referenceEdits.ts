@@ -3,6 +3,7 @@ import type { Logger } from "./logger";
 import {
   addArticleBlacklistSlugs,
   getArticleByLookup,
+  listArticleBlacklistSlugs,
   removeArticleBlacklistSlugs,
   saveArticleReferences,
 } from "./db";
@@ -41,12 +42,28 @@ export function persistBlacklistForEdit(
   articleSlug: string,
   body: ReferenceEditRequest,
 ): void {
+  const blocked = (body.blacklistSlugs ?? []).map((s) => slugify(s)).filter(Boolean);
+  if (Array.isArray(body.blacklistSlugs)) {
+    // An explicit blacklist array is authoritative — the edit panel loads the
+    // persisted list and sends back its full state, so a slug missing from it
+    // was removed by the user and must be unblocked. (Without this, blocks
+    // could be added but never removed.)
+    const blockedSet = new Set(blocked);
+    const stale = listArticleBlacklistSlugs(db, slugify(articleSlug)).filter(
+      (s) => !blockedSet.has(s),
+    );
+    removeArticleBlacklistSlugs(db, articleSlug, stale);
+  }
+  // Re-adding a blocked slug as a reference is the other unblock gesture.
   const reAdded = [...(body.referenceSlugs ?? []), ...(body.pinnedSlugs ?? [])]
     .map((s) => slugify(s))
     .filter(Boolean);
   removeArticleBlacklistSlugs(db, articleSlug, reAdded);
-  const blocked = (body.blacklistSlugs ?? []).map((s) => slugify(s)).filter(Boolean);
-  addArticleBlacklistSlugs(db, articleSlug, blocked);
+  addArticleBlacklistSlugs(
+    db,
+    articleSlug,
+    blocked.filter((s) => !reAdded.includes(s)),
+  );
 }
 
 /**

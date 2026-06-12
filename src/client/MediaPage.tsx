@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 interface MediaInfo {
   id: string;
@@ -262,13 +263,12 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
           {editMode === "raw" && (
             <div className="media-desc-edit-panel">
               <label className="media-desc-label">Edit description directly:</label>
-              <textarea
-                className="edit-modal-textarea media-desc-textarea"
+              <MarkdownEditor
+                className="media-desc-mdedit"
                 value={rawDraft}
-                onChange={(e) => setRawDraft(e.target.value)}
-                rows={6}
+                onChange={setRawDraft}
+                minRows={4}
                 disabled={busy}
-                autoFocus
               />
               {editError && <div className="edit-modal-error">{editError}</div>}
               <div className="media-desc-btn-row">

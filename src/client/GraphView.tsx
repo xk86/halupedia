@@ -393,7 +393,14 @@ const COMMUNITY_COLORS = [
   "#6a4c93", "#1982c4", "#8ac926", "#ff595e", "#ffca3a",
 ];
 
+// Neutral color reserved for singleton communities (id -1). Louvain gives
+// every isolated node its own community, which would cycle the palette and
+// make ambiguous near-matches with real communities — instead all N=1
+// communities share this grey. Distinct from the unwritten-article "#555566".
+const SINGLETON_COMMUNITY_COLOR = "#9aa0a6";
+
 function communityColor(id: number): string {
+  if (id < 0) return SINGLETON_COMMUNITY_COLOR;
   return COMMUNITY_COLORS[id % COMMUNITY_COLORS.length];
 }
 
@@ -543,24 +550,46 @@ interface CommunityGroup {
   id: number;
   color: string;
   members: { id: string; title: string }[];
+  /** Visible edges arriving from nodes outside this group. */
+  linksIn: number;
+  /** Visible edges leaving this group for nodes outside it. */
+  linksOut: number;
 }
 
 /**
  * Group the currently-visible nodes by community (or component, matching
  * whichever coloring mode is active) so the legend always reflects what's
  * actually drawn on screen — same grouping key the renderer uses for color.
- * Largest groups first; members alphabetical by title.
+ * Largest groups first; members alphabetical by title. Cross-group edge
+ * counts (links in/out of each community) come from the visible link list.
  */
-export function summarizeCommunities(nodes: FgNode[], colorMode: ColorMode): CommunityGroup[] {
+export function summarizeCommunities(
+  nodes: FgNode[],
+  colorMode: ColorMode,
+  links: Array<{ source: unknown; target: unknown }> = [],
+): CommunityGroup[] {
   const groups = new Map<number, CommunityGroup>();
+  const groupOfNode = new Map<string, number>();
   for (const n of nodes) {
     const key = colorMode === "component" ? n.componentId : n.community;
+    groupOfNode.set(n.id, key);
     let group = groups.get(key);
     if (!group) {
-      group = { id: key, color: communityColor(key), members: [] };
+      group = { id: key, color: communityColor(key), members: [], linksIn: 0, linksOut: 0 };
       groups.set(key, group);
     }
     group.members.push({ id: n.id, title: n.title });
+  }
+  // The renderer mutates link endpoints from id strings into node objects —
+  // accept either form.
+  const endpointId = (e: unknown): string =>
+    typeof e === "object" && e !== null ? String((e as { id?: string }).id ?? "") : String(e ?? "");
+  for (const link of links) {
+    const sourceGroup = groupOfNode.get(endpointId(link.source));
+    const targetGroup = groupOfNode.get(endpointId(link.target));
+    if (sourceGroup === undefined || targetGroup === undefined || sourceGroup === targetGroup) continue;
+    groups.get(sourceGroup)!.linksOut += 1;
+    groups.get(targetGroup)!.linksIn += 1;
   }
   for (const group of groups.values()) {
     group.members.sort((a, b) => a.title.localeCompare(b.title));
@@ -839,6 +868,17 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     let communities: Record<string, number> = {};
     try { communities = louvain(g); } catch { /* needs edges */ }
+    // Collapse all single-member communities onto the reserved -1 id so they
+    // render in one neutral color instead of cycling the palette.
+    const communitySizes = new Map<number, number>();
+    for (const slug of g.nodes()) {
+      const c = communities[slug] ?? 0;
+      communitySizes.set(c, (communitySizes.get(c) ?? 0) + 1);
+    }
+    const communityOf = (slug: string): number => {
+      const c = communities[slug] ?? 0;
+      return (communitySizes.get(c) ?? 0) <= 1 ? -1 : c;
+    };
 
     const nodeComponentId = new Map<string, number>();
     let componentCount = 0;
@@ -857,7 +897,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       stats.set(slug, {
         score,
         scoreNorm: score / safeMax,
-        community: communities[slug] ?? 0,
+        community: communityOf(slug),
         componentId: nodeComponentId.get(slug) ?? 0,
       });
     }
@@ -1640,8 +1680,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   }, []);
 
   const communityGroups = useMemo(
-    () => summarizeCommunities(fgData.nodes, colorMode),
-    [fgData.nodes, colorMode],
+    () => summarizeCommunities(fgData.nodes, colorMode, fgData.links),
+    [fgData.nodes, fgData.links, colorMode],
   );
 
   const nodeCount = fgData.nodes.length;
@@ -1871,7 +1911,15 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                     <div className="graph-legend-group-header">
                       <span className="graph-legend-swatch" style={{ background: group.color }} />
                       <span className="graph-legend-group-label">
-                        {colorMode === "component" ? "Component" : "Community"} {group.id}
+                        {group.id < 0
+                          ? "Singletons"
+                          : `${colorMode === "component" ? "Component" : "Community"} ${group.id}`}
+                      </span>
+                      <span
+                        className="graph-legend-group-links"
+                        title="Links into / out of this group (visible edges)"
+                      >
+                        ↓{group.linksIn} ↑{group.linksOut}
                       </span>
                       <span className="graph-legend-group-count">{group.members.length}</span>
                     </div>

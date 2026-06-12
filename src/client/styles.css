@@ -585,6 +585,8 @@ a:hover {
   border-bottom: 2px solid var(--rule);
   letter-spacing: -0.005em;
   flex: 1;
+  /* Long single-word titles must wrap instead of overflowing the column. */
+  overflow-wrap: anywhere;
 }
 
 .article-slug-row {
@@ -680,6 +682,7 @@ a:hover {
 
 .history-page-header h1 {
   margin: 0;
+  overflow-wrap: anywhere;
   font-weight: 500;
   font-size: 2rem;
   line-height: 1.15;
@@ -2219,6 +2222,112 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--accent);
 }
 
+/* ------------------ Partial-WYSIWYG markdown editor ------------------ */
+/* Styled to read as one text box: rendered blocks inside, raw markdown on
+   click. Inherits sizing hooks from whatever textarea class it replaces. */
+
+.mdedit {
+  width: 100%;
+  background: var(--input-surface);
+  border: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+}
+
+.mdedit:focus-within {
+  border-color: var(--accent);
+  background: var(--input-surface-focus);
+}
+
+.mdedit--disabled { opacity: 0.6; }
+
+.mdedit-blocks {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-height: 6rem;
+  max-height: 60vh;
+}
+
+.mdedit-block {
+  padding: 0.2rem 0.35rem;
+  cursor: text;
+  border: 1px dashed transparent;
+  font-family: var(--serif);
+  font-size: 1rem;
+  color: var(--ink);
+}
+.mdedit-block:hover {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+.mdedit-block > :first-child { margin-top: 0; }
+.mdedit-block > :last-child { margin-bottom: 0; }
+.mdedit-block a { pointer-events: none; }
+
+.mdedit-textarea,
+.mdedit-raw-textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--input-surface-focus);
+  border: 1px dashed var(--accent);
+  padding: 0.35rem 0.45rem;
+  outline: none;
+}
+
+.mdedit-raw-textarea {
+  border: none;
+  min-height: 12rem;
+  padding: 0.65rem 0.75rem;
+  background: transparent;
+}
+
+.mdedit-add {
+  cursor: text;
+  padding: 0.25rem 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-fade);
+  border: 1px dashed transparent;
+}
+.mdedit-add:hover { border-color: var(--rule); }
+
+.mdedit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.25rem 0.55rem;
+  border-top: 1px dotted var(--rule-dotted);
+}
+
+.mdedit-hint {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--ink-fade);
+}
+
+.mdedit-mode-btn {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--control-border);
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+}
+.mdedit-mode-btn:hover {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+}
+
 /* "Reference other articles" checkbox row + add button */
 .edit-modal-rag-toggle {
   display: flex;
@@ -2613,6 +2722,19 @@ button.admin-danger-btn:hover:not(:disabled) {
   resize: none;
   min-height: 28rem;
 }
+
+/* Markdown-editor variants sized to the panels they replace textareas in. */
+.raw-edit-mdedit .mdedit-blocks { min-height: 26rem; }
+.raw-edit-body--split .raw-edit-mdedit {
+  flex: 1;
+  min-width: 0;
+}
+.edit-instructions-mdedit .mdedit-blocks { min-height: 5rem; }
+.media-desc-mdedit .mdedit-blocks { min-height: 7rem; }
+.admin-prompt-mdedit { margin-top: 0.3rem; }
+.admin-prompt-mdedit .mdedit-block,
+.admin-prompt-mdedit .mdedit-blocks { font-size: 0.88rem; }
+.admin-prompt-mdedit .mdedit-blocks { min-height: 10rem; }
 
 .raw-edit-preview-pane {
   flex: 1;
@@ -4724,6 +4846,15 @@ button.admin-danger-btn:hover:not(:disabled) {
   padding-top: 1.5rem;
 }
 
+/* Variant for the side pane (homepage): boxed like the infobox, no top rule. */
+.sidebar-top-articles {
+  margin-top: 0;
+  border-top: none;
+  padding: 0.85rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+}
+
 .homepage-top-articles h2 {
   font-size: 1rem;
   font-family: var(--mono);
@@ -5286,6 +5417,14 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-family: var(--mono);
   font-size: 0.68rem;
   color: var(--ink-fade);
+}
+
+.graph-legend-group-links {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--ink-fade);
+  white-space: nowrap;
+  margin-right: 0.4rem;
 }
 
 .graph-legend-members {

@@ -29,6 +29,7 @@ import {
 } from "../../db";
 import { getMediaById } from "../../mediaDb";
 import {
+  excludeBlacklistedSources,
   retrieveContext as retrieveContextLegacy,
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
@@ -184,7 +185,7 @@ export const retrieveContextNode = defineNode({
     const merged = mergeRetrievedContextPackets(primary, direct);
 
     return {
-      retrievedContext: {
+      retrievedContext: excludeBlacklistedSources(deps.db, slug, {
         sourceArticles: merged.sourceArticles.map((s) => ({
           slug: s.slug,
           title: s.title,
@@ -196,7 +197,7 @@ export const retrieveContextNode = defineNode({
           slug: h.sourceSlug,
           title: h.sourceTitle,
         })),
-      },
+      }, input.blacklistSlugs ?? []),
     };
   },
 });

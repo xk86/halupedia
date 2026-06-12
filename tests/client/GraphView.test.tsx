@@ -480,4 +480,28 @@ describe("summarizeCommunities", () => {
   it("returns an empty list for no nodes", () => {
     expect(summarizeCommunities([], "community")).toEqual([]);
   });
+
+  it("counts visible cross-group links in/out, ignoring intra-group edges", () => {
+    const nodes = [
+      makeNode({ id: "a", title: "A", community: 1 }),
+      makeNode({ id: "b", title: "B", community: 1 }),
+      makeNode({ id: "c", title: "C", community: 2 }),
+    ];
+    const links = [
+      { source: "a", target: "c" }, // 1 → 2
+      { source: "c", target: "b" }, // 2 → 1
+      { source: "a", target: "b" }, // intra-1, ignored
+      // Renderer-mutated endpoints (node objects) must also resolve.
+      { source: { id: "c" }, target: { id: "a" } }, // 2 → 1
+    ];
+
+    const groups = summarizeCommunities(nodes as any, "community", links);
+
+    const g1 = groups.find((g) => g.id === 1)!;
+    const g2 = groups.find((g) => g.id === 2)!;
+    expect(g1.linksOut).toBe(1);
+    expect(g1.linksIn).toBe(2);
+    expect(g2.linksOut).toBe(2);
+    expect(g2.linksIn).toBe(1);
+  });
 });

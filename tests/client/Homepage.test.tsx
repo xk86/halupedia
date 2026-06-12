@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Homepage } from "../../src/client/Homepage";
+import { Sidebar } from "../../src/client/Sidebar";
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
@@ -35,23 +36,13 @@ describe("Homepage", () => {
           expiresAt: now + 60_000,
         }));
       }
-      if (url.startsWith("/api/top-articles")) {
-        return Promise.resolve(jsonResponse({
-          articles: [
-            { slug: "with-image", title: "Article With Image", inboundCount: 3 },
-            { slug: "without-image", title: "Article Without Image", inboundCount: 1 },
-          ],
-        }));
-      }
       return Promise.resolve(jsonResponse({}));
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(<Homepage onNavigate={vi.fn()} />);
 
-    // Wait for the featured card and top articles to render
     await screen.findByRole("link", { name: "Featured Article" });
-    await screen.findByRole("link", { name: "Article With Image" });
 
     const images = Array.from(container.querySelectorAll("img"));
     const srcs = images.map((img) => img.getAttribute("src"));
@@ -65,7 +56,7 @@ describe("Homepage", () => {
     expect(featuredImg.getAttribute("alt")).toBe("A glowing orchard at dusk.");
   });
 
-  it("renders no thumbnails when no articles have images", async () => {
+  it("renders no thumbnails when the featured article has no image", async () => {
     const now = Date.now();
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -78,18 +69,47 @@ describe("Homepage", () => {
           expiresAt: now + 60_000,
         }));
       }
-      if (url.startsWith("/api/top-articles")) {
-        return Promise.resolve(jsonResponse({
-          articles: [{ slug: "plain", title: "Plain Article", inboundCount: 1 }],
-        }));
-      }
       return Promise.resolve(jsonResponse({}));
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const { container } = render(<Homepage onNavigate={vi.fn()} />);
 
-    await screen.findByRole("link", { name: "Plain Article" });
+    await screen.findByRole("link", { name: "Featured Article" });
     expect(container.querySelectorAll("img")).toHaveLength(0);
+  });
+
+  it("shows the top-10 list in the side pane, not the homepage body", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/top-articles")) {
+        return Promise.resolve(jsonResponse({
+          articles: [
+            { slug: "alpha", title: "Alpha Article", inboundCount: 3 },
+            { slug: "beta", title: "Beta Article", inboundCount: 1 },
+          ],
+        }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onNavigate = vi.fn();
+    render(
+      <Sidebar
+        articleSlug={null}
+        articleTitle=""
+        infobox={null}
+        headlineMedia={null}
+        showTopArticles
+        onNavigate={onNavigate}
+        onNavigateToMedia={vi.fn()}
+      />,
+    );
+
+    const link = await screen.findByRole("link", { name: "Alpha Article" });
+    expect(screen.getByText("3 refs")).toBeInTheDocument();
+    link.click();
+    expect(onNavigate).toHaveBeenCalledWith("Alpha Article");
   });
 });

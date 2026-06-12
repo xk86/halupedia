@@ -23,9 +23,52 @@ interface SidebarProps {
   articleTitle: string;
   infobox: InfoboxData | null;
   headlineMedia: HeadlineMedia | null;
+  /** Render the top-10 most-referenced articles list (homepage). */
+  showTopArticles?: boolean;
   onNavigate: (slug: string) => void;
   onNavigateToMedia: (imageSlug: string) => void;
   onArticleUpdate?: (articleSlug: string) => void;
+}
+
+interface TopArticle {
+  slug: string;
+  title: string;
+  inboundCount: number;
+}
+
+/** Top-10 most-referenced articles — shown in the side pane on the homepage. */
+function TopArticlesPanel({ onNavigate }: { onNavigate: (slug: string) => void }) {
+  const [topArticles, setTopArticles] = useState<TopArticle[]>([]);
+
+  useEffect(() => {
+    fetch("/api/top-articles?limit=10")
+      .then((r) => r.json())
+      .then((d) => setTopArticles((d as { articles: TopArticle[] }).articles ?? []))
+      .catch(() => { });
+  }, []);
+
+  if (topArticles.length === 0) return null;
+  return (
+    <section className="homepage-top-articles sidebar-top-articles">
+      <h2>Top articles</h2>
+      <ol className="homepage-top-list">
+        {topArticles.map((a, i) => (
+          <li key={a.slug}>
+            <span className="homepage-top-rank">{i + 1}</span>
+            <a
+              href={`/wiki/${a.title.replace(/\s+/g, "_")}`}
+              onClick={(e) => { e.preventDefault(); onNavigate(a.title); }}
+            >
+              {a.title}
+            </a>
+            <span className="homepage-top-count">
+              {a.inboundCount} {a.inboundCount === 1 ? "ref" : "refs"}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
 }
 
 type EditTab = "edit" | "ai" | "history";
@@ -373,7 +416,7 @@ const GENERATING_LABELS: Record<string, string> = {
   "llm.generate_sidebar_caption": "Writing caption…",
 };
 
-export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: headlineMediaProp, onNavigate, onNavigateToMedia, onArticleUpdate }: SidebarProps) {
+export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: headlineMediaProp, showTopArticles, onNavigate, onNavigateToMedia, onArticleUpdate }: SidebarProps) {
   // Live sidecar state — starts from props, updated by the /live stream.
   const [infobox, setInfobox] = useState<InfoboxData | null>(infoboxProp);
   const [headlineMedia, setHeadlineMedia] = useState<HeadlineMedia | null>(headlineMediaProp);
@@ -483,6 +526,13 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
 
   const hasContent = Boolean(articleSlug) && Boolean(infobox || headlineMedia);
   if (!hasContent) {
+    if (showTopArticles) {
+      return (
+        <aside className="sidebar" aria-label="Context">
+          <TopArticlesPanel onNavigate={onNavigate} />
+        </aside>
+      );
+    }
     if (!generatingNode) return <aside className="sidebar" aria-label="Context" />;
     return (
       <aside className="sidebar" aria-label="Context">

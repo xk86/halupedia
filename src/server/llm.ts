@@ -92,7 +92,9 @@ function embedResponseFields(config: EmbeddingsConfig, vectorCount: number, dura
   };
 }
 
-/** Per-role chat/stream client. Internal to this module. */
+/** Per-role chat/stream client. Internal to this module (exported as a type
+ *  only, for signatures like comments.ts). */
+export type { OpenAICompatClient };
 class OpenAICompatClient {
   constructor(
     private readonly chatConfig: ChatConfig,

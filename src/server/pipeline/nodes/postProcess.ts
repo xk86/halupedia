@@ -88,9 +88,15 @@ export const reloadSavedArticleNode = defineNode({
   writes: ["loadedArticle", "postProcessExpectedGeneratedAt"] as const,
   run({ input, persistedAt }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
-    if (!slug) return { loadedArticle: null };
+    if (!slug) throw new Error("post_process: missing slug");
     const record = getArticleByLookup(deps.db, slug);
-    if (!record) return { loadedArticle: null };
+    // Abort the whole workflow when the article row doesn't exist yet (e.g.
+    // an image was attached while generation was still streaming, before the
+    // first persist). Continuing would run every downstream node against an
+    // empty body and end with update_article_in_place wiping the article text
+    // the moment generation lands — with no staleness guard, since there was
+    // no generated_at to capture here.
+    if (!record) throw new Error(`post_process: article not found for slug "${slug}"`);
     return {
       loadedArticle: {
         slug: record.slug,
@@ -363,7 +369,14 @@ export const updateArticleInPlaceNode = defineNode({
       return { persistedAt: undefined };
     }
 
-    const body = finalArticleBody ?? current.markdown;
+    // Defense in depth: never persist an empty body. `??` would not catch ""
+    // (e.g. a reload that found nothing upstream), and an empty write here
+    // permanently destroys the article text.
+    const body = finalArticleBody?.trim() ? finalArticleBody : current.markdown;
+    if (!body.trim()) {
+      deps.logger.warn("pipeline.update_in_place.empty_body_skipped", { slug });
+      return { persistedAt: undefined };
+    }
     const summary = articleSummary?.trim() || summaryMarkdownFromArticle(body);
 
     const haluLinks = extractInternalLinks(body);

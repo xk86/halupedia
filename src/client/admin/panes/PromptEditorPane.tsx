@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MarkdownEditor } from "../../MarkdownEditor";
 import { Pane } from "../Pane";
 
 interface PromptMeta {
@@ -260,23 +261,21 @@ export function PromptEditorPane() {
 
             <label className="admin-prompt-label">
               System
-              <textarea
-                className="admin-prompt-textarea"
+              <MarkdownEditor
+                className="admin-prompt-mdedit"
                 value={system}
-                onChange={(e) => { setSystem(e.target.value); setSaveMsg(null); setPreviewingId(null); }}
-                spellCheck={false}
-                rows={14}
+                onChange={(v) => { setSystem(v); setSaveMsg(null); setPreviewingId(null); }}
+                minRows={10}
               />
             </label>
 
             <label className="admin-prompt-label">
               User
-              <textarea
-                className="admin-prompt-textarea"
+              <MarkdownEditor
+                className="admin-prompt-mdedit"
                 value={user}
-                onChange={(e) => { setUser(e.target.value); setSaveMsg(null); setPreviewingId(null); }}
-                spellCheck={false}
-                rows={8}
+                onChange={(v) => { setUser(v); setSaveMsg(null); setPreviewingId(null); }}
+                minRows={6}
               />
             </label>
 

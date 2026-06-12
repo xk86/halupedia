@@ -8,6 +8,7 @@ import { MediaPage } from "./MediaPage";
 import { MediaListPage } from "./MediaListPage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
+import { MarkdownEditor } from "./MarkdownEditor";
 import { useArticleSuggestions } from "./articleSuggest";
 import { renderInlineHtml } from "./summaryHtml";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
@@ -21,7 +22,6 @@ type Route =
   | { kind: "random" }
   | { kind: "graph" }
   | { kind: "article"; slug: string; title?: string }
-  | { kind: "history"; slug: string }
   | { kind: "disambiguation"; slug: string }
   | { kind: "media"; imageSlug: string }
   | { kind: "media-list" };
@@ -141,19 +141,22 @@ function parseRoute(): Route {
     return { kind: "media", imageSlug: decodeURIComponent(pathname.slice("/media/".length)) };
   }
   if (pathname.startsWith("/wiki/")) {
-    const wikiPath = toWikiSegment(decodeURIComponent(pathname.slice("/wiki/".length)).replace(/^\/+|\/+$/g, ""));
-    if (wikiPath.startsWith("Special:Disambiguation/")) {
+    // Strip the legacy /history suffix BEFORE toWikiSegment — the segment
+    // normalizer removes slashes, so checking afterwards would mangle the
+    // slug into "Article_urlhistory". History now renders in-page, so old
+    // history URLs simply land on the article.
+    const rawPath = decodeURIComponent(pathname.slice("/wiki/".length))
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/\/history$/, "");
+    // Same ordering constraint: ":" and "/" don't survive toWikiSegment, so
+    // the disambiguation prefix must be detected on the raw path.
+    if (rawPath.startsWith("Special:Disambiguation/")) {
       return {
         kind: "disambiguation",
-        slug: wikiPath.slice("Special:Disambiguation/".length),
+        slug: toWikiSegment(rawPath.slice("Special:Disambiguation/".length)),
       };
     }
-    if (wikiPath.endsWith("/history")) {
-      return {
-        kind: "history",
-        slug: wikiPath.replace(/\/history$/, ""),
-      };
-    }
+    const wikiPath = toWikiSegment(rawPath);
     return {
       kind: "article",
       slug: wikiPath,
@@ -186,8 +189,11 @@ export function App() {
   const [editRefs, setEditRefs] = useState<Array<{ slug: string; title: string; summaryMarkdown: string; pinned: boolean }>>([]);
   const [editInitialRefSlugs, setEditInitialRefSlugs] = useState<string[]>([]);
   const [editAddRefsOpen, setEditAddRefsOpen] = useState(false);
-  // Slugs the user has explicitly removed from the reference list.
+  // Slugs the user has explicitly removed from the reference list. Loaded
+  // from the article's persisted blacklist when the edit tray opens; the
+  // panel state is authoritative and synced back on every edit.
   const [editBlacklist, setEditBlacklist] = useState<string[]>([]);
+  const [editInitialBlacklist, setEditInitialBlacklist] = useState<string[]>([]);
   const [editBlacklistOpen, setEditBlacklistOpen] = useState(false);
   const [editBlacklistInput, setEditBlacklistInput] = useState("");
   const [editFuzzyQuery, setEditFuzzyQuery] = useState("");
@@ -239,11 +245,14 @@ export function App() {
   const editRefsToggleLocked = editIsPartial && editInitialRefSlugs.length > 0;
   // Reference selection differs from what was loaded — enough to submit an
   // edit even with an empty prompt (the server applies it without an LLM call).
+  const editBlacklistChanged =
+    editBlacklist.length !== editInitialBlacklist.length ||
+    editBlacklist.some((s) => !editInitialBlacklist.includes(s));
   const editRefsChanged =
     (editRefsEnabled &&
       (editRefs.length !== editInitialRefSlugs.length ||
         editRefs.some((r) => !editInitialRefSlugSet.has(r.slug)))) ||
-    editBlacklist.length > 0;
+    editBlacklistChanged;
 
   useEffect(() => {
     if (themeMode === "dark") {
@@ -304,7 +313,7 @@ export function App() {
       };
     }
 
-    if (route.kind !== "article" && route.kind !== "history" && route.kind !== "disambiguation") {
+    if (route.kind !== "article" && route.kind !== "disambiguation") {
       setPage(null);
       setLoading(false);
       setError(null);
@@ -321,6 +330,7 @@ export function App() {
       setEditInitialRefSlugs([]);
       setEditAddRefsOpen(false);
       setEditBlacklist([]);
+      setEditInitialBlacklist([]);
       setEditBlacklistOpen(false);
       setEditBlacklistInput("");
       setEditFuzzyQuery("");
@@ -649,13 +659,6 @@ export function App() {
     setRoute({ kind: "article", slug: clean });
   }, []);
 
-  const navigateToHistory = useCallback((slugOrTitleSegment: string) => {
-    const clean = slugOrTitleSegment.replace(/^\/+|\/+$/g, "");
-    window.history.pushState({}, "", `/wiki/${clean}/history`);
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "history", slug: clean });
-  }, []);
-
   const navigateToSearch = useCallback((query: string) => {
     const trimmed = query.trim();
     const url = trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search";
@@ -787,7 +790,7 @@ export function App() {
   const loadEditRefs = useCallback((slug: string) => {
     fetch(`/api/article/${encodeURIComponent(slug)}/references`)
       .then((r) => r.json())
-      .then((body: { references?: Array<{ slug: string; title: string; summaryMarkdown: string; pinned?: boolean }> }) => {
+      .then((body: { references?: Array<{ slug: string; title: string; summaryMarkdown: string; pinned?: boolean }>; blacklist?: string[] }) => {
         const seen = new Set<string>();
         const refs = (body.references ?? []).filter((r) => {
           if (seen.has(r.slug)) return false;
@@ -797,6 +800,9 @@ export function App() {
         setEditRefs(refs);
         setEditInitialRefSlugs(refs.map((ref) => ref.slug));
         setEditRefsEnabled(refs.length > 0);
+        const blacklist = body.blacklist ?? [];
+        setEditBlacklist(blacklist);
+        setEditInitialBlacklist(blacklist);
       })
       .catch(() => { });
   }, []);
@@ -964,7 +970,10 @@ export function App() {
                 pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug),
               }
             : {}),
-          ...(editBlacklist.length > 0 ? { blacklistSlugs: editBlacklist } : {}),
+          // Always sent: the panel state is authoritative, so an empty array
+          // means "clear all persisted blocks" (it was loaded from the server
+          // when the tray opened).
+          blacklistSlugs: editBlacklist,
           ...(editIncludeRecentPrompts ? { includeRecentEditHistory: true } : {}),
           rewriteMode: editRewriteMode,
         }),
@@ -1072,6 +1081,7 @@ export function App() {
       setEditIncludeRecentPrompts(false);
       setEditAddRefsOpen(false);
       setEditBlacklist([]);
+      setEditInitialBlacklist([]);
       setEditBlacklistOpen(false);
       setEditBlacklistInput("");
       setEditFuzzyQuery("");
@@ -1210,10 +1220,13 @@ export function App() {
     }
   }, [page?.article.slug, historyLoading, historyLoaded]);
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(() => {
     if (!page?.article.slug) return;
-    navigateToHistory(page.article.title.replace(/\s+/g, "_"));
-  }, [page?.article.slug, page?.article.title, navigateToHistory]);
+    setHistoryOpen(true);
+    setSelectedRevision(null);
+    setRestoreConfirmRevision(null);
+    setRestoreMessage(null);
+  }, [page?.article.slug]);
 
   const revertToRevision = useCallback(async (revisionId: number) => {
     if (!page?.article.slug || revertingId) return;
@@ -1242,10 +1255,10 @@ export function App() {
   }, [page?.article.slug, revertingId]);
 
   useEffect(() => {
-    if (route.kind === "history" && page && !historyLoading && !historyLoaded && !historyError) {
+    if (historyOpen && page && !historyLoading && !historyLoaded && !historyError) {
       void fetchHistory();
     }
-  }, [route.kind, page, historyLoading, historyLoaded, historyError, fetchHistory]);
+  }, [historyOpen, page, historyLoading, historyLoaded, historyError, fetchHistory]);
 
   useEffect(() => {
     if (route.kind !== "article" || !page || loading) {
@@ -1338,11 +1351,11 @@ export function App() {
     };
   }, [editOpen, editSelectedText]);
 
-  const articleSlug = route.kind === "article" || route.kind === "history" || route.kind === "disambiguation" ? route.slug : null;
+  const articleSlug = route.kind === "article" || route.kind === "disambiguation" ? route.slug : null;
   const articleDisplayTitle = page?.article.displayTitle || page?.article.title || "";
   const articleTitle = page?.article.title ?? "";
   const hasZeroLinks = page ? countInternalLinks(page.article.markdown) === 0 : false;
-  const historyEmpty = (historyOpen || route.kind === "history") && !historyLoading && !historyError && revisions.length === 0;
+  const historyEmpty = historyOpen && historyLoaded && !historyLoading && !historyError && revisions.length === 0;
 
   const copyArticleSlug = useCallback(async () => {
     if (!page?.article.slug) return;
@@ -1419,86 +1432,6 @@ export function App() {
       );
     }
 
-    if (route.kind === "history") {
-      return (
-        <>
-          {restoreMessage ? <div className="status">{restoreMessage}</div> : null}
-          <div className="history-page-header">
-            <h1>History: <span dangerouslySetInnerHTML={{ __html: renderInlineHtml(articleDisplayTitle) }} /></h1>
-            <button type="button" className="edit-modal-close" onClick={() => navigateToArticle(page.article.title.replace(/\s+/g, "_"))}>
-              Current article
-            </button>
-          </div>
-          <section className="history-panel history-panel-page" aria-label="Edit history">
-            <div className="history-panel-header">
-              <h2>Revisions</h2>
-              {historyLoading ? <span>Loading...</span> : null}
-            </div>
-            {historyError ? <div className="edit-modal-error">{historyError}</div> : null}
-            {historyEmpty ? <p className="history-empty">No edit history yet.</p> : null}
-            <ol className="history-list">
-              {revisions.map((revision) => (
-                <li key={revision.id} className={selectedRevision?.id === revision.id ? "selected" : undefined}>
-                  <div>
-                    <strong>{revision.operation}</strong>
-                    <time>{new Date(revision.createdAt).toLocaleString()}</time>
-                    {revision.instructions ? <p>{revision.instructions}</p> : null}
-                    {revision.summaryMarkdown ? (
-                      <div
-                        className="history-summary"
-                        dangerouslySetInnerHTML={{ __html: renderInlineHtml(revision.summaryMarkdown) }}
-                      />
-                    ) : null}
-                  </div>
-                  <button type="button" onClick={() => {
-                    setSelectedRevision(revision);
-                    setRestoreConfirmRevision(null);
-                    setRestoreMessage(null);
-                  }}>
-                    View revision {revision.id}
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </section>
-          {selectedRevision ? (
-            <>
-              <div className="old-revision-notice">
-                <strong>You are viewing an old revision.</strong>
-                <span>This preview does not change the current article.</span>
-              </div>
-              <div className="history-restore-row">
-                <button
-                  type="button"
-                  className="danger-restore-button"
-                  onClick={() => setRestoreConfirmRevision(selectedRevision)}
-                  disabled={revertingId !== null}
-                >
-                  Restore this version
-                </button>
-                {restoreConfirmRevision?.id === selectedRevision.id ? (
-                  <div className="restore-confirm" role="dialog" aria-label="Confirm restore">
-                    <strong>Restore this old revision?</strong>
-                    <div>
-                      <button type="button" onClick={() => revertToRevision(selectedRevision.id)} disabled={revertingId !== null}>
-                        {revertingId === selectedRevision.id ? "Restoring..." : "Yes, restore"}
-                      </button>
-                      <button type="button" onClick={() => setRestoreConfirmRevision(null)} disabled={revertingId !== null}>
-                        No
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-              <article className="article old-revision-preview">
-                <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(selectedRevision.html) }} />
-              </article>
-            </>
-          ) : null}
-        </>
-      );
-    }
-
     return (
       <>
         {page.redirectedFrom ? (
@@ -1525,6 +1458,7 @@ export function App() {
           </div>
         ) : null}
         {refreshMessage ? <div className="status">{refreshMessage}</div> : null}
+        {restoreMessage ? <div className="status">{restoreMessage}</div> : null}
         <div className="article-title-row">
           <h1 dangerouslySetInnerHTML={{ __html: renderInlineHtml(articleDisplayTitle) }} />
           <button
@@ -1690,12 +1624,12 @@ export function App() {
                 Close
               </button>
             </div>
-            <textarea
-              className="edit-modal-textarea"
+            <MarkdownEditor
+              className="edit-instructions-mdedit"
               value={editDraft}
-              onChange={(e) => setEditDraft(e.target.value)}
+              onChange={setEditDraft}
               placeholder="Describe your changes."
-              rows={4}
+              minRows={3}
               disabled={editBusy}
             />
             <button
@@ -2004,11 +1938,11 @@ export function App() {
               </div>
             </div>
             <div className={`raw-edit-body${rawEditPreview ? " raw-edit-body--split" : ""}`}>
-              <textarea
-                className="raw-edit-textarea"
+              <MarkdownEditor
+                className="raw-edit-mdedit"
                 value={rawEditMarkdown}
-                onChange={(e) => { setRawEditMarkdown(e.target.value); setRawEditPreview(null); }}
-                spellCheck={false}
+                onChange={(v) => { setRawEditMarkdown(v); setRawEditPreview(null); }}
+                minRows={4}
                 disabled={editBusy}
               />
               {rawEditPreview && (
@@ -2043,12 +1977,24 @@ export function App() {
             <div className="history-panel-header">
               <h2>History</h2>
               {historyLoading ? <span>Loading...</span> : null}
+              <button
+                type="button"
+                className="edit-modal-close"
+                onClick={() => {
+                  setHistoryOpen(false);
+                  setSelectedRevision(null);
+                  setRestoreConfirmRevision(null);
+                  setRestoreMessage(null);
+                }}
+              >
+                Close
+              </button>
             </div>
             {historyError ? <div className="edit-modal-error">{historyError}</div> : null}
             {historyEmpty ? <p className="history-empty">No edit history yet.</p> : null}
             <ol className="history-list">
               {revisions.map((revision) => (
-                <li key={revision.id}>
+                <li key={revision.id} className={selectedRevision?.id === revision.id ? "selected" : undefined}>
                   <div>
                     <strong>{revision.operation}</strong>
                     <time>{new Date(revision.createdAt).toLocaleString()}</time>
@@ -2060,23 +2006,62 @@ export function App() {
                       />
                     ) : null}
                   </div>
-                  <button type="button" onClick={() => revertToRevision(revision.id)} disabled={revertingId !== null}>
-                    {revertingId === revision.id ? "Reverting..." : "Revert"}
+                  <button type="button" onClick={() => {
+                    setSelectedRevision((current) => current?.id === revision.id ? null : revision);
+                    setRestoreConfirmRevision(null);
+                    setRestoreMessage(null);
+                  }}>
+                    {selectedRevision?.id === revision.id ? "Hide revision" : `View revision ${revision.id}`}
                   </button>
                 </li>
               ))}
             </ol>
           </section>
         ) : null}
-        <article ref={articleRef} className="article" onClick={interceptArticleLinks}>
-          <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
-          {page.statusMessage ? (
-            <div className="article-status">
-              <span className="dot" />
-              <span>{page.statusMessage}</span>
+        {historyOpen && selectedRevision ? (
+          <>
+            <div className="old-revision-notice">
+              <strong>You are viewing an old revision.</strong>
+              <span>This preview does not change the current article.</span>
             </div>
-          ) : null}
-        </article>
+            <div className="history-restore-row">
+              <button
+                type="button"
+                className="danger-restore-button"
+                onClick={() => setRestoreConfirmRevision(selectedRevision)}
+                disabled={revertingId !== null}
+              >
+                Restore this version
+              </button>
+              {restoreConfirmRevision?.id === selectedRevision.id ? (
+                <div className="restore-confirm" role="dialog" aria-label="Confirm restore">
+                  <strong>Restore this old revision?</strong>
+                  <div>
+                    <button type="button" onClick={() => revertToRevision(selectedRevision.id)} disabled={revertingId !== null}>
+                      {revertingId === selectedRevision.id ? "Restoring..." : "Yes, restore"}
+                    </button>
+                    <button type="button" onClick={() => setRestoreConfirmRevision(null)} disabled={revertingId !== null}>
+                      No
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <article className="article old-revision-preview">
+              <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(selectedRevision.html) }} />
+            </article>
+          </>
+        ) : (
+          <article ref={articleRef} className="article" onClick={interceptArticleLinks}>
+            <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
+            {page.statusMessage ? (
+              <div className="article-status">
+                <span className="dot" />
+                <span>{page.statusMessage}</span>
+              </div>
+            ) : null}
+          </article>
+        )}
         {/* Backlinks — moved to bottom of article column */}
         {(page.backlinks.existing.length > 0 || page.backlinks.unwritten.length > 0) && (
           <section className="article-backlinks" aria-label="Referenced by">
@@ -2104,7 +2089,7 @@ export function App() {
         )}
       </>
     );
-  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, rawEditOpen, rawEditMarkdown, rawEditPreview, rawEditPreviewBusy, openRawEdit, saveRawEdit, previewRawEdit, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, searchEditRefs, addEditRef, removeEditRef, blacklistEditRef, togglePinRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage, editTitleDraft, editTitleBusy, editTitleError, protectionBusy]);
+  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, rawEditOpen, rawEditMarkdown, rawEditPreview, rawEditPreviewBusy, openRawEdit, saveRawEdit, previewRawEdit, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, editRefSearchDone, editRefsChanged, editBlacklist, editBlacklistOpen, editBlacklistInput, searchEditRefs, addEditRef, removeEditRef, blacklistEditRef, togglePinRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage, editTitleDraft, editTitleBusy, editTitleError, protectionBusy]);
 
   return (
     <div className="site">
@@ -2305,6 +2290,7 @@ export function App() {
           <Sidebar
             articleSlug={articleSlug}
             articleTitle={articleTitle}
+            showTopArticles={route.kind === "home"}
             infobox={page?.infobox ?? null}
             headlineMedia={page?.headlineMedia ?? null}
             onNavigate={navigateToArticle}

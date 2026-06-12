@@ -34,6 +34,7 @@ import {
   stripTopLevelSections,
 } from "../../markdown";
 import {
+  excludeBlacklistedSources,
   retrieveContext as retrieveContextLegacy,
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
@@ -238,7 +239,14 @@ export const retrieveContextForRewriteNode = defineNode({
       };
     }
 
-    return { retrievedContext: retrieved };
+    return {
+      retrievedContext: excludeBlacklistedSources(
+        deps.db,
+        slug,
+        retrieved,
+        input.blacklistSlugs ?? [],
+      ),
+    };
   },
 });
 

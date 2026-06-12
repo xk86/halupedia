@@ -241,6 +241,27 @@ export function excludeBlacklistedSources<
   };
 }
 
+/**
+ * Assemble retrieved source articles into the `rag_context` prompt block,
+ * respecting a hard character budget. Entries are dropped whole once the
+ * budget is exhausted — never truncated mid-entry.
+ */
+export function formatRagContextForPrompt(
+  sourceArticles: Array<{ title: string; content: string }>,
+  maxChars: number,
+): string {
+  const parts: string[] = [];
+  let used = 0;
+  for (const s of sourceArticles) {
+    const entry = `## ${s.title}\n${s.content}`;
+    if (used + entry.length > maxChars && parts.length > 0) break;
+    if (entry.length > maxChars) continue;
+    parts.push(entry);
+    used += entry.length + 2;
+  }
+  return parts.join("\n\n");
+}
+
 export function retrieveDirectArticleContext(
   db: DatabaseSync,
   currentSlug: string,
@@ -248,7 +269,13 @@ export function retrieveDirectArticleContext(
   mode: RagMode,
   maxResults: number,
   logger?: Logger,
+  opts: { maxChunksPerArticle?: number } = {},
 ): RetrievedContextPacket {
+  // Per-article chunk cap — without it the first referenced article fills the
+  // entire max_results budget with chunks of itself and the remaining
+  // references contribute nothing (and prompts balloon with one article's
+  // full text).
+  const perArticle = Math.max(1, opts.maxChunksPerArticle ?? 3);
   const seen = new Set<string>([currentSlug]);
   const rows: Array<{ slug: string; title: string; content: string }> = [];
 
@@ -266,7 +293,7 @@ export function retrieveDirectArticleContext(
          ORDER BY c.chunk_index ASC
          LIMIT ?`,
       )
-      .all(slug, Math.max(1, maxResults - rows.length)) as Array<{ slug: string; title: string; content: string }>;
+      .all(slug, Math.max(1, Math.min(perArticle, maxResults - rows.length))) as Array<{ slug: string; title: string; content: string }>;
 
     if (chunks.length > 0) {
       rows.push(...chunks);
@@ -281,7 +308,9 @@ export function retrieveDirectArticleContext(
          LIMIT 1`,
       )
       .get(slug) as { slug: string; title: string; content: string } | undefined;
-    if (article) rows.push(article);
+    // Unindexed article fallback: never inject whole markdown bodies — keep
+    // them chunk-sized so one big unindexed article can't dominate the prompt.
+    if (article) rows.push({ ...article, content: article.content.slice(0, 2_000) });
   }
 
   const picked = rows.slice(0, maxResults);

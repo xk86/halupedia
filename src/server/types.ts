@@ -66,6 +66,19 @@ export interface RagConfig {
    */
   reference_cull_min_score: number;
   reference_cull_top_k: number;
+  /**
+   * Maximum chunks pulled per referenced article in direct-context retrieval.
+   * Without this, the first referenced article could fill the entire
+   * max_results budget with chunks of itself.
+   */
+  direct_chunks_per_article: number;
+  /** Maximum incoming link hints included in generation/rewrite prompts. */
+  prompt_link_hints_max: number;
+  /**
+   * Hard character budget for the retrieved-context block of a prompt.
+   * Entries past the budget are dropped whole (never mid-entry).
+   */
+  prompt_context_max_chars: number;
 }
 
 /**

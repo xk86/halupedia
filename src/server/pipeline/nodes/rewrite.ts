@@ -35,6 +35,7 @@ import {
 } from "../../markdown";
 import {
   excludeBlacklistedSources,
+  formatRagContextForPrompt,
   retrieveContext as retrieveContextLegacy,
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
@@ -160,7 +161,7 @@ export const retrieveContextForRewriteNode = defineNode({
     if (explicitSlugs.length > 0) {
       // User-selected refs: load directly, merge with prior refs for continuity.
       const allDirect = [...new Set([...explicitSlugs, ...priorSlugs])];
-      const direct = retrieveDirectArticleContext(deps.db, slug, allDirect, rag.mode, rag.max_results, deps.logger);
+      const direct = retrieveDirectArticleContext(deps.db, slug, allDirect, rag.mode, rag.max_results, deps.logger, { maxChunksPerArticle: rag.direct_chunks_per_article });
       retrieved = {
         sourceArticles: direct.sourceArticles.map((s) => ({ ...s })),
         ragTitles: direct.relatedTitles,
@@ -205,6 +206,7 @@ export const retrieveContextForRewriteNode = defineNode({
             rag.mode,
             rag.max_results,
             deps.logger,
+            { maxChunksPerArticle: rag.direct_chunks_per_article },
           )
         : { context: "", relatedTitles: [], sourceArticles: [] };
       const merged = mergeRetrievedContextPackets(direct, packet);
@@ -226,7 +228,7 @@ export const retrieveContextForRewriteNode = defineNode({
         useEmbeddings, deps.logger, queryOverride,
       );
       const direct = backlinkSlugs.length
-        ? retrieveDirectArticleContext(deps.db, slug, backlinkSlugs, rag.mode, rag.max_results, deps.logger)
+        ? retrieveDirectArticleContext(deps.db, slug, backlinkSlugs, rag.mode, rag.max_results, deps.logger, { maxChunksPerArticle: rag.direct_chunks_per_article })
         : { context: "", relatedTitles: [], sourceArticles: [] };
       const merged = mergeRetrievedContextPackets(primary, direct);
       retrieved = {
@@ -355,6 +357,29 @@ export const renderRewritePromptNode = defineNode({
       deps.runtime.prompts.shared[isPartial ? "rewrite_scope_partial" : "rewrite_scope_full"]
         ?.system ?? "";
 
+    const linkHints = formatIncomingHintsForPrompt(hints, slug, deps.runtime.app.rag.prompt_link_hints_max);
+    const referencesPromptText = formatReferencesForPromptText(
+      refs,
+      deps.runtime.app.rag.prompt_ref_content_min_score,
+      deps.runtime.app.rag.prompt_ref_content_top_k,
+    );
+    const ragContext = formatRagContextForPrompt(
+      retrievedContext?.sourceArticles ?? [],
+      deps.runtime.app.rag.prompt_context_max_chars,
+    );
+    // Per-section size breakdown — the first thing to look at when
+    // llm.stream_request reports an oversized prompt_chars.
+    deps.logger.debug("rewrite.prompt_sections", {
+      slug,
+      current_article_chars: currentArticle.length,
+      rag_context_chars: ragContext.length,
+      rag_sources: retrievedContext?.sourceArticles?.length ?? 0,
+      references_chars: referencesPromptText.length,
+      refs: refs.length,
+      link_hints_chars: linkHints.length,
+      hints_total: hints.length,
+    });
+
     const rendered = deps.prompts.render("article_rewrite", {
       slug,
       requested_title: title,
@@ -363,18 +388,13 @@ export const renderRewritePromptNode = defineNode({
       edit_instructions: instructions,
       rewrite_mode: modePrompt,
       rewrite_scope_rules: scopeRules.trim(),
-      link_hints: formatIncomingHintsForPrompt(hints, slug),
+      link_hints: linkHints,
       references_list: formatReferencesForPrompt(refs),
-      references_prompt_text: formatReferencesForPromptText(
-        refs,
-        deps.runtime.app.rag.prompt_ref_content_min_score,
-        deps.runtime.app.rag.prompt_ref_content_top_k,
-      ),
+      references_prompt_text: referencesPromptText,
       recent_edit_history: recentEditHistory?.trim()
         ? `Recent edit history, oldest to newest:\n${recentEditHistory}`
         : "",
-      rag_context: (retrievedContext?.sourceArticles ?? [])
-        .map((s) => `## ${s.title}\n${s.content}`).join("\n\n") || "(none)",
+      rag_context: ragContext || "(none)",
       related_titles: (retrievedContext?.ragTitles ?? []).map((t) => `- ${t}`).join("\n"),
       article_excerpt: selectedMarkdown?.slice(0, 2000) ?? "",
       parent_comment: "",

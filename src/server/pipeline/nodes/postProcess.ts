@@ -152,6 +152,7 @@ export const rebuildReferenceListNode = defineNode({
           deps.runtime.app.rag.mode,
           deps.runtime.app.rag.max_results,
           deps.logger,
+          { maxChunksPerArticle: deps.runtime.app.rag.direct_chunks_per_article },
         )
       : { context: "", relatedTitles: [], sourceArticles: [] };
 

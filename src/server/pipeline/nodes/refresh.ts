@@ -24,6 +24,7 @@ import {
   formatReferencesForPromptText,
 } from "../../referenceList";
 import { formatIncomingHintsForPrompt } from "../../linkHints";
+import { formatRagContextForPrompt } from "../../retrieval";
 import {
   normalizeMarkdown,
   renderMarkdown,
@@ -84,7 +85,7 @@ export const renderRefreshPromptNode = defineNode({
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
 
     const hints = listIncomingHints(deps.db, slugify(slug));
-    const linkHints = formatIncomingHintsForPrompt(hints, slugify(slug));
+    const linkHints = formatIncomingHintsForPrompt(hints, slugify(slug), deps.runtime.app.rag.prompt_link_hints_max);
     const subtleMode = deps.runtime.prompts.rewriteModes?.subtle?.prompt ?? "";
 
     const rendered = deps.prompts.render("article_refresh", {
@@ -99,9 +100,10 @@ export const renderRefreshPromptNode = defineNode({
         deps.runtime.app.rag.prompt_ref_content_min_score,
         deps.runtime.app.rag.prompt_ref_content_top_k,
       ),
-      rag_context: (retrievedContext?.sourceArticles ?? [])
-        .map((s) => `## ${s.title}\n${s.content}`)
-        .join("\n\n") || "(none)",
+      rag_context: formatRagContextForPrompt(
+        retrievedContext?.sourceArticles ?? [],
+        deps.runtime.app.rag.prompt_context_max_chars,
+      ) || "(none)",
       related_titles: (retrievedContext?.ragTitles ?? []).map((t) => `- ${t}`).join("\n"),
       article_excerpt: "",
       parent_comment: "",

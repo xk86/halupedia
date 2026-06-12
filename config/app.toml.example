@@ -35,6 +35,16 @@ prompt_ref_content_min_score = 0.52
 # Set to 0 to disable the cap entirely.
 prompt_ref_content_top_k = 6
 
+# Maximum chunks pulled per referenced article in direct-context retrieval.
+# Without this one article can fill the whole max_results budget with its own chunks.
+direct_chunks_per_article = 3
+# Maximum incoming link hints included in generation/rewrite prompts.
+# Heavily-backlinked articles can have hundreds; uncapped they blow the context window.
+prompt_link_hints_max = 40
+# Hard character budget for the retrieved-context block of any prompt.
+# Entries past the budget are dropped whole.
+prompt_context_max_chars = 24000
+
 [homepage]
 rotation_hours = 4
 

@@ -30,6 +30,7 @@ import {
 import { getMediaById } from "../../mediaDb";
 import {
   excludeBlacklistedSources,
+  formatRagContextForPrompt,
   retrieveContext as retrieveContextLegacy,
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
@@ -179,6 +180,7 @@ export const retrieveContextNode = defineNode({
           rag.mode,
           rag.max_results,
           deps.logger,
+          { maxChunksPerArticle: rag.direct_chunks_per_article },
         )
       : { context: "", relatedTitles: [], sourceArticles: [] };
 
@@ -438,6 +440,7 @@ export const renderArticlePromptNode = defineNode({
       fromStateEntry(r, "current"),
     );
     const linkHints = (retrievedContext?.backlinks ?? [])
+      .slice(0, deps.runtime.app.rag.prompt_link_hints_max)
       .map((b) => `- [${b.title}](halu:${b.slug})`)
       .join("\n");
 
@@ -449,9 +452,10 @@ export const renderArticlePromptNode = defineNode({
         deps.runtime.app.rag.prompt_ref_content_min_score,
         deps.runtime.app.rag.prompt_ref_content_top_k,
       ),
-      rag_context: (retrievedContext?.sourceArticles ?? [])
-        .map((s) => `## ${s.title}\n${s.content}`)
-        .join("\n\n"),
+      rag_context: formatRagContextForPrompt(
+        retrievedContext?.sourceArticles ?? [],
+        deps.runtime.app.rag.prompt_context_max_chars,
+      ),
       related_titles: (retrievedContext?.ragTitles ?? [])
         .map((t) => `- ${t}`)
         .join("\n"),

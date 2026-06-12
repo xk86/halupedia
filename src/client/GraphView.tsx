@@ -769,6 +769,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const pathEdgeSetRef = useRef(new Set<string>());
   const highlightSetRef = useRef(highlightSet);
   const shadingEnabledRef = useRef(shadingEnabled);
+  // Camera-gesture state: while Shift is held or the right button is down,
+  // node dragging is suspended so the pointer pans/orbits instead.
+  const shiftHeldRef = useRef(false);
+  const rightButtonDownRef = useRef(false);
+  const cleanupPointerHandlersRef = useRef<(() => void) | null>(null);
   const pathModeRef = useRef(pathMode);
   const pathEdgesRef = useRef(new Set<string>());
   const pathLinkBrightnessRef = useRef(settings.pathLinkBrightness);
@@ -1128,8 +1133,51 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           // them be grabbed/navigated, which would be confusing.
           const hl = highlightSetRef.current;
           if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return;
+          // Shift-click is the "interact with the camera, not the node" gesture.
+          if (shiftHeldRef.current) return;
           if (n.exists) onNavigate(toWikiSegment(n.title));
         });
+
+      // Camera gestures must win over node grabbing: right-button drags
+      // (orbit pan) and any interaction with Shift held suspend node drag,
+      // so starting them on top of a node pans the view instead of moving
+      // the node. Capture phase so the toggle lands before the renderer's
+      // own pointer handlers see the event.
+      // Toggling enableNodeDrag rebuilds the renderer's DragControls, so only
+      // call through when the effective value actually changes.
+      let nodeDragEnabled = true;
+      const applyDragEnabled = () => {
+        const next = !(shiftHeldRef.current || rightButtonDownRef.current);
+        if (next === nodeDragEnabled) return;
+        nodeDragEnabled = next;
+        fg.enableNodeDrag(next);
+      };
+      const onPointerDown = (e: PointerEvent) => {
+        rightButtonDownRef.current = e.button === 2;
+        shiftHeldRef.current = e.shiftKey;
+        applyDragEnabled();
+      };
+      const onPointerUp = () => {
+        rightButtonDownRef.current = false;
+        applyDragEnabled();
+      };
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key !== "Shift") return;
+        shiftHeldRef.current = e.type === "keydown";
+        applyDragEnabled();
+      };
+      el.addEventListener("pointerdown", onPointerDown, true);
+      el.addEventListener("pointerup", onPointerUp, true);
+      el.addEventListener("pointercancel", onPointerUp, true);
+      window.addEventListener("keydown", onKey);
+      window.addEventListener("keyup", onKey);
+      cleanupPointerHandlersRef.current = () => {
+        el.removeEventListener("pointerdown", onPointerDown, true);
+        el.removeEventListener("pointerup", onPointerUp, true);
+        el.removeEventListener("pointercancel", onPointerUp, true);
+        window.removeEventListener("keydown", onKey);
+        window.removeEventListener("keyup", onKey);
+      };
 
       setInitialized(true);
     });
@@ -1137,6 +1185,8 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     return () => {
       destroyed = true;
       disposeLabels(labelSpritesRef.current);
+      cleanupPointerHandlersRef.current?.();
+      cleanupPointerHandlersRef.current = null;
       if (fgRef.current) {
         try { fgRef.current._destructor?.(); } catch { /* ignore */ }
         fgRef.current = null;

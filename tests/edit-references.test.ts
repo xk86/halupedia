@@ -119,6 +119,31 @@ test("refs-only edit replaces sidecar refs without touching the article body", (
   assert.equal(getArticle(db, "alpha")!.markdown, before.markdown, "body must be untouched");
 });
 
+test("blacklist-only edit removes blocked refs from the sidecar and syncs the stored blocklist", (t) => {
+  const db = makeDb(t);
+  save(db, "alpha", "Alpha");
+  save(db, "ref-one", "Ref One");
+  save(db, "ref-two", "Ref Two");
+  addArticleBlacklistSlugs(db, "alpha", ["stale-block"]);
+  saveArticleReferences(db, "alpha", 200, [
+    { slug: "ref-one", title: "Ref One", content: "", kind: "summary", pinned: false, revisionId: "current", source: "user" },
+    { slug: "ref-two", title: "Ref Two", content: "", kind: "summary", pinned: true, revisionId: "current", source: "pinned" },
+  ]);
+
+  // The client's immediate blacklist sync: no instructions, no referenceSlugs —
+  // priors are kept minus the blocked slug, and the sent array is authoritative
+  // (stale persisted blocks not in it are removed).
+  const refs = applyReferenceOnlyEdit(db, "alpha", { blacklistSlugs: ["ref-one"] }, RAG_CONFIG);
+  assert.deepEqual(refs.map((r) => r.slug), ["ref-two"], "blocked ref must leave the sidecar");
+  assert.deepEqual(getLatestArticleReferences(db, "alpha").map((r) => r.slug), ["ref-two"]);
+  assert.deepEqual(listArticleBlacklistSlugs(db, "alpha"), ["ref-one"], "stored blocklist mirrors the sent array");
+
+  // Unblocking via an empty authoritative array restores nothing automatically
+  // but clears the stored blocklist.
+  applyReferenceOnlyEdit(db, "alpha", { blacklistSlugs: [] }, RAG_CONFIG);
+  assert.deepEqual(listArticleBlacklistSlugs(db, "alpha"), []);
+});
+
 test("re-adding a blocked slug as a reference unblocks it", (t) => {
   const db = makeDb(t);
   save(db, "alpha", "Alpha");

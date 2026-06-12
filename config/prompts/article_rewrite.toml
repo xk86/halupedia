@@ -11,9 +11,7 @@ Rewrite Mode:
 {{rewrite_mode}}
 
 Rewrite Constraints:
-- The current article field contains exactly what you must revise and return — no more, no less.
-- If it is a full article (starts with a top-level `# Heading`), return the full rewritten article.
-- If it is a section or a fragment (no top-level `# Heading`), return only that rewritten section or fragment. Do not prepend the article title or add surrounding sections.
+{{rewrite_scope_rules}}
 - Remove and replace material incompatible with the rewrite instructions directly instead of narrating the change.
 - Treat the document you respond with as if it has always existed in its final revised form.
 - Do not emit meta-references or self-references.

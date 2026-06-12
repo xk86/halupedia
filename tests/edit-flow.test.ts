@@ -273,6 +273,39 @@ test("rewrite defaults to aggressive mode when no mode specified", async (t) => 
   await server.shutdown();
 });
 
+test("rewrite prompt scope rules match the edit scope", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "scope-test", "Scope Test", "Lead paragraph.\n\n## Notes\n\nOriginal notes.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# Scope Test\n\nRewritten.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  // Whole-article rewrite: only the full-article rule appears. The fragment
+  // rule used to ride along and primed the model to return partial bodies.
+  await server.request("/api/article/scope-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "test" }),
+  });
+  const fullCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Constraints"));
+  assert.ok(fullCall, "full rewrite should reach the LLM");
+  assert.match(fullCall!.system, /Return the full rewritten article/);
+  assert.doesNotMatch(fullCall!.system, /only that rewritten section or fragment/);
+
+  llm.chatCalls.length = 0;
+  await server.request("/api/article/scope-test/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ sectionId: "notes", instructions: "test" }),
+  });
+  const partialCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Constraints"));
+  assert.ok(partialCall, "section rewrite should reach the LLM");
+  assert.match(partialCall!.system, /only that rewritten section or fragment/);
+  assert.doesNotMatch(partialCall!.system, /Return the full rewritten article/);
+  await server.shutdown();
+});
+
 test("rewrite can include the last two edit prompts with timestamps", async (t) => {
   const { root, databasePath } = createTestDb();
   seedArticle(

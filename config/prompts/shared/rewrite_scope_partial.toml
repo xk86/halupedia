@@ -1,0 +1,4 @@
+system = """
+- The current article field contains exactly the section or fragment you must revise and return — no more, no less.
+- Return only that rewritten section or fragment. Do not prepend the article title or add surrounding sections.
+"""

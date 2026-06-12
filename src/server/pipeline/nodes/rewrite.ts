@@ -347,6 +347,13 @@ export const renderRewritePromptNode = defineNode({
       : loadedArticle
         ? stripTopLevelSections(loadedArticle.body, ["References", "See also"])
         : "";
+    // Scope-specific constraints: fragment-return rules only appear for
+    // partial edits — including them on whole-article rewrites primed the
+    // model to sometimes return a fragment. Text lives in TOML (shared/
+    // rewrite_scope_*.toml); code only selects which one applies.
+    const scopeRules =
+      deps.runtime.prompts.shared[isPartial ? "rewrite_scope_partial" : "rewrite_scope_full"]
+        ?.system ?? "";
 
     const rendered = deps.prompts.render("article_rewrite", {
       slug,
@@ -355,6 +362,7 @@ export const renderRewritePromptNode = defineNode({
       selected_text: selectedMarkdown ?? "",
       edit_instructions: instructions,
       rewrite_mode: modePrompt,
+      rewrite_scope_rules: scopeRules.trim(),
       link_hints: formatIncomingHintsForPrompt(hints, slug),
       references_list: formatReferencesForPrompt(refs),
       references_prompt_text: formatReferencesForPromptText(

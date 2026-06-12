@@ -190,10 +190,9 @@ export function App() {
   const [editInitialRefSlugs, setEditInitialRefSlugs] = useState<string[]>([]);
   const [editAddRefsOpen, setEditAddRefsOpen] = useState(false);
   // Slugs the user has explicitly removed from the reference list. Loaded
-  // from the article's persisted blacklist when the edit tray opens; the
-  // panel state is authoritative and synced back on every edit.
+  // from the article's persisted blacklist when the edit tray opens; every
+  // mutation is applied immediately via a refs-only edit (no LLM).
   const [editBlacklist, setEditBlacklist] = useState<string[]>([]);
-  const [editInitialBlacklist, setEditInitialBlacklist] = useState<string[]>([]);
   const [editBlacklistOpen, setEditBlacklistOpen] = useState(false);
   const [editBlacklistInput, setEditBlacklistInput] = useState("");
   const [editFuzzyQuery, setEditFuzzyQuery] = useState("");
@@ -245,14 +244,10 @@ export function App() {
   const editRefsToggleLocked = editIsPartial && editInitialRefSlugs.length > 0;
   // Reference selection differs from what was loaded — enough to submit an
   // edit even with an empty prompt (the server applies it without an LLM call).
-  const editBlacklistChanged =
-    editBlacklist.length !== editInitialBlacklist.length ||
-    editBlacklist.some((s) => !editInitialBlacklist.includes(s));
   const editRefsChanged =
-    (editRefsEnabled &&
-      (editRefs.length !== editInitialRefSlugs.length ||
-        editRefs.some((r) => !editInitialRefSlugSet.has(r.slug)))) ||
-    editBlacklistChanged;
+    editRefsEnabled &&
+    (editRefs.length !== editInitialRefSlugs.length ||
+      editRefs.some((r) => !editInitialRefSlugSet.has(r.slug)));
 
   useEffect(() => {
     if (themeMode === "dark") {
@@ -330,7 +325,6 @@ export function App() {
       setEditInitialRefSlugs([]);
       setEditAddRefsOpen(false);
       setEditBlacklist([]);
-      setEditInitialBlacklist([]);
       setEditBlacklistOpen(false);
       setEditBlacklistInput("");
       setEditFuzzyQuery("");
@@ -800,9 +794,7 @@ export function App() {
         setEditRefs(refs);
         setEditInitialRefSlugs(refs.map((ref) => ref.slug));
         setEditRefsEnabled(refs.length > 0);
-        const blacklist = body.blacklist ?? [];
-        setEditBlacklist(blacklist);
-        setEditInitialBlacklist(blacklist);
+        setEditBlacklist(body.blacklist ?? []);
       })
       .catch(() => { });
   }, []);
@@ -853,11 +845,34 @@ export function App() {
     setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
   }, [editIsPartial, editInitialRefSlugSet]);
 
+  // Apply a blacklist change immediately and deterministically: a refs-only
+  // edit (no LLM call) that persists the blocklist, rebuilds the reference
+  // sidecar, and refreshes the rendered References section.
+  const syncBlacklist = useCallback(async (nextBlacklist: string[]) => {
+    if (!page?.article.slug) return;
+    const slug = page.article.slug;
+    setEditBlacklist(nextBlacklist);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/article/${encodeURIComponent(slug)}/rewrite`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ instructions: "", blacklistSlugs: nextBlacklist }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((payload as any)?.error || `error ${res.status}`);
+      if (payload) setPage(payload as PageData);
+      loadEditRefs(slug);
+    } catch (err: any) {
+      setEditError(err?.message || "Could not update excluded references.");
+    }
+  }, [page?.article.slug, loadEditRefs]);
+
   const blacklistEditRef = useCallback((slug: string) => {
     setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
-    setEditBlacklist((prev) => prev.includes(slug) ? prev : [...prev, slug]);
     setEditBlacklistOpen(true);
-  }, []);
+    if (!editBlacklist.includes(slug)) void syncBlacklist([...editBlacklist, slug]);
+  }, [editBlacklist, syncBlacklist]);
 
   const togglePinRef = useCallback((slug: string) => {
     if (!page?.article.slug) return;
@@ -1081,7 +1096,6 @@ export function App() {
       setEditIncludeRecentPrompts(false);
       setEditAddRefsOpen(false);
       setEditBlacklist([]);
-      setEditInitialBlacklist([]);
       setEditBlacklistOpen(false);
       setEditBlacklistInput("");
       setEditFuzzyQuery("");
@@ -1872,7 +1886,7 @@ export function App() {
                         <button
                           type="button"
                           className="edit-blacklist-tag-remove"
-                          onClick={() => setEditBlacklist((bl) => bl.filter((s) => s !== slug))}
+                          onClick={() => void syncBlacklist(editBlacklist.filter((s) => s !== slug))}
                           disabled={editBusy}
                           aria-label={`Remove ${slug} from exclusions`}
                         >
@@ -1893,7 +1907,7 @@ export function App() {
                         e.preventDefault();
                         const s = editBlacklistInput.trim().toLowerCase().replace(/\s+/g, "-");
                         if (s && !editBlacklist.includes(s)) {
-                          setEditBlacklist((bl) => [...bl, s]);
+                          void syncBlacklist([...editBlacklist, s]);
                         }
                         setEditBlacklistInput("");
                       }
@@ -2089,7 +2103,7 @@ export function App() {
         )}
       </>
     );
-  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, rawEditOpen, rawEditMarkdown, rawEditPreview, rawEditPreviewBusy, openRawEdit, saveRawEdit, previewRawEdit, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, editRefSearchDone, editRefsChanged, editBlacklist, editBlacklistOpen, editBlacklistInput, searchEditRefs, addEditRef, removeEditRef, blacklistEditRef, togglePinRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage, editTitleDraft, editTitleBusy, editTitleError, protectionBusy]);
+  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, rawEditOpen, rawEditMarkdown, rawEditPreview, rawEditPreviewBusy, openRawEdit, saveRawEdit, previewRawEdit, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, editRefSearchDone, editRefsChanged, editBlacklist, editBlacklistOpen, editBlacklistInput, searchEditRefs, addEditRef, removeEditRef, blacklistEditRef, syncBlacklist, togglePinRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage, editTitleDraft, editTitleBusy, editTitleError, protectionBusy]);
 
   return (
     <div className="site">

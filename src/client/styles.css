@@ -987,6 +987,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-weight: 700;
   font-size: 0.9rem;
   padding: 0.45rem 0.6rem;
+  width: 100%;
   text-align: center;
   overflow-wrap: break-word;
 }

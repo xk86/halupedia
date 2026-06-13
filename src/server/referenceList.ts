@@ -31,7 +31,7 @@ import type {
 } from "./types";
 import type { RetrievedSourceArticle } from "./retrieval";
 import { getArticleByLookup, getLatestArticleReferences, listArticleBlacklistSlugs } from "./db";
-import { slugify, slugToTitle } from "./slug";
+import { legacySlugify, slugify, slugToTitle } from "./slug";
 
 /**
  * Inputs for `buildReferenceList`.
@@ -701,7 +701,17 @@ export function resolveReferenceTarget(
     return refs[num - 1];
   }
   const normalized = slugify(trimmed);
-  return refs.find((r) => r.slug === normalized);
+  const exact = refs.find((r) => r.slug === normalized);
+  if (exact) return exact;
+  // Reference slugs name literal hyphens as "dash" (title-mode slugify), so the
+  // canonical slug of "Purple Cheez-Its" is `purple-cheez-dash-its`. The model
+  // routinely emits the natural collapsed kebab instead — `ref:purple-cheez-its`
+  // — which never matches the dash-named slug. Fall back to the legacy
+  // (hyphen-collapsing) form of each ref's title, which both spellings reduce
+  // to, so the loose target still resolves to the right reference.
+  const loose = legacySlugify(trimmed);
+  if (!loose) return undefined;
+  return refs.find((r) => legacySlugify(r.title) === loose);
 }
 
 export function collectReferenceLinkSlugs(body: string): Set<string> {

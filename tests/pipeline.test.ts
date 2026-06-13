@@ -70,6 +70,7 @@ import {
   linkReferencesInline,
   renderReferencesHtml,
   resolveRefLinks,
+  resolveReferenceTarget,
 } from "../src/server/referenceList";
 import type { ReferenceList } from "../src/server/types";
 
@@ -815,6 +816,28 @@ test("resolveRefLinks: every occurrence of the same ref stays as a full anchor l
   const refCount = (resolved.match(/ref:glow-fruit/g) ?? []).length;
   assert.equal(refCount, 2, "second occurrence must not be collapsed to plain text");
   assert.match(resolved, /\[Glow Fruit\]\(ref:glow-fruit\).*\[Glow Fruit\]\(ref:glow-fruit\)/);
+});
+
+test("resolveRefLinks: collapsed-kebab target resolves to a dash-named ref slug", () => {
+  // The model emits the natural `ref:purple-cheez-its` for an article whose
+  // canonical (title-mode) slug names the hyphen as "dash". Resolution should
+  // map it back to the real ref and rewrite to the canonical slug + title.
+  const refs: ReferenceList = [makeRef("purple-cheez-dash-its", "Purple Cheez-Its")];
+  const body = "Snack on [Purple Cheez-Its](ref:purple-cheez-its) today.";
+  const resolved = resolveRefLinks(body, refs);
+  assert.match(resolved, /\(ref:purple-cheez-dash-its\)/);
+  assert.doesNotMatch(resolved, /ref:purple-cheez-its\)/);
+  assert.match(resolved, /\[Purple Cheez-Its\]/);
+});
+
+test("resolveReferenceTarget: exact dash-named slug still wins over the loose fallback", () => {
+  const refs: ReferenceList = [
+    makeRef("foo-dash-bar", "Foo-bar"),
+    makeRef("foo-bar", "Foo bar"),
+  ];
+  // Exact match must take the dash-named entry, not collapse to the sibling.
+  assert.equal(resolveReferenceTarget("foo-dash-bar", refs)?.slug, "foo-dash-bar");
+  assert.equal(resolveReferenceTarget("foo-bar", refs)?.slug, "foo-bar");
 });
 
 test("resolveRefLinks: empty ref list returns body unchanged", () => {

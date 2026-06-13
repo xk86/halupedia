@@ -3604,6 +3604,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 .all-entries-list li {
+  overflow-wrap: break-word;
   break-inside: avoid;
   margin: 0 0 0.25rem;
   font-size: 0.98rem;

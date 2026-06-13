@@ -12,6 +12,7 @@ import { singleSourceLength, bidirectional as unweightedPath } from "graphology-
 import { connectedComponents, largestConnectedComponent } from "graphology-components";
 import louvain from "graphology-communities-louvain";
 import * as THREE from "three";
+import { DragControls } from "three/examples/jsm/controls/DragControls.js";
 import {
   makeNodeLabel,
   setLabelColor,
@@ -23,6 +24,42 @@ import {
 } from "./graphLabels";
 import { toWikiSegment } from "./wikiPath";
 import { type Suggestion, fetchArticleSuggestions, useArticleSuggestions } from "./articleSuggest";
+
+// ── Node-drag button dispatch ────────────────────────────────────────────────
+// 3d-force-graph builds a THREE DragControls over the node meshes but never
+// exposes the instance, and DragControls' default button map sends right-drag
+// to a "rotate" action — hijacking the orbit-controls right-button pan
+// whenever the pointer happens to start on a node. Node grabs are a
+// left-button-only gesture here: every other button maps to no action, so the
+// event falls through to the camera controls (pan/orbit) untouched. The
+// DragControls constructor assigns `mouseButtons` per instance, so a prototype
+// accessor is the one spot that catches every instance the library creates.
+// (pnpm shares a single `three` module between us and 3d-force-graph, so this
+// prototype is the one its DragControls instances use.)
+{
+  const proto = DragControls.prototype as unknown as Record<string, unknown>;
+  Object.defineProperty(proto, "mouseButtons", {
+    configurable: true,
+    get(this: { __mouseButtons?: unknown }) {
+      return this.__mouseButtons;
+    },
+    set(this: { __mouseButtons?: unknown }) {
+      this.__mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: null, RIGHT: null };
+    },
+  });
+  // Shift is the "camera, not node" modifier on the left button: route the
+  // event through the original mapping with an unmapped button so the state
+  // resolves to NONE without reaching into DragControls' private constants.
+  const origUpdateState = proto._updateState as (event: unknown) => void;
+  proto._updateState = function (event: PointerEvent) {
+    origUpdateState.call(
+      this,
+      event.shiftKey && event.pointerType !== "touch"
+        ? { pointerType: "mouse", button: -1 }
+        : event,
+    );
+  };
+}
 
 interface RawNode { slug: string; title: string; exists: boolean; }
 interface RawLink { source: string; target: string; }
@@ -769,11 +806,6 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const pathEdgeSetRef = useRef(new Set<string>());
   const highlightSetRef = useRef(highlightSet);
   const shadingEnabledRef = useRef(shadingEnabled);
-  // Camera-gesture state: while Shift is held or the right button is down,
-  // node dragging is suspended so the pointer pans/orbits instead.
-  const shiftHeldRef = useRef(false);
-  const rightButtonDownRef = useRef(false);
-  const cleanupPointerHandlersRef = useRef<(() => void) | null>(null);
   const pathModeRef = useRef(pathMode);
   const pathEdgesRef = useRef(new Set<string>());
   const pathLinkBrightnessRef = useRef(settings.pathLinkBrightness);
@@ -1128,56 +1160,24 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         .nodeId("id")
         .nodeLabel((n: FgNode) => `${n.title}\n↑ ${n.visibleInDegree} in  ↓ ${n.visibleOutDegree} out`)
         .nodeVal((n: FgNode) => Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6))
-        .onNodeClick((n: FgNode) => {
+        .onNodeClick((n: FgNode, event?: MouseEvent) => {
           // Shaded (non-highlighted) nodes are visually receded — don't let
           // them be grabbed/navigated, which would be confusing.
           const hl = highlightSetRef.current;
           if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return;
           // Shift-click is the "interact with the camera, not the node" gesture.
-          if (shiftHeldRef.current) return;
+          if (event?.shiftKey) return;
           if (n.exists) onNavigate(toWikiSegment(n.title));
         });
 
-      // Camera gestures must win over node grabbing: right-button drags
-      // (orbit pan) and any interaction with Shift held suspend node drag,
-      // so starting them on top of a node pans the view instead of moving
-      // the node. Capture phase so the toggle lands before the renderer's
-      // own pointer handlers see the event.
-      // Toggling enableNodeDrag rebuilds the renderer's DragControls, so only
-      // call through when the effective value actually changes.
-      let nodeDragEnabled = true;
-      const applyDragEnabled = () => {
-        const next = !(shiftHeldRef.current || rightButtonDownRef.current);
-        if (next === nodeDragEnabled) return;
-        nodeDragEnabled = next;
-        fg.enableNodeDrag(next);
-      };
-      const onPointerDown = (e: PointerEvent) => {
-        rightButtonDownRef.current = e.button === 2;
-        shiftHeldRef.current = e.shiftKey;
-        applyDragEnabled();
-      };
-      const onPointerUp = () => {
-        rightButtonDownRef.current = false;
-        applyDragEnabled();
-      };
-      const onKey = (e: KeyboardEvent) => {
-        if (e.key !== "Shift") return;
-        shiftHeldRef.current = e.type === "keydown";
-        applyDragEnabled();
-      };
-      el.addEventListener("pointerdown", onPointerDown, true);
-      el.addEventListener("pointerup", onPointerUp, true);
-      el.addEventListener("pointercancel", onPointerUp, true);
-      window.addEventListener("keydown", onKey);
-      window.addEventListener("keyup", onKey);
-      cleanupPointerHandlersRef.current = () => {
-        el.removeEventListener("pointerdown", onPointerDown, true);
-        el.removeEventListener("pointerup", onPointerUp, true);
-        el.removeEventListener("pointercancel", onPointerUp, true);
-        window.removeEventListener("keydown", onKey);
-        window.removeEventListener("keyup", onKey);
-      };
+      // Seed an empty dataset before any other prop is applied. The force
+      // engine resumes (engineRunning = true) at the end of EVERY update
+      // digest, but its layout is only created by digests that include a
+      // graphData change — if the first digest came from a settings prop
+      // while /api/graph was still in flight, the next tick crashed on an
+      // undefined layout ("can't access property 'tick', e.layout is
+      // undefined" on page refresh).
+      fg.graphData({ nodes: [], links: [] });
 
       setInitialized(true);
     });
@@ -1185,8 +1185,6 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     return () => {
       destroyed = true;
       disposeLabels(labelSpritesRef.current);
-      cleanupPointerHandlersRef.current?.();
-      cleanupPointerHandlersRef.current = null;
       if (fgRef.current) {
         try { fgRef.current._destructor?.(); } catch { /* ignore */ }
         fgRef.current = null;

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as THREE from "three";
 
 import Graph from "graphology";
 
+import * as THREE from "three";
+import { DragControls } from "three/examples/jsm/controls/DragControls.js";
 import { blendHex, computeNodeDisplayColor, computePathNodes, computePaths, desaturate, dim, kShortestPaths, labelDrawState, oklch, summarizeCommunities, traceHue, trailNodeLightness } from "../../src/client/GraphView";
 
 interface FgNodeLike {
@@ -503,5 +504,46 @@ describe("summarizeCommunities", () => {
     expect(g1.linksIn).toBe(2);
     expect(g2.linksOut).toBe(2);
     expect(g2.linksIn).toBe(1);
+  });
+});
+
+describe("DragControls button dispatch (node grab is left-button only)", () => {
+  // Importing GraphView patches the shared DragControls prototype so node
+  // grabs only engage on plain left-button drags; right/middle buttons and
+  // shift-held interactions resolve to no action and fall through to the
+  // camera controls (orbit pan).
+  function makeControls() {
+    return new DragControls([], new THREE.PerspectiveCamera(), document.createElement("div")) as any;
+  }
+
+  it("maps only the left button to a drag action", () => {
+    const dc = makeControls();
+    expect(dc.mouseButtons.LEFT).toBe(THREE.MOUSE.PAN);
+    expect(dc.mouseButtons.MIDDLE).toBeNull();
+    expect(dc.mouseButtons.RIGHT).toBeNull();
+  });
+
+  it("right-button and shift-left events resolve to the NONE state", () => {
+    const dc = makeControls();
+    dc._updateState({ pointerType: "mouse", button: 5 });
+    const none = dc.state;
+    dc._updateState({ pointerType: "mouse", button: 0 });
+    const grab = dc.state;
+    expect(grab).not.toBe(none);
+
+    dc._updateState({ pointerType: "mouse", button: 2 });
+    expect(dc.state).toBe(none);
+    dc._updateState({ pointerType: "mouse", button: 1 });
+    expect(dc.state).toBe(none);
+    dc._updateState({ pointerType: "mouse", button: 0, shiftKey: true });
+    expect(dc.state).toBe(none);
+  });
+
+  it("keeps single-finger touch drags working", () => {
+    const dc = makeControls();
+    dc._updateState({ pointerType: "mouse", button: 5 });
+    const none = dc.state;
+    dc._updateState({ pointerType: "touch" });
+    expect(dc.state).not.toBe(none);
   });
 });

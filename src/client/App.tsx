@@ -717,7 +717,7 @@ export function App() {
           return data;
         });
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const interceptArticleLinks = useCallback(
@@ -929,11 +929,11 @@ export function App() {
           markdown: rawEditMarkdown,
           ...(editRefsEnabled && editRefs.length > 0
             ? {
-                referenceSlugs: editRefs.map((r) => r.slug),
-                ...(editRefs.some((r) => r.pinned)
-                  ? { pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug) }
-                  : {}),
-              }
+              referenceSlugs: editRefs.map((r) => r.slug),
+              ...(editRefs.some((r) => r.pinned)
+                ? { pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug) }
+                : {}),
+            }
             : {}),
         }),
       });
@@ -979,11 +979,11 @@ export function App() {
             : { sectionId: editSectionId || undefined }),
           ...(editRefsEnabled && (editRefs.length > 0 || editInitialRefSlugs.length > 0)
             ? {
-                // Sent even when emptied: the panel state is authoritative, so
-                // an empty array means "remove all refs" / "unpin all".
-                referenceSlugs: editRefs.map((r) => r.slug),
-                pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug),
-              }
+              // Sent even when emptied: the panel state is authoritative, so
+              // an empty array means "remove all refs" / "unpin all".
+              referenceSlugs: editRefs.map((r) => r.slug),
+              pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug),
+            }
             : {}),
           // Always sent: the panel state is authoritative, so an empty array
           // means "clear all persisted blocks" (it was loaded from the server
@@ -1475,80 +1475,82 @@ export function App() {
         {restoreMessage ? <div className="status">{restoreMessage}</div> : null}
         <div className="article-title-row">
           <h1 dangerouslySetInnerHTML={{ __html: renderInlineHtml(articleDisplayTitle) }} />
-          <button
-            type="button"
-            className="article-edit-button"
-            style={{ opacity: page.isProtected ? 1 : 0.35, fontSize: "1.1rem", lineHeight: 1 }}
-            title={page.isProtected ? "Article is locked — click to unlock" : "Lock article against automatic rewrites"}
-            aria-label={page.isProtected ? "Unlock article" : "Lock article"}
-            disabled={protectionBusy}
-            onClick={async () => {
-              setProtectionBusy(true);
-              try {
-                const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/protect`, {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({ isProtected: !page.isProtected }),
-                });
-                if (res.ok) {
-                  const data = await res.json() as { isProtected: boolean };
-                  setPage((cur) => cur ? { ...cur, isProtected: data.isProtected } : cur);
+          <div className="article-title-actions">
+            <button
+              type="button"
+              className="article-edit-button"
+              style={{ opacity: page.isProtected ? 1 : 0.35, fontSize: "1.1rem", lineHeight: 1 }}
+              title={page.isProtected ? "Article is locked — click to unlock" : "Lock article against automatic rewrites"}
+              aria-label={page.isProtected ? "Unlock article" : "Lock article"}
+              disabled={protectionBusy}
+              onClick={async () => {
+                setProtectionBusy(true);
+                try {
+                  const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/protect`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ isProtected: !page.isProtected }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json() as { isProtected: boolean };
+                    setPage((cur) => cur ? { ...cur, isProtected: data.isProtected } : cur);
+                  }
+                } finally {
+                  setProtectionBusy(false);
                 }
-              } finally {
-                setProtectionBusy(false);
-              }
-            }}
-          >
-            {page.isProtected ? "🔒" : "🔓"}
-          </button>
-          <button
-            type="button"
-            className="article-edit-button"
-            onClick={copyArticleSlug}
-            aria-label="Copy slug"
-            title="Copy slug"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1Zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H10V7h9v14Z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="article-edit-button"
-            onClick={refreshContext}
-            disabled={refreshBusy}
-            aria-label="Refresh with retrieved context"
-            title="Refresh with retrieved context"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3l-3.3 3.3Z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="article-edit-button"
-            onClick={loadHistory}
-            aria-label="View history"
-            title="View history"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M13 3a9 9 0 1 1-8.95 10H2l3-3.2L8 13H6.06A7 7 0 1 0 13 5a6.95 6.95 0 0 0-4.95 2.05L6.63 5.63A8.94 8.94 0 0 1 13 3Zm-1 4h2v5.15l3.2 1.9-1 1.72-4.2-2.5V7Z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="article-edit-button"
-            onClick={() => {
-              setEditOpen(true);
-              setEditError(null);
-            }}
-            aria-label="Edit article"
-            title="Edit article"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25Zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.96 1.96 3.75 3.75 2.13-1.79Z" />
-            </svg>
-          </button>
+              }}
+            >
+              {page.isProtected ? "🔒" : "🔓"}
+            </button>
+            <button
+              type="button"
+              className="article-edit-button"
+              onClick={copyArticleSlug}
+              aria-label="Copy slug"
+              title="Copy slug"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1Zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H10V7h9v14Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="article-edit-button"
+              onClick={refreshContext}
+              disabled={refreshBusy}
+              aria-label="Refresh with retrieved context"
+              title="Refresh with retrieved context"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3l-3.3 3.3Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="article-edit-button"
+              onClick={loadHistory}
+              aria-label="View history"
+              title="View history"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M13 3a9 9 0 1 1-8.95 10H2l3-3.2L8 13H6.06A7 7 0 1 0 13 5a6.95 6.95 0 0 0-4.95 2.05L6.63 5.63A8.94 8.94 0 0 1 13 3Zm-1 4h2v5.15l3.2 1.9-1 1.72-4.2-2.5V7Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="article-edit-button"
+              onClick={() => {
+                setEditOpen(true);
+                setEditError(null);
+              }}
+              aria-label="Edit article"
+              title="Edit article"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25Zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.96 1.96 3.75 3.75 2.13-1.79Z" />
+              </svg>
+            </button>
+          </div>
         </div>
         {copySlugMessage ? <div className="status">{copySlugMessage}</div> : null}
         {editOpen ? (

@@ -594,24 +594,51 @@ a:hover {
 }
 
 .article-title-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.85rem;
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
   margin: 0 0 1.25rem;
+  justify-content: space-between;
 }
 
-.article-title-row h1,
+.article-title-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-content: flex-start;
+  justify-content: flex-end;
+  max-width: clamp(7rem, 18vw, 16rem);
+  flex-direction: row;
+  gap: 0.5rem;
+}
+
+.article-title-row>h1 {
+  flex: 1 1 auto;
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 2.4rem;
+  line-height: 1.15;
+  min-width: 0;
+  margin: 0;
+  padding-bottom: 0.6rem;
+  border-bottom: 2px solid var(--rule);
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+  /* Long single-word titles must wrap instead of overflowing the column. */
+  overflow-wrap: anywhere;
+}
+
 .article h1 {
   font-family: var(--serif);
   font-weight: 500;
   font-size: 2.4rem;
   line-height: 1.15;
+  min-width: 0;
   margin: 0;
   padding-bottom: 0.6rem;
   border-bottom: 2px solid var(--rule);
   letter-spacing: -0.005em;
-  flex: 1;
-  /* Long single-word titles must wrap instead of overflowing the column. */
+  text-wrap: balance;
   overflow-wrap: anywhere;
 }
 
@@ -3672,12 +3699,11 @@ button.admin-danger-btn:hover:not(:disabled) {
    and the order becomes article → sidebar → comments. */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1.5fr);
   gap: 2.4rem;
   align-items: start;
   margin: 0 2em;
-  width: 67dvw;
-  min-width: 50dvw;
+  min-width: 67dvw;
 }
 
 .layout-main {
@@ -3766,7 +3792,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--ink);
 }
 
-/* Mobile: collapse to a single column and reorder children so the visual
+/* Mobile view: collapse to a single column and reorder children so the visual
    flow is article → sidebar → comments. This block MUST come after the
    base .sidebar rule above; otherwise the desktop `grid-column: 2` wins
    the cascade (equal specificity, source order) and the sidebar stays
@@ -3780,6 +3806,25 @@ button.admin-danger-btn:hover:not(:disabled) {
   .layout-main {
     grid-column: 1;
     grid-row: 2;
+  }
+
+  .article-title-row {
+    grid-template-columns: 1fr;
+  }
+
+  .article-title-row>h1 {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .article-title-actions {
+    grid-column: 1;
+    grid-row: 2;
+
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    max-width: none;
   }
 
   .sidebar {

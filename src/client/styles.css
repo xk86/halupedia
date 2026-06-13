@@ -1,4 +1,5 @@
 :root {
+  --mobile-width: 680px;
   --parchment: #f3ecd8;
   --parchment-deep: #e9dfc3;
   --ink: #1e1812;
@@ -306,6 +307,8 @@ a:hover {
   border-top: 1px dotted var(--rule-dotted);
   padding-top: 0.6rem;
   margin-top: -0.3rem;
+  width: 67dvw;
+  max-width: 86%;
 }
 
 .header-search-wrap {
@@ -687,25 +690,34 @@ a:hover {
 
 .edit-tray,
 .history-panel {
+  display: flex;
+  flex-direction: column;
   margin: -0.5rem 0 1.4rem;
   padding: 0.85rem;
   border: 1px solid var(--panel-border);
+  max-width: 86%;
   background: var(--panel-surface);
+  justify-self: center;
 }
 
 .edit-tray-row,
 .history-panel-header {
   display: flex;
+  flex: 1;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
   margin-bottom: 0.7rem;
+  max-width: 100%;
+  width: 100%;
 }
 
 .edit-tray label {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.55rem;
+  min-width: 0;
   font-family: var(--mono);
   font-size: 0.74rem;
   text-transform: uppercase;
@@ -713,11 +725,17 @@ a:hover {
   color: var(--ink-soft);
 }
 
+.edit-tray label>* {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .edit-tray select {
   font: inherit;
   color: var(--ink);
   background: var(--parchment);
   border: 1px solid var(--rule);
+  width: max-content;
   padding: 0.42rem 0.5rem;
 }
 
@@ -1009,8 +1027,6 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 .infobox-title {
-  background: var(--accent-wash-strong);
-  border-bottom: 1px solid var(--panel-border);
   color: var(--ink);
   font-weight: 700;
   font-size: 0.9rem;
@@ -1111,6 +1127,8 @@ button.admin-danger-btn:hover:not(:disabled) {
 /* ── Sidebar edit panel ──────────────────────────────────────────────────── */
 
 .infobox-header-row {
+  background: var(--accent-wash-strong);
+  border-bottom: 1px solid var(--panel-border);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1125,6 +1143,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   padding: 0.1rem 0.35rem;
   font-size: 0.75rem;
   cursor: pointer;
+  background-color: var(--parchment);
   color: var(--text-muted, #7a6a4f);
   line-height: 1;
   opacity: 0.6;
@@ -1771,6 +1790,9 @@ button.admin-danger-btn:hover:not(:disabled) {
 /* ── Edit tray: image panel ──────────────────────────────────────────────── */
 
 .edit-image-panel {
+  display: grid;
+  width: 100%;
+  min-width: 0;
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
   border-radius: 4px;
@@ -1855,24 +1877,36 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 .edit-image-upload {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
   gap: 0.5rem;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .edit-image-search-row {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
+  display: contents;
 }
 
 .edit-image-search-input {
-  flex: 1;
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  min-width: 0;
   font-size: 0.85rem;
   padding: 0.3rem 0.5rem;
 }
 
+.edit-image-search-row>button {
+  grid-column: 2 / 4;
+  grid-row: 1;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
 .edit-image-search-results {
+  grid-column: 1 / -1;
   border: 1px solid var(--rule-soft);
   border-radius: 3px;
   padding: 0.4rem;
@@ -1926,18 +1960,21 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 .edit-image-upload-row {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
+  display: contents;
 }
 
 .edit-image-url-input {
-  flex: 1;
+  grid-column: 1;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
   font-size: 0.85rem;
   padding: 0.3rem 0.5rem;
 }
 
 .edit-image-file-label {
+  grid-column: 2;
+  grid-row: 2;
   background: var(--control-surface);
   border: 1px solid var(--control-border);
   border-radius: 3px;
@@ -1955,6 +1992,72 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .edit-image-file-label:hover {
   background: var(--control-surface-strong);
+}
+
+.edit-image-upload-row>button {
+  grid-column: 3;
+  grid-row: 2;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+/* Editor mobile view */
+@media (max-width: 600px) {
+  .edit-tray-row {
+    align-items: stretch;
+  }
+
+  .edit-tray label {
+    flex: 1 1 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    align-items: stretch;
+  }
+
+  .edit-tray textarea,
+  .edit-tray input[type="text"] {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .edit-tray-row>button {
+    margin-left: auto;
+  }
+
+  .edit-image-upload {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    width: 100%;
+  }
+
+  .edit-image-search-input {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .edit-image-search-row>button {
+    grid-column: 2;
+    grid-row: 1;
+    width: auto;
+  }
+
+  .edit-image-url-input {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .edit-image-file-label {
+    grid-column: 1;
+    grid-row: 3;
+    width: 100%;
+  }
+
+  .edit-image-upload-row>button {
+    grid-column: 2;
+    grid-row: 3;
+    width: auto;
+  }
 }
 
 .edit-image-file-input {
@@ -3117,34 +3220,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 /* Selection */
-@media (max-width: 600px) {
-
-  html,
-  body {
-    font-size: 17px;
-  }
-
-  .site {
-    padding: 1rem 1.1rem 4rem;
-  }
-
-  .article h1 {
-    font-size: 1.9rem;
-  }
-
-  .article h2 {
-    font-size: 1.25rem;
-  }
-
-  .brand {
-    font-size: 1.35rem;
-  }
-
-  .nav {
-    font-size: 0.7rem;
-    gap: 0.9rem;
-  }
-}
+@media (max-width: 600px) {}
 
 /* ----------------------- Comments ------------------------- */
 
@@ -3516,6 +3592,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 .all-entries {
   font-family: var(--serif);
   color: var(--ink);
+  max-width: 67dvw;
 }
 
 .all-entries-header {
@@ -3707,6 +3784,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 .layout-main {
+  display: grid;
   min-width: 0;
   /* prevents long words from blowing out the grid */
   max-width: 100%;
@@ -3734,6 +3812,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   border-top: 1px solid var(--rule-soft);
   margin-top: 2rem;
   padding-top: 0.75rem;
+  max-width: 87dvw;
 }
 
 .article-backlinks-heading {
@@ -3760,6 +3839,8 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .article-backlinks-list li {
   font-size: 0.85rem;
+  word-break: break-all;
+  hyphens: manual;
 }
 
 .article-backlinks-stub {
@@ -3798,15 +3879,54 @@ button.admin-danger-btn:hover:not(:disabled) {
    the cascade (equal specificity, source order) and the sidebar stays
    pinned to the right column at every viewport — which is exactly the
    bug that prompted this rewrite. */
-@media (max-width: 980px) {
+@media (max-width: 680px) {
+
+  html,
+  body {
+    font-size: 10pt;
+  }
+
+  .article h1 {
+    font-size: 1.9rem;
+  }
+
+  .article h2 {
+    font-size: 1.25rem;
+  }
+
+  .brand {
+    font-size: 1.35rem;
+  }
+
+  .nav {
+    font-size: 0.7rem;
+    gap: 0.9rem;
+  }
+
+  .site {
+    max-width: 95dvw;
+    padding: 0;
+    margin: 0 1rem;
+  }
+
   .layout {
+    margin: 0 1rem;
     grid-template-columns: 1fr;
   }
 
   .layout-main {
+    font-size: 8pt;
     grid-column: 1;
     grid-row: 2;
+
   }
+
+  /*
+  .layout-main>.article,
+  .layout-main>.all-entries a {
+    font-size: 10pt;
+  }
+    */
 
   .article-title-row {
     grid-template-columns: 1fr;
@@ -3827,11 +3947,6 @@ button.admin-danger-btn:hover:not(:disabled) {
     max-width: none;
   }
 
-  .sidebar {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
   .layout>.comments {
     grid-column: 1;
     grid-row: 3;
@@ -3839,6 +3954,10 @@ button.admin-danger-btn:hover:not(:disabled) {
   }
 
   .sidebar {
+    max-width: 50dvw;
+    justify-self: center;
+    grid-column: 1;
+    grid-row: 1;
     position: static;
     border-top: 1px solid var(--rule);
     padding-top: 0;
@@ -3846,6 +3965,9 @@ button.admin-danger-btn:hover:not(:disabled) {
 
   /* Mobile collapse toggle — visible only on small screens */
   .sidebar-mobile-toggle {
+    overflow-wrap: break-word;
+    word-break: break-all;
+    max-width: 67dvw;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -3891,7 +4013,7 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 /* On desktop, never show the mobile toggle */
-@media (min-width: 981px) {
+@media (min-width: 680px) {
   .sidebar-mobile-toggle {
     display: none;
   }

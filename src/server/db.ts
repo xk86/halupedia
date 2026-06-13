@@ -1856,8 +1856,37 @@ export function getSidebarRevision(db: DatabaseSync, id: number): SidebarRevisio
     .get(id) as unknown) as SidebarRevision | null;
 }
 
+/**
+ * Register lookup aliases for every slug a `title` can derive — the robust
+ * slug (`slugify`) and the legacy collapsing slug (`legacySlugify`) — pointing
+ * at `articleSlug`. Skips any form that is already a real article's slug or
+ * another article's alias, so it never shadows or steals (mirrors the guard in
+ * `saveArticle`). Used after a title edit so links built from the *new* title
+ * resolve back to the existing article instead of generating a duplicate.
+ */
+export function aliasTitleSlugs(db: DatabaseSync, articleSlug: string, title: string): void {
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO article_aliases (alias_slug, article_slug) VALUES (?, ?)`,
+  );
+  const occupiedByArticle = db.prepare(`SELECT slug FROM articles WHERE slug = ?`);
+  const occupiedByAlias = db.prepare(`SELECT article_slug FROM article_aliases WHERE alias_slug = ?`);
+  const candidates = new Set([slugify(title), legacySlugify(title)].filter(Boolean));
+  for (const aliasSlug of candidates) {
+    if (aliasSlug === articleSlug) continue;
+    if (occupiedByArticle.get(aliasSlug)) continue;
+    const existing = occupiedByAlias.get(aliasSlug) as { article_slug: string } | undefined;
+    if (existing && existing.article_slug !== articleSlug) continue;
+    insert.run(aliasSlug, articleSlug);
+  }
+}
+
 export function updateArticleTitle(db: DatabaseSync, slug: string, title: string): ArticleRecord | null {
   db.prepare(`UPDATE articles SET title = ? WHERE slug = ?`).run(title, slug);
+  // The new title's slug forms must resolve back to this article; otherwise a
+  // link built from the renamed title hits an unaliased slug and generates a
+  // duplicate (the "Anomalous Article 624: Purple Cheez-Its" vs "...624 Purple
+  // Cheez-Its" twins in the index).
+  aliasTitleSlugs(db, slug, title);
   return getArticle(db, slug);
 }
 

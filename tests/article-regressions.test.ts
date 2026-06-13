@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getArticle, getLatestArticleReferences, listArticleRevisions, openDatabase, saveArticle, saveArticleReferences } from "../src/server/db";
+import { getArticle, getArticleByLookup, getLatestArticleReferences, listArticleRevisions, openDatabase, saveArticle, saveArticleReferences } from "../src/server/db";
+import { slugify } from "../src/server/slug";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import { OpenAICompatRouter, type LlmRouter } from "../src/server/llm";
@@ -2184,4 +2185,34 @@ test("update-title endpoint changes stored title without changing slug", async (
   assert.equal(stored?.title, "**My Renamed Article**");
   assert.equal(stored?.slug, "my-article"); // slug unchanged
   assert.ok(revisions.some((r) => r.operation === "title-edit"));
+});
+
+test("renaming a title aliases the new title's slug so links don't spawn a duplicate", async (t) => {
+  const { root, databasePath } = createTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  saveMarkdownArticle(databasePath, {
+    slug: "anomalous-article-624",
+    title: "Anomalous Article 624",
+    markdown: "# Anomalous Article 624\n\nContent.",
+  });
+
+  const server = await createServer(databasePath, new QueueLlmClient(""));
+  const res = await server.request("/api/article/Anomalous_Article_624/update-title", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "Anomalous Article 624: Purple Cheez-Its" }),
+  });
+  assert.equal(res.status, 200);
+
+  const db = openDatabase(databasePath);
+  // A link built from the new title slugifies to this; it must resolve back to
+  // the original article instead of being treated as a brand-new slug.
+  const newTitleSlug = slugify("Anomalous Article 624: Purple Cheez-Its");
+  assert.notEqual(newTitleSlug, "anomalous-article-624");
+  const resolved = getArticleByLookup(db, newTitleSlug);
+  assert.equal(resolved?.slug, "anomalous-article-624", "new-title slug must alias to the existing article");
+  // No duplicate article row was created.
+  const count = (db.prepare(`SELECT COUNT(*) AS n FROM articles`).get() as { n: number }).n;
+  assert.equal(count, 1);
+  db.close();
 });

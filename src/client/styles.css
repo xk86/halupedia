@@ -3599,7 +3599,7 @@ button.admin-danger-btn:hover:not(:disabled) {
   list-style: none;
   padding: 0;
   margin: 0;
-  columns: 2;
+  columns: 3;
   column-gap: 2rem;
 }
 
@@ -3672,16 +3672,18 @@ button.admin-danger-btn:hover:not(:disabled) {
    and the order becomes article → sidebar → comments. */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 0.95fr);
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
   gap: 2.4rem;
   align-items: start;
   margin: 0 2em;
+  width: 67dvw;
+  min-width: 50dvw;
 }
 
 .layout-main {
   min-width: 0;
   /* prevents long words from blowing out the grid */
-  max-width: max-content;
+  max-width: 100%;
   /* preserve original reading measure */
   grid-column: 1;
   grid-row: 1;
@@ -3777,12 +3779,12 @@ button.admin-danger-btn:hover:not(:disabled) {
 
   .layout-main {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
   }
 
   .sidebar {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 1;
   }
 
   .layout>.comments {
@@ -3833,6 +3835,13 @@ button.admin-danger-btn:hover:not(:disabled) {
   .infobox--collapsed .infobox-caption,
   .infobox--collapsed .infobox-table {
     display: none;
+  }
+}
+
+/* ultrawide cap */
+@media (min-width: 1854px) {
+  .site {
+    max-width: 1854px;
   }
 }
 

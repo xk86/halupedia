@@ -508,42 +508,88 @@ describe("summarizeCommunities", () => {
 });
 
 describe("DragControls button dispatch (node grab is left-button only)", () => {
-  // Importing GraphView patches the shared DragControls prototype so node
-  // grabs only engage on plain left-button drags; right/middle buttons and
-  // shift-held interactions resolve to no action and fall through to the
-  // camera controls (orbit pan).
-  function makeControls() {
-    return new DragControls([], new THREE.PerspectiveCamera(), document.createElement("div")) as any;
+  // Importing GraphView patches the shared DragControls prototype so its
+  // pointerdown handler only engages on plain left-button (or touch) presses;
+  // right/middle buttons and shift-held interactions never enter DragControls
+  // and fall through to the camera controls (orbit pan). Crucially, a gated
+  // press must not record a selection: an "inert" right-press over a node
+  // used to emit a dragstart-less dragend on release, which crashed the
+  // dragend handler and wedged every later grab.
+  function makeDragRig() {
+    const dom = document.createElement("div");
+    dom.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 200, height: 200, right: 200, bottom: 200, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
+    camera.position.set(0, 0, 5);
+    camera.updateMatrixWorld();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2));
+    const scene = new THREE.Scene();
+    scene.add(mesh);
+    scene.updateMatrixWorld(true);
+    const dc = new DragControls([mesh], camera, dom);
+    const events: string[] = [];
+    dc.addEventListener("dragstart", () => events.push("dragstart"));
+    dc.addEventListener("drag", () => events.push("drag"));
+    dc.addEventListener("dragend", () => events.push("dragend"));
+    // jsdom has no PointerEvent; DragControls only reads type/coords/button/
+    // shiftKey/pointerType, so a MouseEvent with pointerType defined works.
+    const fire = (
+      type: "pointerdown" | "pointermove" | "pointerup",
+      init: { button?: number; shiftKey?: boolean; pointerType?: string; x?: number; y?: number } = {},
+    ) => {
+      const e = new MouseEvent(type, {
+        clientX: init.x ?? 100,
+        clientY: init.y ?? 100,
+        button: init.button ?? 0,
+        shiftKey: init.shiftKey ?? false,
+        bubbles: true,
+      });
+      Object.defineProperty(e, "pointerType", { value: init.pointerType ?? "mouse" });
+      dom.dispatchEvent(e);
+    };
+    return { dc, fire, events };
   }
 
-  it("maps only the left button to a drag action", () => {
-    const dc = makeControls();
-    expect(dc.mouseButtons.LEFT).toBe(THREE.MOUSE.PAN);
-    expect(dc.mouseButtons.MIDDLE).toBeNull();
-    expect(dc.mouseButtons.RIGHT).toBeNull();
+  it("left-button grab over a node starts, drags, and releases cleanly", () => {
+    const { dc, fire, events } = makeDragRig();
+    fire("pointerdown", { button: 0 });
+    expect(events).toEqual(["dragstart"]);
+    fire("pointermove", { x: 120, y: 110 });
+    expect(events).toEqual(["dragstart", "drag"]);
+    fire("pointerup");
+    expect(events).toEqual(["dragstart", "drag", "dragend"]);
+    dc.dispose();
   });
 
-  it("right-button and shift-left events resolve to the NONE state", () => {
-    const dc = makeControls();
-    dc._updateState({ pointerType: "mouse", button: 5 });
-    const none = dc.state;
-    dc._updateState({ pointerType: "mouse", button: 0 });
-    const grab = dc.state;
-    expect(grab).not.toBe(none);
+  it("right-button press+release over a node emits no drag events and later grabs still release", () => {
+    const { dc, fire, events } = makeDragRig();
+    fire("pointerdown", { button: 2 });
+    fire("pointermove", { x: 130, y: 90 });
+    fire("pointerup", { button: 2 });
+    expect(events).toEqual([]); // no spurious dragend from the gated press
 
-    dc._updateState({ pointerType: "mouse", button: 2 });
-    expect(dc.state).toBe(none);
-    dc._updateState({ pointerType: "mouse", button: 1 });
-    expect(dc.state).toBe(none);
-    dc._updateState({ pointerType: "mouse", button: 0, shiftKey: true });
-    expect(dc.state).toBe(none);
+    // A normal grab afterwards must still work end-to-end.
+    fire("pointerdown", { button: 0 });
+    fire("pointerup");
+    expect(events).toEqual(["dragstart", "dragend"]);
+    dc.dispose();
+  });
+
+  it("middle-button and shift-left presses never grab", () => {
+    const { dc, fire, events } = makeDragRig();
+    fire("pointerdown", { button: 1 });
+    fire("pointerup", { button: 1 });
+    fire("pointerdown", { button: 0, shiftKey: true });
+    fire("pointerup");
+    expect(events).toEqual([]);
+    dc.dispose();
   });
 
   it("keeps single-finger touch drags working", () => {
-    const dc = makeControls();
-    dc._updateState({ pointerType: "mouse", button: 5 });
-    const none = dc.state;
-    dc._updateState({ pointerType: "touch" });
-    expect(dc.state).not.toBe(none);
+    const { dc, fire, events } = makeDragRig();
+    fire("pointerdown", { pointerType: "touch" });
+    fire("pointerup", { pointerType: "touch" });
+    expect(events).toEqual(["dragstart", "dragend"]);
+    dc.dispose();
   });
 });

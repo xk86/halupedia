@@ -27,38 +27,49 @@ import { type Suggestion, fetchArticleSuggestions, useArticleSuggestions } from 
 
 // ── Node-drag button dispatch ────────────────────────────────────────────────
 // 3d-force-graph builds a THREE DragControls over the node meshes but never
-// exposes the instance, and DragControls' default button map sends right-drag
-// to a "rotate" action — hijacking the orbit-controls right-button pan
-// whenever the pointer happens to start on a node. Node grabs are a
-// left-button-only gesture here: every other button maps to no action, so the
-// event falls through to the camera controls (pan/orbit) untouched. The
-// DragControls constructor assigns `mouseButtons` per instance, so a prototype
-// accessor is the one spot that catches every instance the library creates.
-// (pnpm shares a single `three` module between us and 3d-force-graph, so this
-// prototype is the one its DragControls instances use.)
+// exposes the instance, and DragControls engages on every pointer button —
+// hijacking the orbit-controls right-button pan whenever the drag starts on a
+// node. Node grabs are a left-button-only gesture here, so gate the
+// pointerdown handler itself: any other button (or shift-held left, the
+// "camera, not node" modifier) never enters DragControls and falls through to
+// the camera controls untouched. The gate must sit at pointerdown — merely
+// mapping the button to "no action" still records the hovered node as the
+// active selection, and the next pointerup then emits a dragstart-less
+// dragend that crashes the library's handler and wedges all later grabs.
+//
+// The constructor binds the handler per instance, so hook the construction
+// path: the `mouseButtons` assignment (which precedes the handler binding)
+// installs an accessor that wraps whatever handler gets assigned next. pnpm
+// shares one `three` module between us and 3d-force-graph, so this prototype
+// is the one its DragControls instances use.
 {
   const proto = DragControls.prototype as unknown as Record<string, unknown>;
+  type WithHandlers = {
+    __mouseButtons?: unknown;
+    _onPointerDown?: (event: PointerEvent) => void;
+  };
   Object.defineProperty(proto, "mouseButtons", {
     configurable: true,
-    get(this: { __mouseButtons?: unknown }) {
+    get(this: WithHandlers) {
       return this.__mouseButtons;
     },
-    set(this: { __mouseButtons?: unknown }) {
-      this.__mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: null, RIGHT: null };
+    set(this: WithHandlers, value: unknown) {
+      this.__mouseButtons = value;
+      if (!Object.getOwnPropertyDescriptor(this, "_onPointerDown")) {
+        let gated: ((event: PointerEvent) => void) | undefined;
+        Object.defineProperty(this, "_onPointerDown", {
+          configurable: true,
+          get: () => gated,
+          set: (handler: (event: PointerEvent) => void) => {
+            gated = (event: PointerEvent) => {
+              if (event.pointerType !== "touch" && (event.button !== 0 || event.shiftKey)) return;
+              handler(event);
+            };
+          },
+        });
+      }
     },
   });
-  // Shift is the "camera, not node" modifier on the left button: route the
-  // event through the original mapping with an unmapped button so the state
-  // resolves to NONE without reaching into DragControls' private constants.
-  const origUpdateState = proto._updateState as (event: unknown) => void;
-  proto._updateState = function (event: PointerEvent) {
-    origUpdateState.call(
-      this,
-      event.shiftKey && event.pointerType !== "touch"
-        ? { pointerType: "mouse", button: -1 }
-        : event,
-    );
-  };
 }
 
 interface RawNode { slug: string; title: string; exists: boolean; }
@@ -1178,6 +1189,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       // undefined layout ("can't access property 'tick', e.layout is
       // undefined" on page refresh).
       fg.graphData({ nodes: [], links: [] });
+
+      // Debug handle for devtools/automation (inspecting camera, controls,
+      // and drag state without prop drilling).
+      (window as unknown as Record<string, unknown>).__halu_fg = fg;
 
       setInitialized(true);
     });

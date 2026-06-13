@@ -151,7 +151,59 @@ export function makeNodeLabel(
 
   group.userData.label = { title, sub, backdrop, worldHeight, baseOpacity: 1 };
   setLabelColor(group, color);
+  makeLabelDraggable(group, backdrop);
   return group;
+}
+
+const _labelInverse = new THREE.Matrix4();
+const _labelLocalRay = new THREE.Ray();
+const _labelHitPoint = new THREE.Vector3();
+
+/**
+ * Route raycasts (drag + click) through the label *group* rather than its
+ * inner text/backdrop meshes.
+ *
+ * Why this matters: the group is billboarded each frame
+ * (quaternion = camera.quaternion), so its inner meshes sit in a
+ * camera-rotated frame. 3d-force-graph drags a node by reading the *selected
+ * child's* local-position delta and adding it to the node's world position —
+ * if that child lives under the rotated label group, the delta is expressed
+ * in camera axes and the node lurches along the wrong (screen-aligned) axes.
+ * The label group itself, by contrast, is a direct child of the unrotated
+ * node group, so its local frame *is* world-aligned and the drag delta is
+ * correct. We therefore make the group the only hit target: it raycasts
+ * against its own billboard quad, and the inner meshes opt out.
+ */
+function makeLabelDraggable(
+  group: NodeLabel,
+  backdrop: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>,
+): void {
+  const noRaycast = () => {};
+  group.userData.label.title.raycast = noRaycast;
+  group.userData.label.sub && (group.userData.label.sub.raycast = noRaycast);
+  backdrop.raycast = noRaycast;
+
+  group.raycast = function (raycaster, intersects) {
+    if (!this.visible) return;
+    // Quad extent comes from the backdrop's scale (its geometry is a unit
+    // plane). Intersect the ray with the group-local z=0 plane and bounds-check.
+    const halfW = backdrop.scale.x / 2;
+    const halfH = backdrop.scale.y / 2;
+    if (halfW <= 0 || halfH <= 0) return;
+    _labelInverse.copy(this.matrixWorld).invert();
+    _labelLocalRay.copy(raycaster.ray).applyMatrix4(_labelInverse);
+    const dz = _labelLocalRay.direction.z;
+    if (dz === 0) return;
+    const t = -_labelLocalRay.origin.z / dz;
+    if (t < 0) return;
+    const x = _labelLocalRay.origin.x + _labelLocalRay.direction.x * t;
+    const y = _labelLocalRay.origin.y + _labelLocalRay.direction.y * t;
+    if (Math.abs(x) > halfW || Math.abs(y) > halfH) return;
+    _labelHitPoint.set(x, y, 0).applyMatrix4(this.matrixWorld);
+    const distance = raycaster.ray.origin.distanceTo(_labelHitPoint);
+    if (distance < raycaster.near || distance > raycaster.far) return;
+    intersects.push({ distance, point: _labelHitPoint.clone(), object: this });
+  };
 }
 
 const tmpColor = new THREE.Color();

@@ -88,6 +88,38 @@ describe("graphLabels (SDF node labels)", () => {
     expect(hidden.quaternion.equals(camera.quaternion)).toBe(false);
   });
 
+  it("routes raycasts through the group (not the rotated inner meshes) so node drag stays world-aligned", () => {
+    const label = makeNodeLabel("Grabbable", "#ffffff", 6, { in: 1, out: 1 });
+    // Inner meshes opt out of raycasting — only the group is a hit target, and
+    // its parent is the unrotated node group, so 3d-force-graph reads a
+    // world-aligned drag delta from the group's local position.
+    const p = parts(label);
+    const hits = (obj: THREE.Object3D, ray: THREE.Raycaster) => {
+      const out: THREE.Intersection[] = [];
+      obj.raycast(ray, out);
+      return out;
+    };
+    // Inner meshes never report a hit.
+    label.updateMatrixWorld(true);
+    const straightOn = new THREE.Raycaster(new THREE.Vector3(0, 0, 10), new THREE.Vector3(0, 0, -1));
+    expect(hits(p.title, straightOn)).toHaveLength(0);
+    expect(hits(p.backdrop, straightOn)).toHaveLength(0);
+
+    // The group reports a hit for a ray through its center, and the hit's
+    // `object` is the group itself (the unrotated-parent drag target).
+    const groupHits = hits(label, straightOn);
+    expect(groupHits).toHaveLength(1);
+    expect(groupHits[0].object).toBe(label);
+
+    // A ray well outside the billboard quad misses.
+    const wide = new THREE.Raycaster(new THREE.Vector3(9999, 0, 10), new THREE.Vector3(0, 0, -1));
+    expect(hits(label, wide)).toHaveLength(0);
+
+    // Hidden labels are not grabbable.
+    label.visible = false;
+    expect(hits(label, straightOn)).toHaveLength(0);
+  });
+
   it("disposeLabels frees text meshes and per-label backdrop materials", () => {
     const labels = new Map<string, NodeLabel>();
     labels.set("a", makeNodeLabel("A", "#ffffff", 6));

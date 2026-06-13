@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Pane } from "../Pane";
 
 interface WorkflowNode {
@@ -222,9 +222,8 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
             </thead>
             <tbody>
               {runs.map((run) => (
-                <>
+                <Fragment key={run.run_id}>
                   <tr
-                    key={run.run_id}
                     className={`admin-pipeline-run-row${expandedRun === run.run_id ? " admin-pipeline-run-row--expanded" : ""}`}
                     onClick={() => void toggleRun(run.run_id)}
                     title={run.error_message ?? "Click to see node breakdown"}
@@ -236,7 +235,7 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
                     <td>{run.duration_ms} ms</td>
                   </tr>
                   {expandedRun === run.run_id && (
-                    <tr key={`${run.run_id}-detail`} className="admin-pipeline-run-detail-row">
+                    <tr className="admin-pipeline-run-detail-row">
                       <td colSpan={5}>
                         {loadingRun === run.run_id ? (
                           <span className="admin-pipeline-run-loading">Loading…</span>
@@ -246,7 +245,7 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

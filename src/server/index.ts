@@ -819,6 +819,11 @@ export async function createApp(options: CreateAppOptions = {}) {
   // duration — plus any exception a handler throws (which Hono would
   // otherwise turn into a bare 500 with nothing in the logs). Skip static
   // asset/vite-internal noise so this stays useful for actual page/API hits.
+  // High-frequency admin poll endpoints whose successful requests would
+  // otherwise flood the log once per second. Logged at debug instead of info.
+  const NOISY_POLL_PATHS = new Set([
+    "/api/admin/generation-queue",
+  ]);
   app.use("*", async (c, next) => {
     const { method } = c.req;
     const { pathname, search } = new URL(c.req.url);
@@ -828,7 +833,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     const startedAt = Date.now();
     try {
       await next();
-      logger.info("http.request", {
+      const quiet = method === "GET" && c.res.status < 400 && NOISY_POLL_PATHS.has(pathname);
+      logger[quiet ? "debug" : "info"]("http.request", {
         method,
         path: pathname + search,
         status: c.res.status,

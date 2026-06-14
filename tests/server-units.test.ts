@@ -113,6 +113,12 @@ class NoopLlmClient implements LlmRouter {
   async probeConnections(): Promise<void> {}
 }
 
+class FailingEmbedLlmClient extends NoopLlmClient {
+  async embed(): Promise<number[][]> {
+    throw Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" });
+  }
+}
+
 class CaptureLogger implements Logger {
   entries: Array<{ level: string; event: string; fields: LogFields }> = [];
 
@@ -268,6 +274,51 @@ test("streamChat reports an interrupted stream with partial content and progress
   assert.equal(interrupted!.fields.chunks, 2);
   assert.equal(interrupted!.fields.content_chars, 11);
   assert.ok(logger.entries.some((e) => e.event === "llm.stream_first_token"), "first-token latency is logged");
+});
+
+test("embed surfaces the transport cause and times out instead of hanging", async (t) => {
+  const logger = new CaptureLogger();
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async () => {
+    throw Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+    });
+  };
+
+  const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 100, request_timeout_ms: 5000 };
+  const embeddingsConfig = { enabled: true, base_url: "http://llm.test/v1", api_key: "local", model: "nomic", request_timeout_ms: 5000 };
+  const router = new OpenAICompatRouter(chatConfig, chatConfig, embeddingsConfig, logger);
+
+  await assert.rejects(
+    router.embed(["a chunk"]),
+    (err: Error) => {
+      assert.match(err.message, /ECONNREFUSED/);
+      return true;
+    },
+  );
+  assert.ok(logger.entries.some((e) => e.event === "llm.embed_request_failed" && e.fields.code === "ECONNREFUSED"));
+});
+
+test("startup probes log the underlying transport cause", async (t) => {
+  const logger = new CaptureLogger();
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async () => {
+    throw Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    });
+  };
+
+  const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 100, request_timeout_ms: 5000 };
+  const embeddingsConfig = { enabled: false, base_url: "http://llm.test/v1", api_key: "local", model: "nomic", request_timeout_ms: 5000 };
+  const router = new OpenAICompatRouter(chatConfig, chatConfig, embeddingsConfig, logger);
+
+  await router.probeConnections();
+
+  assert.ok(logger.entries.some((e) => e.event === "llm.probe_error" && e.fields.code === "ECONNRESET"));
 });
 
 test("heavy and light OpenAI-compatible requests are sent independently", async (t) => {
@@ -951,6 +1002,58 @@ test("retrieveContext returns matching lexical context from indexed article chun
   assert.equal(packet.relatedTitles[0], "Archive Entry");
   assert.equal(packet.sourceArticles[0].slug, "archive-entry");
   assert.match(packet.context, /Glow fruit grows in the crater orchard/);
+});
+
+test("retrieveContext falls back to lexical context when embeddings fail", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-retrieval-fallback-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const llm = new FailingEmbedLlmClient();
+  const logger = new CaptureLogger();
+  const sourceMarkdown = [
+    "# Harbor Index",
+    "",
+    "Signal lanterns mark the harbor archive beside the glass pier.",
+  ].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "harbor-index",
+      canonicalSlug: "harbor-index",
+      title: "Harbor Index",
+      markdown: sourceMarkdown,
+      html: renderMarkdown(sourceMarkdown),
+      plain_text: markdownToPlainText(sourceMarkdown),
+      generated_at: 1_715_000_000_000,
+    },
+    [],
+    ["harbor-index"],
+  );
+  await indexArticleChunks(db, new NoopLlmClient(), "harbor-index", sourceMarkdown, false, 120);
+
+  const packet = await retrieveContext(
+    db,
+    llm,
+    "new-entry",
+    ["harbor archive signal lantern"],
+    true,
+    "full",
+    3,
+    0.2,
+    true,
+    logger,
+  );
+
+  assert.equal(packet.relatedTitles[0], "Harbor Index");
+  assert.match(packet.context, /Signal lanterns mark the harbor archive/);
+  assert.ok(logger.entries.some((entry) => entry.event === "rag.embed_failed_fallback_lexical"));
+  assert.equal(
+    logger.entries.find((entry) => entry.event === "rag.retrieve_complete")?.fields.strategy,
+    "lexical_fallback",
+  );
 });
 
 test("retrieveContext summary mode caps chunk content at 360 chars", async (t) => {
@@ -3031,16 +3134,26 @@ test("wrapLlmDeps proxy preserves supportsVision through the prompt-capture wrap
   assert.equal(wrapped.supportsVision("heavy"), false); // not probed, defaults to false
 });
 
-test("images model returns a non-empty text description for a tiny PNG", { timeout: 30_000 }, async () => {
-  const llmConfig = loadConfig().llm;
-  if (!llmConfig.images) {
-    // No images model configured — skip rather than fail.
-    return;
-  }
-  const embeddingsConfig = { enabled: false, base_url: llmConfig.images.base_url, api_key: llmConfig.images.api_key, model: "none" };
+test("images model returns a non-empty text description for a tiny PNG", { timeout: 30_000, skip: process.env.HALUPEDIA_RUN_LIVE_LLM_TESTS !== "1" }, async () => {
+  const liveConfig = TEST_CONFIG;
+  const chatConfig = {
+    base_url: liveConfig.llm_base_url,
+    api_key: liveConfig.llm_api_key,
+    model: liveConfig.llm_model,
+    temperature: 1,
+    max_tokens: 256,
+    request_timeout_ms: 30_000,
+  };
+  const embeddingsConfig = {
+    enabled: false,
+    base_url: liveConfig.llm_base_url,
+    api_key: liveConfig.llm_api_key,
+    model: "none",
+    request_timeout_ms: 5_000,
+  };
   const router = new OpenAICompatRouter(
-    llmConfig.images,
-    llmConfig.images,
+    chatConfig,
+    chatConfig,
     embeddingsConfig,
   );
 

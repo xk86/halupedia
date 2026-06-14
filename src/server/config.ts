@@ -136,6 +136,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       model: llm.chat?.model ?? "local-model",
       temperature: llm.chat?.temperature ?? 0.8,
       max_tokens: llm.chat?.max_tokens ?? 2400,
+      request_timeout_ms: llm.chat?.request_timeout_ms ?? 180_000,
     },
     light: {
       base_url:
@@ -146,6 +147,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       model: llm.light?.model ?? llm.chat?.model ?? "local-model",
       temperature: llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
       max_tokens: llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
+      request_timeout_ms: llm.light?.request_timeout_ms ?? llm.chat?.request_timeout_ms ?? 180_000,
     },
     images: llm.images
       ? {
@@ -154,6 +156,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
           model: llm.images.model ?? llm.light?.model ?? llm.chat?.model ?? "local-model",
           temperature: llm.images.temperature ?? llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
           max_tokens: llm.images.max_tokens ?? llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
+          request_timeout_ms: llm.images.request_timeout_ms ?? llm.light?.request_timeout_ms ?? llm.chat?.request_timeout_ms ?? 180_000,
         }
       : undefined,
     embeddings: {
@@ -164,6 +167,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
         "http://127.0.0.1:11434/v1",
       api_key: llm.embeddings?.api_key ?? llm.chat?.api_key ?? "local",
       model: llm.embeddings?.model ?? "local-embed-model",
+      request_timeout_ms: llm.embeddings?.request_timeout_ms ?? 60_000,
     },
   };
 }

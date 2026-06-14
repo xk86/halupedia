@@ -1875,7 +1875,7 @@ test("missing refs notice fires for explicit ref:slug links not in sidecar", asy
    Real LLM integration: ref link format validation
    ───────────────────────────────────────────────────────────────── */
 
-test("generated article uses ref:slug links when references are available", async (t) => {
+test("generated article uses ref:slug links when references are available", { timeout: 60_000, skip: process.env.HALUPEDIA_RUN_LIVE_LLM_TESTS !== "1" }, async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -1888,12 +1888,14 @@ test("generated article uses ref:slug links when references are available", asyn
     model: testCfg.llm_model,
     temperature: 1,
     max_tokens: 4000,
+    request_timeout_ms: 60_000,
   };
   const embeddingsConfig = {
     enabled: false,
     base_url: testCfg.llm_base_url,
     api_key: testCfg.llm_api_key,
     model: "nomic",
+    request_timeout_ms: 5_000,
   };
 
   let llmClient: LlmRouter;

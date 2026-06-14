@@ -125,6 +125,17 @@ function fetchErrorSummary(err: unknown): string {
   return [code, cause || message].filter(Boolean).join(": ") || "unknown error";
 }
 
+/** True when an error is an AbortSignal.timeout() / AbortController abort. */
+function isTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.name === "TimeoutError" ||
+    err.name === "AbortError" ||
+    (err as { code?: string }).code === "ABORT_ERR" ||
+    /aborted|timeout/i.test(err.message)
+  );
+}
+
 // Emit an in-flight progress heartbeat at most this often while streaming, so a
 // long generation shows it's alive (and how far along) instead of going dark.
 const STREAM_HEARTBEAT_MS = 5_000;
@@ -161,6 +172,7 @@ class OpenAICompatClient {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
     this.logger.info("llm.chat_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
+    const timeoutMs = this.chatConfig.request_timeout_ms ?? 180_000;
     let response: Response;
     try {
       response = await fetch(url, {
@@ -169,6 +181,7 @@ class OpenAICompatClient {
           "content-type": "application/json",
           authorization: `Bearer ${this.chatConfig.api_key}`,
         },
+        signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           model: this.chatConfig.model,
           temperature: this.chatConfig.temperature,
@@ -196,17 +209,21 @@ class OpenAICompatClient {
         }),
       });
     } catch (err) {
+      const timedOut = isTimeoutError(err);
       const detail = describeFetchError(err);
       this.logger.error("llm.chat_request_failed", {
         role: this.role,
         model: this.chatConfig.model,
         url,
         duration_ms: Date.now() - startedAt,
+        timed_out: timedOut,
+        timeout_ms: timeoutMs,
         error: detail.message,
         cause: detail.cause,
         code: detail.code,
       });
-      throw new Error(`chat request to ${this.chatConfig.model} failed: ${fetchErrorSummary(err)}`, { cause: err });
+      const reason = timedOut ? `timed out after ${timeoutMs}ms` : fetchErrorSummary(err);
+      throw new Error(`chat request to ${this.chatConfig.model} failed: ${reason}`, { cause: err });
     }
 
     if (!response.ok) {
@@ -259,6 +276,22 @@ class OpenAICompatClient {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
     this.logger.info("llm.stream_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
+    // Idle-based abort: fires when no token has arrived for request_timeout_ms,
+    // covering both a hung connection (no headers) and a mid-stream stall. The
+    // timer is reset on every chunk so a healthy long generation is never cut.
+    const idleMs = this.chatConfig.request_timeout_ms ?? 180_000;
+    const idleController = new AbortController();
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const armIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(
+        () => idleController.abort(new Error(`idle timeout: no tokens for ${idleMs}ms`)),
+        idleMs,
+      );
+      idleTimer.unref?.();
+    };
+    const clearIdle = () => { if (idleTimer) clearTimeout(idleTimer); };
+    armIdle();
     let response: Response;
     try {
       response = await fetch(url, {
@@ -267,6 +300,7 @@ class OpenAICompatClient {
           "content-type": "application/json",
           authorization: `Bearer ${this.chatConfig.api_key}`,
         },
+        signal: idleController.signal,
         body: JSON.stringify({
           model: this.chatConfig.model,
           temperature: this.chatConfig.temperature,
@@ -284,17 +318,22 @@ class OpenAICompatClient {
         }),
       });
     } catch (err) {
+      clearIdle();
+      const timedOut = isTimeoutError(err) || idleController.signal.aborted;
       const detail = describeFetchError(err);
       this.logger.error("llm.stream_request_failed", {
         role: this.role,
         model: this.chatConfig.model,
         url,
         duration_ms: Date.now() - startedAt,
+        timed_out: timedOut,
+        timeout_ms: idleMs,
         error: detail.message,
         cause: detail.cause,
         code: detail.code,
       });
-      throw new Error(`chat stream request to ${this.chatConfig.model} failed: ${fetchErrorSummary(err)}`, { cause: err });
+      const reason = timedOut ? `timed out after ${idleMs}ms with no response` : fetchErrorSummary(err);
+      throw new Error(`chat stream request to ${this.chatConfig.model} failed: ${reason}`, { cause: err });
     }
 
     if (!response.ok || !response.body) {
@@ -318,6 +357,8 @@ class OpenAICompatClient {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        // Progress arrived — reset the idle deadline.
+        armIdle();
         buffer += decoder.decode(value, { stream: true });
 
         let newlineIndex = buffer.indexOf("\n");
@@ -383,11 +424,14 @@ class OpenAICompatClient {
     } catch (err) {
       const detail = describeFetchError(err);
       const now = Date.now();
+      const idleTimedOut = idleController.signal.aborted || isTimeoutError(err);
       this.logger.error("llm.stream_interrupted", {
         role: this.role,
         model: this.chatConfig.model,
         elapsed_ms: now - startedAt,
         since_last_chunk_ms: now - lastChunkAt,
+        idle_timeout: idleTimedOut,
+        timeout_ms: idleMs,
         chunks: chunkCount,
         content_chars: accumulated.length,
         reasoning_chars: reasoning.length,
@@ -398,13 +442,16 @@ class OpenAICompatClient {
       });
       // Surface what we got before the stream died — the trace/admin pane uses
       // these to show the partial output of an interrupted generation.
+      const why = idleTimedOut ? `idle timeout after ${idleMs}ms` : fetchErrorSummary(err);
       const wrapped = new Error(
-        `chat stream from ${this.chatConfig.model} interrupted after ${chunkCount} chunks / ${accumulated.length} chars: ${fetchErrorSummary(err)}`,
+        `chat stream from ${this.chatConfig.model} interrupted after ${chunkCount} chunks / ${accumulated.length} chars: ${why}`,
         { cause: err },
       );
       (wrapped as { partialContent?: string }).partialContent = accumulated;
       (wrapped as { partialReasoning?: string }).partialReasoning = reasoning;
       throw wrapped;
+    } finally {
+      clearIdle();
     }
 
     const content = accumulated.trim();
@@ -440,18 +487,39 @@ class OpenAICompatClient {
 
     const startedAt = Date.now();
     const url = `${this.embeddingsConfig.base_url.replace(/\/$/, "")}/embeddings`;
+    const timeoutMs = this.embeddingsConfig.request_timeout_ms ?? 60_000;
     this.logger.info("llm.embed_request", embedRequestFields(this.embeddingsConfig, input.length));
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.embeddingsConfig.api_key}`,
-      },
-      body: JSON.stringify({
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.embeddingsConfig.api_key}`,
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+        body: JSON.stringify({
+          model: this.embeddingsConfig.model,
+          input,
+        }),
+      });
+    } catch (err) {
+      const timedOut = isTimeoutError(err);
+      const detail = describeFetchError(err);
+      this.logger.error("llm.embed_request_failed", {
+        role: "embeddings",
         model: this.embeddingsConfig.model,
-        input,
-      }),
-    });
+        url,
+        duration_ms: Date.now() - startedAt,
+        timed_out: timedOut,
+        timeout_ms: timeoutMs,
+        error: detail.message,
+        cause: detail.cause,
+        code: detail.code,
+      });
+      const reason = timedOut ? `timed out after ${timeoutMs}ms` : fetchErrorSummary(err);
+      throw new Error(`embeddings request to ${this.embeddingsConfig.model} failed: ${reason}`, { cause: err });
+    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -470,7 +538,10 @@ class OpenAICompatClient {
     const url = `${baseUrl.replace(/\/$/, "")}/models`;
     this.logger.info("llm.probe_start", { role, url });
     try {
-      const response = await fetch(url, { headers: { authorization: `Bearer ${apiKey}` } });
+      const response = await fetch(url, {
+        headers: { authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(10_000),
+      });
       const text = await response.text().catch(() => "");
       if (!response.ok) {
         this.logger.warn("llm.probe_failed", { role, status: response.status, body: truncateForLog(text, 220) });
@@ -478,7 +549,15 @@ class OpenAICompatClient {
       }
       this.logger.info("llm.probe_ok", { role, body: truncateForLog(text, 220) });
     } catch (error) {
-      this.logger.warn("llm.probe_error", { role, error: error instanceof Error ? error.message : String(error) });
+      const detail = describeFetchError(error);
+      this.logger.warn("llm.probe_error", {
+        role,
+        timed_out: isTimeoutError(error),
+        timeout_ms: 10_000,
+        error: detail.message,
+        cause: detail.cause,
+        code: detail.code,
+      });
     }
   }
 }

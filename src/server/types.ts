@@ -236,6 +236,10 @@ export interface ChatConfig {
   model: string;
   temperature: number;
   max_tokens: number;
+  /** Abort a non-streaming chat after this long; for streaming, abort when no
+   *  token arrives for this long (idle timeout). Guards against the endpoint
+   *  hanging on undici's 5-minute default. */
+  request_timeout_ms: number;
 }
 
 export interface EmbeddingsConfig {
@@ -243,6 +247,8 @@ export interface EmbeddingsConfig {
   base_url: string;
   api_key: string;
   model: string;
+  /** Abort an embeddings request after this long. */
+  request_timeout_ms: number;
 }
 
 export interface LlmInvocationMetadata {

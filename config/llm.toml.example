@@ -7,6 +7,8 @@ temperature = 1
 top_k = 150
 top_p = 0.85
 max_tokens = 9001
+# Non-streaming chat: total timeout. Streaming chat: idle timeout between tokens.
+request_timeout_ms = 180000
 
 [llm.light]
 base_url = "http://127.0.0.1:11434/v1"
@@ -15,6 +17,7 @@ api_key = "ollama"
 model = "gemma3:4b-it-qat"
 temperature = 1
 max_tokens = 4800
+request_timeout_ms = 180000
 
 [llm.images]
 base_url = "http://127.0.0.1:11434/v1"
@@ -22,9 +25,11 @@ api_key = "ollama"
 model = "gemma3:4b-it-qat"
 temperature = 1
 max_tokens = 4800
+request_timeout_ms = 180000
 
 [llm.embeddings]
 enabled = true
 base_url = "http://127.0.0.1:11434/v1"
 api_key = "local"
 model = "nomic-embed-text-v2-moe:latest"
+request_timeout_ms = 60000

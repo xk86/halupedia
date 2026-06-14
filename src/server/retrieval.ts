@@ -418,25 +418,13 @@ export async function retrieveContext(
   const explicitQuery = queryOverride?.replace(/\s+/g, " ").trim();
   const query = explicitQuery || [slug, ...hints.slice(0, 8)].join("\n");
 
-  let ranked: Array<{ slug: string; title: string; content: string; score: number }> = [];
-  if (useEmbeddings) {
-    const [queryEmbedding] = await llm.embed([query]);
-    ranked = rows
-      .map((row) => ({
-        slug: row.slug,
-        title: row.title,
-        content: row.content,
-        score: row.embedding_json ? cosineSimilarity(queryEmbedding, JSON.parse(row.embedding_json) as number[]) : 0,
-      }))
-      .filter((row) => row.score >= minScore)
-      .sort((a, b) => b.score - a.score);
-  } else {
+  const rankLexically = () => {
     const words = query
       .toLowerCase()
       .split(/[^a-z0-9]+/)
       .filter((word) => word.length >= 4)
       .slice(0, 16);
-    ranked = rows
+    return rows
       .map((row) => ({
         slug: row.slug,
         title: row.title,
@@ -445,6 +433,34 @@ export async function retrieveContext(
       }))
       .filter((row) => row.score >= minScore)
       .sort((a, b) => b.score - a.score);
+  };
+
+  let ranked: Array<{ slug: string; title: string; content: string; score: number }> = [];
+  let strategy = useEmbeddings ? "embeddings" : "lexical";
+  if (useEmbeddings) {
+    try {
+      const [queryEmbedding] = await llm.embed([query]);
+      ranked = rows
+        .map((row) => ({
+          slug: row.slug,
+          title: row.title,
+          content: row.content,
+          score: row.embedding_json ? cosineSimilarity(queryEmbedding, JSON.parse(row.embedding_json) as number[]) : 0,
+        }))
+        .filter((row) => row.score >= minScore)
+        .sort((a, b) => b.score - a.score);
+    } catch (err) {
+      // Embeddings down/timed out: degrade to lexical retrieval rather than
+      // failing the whole generation. RAG is best-effort context, not a gate.
+      logger?.warn("rag.embed_failed_fallback_lexical", {
+        slug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      strategy = "lexical_fallback";
+      ranked = rankLexically();
+    }
+  } else {
+    ranked = rankLexically();
   }
 
   // `ranked` is one entry PER CHUNK, sorted by score. Collapse it to one entry
@@ -468,7 +484,7 @@ export async function retrieveContext(
   logger?.info("rag.retrieve_complete", {
     slug,
     hints: hints.length,
-    strategy: useEmbeddings ? "embeddings" : "lexical",
+    strategy,
     corpus_chunks: rows.length,
     ranked_chunks: ranked.length,
     dropped_empty: droppedEmpty,

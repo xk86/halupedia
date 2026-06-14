@@ -3013,11 +3013,17 @@ button.admin-danger-btn:hover:not(:disabled) {
 /* Markdown-editor variants sized to the panels they replace textareas in. */
 .raw-edit-mdedit .mdedit-blocks {
   min-height: 26rem;
+  max-height: none;
+  resize: vertical;
 }
 
 .raw-edit-body--split .raw-edit-mdedit {
   flex: 1;
   min-width: 0;
+}
+
+.raw-edit-mdedit .mdedit-raw-textarea {
+  min-height: 26rem;
 }
 
 .edit-instructions-mdedit .mdedit-blocks {

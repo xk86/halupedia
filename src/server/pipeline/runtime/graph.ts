@@ -341,6 +341,21 @@ function formatPromptForTrace(system: unknown, user: unknown): string {
   return `### System\n${sys}\n\n### User\n${usr}`;
 }
 
+function extractEmbeddedReasoning(text: string): string {
+  const blocks: string[] = [];
+  const pattern = /<(think|thinking|reasoning)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  for (const match of text.matchAll(pattern)) {
+    const body = match[2]?.trim();
+    if (body) blocks.push(body);
+  }
+  return blocks.join("\n\n");
+}
+
+function combineReasoning(separated: string, response: string): string {
+  const embedded = extractEmbeddedReasoning(response);
+  return [separated.trim(), embedded].filter(Boolean).join("\n\n");
+}
+
 function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): Deps {
   const d = deps as Record<string, unknown>;
   if (!d || typeof d !== "object" || typeof d.llm !== "object" || !d.llm) return deps;
@@ -369,7 +384,7 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
           onCapture({
             promptChars: charsOf(system, user),
             prompt: formatPromptForTrace(system, user),
-            cot,
+            cot: combineReasoning(cot, typeof response === "string" ? response : ""),
             response: typeof response === "string" ? response : "",
           });
           return response;
@@ -383,7 +398,7 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
           onCapture({
             promptChars: charsOf(system, user),
             prompt: formatPromptForTrace(system, user),
-            cot,
+            cot: combineReasoning(cot, typeof result?.content === "string" ? result.content : ""),
             response: typeof result?.content === "string" ? result.content : "",
           });
           return result;

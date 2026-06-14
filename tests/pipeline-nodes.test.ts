@@ -384,6 +384,55 @@ test("runWorkflow: executes nodes in order, produces trace", async () => {
   }
 });
 
+test("runWorkflow: captures embedded thinking tags as cot_text", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const dbPath = join(dir, "traces.sqlite");
+    const recorder = getTraceRecorder({
+      enabled: true,
+      database_path: dbPath,
+      level: "trace",
+      retention_days: 1,
+    });
+    const llmNode = defineNode({
+      name: "test.llm",
+      kind: "llm",
+      reads: ["input"] as const,
+      writes: ["llmOutput"] as const,
+      async run(_state, deps: { llm: { chat: (...args: unknown[]) => Promise<string> } }) {
+        const text = await deps.llm.chat("heavy", "system", "user");
+        return { llmOutput: { promptKey: "test", text } };
+      },
+    });
+    const workflow: WorkflowDefinition<{ llm: { chat: (...args: unknown[]) => Promise<string> } }> = {
+      name: "test.embedded-cot",
+      edges: [{ node: llmNode }],
+    };
+
+    const result = await runWorkflow(workflow, {
+      input: makeInput({ workflow: "test.embedded-cot" }),
+      deps: {
+        llm: {
+          async chat() {
+            return "<think>Check hidden assumptions.</think>\n\n## Final\nRendered answer.";
+          },
+        },
+      },
+      recorder,
+    });
+    closeTraceRecorder();
+    assert.equal(result.status, "ok");
+
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const row = db.prepare("SELECT cot_text, response_text FROM pipeline_nodes WHERE run_id = ?").get(result.runId) as Record<string, unknown>;
+    assert.match(String(row.cot_text), /Check hidden assumptions/);
+    assert.match(String(row.response_text), /Rendered answer/);
+    db.close();
+  } finally {
+    cleanup();
+  }
+});
+
 test("runWorkflow: when predicate skips node", async () => {
   const log: string[] = [];
 

@@ -1,5 +1,8 @@
 import { Fragment, useState } from "react";
+import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
+
+const md = new MarkdownIt({ html: false, linkify: false });
 
 interface WorkflowNode {
   name: string;
@@ -332,6 +335,7 @@ function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number 
 
 function PromptSection({ label, text, variant }: { label: string; text: string; variant?: "cot" | "output" }) {
   const copy = () => { void navigator.clipboard?.writeText(text).catch(() => {}); };
+  const html = md.render(text);
   return (
     <section className={`admin-prompt-section${variant ? ` admin-prompt-section--${variant}` : ""}`}>
       <header className="admin-prompt-section-head">
@@ -339,7 +343,10 @@ function PromptSection({ label, text, variant }: { label: string; text: string; 
         <span className="admin-prompt-section-meta">{text.length.toLocaleString()} chars</span>
         <button type="button" className="admin-prompt-section-copy" onClick={copy} title="Copy to clipboard">Copy</button>
       </header>
-      <pre className="admin-prompt-section-body">{text}</pre>
+      <div
+        className="admin-prompt-section-body"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     </section>
   );
 }

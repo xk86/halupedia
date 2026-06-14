@@ -163,6 +163,7 @@ export async function runWorkflow<Deps>(
                 llmThinking: llmCapture?.thinking,
                 llmJsonMode: llmCapture?.jsonMode,
                 llmImageCount: llmCapture?.imageCount,
+                llmTtftMs: llmCapture?.ttftMs,
               });
               options.logger?.info("pipeline.node.ok", {
                 workflow: workflow.name,
@@ -203,6 +204,7 @@ export async function runWorkflow<Deps>(
                 llmThinking: llmCapture?.thinking,
                 llmJsonMode: llmCapture?.jsonMode,
                 llmImageCount: llmCapture?.imageCount,
+                llmTtftMs: llmCapture?.ttftMs,
               });
               options.logger?.error("pipeline.node.error", {
                 workflow: workflow.name,
@@ -276,6 +278,7 @@ export async function runWorkflow<Deps>(
           llmThinking: llmCapture?.thinking,
           llmJsonMode: llmCapture?.jsonMode,
           llmImageCount: llmCapture?.imageCount,
+          llmTtftMs: llmCapture?.ttftMs,
         });
         options.logger?.info("pipeline.node.ok", {
           workflow: workflow.name,
@@ -316,6 +319,7 @@ export async function runWorkflow<Deps>(
           llmThinking: llmCapture?.thinking,
           llmJsonMode: llmCapture?.jsonMode,
           llmImageCount: llmCapture?.imageCount,
+          llmTtftMs: llmCapture?.ttftMs,
         });
         options.logger?.error("pipeline.node.error", {
           workflow: workflow.name,
@@ -389,6 +393,7 @@ export interface LlmCapture {
   thinking?: boolean;
   jsonMode?: boolean;
   imageCount?: number;
+  ttftMs?: number;
 }
 
 function formatPromptForTrace(system: unknown, user: unknown): string {
@@ -449,6 +454,7 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
         options: { thinking?: boolean; jsonMode?: boolean; images?: unknown[] },
         cot: string,
         response: string,
+        ttftMs?: number,
       ) => {
         const metadata: LlmInvocationMetadata | undefined =
           typeof target.metadataFor === "function" &&
@@ -471,6 +477,7 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
           thinking: options.thinking === true,
           jsonMode: options.jsonMode === true,
           imageCount: Array.isArray(options.images) ? options.images.length : 0,
+          ttftMs,
         });
       };
       if (prop === "chat") {
@@ -493,17 +500,34 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
       if (prop === "streamChat") {
         return async (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
           let cot = "";
+          const streamStartedAt = Date.now();
+          let ttftMs: number | undefined;
           const args = withReasoning(rest, 1, (r) => { cot = r; });
+          const onChunk = args[0];
+          if (typeof onChunk === "function") {
+            args[0] = (delta: unknown, accumulated: unknown) => {
+              if (ttftMs === undefined) ttftMs = Date.now() - streamStartedAt;
+              return onChunk(delta, accumulated);
+            };
+          }
           const options = (args[1] ?? {}) as { thinking?: boolean; jsonMode?: boolean; images?: unknown[] };
           try {
-            const result = (await target.streamChat(role, system, user, ...args)) as { content?: string };
-            captureWith(role, system, user, options, cot, typeof result?.content === "string" ? result.content : "");
+            const result = (await target.streamChat(role, system, user, ...args)) as { content?: string; ttftMs?: number };
+            captureWith(
+              role,
+              system,
+              user,
+              options,
+              cot,
+              typeof result?.content === "string" ? result.content : "",
+              result?.ttftMs ?? ttftMs,
+            );
             return result;
           } catch (err) {
             // Interrupted stream: llm.streamChat attaches what it received.
             const partial = (err as { partialContent?: string }).partialContent ?? "";
             const partialCot = (err as { partialReasoning?: string }).partialReasoning ?? "";
-            captureWith(role, system, user, options, cot || partialCot, partial);
+            captureWith(role, system, user, options, cot || partialCot, partial, ttftMs);
             throw err;
           }
         };

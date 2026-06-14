@@ -77,6 +77,7 @@ interface NodeSpan {
   llm_thinking?: number | boolean | null;
   llm_json_mode?: number | boolean | null;
   llm_image_count?: number | null;
+  llm_ttft_ms?: number | null;
 }
 
 interface Props {
@@ -364,6 +365,7 @@ function LlmMetadata({ node }: { node: NodeSpan }) {
     ["Base URL", node.llm_base_url],
     ["Temperature", node.llm_temperature == null ? null : String(node.llm_temperature)],
     ["Max tokens", node.llm_max_tokens == null ? null : String(node.llm_max_tokens)],
+    ["TTFT", node.llm_ttft_ms == null ? null : `${node.llm_ttft_ms} ms`],
     ["Thinking", boolText(node.llm_thinking)],
     ["JSON mode", boolText(node.llm_json_mode)],
     ["Images", node.llm_image_count == null ? null : String(node.llm_image_count)],

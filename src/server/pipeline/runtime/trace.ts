@@ -66,6 +66,7 @@ export interface NodeTraceFields {
   llmThinking?: boolean;
   llmJsonMode?: boolean;
   llmImageCount?: number;
+  llmTtftMs?: number;
 }
 
 export interface RunTraceFields {
@@ -187,6 +188,7 @@ class SqliteTraceRecorder implements TraceRecorder {
       `llm_thinking INTEGER`,
       `llm_json_mode INTEGER`,
       `llm_image_count INTEGER`,
+      `llm_ttft_ms INTEGER`,
     ]) {
       try {
         this.db.exec(`ALTER TABLE pipeline_nodes ADD COLUMN ${col}`);
@@ -199,8 +201,8 @@ class SqliteTraceRecorder implements TraceRecorder {
           error_message, error_stack, prompt_chars, prompt_text, cot_text, response_text,
           llm_role, llm_resolved_role, llm_config_key, llm_model, llm_base_url,
           llm_host, llm_temperature, llm_max_tokens, llm_thinking, llm_json_mode,
-          llm_image_count)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          llm_image_count, llm_ttft_ms)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
   }
 
@@ -270,6 +272,7 @@ class SqliteTraceRecorder implements TraceRecorder {
         fields.llmThinking === undefined ? null : fields.llmThinking ? 1 : 0,
         fields.llmJsonMode === undefined ? null : fields.llmJsonMode ? 1 : 0,
         fields.llmImageCount ?? null,
+        fields.llmTtftMs ?? null,
       );
     } catch {
       // ditto — swallow trace failures.
@@ -357,7 +360,8 @@ CREATE TABLE IF NOT EXISTS pipeline_nodes (
   llm_max_tokens  INTEGER,
   llm_thinking    INTEGER,
   llm_json_mode   INTEGER,
-  llm_image_count INTEGER
+  llm_image_count INTEGER,
+  llm_ttft_ms     INTEGER
 );
 CREATE INDEX IF NOT EXISTS pipeline_nodes_run_idx
   ON pipeline_nodes (run_id, started_at);

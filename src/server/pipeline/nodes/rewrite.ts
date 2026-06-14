@@ -418,6 +418,7 @@ export const callRewriteModelNode = defineNode({
     const startedAt = Date.now();
     let text: string;
     let finishReason = "stop";
+    let ttftMs: number | undefined;
 
     if (deps.onProgress) {
       const result = await deps.llm.streamChat(
@@ -434,6 +435,7 @@ export const callRewriteModelNode = defineNode({
       );
       text = result.content;
       finishReason = result.finishReason;
+      ttftMs = result.ttftMs;
     } else {
       text = await deps.llm.chat(role, renderedPrompt.system, renderedPrompt.user, {
         thinking: renderedPrompt.thinking,
@@ -447,6 +449,7 @@ export const callRewriteModelNode = defineNode({
         text,
         finishReason,
         durationMs: Date.now() - startedAt,
+        ...(ttftMs === undefined ? {} : { ttftMs }),
         contentHash: hashValue(text),
       },
     };

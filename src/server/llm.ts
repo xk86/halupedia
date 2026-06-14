@@ -46,7 +46,7 @@ export interface LlmRouter {
     user: string,
     onChunk: (delta: string, accumulated: string) => void,
     options?: ChatOptions,
-  ): Promise<{ content: string; finishReason: string }>;
+  ): Promise<{ content: string; finishReason: string; ttftMs?: number }>;
   embed(input: string[]): Promise<number[][]>;
   probeConnections(): Promise<void>;
 }
@@ -272,7 +272,7 @@ class OpenAICompatClient {
     user: string,
     onChunk: (delta: string, accumulated: string) => void,
     options: ChatOptions = {},
-  ): Promise<{ content: string; finishReason: string }> {
+  ): Promise<{ content: string; finishReason: string; ttftMs?: number }> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
     this.logger.info("llm.stream_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
@@ -477,7 +477,7 @@ class OpenAICompatClient {
     if (!content) {
       throw new Error("chat stream returned empty content");
     }
-    return { content, finishReason };
+    return { content, finishReason, ttftMs: firstTokenMs || undefined };
   }
 
   async embed(input: string[]): Promise<number[][]> {
@@ -683,7 +683,7 @@ export class OpenAICompatRouter implements LlmRouter {
     user: string,
     onChunk: (delta: string, accumulated: string) => void,
     options?: ChatOptions,
-  ): Promise<{ content: string; finishReason: string }> {
+  ): Promise<{ content: string; finishReason: string; ttftMs?: number }> {
     return this.client(role).streamChat(system, user, onChunk, options);
   }
 

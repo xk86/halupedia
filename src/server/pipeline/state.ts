@@ -164,6 +164,7 @@ export const LlmOutputSchema = z.object({
   text: z.string(),
   finishReason: z.string(),
   durationMs: z.number(),
+  ttftMs: z.number().optional(),
   /** sha256 of `text` — referenced by downstream nodes for cache lookups. */
   contentHash: z.string(),
 });

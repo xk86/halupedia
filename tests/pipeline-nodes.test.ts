@@ -37,12 +37,15 @@ import {
 } from "../src/server/pipeline/runtime/trace";
 import { runWorkflow } from "../src/server/pipeline/runtime/graph";
 import { ALL_WORKFLOWS, findWorkflow } from "../src/server/pipeline/registry";
+import type { PipelineDeps } from "../src/server/pipeline/deps";
 import {
   initialPipelineState,
   type PipelineState,
   type WorkflowInput,
 } from "../src/server/pipeline/state";
 import type { WorkflowDefinition } from "../src/server/pipeline/runtime/graph";
+import { callRefreshModelNode } from "../src/server/pipeline/nodes/refresh";
+import { callRewriteModelNode } from "../src/server/pipeline/nodes/rewrite";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -58,6 +61,20 @@ function makeInput(overrides: Partial<WorkflowInput> = {}): WorkflowInput {
     slug: "test-slug",
     requestedTitle: "Test Slug",
     ...overrides,
+  };
+}
+
+function makeRenderedPrompt() {
+  return {
+    key: "article_rewrite",
+    templateHash: "template-hash",
+    role: "heavy" as const,
+    system: "system",
+    user: "user",
+    renderedHash: "rendered-hash",
+    variables: {},
+    thinking: false,
+    json: false,
   };
 }
 
@@ -307,6 +324,7 @@ test("SqliteTraceRecorder: writes run and node rows, reads back correctly", () =
       llmThinking: true,
       llmJsonMode: false,
       llmImageCount: 0,
+      llmTtftMs: 123,
     });
     // Close the cached recorder so we can open the DB for reading.
     closeTraceRecorder();
@@ -327,10 +345,40 @@ test("SqliteTraceRecorder: writes run and node rows, reads back correctly", () =
     assert.equal(nodes[0].llm_model, "test-model");
     assert.equal(nodes[0].llm_host, "model-host:11434");
     assert.equal(nodes[0].llm_thinking, 1);
+    assert.equal(nodes[0].llm_ttft_ms, 123);
     db.close();
   } finally {
     cleanup();
   }
+});
+
+test("refresh and rewrite LLM nodes preserve streaming TTFT in llmOutput", async () => {
+  const deps = {
+    onProgress: () => {},
+    llm: {
+      async streamChat(
+        _role: "heavy" | "light",
+        _system: string,
+        _user: string,
+        onChunk: (delta: string, accumulated: string) => void,
+      ) {
+        onChunk("# TTFT\n\n", "# TTFT\n\n");
+        return { content: "# TTFT\n\nBody.", finishReason: "stop", ttftMs: 37 };
+      },
+    },
+  } as unknown as PipelineDeps;
+
+  const refresh = await callRefreshModelNode.run(
+    { renderedPrompt: makeRenderedPrompt(), isProtected: false },
+    deps,
+  );
+  const rewrite = await callRewriteModelNode.run(
+    { renderedPrompt: makeRenderedPrompt() },
+    deps,
+  );
+
+  assert.equal(refresh.llmOutput?.ttftMs, 37);
+  assert.equal(rewrite.llmOutput?.ttftMs, 37);
 });
 
 test("NoopRecorder: does nothing when disabled", () => {
@@ -466,6 +514,71 @@ test("runWorkflow: captures embedded thinking tags as cot_text", async () => {
     assert.equal(row.llm_thinking, 1);
     assert.equal(row.llm_json_mode, 1);
     assert.equal(row.llm_image_count, 1);
+    db.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("runWorkflow: captures stream TTFT for LLM nodes", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const dbPath = join(dir, "traces.sqlite");
+    const recorder = getTraceRecorder({
+      enabled: true,
+      database_path: dbPath,
+      level: "trace",
+      retention_days: 1,
+    });
+    const llmNode = defineNode({
+      name: "test.stream_llm",
+      kind: "llm",
+      reads: ["input"] as const,
+      writes: ["llmOutput"] as const,
+      async run(_state, deps: { llm: { streamChat: (...args: unknown[]) => Promise<{ content: string; finishReason: string; ttftMs?: number }> } }) {
+        const result = await deps.llm.streamChat(
+          "heavy",
+          "system",
+          "user",
+          (onChunk: string) => onChunk,
+          { thinking: false },
+        );
+        return {
+          llmOutput: {
+            promptKey: "test",
+            text: result.content,
+            finishReason: result.finishReason,
+            durationMs: 10,
+            ttftMs: result.ttftMs,
+            contentHash: "hash",
+          },
+        };
+      },
+    });
+    const workflow: WorkflowDefinition<{ llm: { streamChat: (...args: unknown[]) => Promise<{ content: string; finishReason: string; ttftMs?: number }> } }> = {
+      name: "test.stream-ttft",
+      edges: [{ node: llmNode }],
+    };
+
+    const result = await runWorkflow(workflow, {
+      input: makeInput({ workflow: "test.stream-ttft" }),
+      deps: {
+        llm: {
+          async streamChat(_role: unknown, _system: unknown, _user: unknown, onChunk: unknown) {
+            if (typeof onChunk === "function") onChunk("Hello", "Hello");
+            return { content: "Hello", finishReason: "stop", ttftMs: 44 };
+          },
+        },
+      },
+      recorder,
+    });
+    closeTraceRecorder();
+    assert.equal(result.status, "ok");
+
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const row = db.prepare("SELECT response_text, llm_ttft_ms FROM pipeline_nodes WHERE run_id = ?").get(result.runId) as Record<string, unknown>;
+    assert.equal(row.response_text, "Hello");
+    assert.equal(row.llm_ttft_ms, 44);
     db.close();
   } finally {
     cleanup();

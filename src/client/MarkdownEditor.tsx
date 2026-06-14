@@ -131,8 +131,10 @@ export function MarkdownEditor({ value, onChange, disabled, placeholder, classNa
           className="mdedit-raw-textarea"
           value={value}
           onChange={(e) => {
-            lastEmitted.current = e.target.value;
-            onChange(e.target.value);
+            const next = e.target.value;
+            lastEmitted.current = next;
+            setBlocks(splitMarkdownBlocks(next));
+            onChange(next);
           }}
           spellCheck
           disabled={disabled}

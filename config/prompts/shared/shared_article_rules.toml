@@ -21,6 +21,7 @@ Additional Link Rules:
 Formatting Constraints:
 - Body output restricted Markdown only.
 - Begin with a single level-1 heading containing exactly the requested article title.
+- Subsequent headers should be `##` second level headers.
 - Do not rename the subject to a different proper noun or article title than the requested one.
 - Do not use footnotes, endnotes, citation callouts, or bibliography-style markers.
 - Do not emit strings like `${}^1, `[^1]`, "ibid.", "op. cit.", or horizontal-rule-separated notes.

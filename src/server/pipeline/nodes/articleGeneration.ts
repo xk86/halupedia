@@ -550,6 +550,13 @@ const USED_REFS_HEADING_ALIASES = [
   "Bibliography",
 ];
 
+const PRESERVE_EXISTING_ARTICLE_SLUG_WORKFLOWS = new Set([
+  "article.rewrite",
+  "article.refresh",
+  "article.raw_save",
+  "article.add_link",
+]);
+
 export const sanitizeBodyNode = defineNode({
   name: "transform.sanitize_body",
   kind: "transform",
@@ -597,6 +604,19 @@ export const deriveIdentityNode = defineNode({
     const resolvedTitle = normalizeCanonicalTitle(
       extractTitle(body, requestedTitle),
     );
+    if (PRESERVE_EXISTING_ARTICLE_SLUG_WORKFLOWS.has(input.workflow)) {
+      const rawDisplayPlainTitle = rawDisplayTitle
+        ? normalizeCanonicalTitle(extractTitle(`# ${rawDisplayTitle}`, requestedTitle))
+        : "";
+      return {
+        canonicalSlug: input.slug?.trim() || requestedSlug,
+        canonicalTitle: requestedCanonicalTitle,
+        displayTitle:
+          rawDisplayTitle && rawDisplayPlainTitle === requestedCanonicalTitle
+            ? rawDisplayTitle
+            : undefined,
+      };
+    }
     // Promote LLM-suggested title only if it's a strict refinement of the
     // requested slug AND contains non-ASCII characters (the legacy
     // `shouldPromoteResolvedTitle` heuristic preserved verbatim).

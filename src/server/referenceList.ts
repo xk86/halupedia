@@ -30,7 +30,13 @@ import type {
   ParsedInternalLink,
 } from "./types";
 import type { RetrievedSourceArticle } from "./retrieval";
-import { getArticleByLookup, getLatestArticleReferences, listArticleBlacklistSlugs } from "./db";
+import {
+  getArticleByEquivalentLookup,
+  getArticleByLookup,
+  getArticleByTitle,
+  getLatestArticleReferences,
+  listArticleBlacklistSlugs,
+} from "./db";
 import { legacySlugify, slugify, slugToTitle } from "./slug";
 
 /**
@@ -968,7 +974,7 @@ export function findExistingArticleLinkReferences(
     if (link.kind !== "halu") continue;
     const slug = slugify(link.slug ?? link.target);
     if (!slug || slug === normalizedSelf || seen.has(slug)) continue;
-    const article = getArticleByLookup(db, slug);
+    const article = resolveExistingArticleForLink(db, slug, link.label);
     if (!article) continue;
     seen.add(article.slug);
     refs.push({
@@ -997,6 +1003,28 @@ function articleToReferenceEntry(
     revisionId: "current",
     source: "body",
   };
+}
+
+function resolveExistingArticleForLink(
+  db: DatabaseSync,
+  slug: string,
+  label: string,
+) {
+  const targetMatch =
+    getArticleByLookup(db, slug) ??
+    getArticleByEquivalentLookup(db, slug);
+  if (targetMatch) return targetMatch;
+
+  const trimmedLabel = label.trim();
+  if (!trimmedLabel) return null;
+
+  const legacyLabelSlug = legacySlugify(trimmedLabel);
+  if (legacyLabelSlug && legacyLabelSlug !== slug) {
+    const legacyLabelMatch = getArticleByLookup(db, legacyLabelSlug);
+    if (legacyLabelMatch) return legacyLabelMatch;
+  }
+
+  return getArticleByTitle(db, trimmedLabel);
 }
 
 function normalizeMentionText(value: string): string {
@@ -1152,7 +1180,7 @@ export function convertExistingArticleLinksToRefs(
     const slug = slugify(link.slug ?? link.target);
     let replacement = link.raw;
     if (slug && slug !== normalizedSelf) {
-      const article = getArticleByLookup(db, slug);
+      const article = resolveExistingArticleForLink(db, slug, link.label);
       replacement = article
         ? `[${link.label.trim() || article.title}](ref:${article.slug})`
         : buildHaluLink(link.label, slug, link.hint ?? "");

@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MarkdownEditor, joinMarkdownBlocks, splitMarkdownBlocks } from "../../src/client/MarkdownEditor";
@@ -74,5 +75,22 @@ describe("MarkdownEditor", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Rendered blocks" }));
     expect(screen.getByRole("heading", { name: "A" })).toBeInTheDocument();
+  });
+
+  it("keeps rendered blocks in sync with raw-text edits", async () => {
+    const Wrapper = () => {
+      const [value, setValue] = useState("# A\n\nB");
+      return <MarkdownEditor value={value} onChange={setValue} />;
+    };
+    render(<Wrapper />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Raw text" }));
+    const ta = document.querySelector(".mdedit-raw-textarea") as HTMLTextAreaElement;
+    await userEvent.clear(ta);
+    await userEvent.type(ta, "# A\n\nChanged in raw mode.");
+
+    await userEvent.click(screen.getByRole("button", { name: "Rendered blocks" }));
+    expect(screen.getByText("Changed in raw mode.")).toBeInTheDocument();
+    expect(screen.queryByText("B")).not.toBeInTheDocument();
   });
 });

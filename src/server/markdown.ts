@@ -1,7 +1,7 @@
 import MarkdownIt from "markdown-it";
 import markdownItContainer from "markdown-it-container";
 import katex from "katex";
-import { slugToTitle, slugify, titleToWikiSegment } from "./slug";
+import { legacySlugify, slugToTitle, slugify, titleToWikiSegment } from "./slug";
 import type { ArticleSection, ParsedInternalLink } from "./types";
 import { buildHaluLink, extractHaluLinks } from "./text/links/haluLinks";
 import { normalizeMarkdownLinks } from "./text/linkNormalize";
@@ -235,11 +235,21 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 
   // Extract slug from "halu:slug" or "halu:slug hint" form.
   const rawSlug = href.slice("halu:".length).split(/["' ]/)[0];
-  const resolvedSlug = slugify(rawSlug);
+  let decodedRawSlug = rawSlug;
+  try {
+    decodedRawSlug = decodeURIComponent(rawSlug);
+  } catch {
+    decodedRawSlug = rawSlug;
+  }
+  const resolvedSlug = slugify(decodedRawSlug);
 
-  const wikiPath = visibleText.trim()
-    ? `/wiki/${titleToWikiSegment(visibleText.trim())}`
-    : `/wiki/${titleToWikiSegment(slugToTitle(resolvedSlug))}`;
+  const visibleTitle = visibleText.trim();
+  const visibleMatchesTarget =
+    visibleTitle &&
+    (slugify(visibleTitle) === resolvedSlug ||
+      legacySlugify(visibleTitle) === resolvedSlug);
+  const linkTitle = visibleMatchesTarget ? visibleTitle : slugToTitle(resolvedSlug);
+  const wikiPath = `/wiki/${titleToWikiSegment(linkTitle)}`;
   tokens[idx].attrSet("href", wikiPath);
   if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
 

@@ -29,10 +29,12 @@ import { join } from "node:path";
 
 import {
   openDatabase,
+  getArticle,
   saveArticle,
   saveArticleReferences,
   getLatestArticleReferences,
   listIncomingHints,
+  listArticleRevisions,
   setArticleProtection,
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
@@ -158,6 +160,22 @@ class PipelineLlm implements LlmRouter {
   }
   async embed(): Promise<number[][]> { return []; }
   async probeConnections(): Promise<void> {}
+}
+
+class ChatArticleLlm extends PipelineLlm {
+  constructor(private readonly chatArticleBody: string) {
+    super({ articleBody: chatArticleBody });
+  }
+
+  override async chat(role: "heavy" | "light", system: string, user: string): Promise<string> {
+    if (
+      user.includes("Output the full rewritten Markdown article.") ||
+      user.includes("Output the full refreshed Markdown article.")
+    ) {
+      return this.chatArticleBody;
+    }
+    return super.chat(role, system, user);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────
@@ -1378,6 +1396,78 @@ test("raw-save: saves markdown and creates a revision", async (t) => {
   assert.ok(revisions.some((r) => r.operation === "raw-edit"), "revision operation should be raw-edit");
 });
 
+test("raw-save: preserves an existing slug that differs from the article title", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const { request, db, shutdown } = await makeTestApp(databasePath);
+  t.after(() => shutdown());
+  seedDbArticle(db, "a-testing", "Algebra", "Original algebra body.");
+
+  const res = await request("/api/article/a-testing/raw-save", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown: "# Algebra\n\nUpdated algebra body." }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as { article: { slug: string; markdown: string } };
+  assert.equal(body.article.slug, "a-testing");
+  assert.match(body.article.markdown, /Updated .*algebra.* body/);
+  assert.equal(getArticle(db, "algebra"), null, "raw-save must not migrate the row to slugify(title)");
+
+  const saved = getArticle(db, "a-testing");
+  assert.match(saved?.markdown ?? "", /Updated .*algebra.* body/);
+  const revisions = listArticleRevisions(db, "a-testing");
+  assert.equal(revisions[0]?.operation, "raw-edit");
+});
+
+test("raw-save: preserves markdown-emphasis title slugs", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const { request, db, shutdown } = await makeTestApp(databasePath);
+  t.after(() => shutdown());
+  seedDbArticle(db, "star-algebra-star", "*Algebra*", "Original emphasized algebra body.");
+
+  const res = await request("/api/article/star-algebra-star/raw-save", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown: "# *Algebra*\n\nUpdated emphasized algebra body." }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as { article: { slug: string; title: string; markdown: string } };
+  assert.equal(body.article.slug, "star-algebra-star");
+  assert.equal(body.article.title, "*Algebra*");
+  assert.match(body.article.markdown, /Updated emphasized algebra body/);
+  assert.equal(getArticle(db, "algebra"), null, "raw-save must not migrate emphasized-title slug to plain title slug");
+
+  const revisions = listArticleRevisions(db, "star-algebra-star");
+  assert.equal(revisions[0]?.operation, "raw-edit");
+});
+
+test("raw-save: resolves exact legacy route slug when slugified lookup differs", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const { request, db, shutdown } = await makeTestApp(databasePath);
+  t.after(() => shutdown());
+  seedDbArticle(db, "A_testing", "Algebra", "Original legacy slug body.");
+
+  const res = await request("/api/article/A_testing/raw-save", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown: "# Algebra\n\nUpdated legacy slug body." }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json() as { article: { slug: string; markdown: string } };
+  assert.equal(body.article.slug, "A_testing");
+  assert.match(body.article.markdown, /Updated legacy slug body/);
+  assert.equal(getArticle(db, "algebra"), null, "raw-save must not migrate exact legacy slugs");
+
+  const revisions = listArticleRevisions(db, "A_testing");
+  assert.equal(revisions[0]?.operation, "raw-edit");
+});
+
 test("raw-save: ref slugs passed become part of reference list", async (t) => {
   const { root, databasePath } = makeTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -2229,7 +2319,7 @@ test("rewrite: POST /api/article/:slug/rewrite runs pipeline and updates article
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const rewriteBody = "# Test Article\n\nRewritten body with new content.";
-  const { request, db, shutdown } = await makeTestApp(databasePath, new PipelineLlm({ articleBody: rewriteBody }));
+  const { request, db, shutdown } = await makeTestApp(databasePath, new ChatArticleLlm(rewriteBody));
   t.after(() => shutdown());
 
   seedDbArticle(db, "rewrite-test", "Rewrite Test", "Original body content.");
@@ -2245,6 +2335,32 @@ test("rewrite: POST /api/article/:slug/rewrite runs pipeline and updates article
   // Core invariant: no metadata sections in rewritten body.
   assert.doesNotMatch(payload.article?.body ?? "", /^##\s+(references|see also)/im,
     "rewritten body must not contain metadata sections");
+});
+
+test("rewrite: preserves stored slug when title contains markdown emphasis", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const rewriteBody = "# *Algebra*\n\nRewritten emphasized algebra body.";
+  const { request, db, shutdown } = await makeTestApp(databasePath, new ChatArticleLlm(rewriteBody));
+  t.after(() => shutdown());
+
+  seedDbArticle(db, "algebra", "*Algebra*", "Original emphasized body.");
+
+  const res = await request("/api/article/algebra/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instructions: "Rewrite it." }),
+  });
+  assert.equal(res.status, 200);
+  const payload = await res.json() as { article?: { slug?: string; markdown?: string; title?: string } };
+  assert.equal(payload.article?.slug, "algebra");
+  assert.equal(payload.article?.title, "*Algebra*");
+  assert.match(payload.article?.markdown ?? "", /Rewritten emphasized algebra body/);
+  assert.equal(getArticle(db, "star-algebra-star"), null, "rewrite must not migrate emphasized-title article slug");
+
+  const revisions = listArticleRevisions(db, "algebra");
+  assert.equal(revisions[0]?.operation, "rewrite");
 });
 
 test("rewrite: protected article returns current content without LLM call", async (t) => {
@@ -2278,7 +2394,7 @@ test("refresh: POST /api/article/:slug/refresh-context runs pipeline and updates
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const refreshedBody = "# Refresh Target\n\nRefreshed with new context.";
-  const { request, db, shutdown } = await makeTestApp(databasePath, new PipelineLlm({ articleBody: refreshedBody }));
+  const { request, db, shutdown } = await makeTestApp(databasePath, new ChatArticleLlm(refreshedBody));
   t.after(() => shutdown());
 
   seedDbArticle(db, "refresh-target", "Refresh Target", "Original content.");
@@ -2293,6 +2409,32 @@ test("refresh: POST /api/article/:slug/refresh-context runs pipeline and updates
   assert.ok(payload.article, "response should contain article");
   assert.doesNotMatch(payload.article?.body ?? "", /^##\s+(references|see also)/im,
     "refreshed body must not contain metadata sections");
+});
+
+test("refresh: preserves stored slug when title contains markdown emphasis", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const refreshedBody = "# *Algebra*\n\nRefreshed emphasized algebra body.";
+  const { request, db, shutdown } = await makeTestApp(databasePath, new ChatArticleLlm(refreshedBody));
+  t.after(() => shutdown());
+
+  seedDbArticle(db, "algebra", "*Algebra*", "Original emphasized body.");
+
+  const res = await request("/api/article/algebra/refresh-context", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 200);
+  const payload = await res.json() as { article?: { slug?: string; markdown?: string; title?: string } };
+  assert.equal(payload.article?.slug, "algebra");
+  assert.equal(payload.article?.title, "*Algebra*");
+  assert.match(payload.article?.markdown ?? "", /Refreshed emphasized algebra body/);
+  assert.equal(getArticle(db, "star-algebra-star"), null, "refresh must not migrate emphasized-title article slug");
+
+  const revisions = listArticleRevisions(db, "algebra");
+  assert.equal(revisions[0]?.operation, "refresh-context-rewrite");
 });
 
 /* ─────────────────────────────────────────────────────────────────

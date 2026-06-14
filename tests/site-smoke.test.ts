@@ -94,7 +94,7 @@ class FailingGenerationLlmClient implements LlmRouter {
   }
 
   async streamChat(): Promise<{ content: string; finishReason: string }> {
-    throw new Error("generation should not run for an equivalent cached slug");
+    throw new Error("generation should not run for cached lookup regressions");
   }
 
   async embed(): Promise<number[][]> {
@@ -967,6 +967,62 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       entries.some((entry) => entry.event === "page.miss"),
       false,
       "equivalent cached lookup must not fall through to generation",
+    );
+  });
+
+  await t.test("slug-derived title paths resolve existing legacy slugs before robust generation", async (t) => {
+    const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+    const databasePath = join(root, TEST_CONFIG.database_path);
+    const db = openDatabase(databasePath);
+    const markdown = [
+      "# Signal Relay",
+      "",
+      "An existing article whose stored slug contains a hyphen.",
+    ].join("\n");
+
+    saveArticle(
+      db,
+      {
+        slug: "signal-relay",
+        canonicalSlug: "signal-relay",
+        title: "Signal Relay",
+        markdown,
+        html: renderMarkdown(markdown),
+        plain_text: markdownToPlainText(markdown),
+        generated_at: Date.now(),
+      },
+      [],
+      ["signal-relay"],
+    );
+    db.close();
+
+    const entries: CapturedLogEntry[] = [];
+    const server = await createServerForDatabase(root, databasePath, {
+      logger: createMemoryLogger(entries),
+      llmClient: new FailingGenerationLlmClient(),
+    });
+    cleanupTestServer(t, server);
+
+    const res = await server.request("/api/page/Signal-relay");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.cached, true);
+    assert.equal(body.article.slug, "signal-relay");
+    assert.equal(body.article.title, "Signal Relay");
+    assert.equal(body.canonicalPath, "/wiki/Signal_Relay");
+    assert.equal(body.redirectedFrom, "/wiki/Signal-relay");
+    assert.ok(
+      entries.some(
+        (entry) =>
+          entry.event === "page.legacy_slug_hit" &&
+          entry.fields?.slug === "signal-dash-relay" &&
+          entry.fields?.canonical_slug === "signal-relay",
+      ),
+    );
+    assert.equal(
+      entries.some((entry) => entry.event === "page.miss"),
+      false,
+      "title-shaped lookup must not generate the robust dash slug when the legacy slug exists",
     );
   });
 

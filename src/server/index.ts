@@ -124,6 +124,7 @@ import {
 import {
   isSlugForm,
   isSlugStyleWikiSegment,
+  legacySlugify,
   normalizeCanonicalTitle,
   slugToTitle,
   slugify,
@@ -1828,12 +1829,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       decodedRequestedTitle || c.req.query("title") || segmentTitle,
     );
     const lookupSlug = slugify(segmentTitle);
+    const legacyLookupSlug = legacySlugify(segmentTitle);
     if (!lookupSlug || !requestedTitle)
       return c.json({ error: "invalid slug" }, 400);
     const requestedPath = `/wiki/${requestedSegment}`;
 
     // Check if there's an in-flight edit for this article
-    const hasInFlightEdit = inFlightEdits.has(lookupSlug);
+    const hasInFlightEdit =
+      inFlightEdits.has(lookupSlug) ||
+      (legacyLookupSlug !== lookupSlug && inFlightEdits.has(legacyLookupSlug));
     if (hasInFlightEdit) {
       logger.info("page.in_flight_edit", { slug: lookupSlug });
     }
@@ -1842,10 +1846,25 @@ export async function createApp(options: CreateAppOptions = {}) {
     // any cache repair needed). All article shaping happens in
     // buildArticleResponseFor/buildPageResponse so the wire format stays
     // single-sourced.
-    let record = getArticleByLookup(db, lookupSlug);
+    let resolvedLookupSlug = lookupSlug;
+    let record =
+      legacyLookupSlug !== lookupSlug
+        ? getArticleByLookup(db, legacyLookupSlug)
+        : null;
+    if (record) {
+      resolvedLookupSlug = legacyLookupSlug;
+      logger.info("page.legacy_slug_hit", { slug: lookupSlug, canonical_slug: record.slug });
+    }
+    if (!record) {
+      record = getArticleByLookup(db, lookupSlug);
+      if (record) resolvedLookupSlug = lookupSlug;
+    }
     if (!record) {
       const titleMatch = getArticleByTitle(db, requestedTitle);
-      if (titleMatch) record = repairStoredArticleIdentity(titleMatch, lookupSlug);
+      if (titleMatch) {
+        resolvedLookupSlug = titleMatch.slug;
+        record = titleMatch;
+      }
     }
     if (!record) {
       // A slug-form segment that didn't match as a title may be an EXACT
@@ -1863,6 +1882,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         const exactSlugMatch = getArticleByLookup(db, rawSegment);
         if (exactSlugMatch) {
           logger.info("page.exact_slug_hit", { segment: rawSegment, slug: exactSlugMatch.slug });
+          resolvedLookupSlug = rawSegment;
           record = exactSlugMatch;
         }
       }
@@ -1874,11 +1894,12 @@ export async function createApp(options: CreateAppOptions = {}) {
           slug: lookupSlug,
           canonical_slug: equivalentMatch.slug,
         });
+        resolvedLookupSlug = equivalentMatch.slug;
         record = equivalentMatch;
       }
     }
     if (record) {
-      record = repairStoredArticleIdentity(record, lookupSlug);
+      record = repairStoredArticleIdentity(record, resolvedLookupSlug);
       if (cachedArticleNeedsRepair(record.markdown)) {
         logger.warn("page.cache_repair", { slug: record.slug, in_flight_edit: hasInFlightEdit });
         record = repairCachedArticle(record);
@@ -1887,7 +1908,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       const response = buildArticleResponseFor(record.slug);
       if (response) {
         const canonicalPath = canonicalPathForArticle(record);
-        logger.info("page.hit", { slug: lookupSlug, in_flight_edit: hasInFlightEdit });
+        logger.info("page.hit", { slug: resolvedLookupSlug, in_flight_edit: hasInFlightEdit });
 
         // Auto-sidebar: fire post-process in the background on first view if
         // the article has no infobox yet (e.g. imported or created before
@@ -2135,9 +2156,22 @@ export async function createApp(options: CreateAppOptions = {}) {
   // normalised and run through the standard link/reference pipeline but
   // never passed to a language model.
   app.post("/api/article/:slug/raw-save", async (c) => {
-    const lookupSlug = slugify(c.req.param("slug"));
+    const routeSlug = c.req.param("slug");
+    const lookupSlug = slugify(routeSlug);
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
-    const article = getArticleByLookup(db, lookupSlug);
+    let article = getArticleByLookup(db, lookupSlug);
+    if (!article) {
+      const rawSlug = (() => {
+        try {
+          return decodeURIComponent(routeSlug);
+        } catch {
+          return routeSlug;
+        }
+      })().replace(/^\/+|\/+$/g, "");
+      if (rawSlug !== lookupSlug) {
+        article = getArticleByLookup(db, rawSlug);
+      }
+    }
     if (!article) return c.json({ error: "article not found" }, 404);
 
     const body = (await c.req.json().catch(() => ({}))) as {

@@ -638,14 +638,9 @@ export function App() {
   const navigateToArticle = useCallback((slugOrTitleSegment: string, explicitTitle?: string) => {
     const clean = articleInputToWikiSegment(slugOrTitleSegment);
     if (!clean) return;
-    // The URL stays slug-only and clean — punctuation like ":" doesn't
-    // survive there, and URL params are not where this belongs. When the
-    // caller has the user's literal typed title (e.g. "Test: The Movie"),
-    // remember it out-of-band and send it as a request header on the page
-    // fetch, so the server — and in turn the model — gets the exact text
-    // instead of reconstructing an approximation from the slug. Plain links
-    // to a slug (no remembered title) fall back to that reconstruction, which
-    // is fine — there's nothing more to go on.
+    // The URL is title-shaped when the caller has a title. Keep that title
+    // out-of-band too, so punctuation that cannot survive the path still
+    // reaches the server exactly.
     const title = explicitTitle?.trim();
     if (title) pendingRequestedTitleRef.current = { slug: clean, title };
     window.history.pushState({}, "", `/wiki/${clean}`);
@@ -947,6 +942,7 @@ export function App() {
       }
       setRawEditOpen(false);
       setRawEditMarkdown("");
+      setHistoryLoaded(false);
       setEditBusy(false);
       if (page?.article.slug) loadEditRefs(page.article.slug);
     } catch (err: any) {

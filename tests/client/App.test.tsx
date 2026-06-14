@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/client/App";
@@ -905,6 +905,93 @@ describe("App", () => {
     expect(await screen.findByText("No edit history yet.")).toBeInTheDocument();
   });
 
+  it("raw edit applies markdown and refreshes an already-open revision history", async () => {
+    const original = pagePayload();
+    const updated = pagePayload({
+      article: {
+        ...original.article,
+        markdown: "# Test Article\n\nChanged by raw save.",
+        html: "<h1>Test Article</h1><p>Changed by raw save.</p>",
+        plain_text: "Changed by raw save.",
+      },
+    });
+    let historyCalls = 0;
+    const fetchMock = withLiveBypass((input, init) => {
+      const url = String(input);
+      if (url.includes("/api/page/")) {
+        return new Response(JSON.stringify(original), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/history")) {
+        historyCalls += 1;
+        const revisions = historyCalls === 1
+          ? []
+          : [{
+            id: 9,
+            title: "Test Article",
+            html: updated.article.html,
+            markdown: updated.article.markdown,
+            summaryMarkdown: "Changed by raw save.",
+            generatedAt: 1715000000001,
+            createdAt: 1715000000002,
+            operation: "raw-edit",
+            instructions: "raw-edit",
+            revertedFromRevisionId: null,
+          }];
+        return new Response(JSON.stringify({ revisions }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/raw-save")) {
+        expect((init as RequestInit)?.method).toBe("POST");
+        return new Response(JSON.stringify({ article: updated.article }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/references")) {
+        return new Response(JSON.stringify({ references: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ image: null }), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Test Article" });
+    await userEvent.click(screen.getByRole("button", { name: "View history" }));
+    expect(await screen.findByText("No edit history yet.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+    await userEvent.click(screen.getByRole("button", { name: "Raw" }));
+    const rawPanel = screen.getByRole("region", { name: "Raw markdown editor" });
+    await userEvent.click(within(rawPanel).getByRole("button", { name: "Raw text" }));
+    const rawTextarea = document.querySelector(".mdedit-raw-textarea") as HTMLTextAreaElement;
+    await userEvent.clear(rawTextarea);
+    await userEvent.type(rawTextarea, "# Test Article\n\nChanged by raw save.");
+    await userEvent.click(screen.getByRole("button", { name: "Save raw" }));
+
+    await waitFor(() => {
+      const rawCall = fetchMock.mock.calls.find(([u, callInit]) =>
+        String(u).includes("/raw-save") && (callInit as RequestInit)?.method === "POST"
+      );
+      expect(rawCall).toBeDefined();
+      expect(JSON.parse(String((rawCall![1] as RequestInit).body))).toMatchObject({
+        markdown: "# Test Article\n\nChanged by raw save.",
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("Changed by raw save.").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("raw-edit").length).toBeGreaterThan(0);
+    });
+    expect(historyCalls).toBe(2);
+  });
+
   it("shows refresh feedback when references are unchanged", async () => {
     const payload = pagePayload();
     const refreshUrl = "/api/article/test-article/refresh-context?stream=1";
@@ -1373,7 +1460,7 @@ describe("App", () => {
     await userEvent.type(input, "Test: The Movie");
     await userEvent.keyboard("{Enter}");
 
-    // URL stays slug-only and clean — no query string.
+    // URL stays title-shaped and clean: no query string.
     expect(window.location.pathname).toBe("/wiki/Test_The_Movie");
     expect(window.location.search).toBe("");
     await waitFor(() => {

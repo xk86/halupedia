@@ -385,11 +385,20 @@ test("bare bracketed article titles become internal halu links", () => {
   assert.doesNotMatch(html, /\[Text Like This\]/);
 });
 
-test("renderMarkdown rewrites halu links to wiki paths using visible text", () => {
+test("renderMarkdown rewrites halu links to wiki paths using the halu target", () => {
   const html = renderMarkdown(
     'Visit [Glow Fruit](halu:glow-fruit "hidden hint") for details.',
   );
   assert.match(html, /href="\/wiki\/Glow_Fruit"/);
+  assert.doesNotMatch(html, /hidden hint/);
+});
+
+test("renderMarkdown does not route halu aliases through their visible label", () => {
+  const html = renderMarkdown(
+    'Visit [The T-O Test](halu:oscillation-test-of-significance "hidden hint") for details.',
+  );
+  assert.match(html, /href="\/wiki\/Oscillation_test_of_significance"/);
+  assert.doesNotMatch(html, /href="\/wiki\/The_T-O_Test"/);
   assert.doesNotMatch(html, /hidden hint/);
 });
 
@@ -1331,6 +1340,41 @@ test("existing halu links are scraped and converted to reference links", (t) => 
   assert.equal(
     convertExistingArticleLinksToRefs(db, body, "current-entry"),
     '[known material](ref:source-entry) and [unknown material](halu:missing-entry "missing source").',
+  );
+});
+
+test("convertExistingArticleLinksToRefs resolves bad dash targets through the visible title before keeping halu", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-dash-ref-"));
+  t.after(() => {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const markdown = "# Signal Relay\n\nKnown source.";
+  saveArticle(
+    db,
+    {
+      slug: "signal-relay",
+      canonicalSlug: "signal-relay",
+      title: "Signal Relay",
+      markdown,
+      html: renderMarkdown(markdown),
+      summaryMarkdown: "Known source.",
+      plain_text: markdownToPlainText(markdown),
+      generated_at: 1,
+    },
+    [],
+    ["signal-relay"],
+  );
+
+  const body = '[Signal-relay](halu:signal-dash-relay "bad generated target") appears inline.';
+  assert.deepEqual(
+    findExistingArticleLinkReferences(db, body, "current-entry").map((r) => r.slug),
+    ["signal-relay"],
+  );
+  assert.equal(
+    convertExistingArticleLinksToRefs(db, body, "current-entry"),
+    "[Signal-relay](ref:signal-relay) appears inline.",
   );
 });
 

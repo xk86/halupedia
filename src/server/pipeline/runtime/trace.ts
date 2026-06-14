@@ -54,6 +54,18 @@ export interface NodeTraceFields {
   cotText?: string;
   /** Final model response text (LLM nodes only). */
   responseText?: string;
+  /** LLM invocation metadata and generation options (LLM nodes only). */
+  llmRole?: string;
+  llmResolvedRole?: string;
+  llmConfigKey?: string;
+  llmModel?: string;
+  llmBaseUrl?: string;
+  llmHost?: string;
+  llmTemperature?: number;
+  llmMaxTokens?: number;
+  llmThinking?: boolean;
+  llmJsonMode?: boolean;
+  llmImageCount?: number;
 }
 
 export interface RunTraceFields {
@@ -164,6 +176,17 @@ class SqliteTraceRecorder implements TraceRecorder {
       `prompt_text TEXT`,
       `cot_text TEXT`,
       `response_text TEXT`,
+      `llm_role TEXT`,
+      `llm_resolved_role TEXT`,
+      `llm_config_key TEXT`,
+      `llm_model TEXT`,
+      `llm_base_url TEXT`,
+      `llm_host TEXT`,
+      `llm_temperature REAL`,
+      `llm_max_tokens INTEGER`,
+      `llm_thinking INTEGER`,
+      `llm_json_mode INTEGER`,
+      `llm_image_count INTEGER`,
     ]) {
       try {
         this.db.exec(`ALTER TABLE pipeline_nodes ADD COLUMN ${col}`);
@@ -173,8 +196,11 @@ class SqliteTraceRecorder implements TraceRecorder {
       `INSERT INTO pipeline_nodes
          (run_id, node_name, node_kind, started_at, duration_ms, status,
           reads, writes, inputs_json, patch_json, diff_json, warnings_json,
-          error_message, error_stack, prompt_chars, prompt_text, cot_text, response_text)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          error_message, error_stack, prompt_chars, prompt_text, cot_text, response_text,
+          llm_role, llm_resolved_role, llm_config_key, llm_model, llm_base_url,
+          llm_host, llm_temperature, llm_max_tokens, llm_thinking, llm_json_mode,
+          llm_image_count)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
   }
 
@@ -233,6 +259,17 @@ class SqliteTraceRecorder implements TraceRecorder {
         capText(fields.promptText),
         capText(fields.cotText),
         capText(fields.responseText),
+        fields.llmRole ?? null,
+        fields.llmResolvedRole ?? null,
+        fields.llmConfigKey ?? null,
+        fields.llmModel ?? null,
+        fields.llmBaseUrl ?? null,
+        fields.llmHost ?? null,
+        fields.llmTemperature ?? null,
+        fields.llmMaxTokens ?? null,
+        fields.llmThinking === undefined ? null : fields.llmThinking ? 1 : 0,
+        fields.llmJsonMode === undefined ? null : fields.llmJsonMode ? 1 : 0,
+        fields.llmImageCount ?? null,
       );
     } catch {
       // ditto — swallow trace failures.
@@ -309,7 +346,18 @@ CREATE TABLE IF NOT EXISTS pipeline_nodes (
   prompt_chars    INTEGER,
   prompt_text     TEXT,
   cot_text        TEXT,
-  response_text   TEXT
+  response_text   TEXT,
+  llm_role        TEXT,
+  llm_resolved_role TEXT,
+  llm_config_key  TEXT,
+  llm_model       TEXT,
+  llm_base_url    TEXT,
+  llm_host        TEXT,
+  llm_temperature REAL,
+  llm_max_tokens  INTEGER,
+  llm_thinking    INTEGER,
+  llm_json_mode   INTEGER,
+  llm_image_count INTEGER
 );
 CREATE INDEX IF NOT EXISTS pipeline_nodes_run_idx
   ON pipeline_nodes (run_id, started_at);

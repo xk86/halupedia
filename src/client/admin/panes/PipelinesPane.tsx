@@ -66,6 +66,17 @@ interface NodeSpan {
   prompt_text?: string | null;
   cot_text?: string | null;
   response_text?: string | null;
+  llm_role?: string | null;
+  llm_resolved_role?: string | null;
+  llm_config_key?: string | null;
+  llm_model?: string | null;
+  llm_base_url?: string | null;
+  llm_host?: string | null;
+  llm_temperature?: number | null;
+  llm_max_tokens?: number | null;
+  llm_thinking?: number | boolean | null;
+  llm_json_mode?: number | boolean | null;
+  llm_image_count?: number | null;
 }
 
 interface Props {
@@ -277,7 +288,8 @@ function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number 
       {nodes.map((node, i) => {
         const pct = Math.round((node.duration_ms / Math.max(totalMs, 1)) * 100);
         const barPct = Math.round((node.duration_ms / maxMs) * 100);
-        const hasPrompt = Boolean(node.prompt_text || node.cot_text || node.response_text);
+        const hasMetadata = Boolean(node.llm_role || node.llm_model || node.llm_config_key);
+        const hasPrompt = Boolean(node.prompt_text || node.cot_text || node.response_text || hasMetadata);
         const isOpen = openNode === i;
         return (
           <Fragment key={i}>
@@ -315,6 +327,7 @@ function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number 
             </div>
             {isOpen && hasPrompt && (
               <div className="admin-prompt-detail">
+                {hasMetadata && <LlmMetadata node={node} />}
                 {node.prompt_text && (
                   <PromptSection label="Prompt" text={node.prompt_text} />
                 )}
@@ -330,6 +343,42 @@ function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number 
         );
       })}
     </div>
+  );
+}
+
+function boolText(value: number | boolean | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  return value === true || value === 1 ? "on" : "off";
+}
+
+function LlmMetadata({ node }: { node: NodeSpan }) {
+  const role =
+    node.llm_resolved_role && node.llm_role && node.llm_resolved_role !== node.llm_role
+      ? `${node.llm_role} -> ${node.llm_resolved_role}`
+      : node.llm_role;
+  const rows = [
+    ["Config", node.llm_config_key],
+    ["Role", role],
+    ["Model", node.llm_model],
+    ["Host", node.llm_host],
+    ["Base URL", node.llm_base_url],
+    ["Temperature", node.llm_temperature == null ? null : String(node.llm_temperature)],
+    ["Max tokens", node.llm_max_tokens == null ? null : String(node.llm_max_tokens)],
+    ["Thinking", boolText(node.llm_thinking)],
+    ["JSON mode", boolText(node.llm_json_mode)],
+    ["Images", node.llm_image_count == null ? null : String(node.llm_image_count)],
+  ].filter((row): row is [string, string] => Boolean(row[1]));
+
+  if (rows.length === 0) return null;
+  return (
+    <dl className="admin-prompt-meta-grid">
+      {rows.map(([label, value]) => (
+        <Fragment key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </Fragment>
+      ))}
+    </dl>
   );
 }
 

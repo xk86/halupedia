@@ -1,4 +1,4 @@
-import type { ChatConfig, EmbeddingsConfig } from "./types";
+import type { ChatConfig, EmbeddingsConfig, LlmInvocationMetadata } from "./types";
 import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 
 export type LlmRole = "heavy" | "light" | "images" | "embeddings";
@@ -36,6 +36,8 @@ function extractReasoning(message: Record<string, unknown> | undefined): string 
  *  generative call so callers never need to hold two separate client handles. */
 export interface LlmRouter {
   chat(role: "heavy" | "light" | "images", system: string, user: string, options?: ChatOptions): Promise<string>;
+  /** Resolved non-secret model metadata for trace/UI display. */
+  metadataFor?(role: "heavy" | "light" | "images"): LlmInvocationMetadata;
   /** True when the model at the given role accepted a test vision payload at startup. */
   supportsVision(role: "heavy" | "light" | "images"): boolean;
   streamChat(
@@ -399,6 +401,14 @@ async function probeVisionSupport(
   }
 }
 
+function hostForBaseUrl(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
 /** Production LlmRouter that holds separate heavy, light, and optional images chat clients. */
 export class OpenAICompatRouter implements LlmRouter {
   private readonly heavy: OpenAICompatClient;
@@ -423,6 +433,33 @@ export class OpenAICompatRouter implements LlmRouter {
   private client(role: "heavy" | "light" | "images"): OpenAICompatClient {
     if (role === "images") return this.images ?? this.light;
     return role === "light" ? this.light : this.heavy;
+  }
+
+  metadataFor(role: "heavy" | "light" | "images"): LlmInvocationMetadata {
+    const config =
+      role === "heavy"
+        ? this.heavyChatConfig
+        : role === "images" && this.imagesChatConfig
+          ? this.imagesChatConfig
+          : this.lightChatConfig;
+    const resolvedRole =
+      role === "images" && !this.imagesChatConfig ? "light" : role;
+    const configKey =
+      role === "heavy"
+        ? "llm.chat"
+        : role === "images" && this.imagesChatConfig
+          ? "llm.images"
+          : "llm.light";
+    return {
+      requestedRole: role,
+      resolvedRole,
+      configKey,
+      model: config.model,
+      baseUrl: config.base_url,
+      host: hostForBaseUrl(config.base_url),
+      temperature: config.temperature,
+      maxTokens: config.max_tokens,
+    };
   }
 
   supportsVision(role: "heavy" | "light" | "images"): boolean {

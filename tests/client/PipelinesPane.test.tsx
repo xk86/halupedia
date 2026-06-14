@@ -20,6 +20,17 @@ describe("PipelinesPane", () => {
             prompt_text: "### System\nUse **bold** rules.",
             cot_text: "## Thought\nConsider **constraints**.",
             response_text: "## Output\nFinal **answer**.",
+            llm_role: "images",
+            llm_resolved_role: "light",
+            llm_config_key: "llm.light",
+            llm_model: "gemma3:4b-it-qat",
+            llm_base_url: "http://cat-desktop:11434/v1",
+            llm_host: "cat-desktop:11434",
+            llm_temperature: 0.7,
+            llm_max_tokens: 2400,
+            llm_thinking: 1,
+            llm_json_mode: 0,
+            llm_image_count: 2,
           },
         ],
       }), { headers: { "content-type": "application/json" } }),
@@ -52,6 +63,13 @@ describe("PipelinesPane", () => {
     expect(within(detail as HTMLElement).getByRole("heading", { name: "System" })).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByRole("heading", { name: "Thought" })).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByRole("heading", { name: "Output" })).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("llm.light")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("images -> light")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("gemma3:4b-it-qat")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("cat-desktop:11434")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("http://cat-desktop:11434/v1")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("2400")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getAllByText("on").length).toBeGreaterThan(0);
     expect(within(detail as HTMLElement).getByText("bold").tagName).toBe("STRONG");
     expect(within(detail as HTMLElement).getByText("constraints").tagName).toBe("STRONG");
     expect(within(detail as HTMLElement).getByText("answer").tagName).toBe("STRONG");

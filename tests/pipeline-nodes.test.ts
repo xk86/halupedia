@@ -297,6 +297,16 @@ test("SqliteTraceRecorder: writes run and node rows, reads back correctly", () =
       inputs: { input: { requestId: "req-1", workflow: "test" } },
       patch: { articleBody: "# Hello" },
       diff: { articleBody: { kind: "add", after: "# Hello" } },
+      llmRole: "heavy",
+      llmConfigKey: "llm.chat",
+      llmModel: "test-model",
+      llmBaseUrl: "http://model-host:11434/v1",
+      llmHost: "model-host:11434",
+      llmTemperature: 0.8,
+      llmMaxTokens: 2048,
+      llmThinking: true,
+      llmJsonMode: false,
+      llmImageCount: 0,
     });
     // Close the cached recorder so we can open the DB for reading.
     closeTraceRecorder();
@@ -313,6 +323,10 @@ test("SqliteTraceRecorder: writes run and node rows, reads back correctly", () =
     assert.equal(nodes[0].node_name, "test.node");
     assert.equal(nodes[0].status, "ok");
     assert.ok(nodes[0].diff_json, "diff_json should be populated at trace level");
+    assert.equal(nodes[0].llm_config_key, "llm.chat");
+    assert.equal(nodes[0].llm_model, "test-model");
+    assert.equal(nodes[0].llm_host, "model-host:11434");
+    assert.equal(nodes[0].llm_thinking, 1);
     db.close();
   } finally {
     cleanup();
@@ -400,11 +414,15 @@ test("runWorkflow: captures embedded thinking tags as cot_text", async () => {
       reads: ["input"] as const,
       writes: ["llmOutput"] as const,
       async run(_state, deps: { llm: { chat: (...args: unknown[]) => Promise<string> } }) {
-        const text = await deps.llm.chat("heavy", "system", "user");
+        const text = await deps.llm.chat("heavy", "system", "user", {
+          thinking: true,
+          jsonMode: true,
+          images: [{ mime: "image/png", b64: "abc" }],
+        });
         return { llmOutput: { promptKey: "test", text } };
       },
     });
-    const workflow: WorkflowDefinition<{ llm: { chat: (...args: unknown[]) => Promise<string> } }> = {
+    const workflow: WorkflowDefinition<{ llm: { chat: (...args: unknown[]) => Promise<string>; metadataFor?: (...args: unknown[]) => unknown } }> = {
       name: "test.embedded-cot",
       edges: [{ node: llmNode }],
     };
@@ -413,6 +431,18 @@ test("runWorkflow: captures embedded thinking tags as cot_text", async () => {
       input: makeInput({ workflow: "test.embedded-cot" }),
       deps: {
         llm: {
+          metadataFor() {
+            return {
+              requestedRole: "heavy",
+              resolvedRole: "heavy",
+              configKey: "llm.chat",
+              model: "trace-model",
+              baseUrl: "http://trace-host:11434/v1",
+              host: "trace-host:11434",
+              temperature: 0.4,
+              maxTokens: 1234,
+            };
+          },
           async chat() {
             return "<think>Check hidden assumptions.</think>\n\n## Final\nRendered answer.";
           },
@@ -424,9 +454,18 @@ test("runWorkflow: captures embedded thinking tags as cot_text", async () => {
     assert.equal(result.status, "ok");
 
     const db = new DatabaseSync(dbPath, { readOnly: true });
-    const row = db.prepare("SELECT cot_text, response_text FROM pipeline_nodes WHERE run_id = ?").get(result.runId) as Record<string, unknown>;
+    const row = db.prepare("SELECT cot_text, response_text, llm_role, llm_config_key, llm_model, llm_host, llm_temperature, llm_max_tokens, llm_thinking, llm_json_mode, llm_image_count FROM pipeline_nodes WHERE run_id = ?").get(result.runId) as Record<string, unknown>;
     assert.match(String(row.cot_text), /Check hidden assumptions/);
     assert.match(String(row.response_text), /Rendered answer/);
+    assert.equal(row.llm_role, "heavy");
+    assert.equal(row.llm_config_key, "llm.chat");
+    assert.equal(row.llm_model, "trace-model");
+    assert.equal(row.llm_host, "trace-host:11434");
+    assert.equal(row.llm_temperature, 0.4);
+    assert.equal(row.llm_max_tokens, 1234);
+    assert.equal(row.llm_thinking, 1);
+    assert.equal(row.llm_json_mode, 1);
+    assert.equal(row.llm_image_count, 1);
     db.close();
   } finally {
     cleanup();

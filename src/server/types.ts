@@ -245,6 +245,17 @@ export interface EmbeddingsConfig {
   model: string;
 }
 
+export interface LlmInvocationMetadata {
+  requestedRole: "heavy" | "light" | "images";
+  resolvedRole: "heavy" | "light" | "images";
+  configKey: "llm.chat" | "llm.light" | "llm.images";
+  model: string;
+  baseUrl: string;
+  host: string;
+  temperature: number;
+  maxTokens: number;
+}
+
 export interface LlmConfig {
   chat: ChatConfig;
   light: ChatConfig;

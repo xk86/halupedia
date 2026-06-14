@@ -24,6 +24,7 @@
 
 import type { CompiledNode } from "./nodeFactory";
 import type { Logger } from "../../logger";
+import type { LlmInvocationMetadata } from "../../types";
 import type {
   PipelineState,
   PipelineStatePatch,
@@ -151,6 +152,17 @@ export async function runWorkflow<Deps>(
                 promptText: llmCapture?.prompt,
                 cotText: llmCapture?.cot,
                 responseText: llmCapture?.response,
+                llmRole: llmCapture?.role,
+                llmResolvedRole: llmCapture?.resolvedRole,
+                llmConfigKey: llmCapture?.configKey,
+                llmModel: llmCapture?.model,
+                llmBaseUrl: llmCapture?.baseUrl,
+                llmHost: llmCapture?.host,
+                llmTemperature: llmCapture?.temperature,
+                llmMaxTokens: llmCapture?.maxTokens,
+                llmThinking: llmCapture?.thinking,
+                llmJsonMode: llmCapture?.jsonMode,
+                llmImageCount: llmCapture?.imageCount,
               });
               options.logger?.info("pipeline.node.ok", {
                 workflow: workflow.name,
@@ -180,6 +192,17 @@ export async function runWorkflow<Deps>(
                 promptText: llmCapture?.prompt,
                 cotText: llmCapture?.cot,
                 responseText: llmCapture?.response,
+                llmRole: llmCapture?.role,
+                llmResolvedRole: llmCapture?.resolvedRole,
+                llmConfigKey: llmCapture?.configKey,
+                llmModel: llmCapture?.model,
+                llmBaseUrl: llmCapture?.baseUrl,
+                llmHost: llmCapture?.host,
+                llmTemperature: llmCapture?.temperature,
+                llmMaxTokens: llmCapture?.maxTokens,
+                llmThinking: llmCapture?.thinking,
+                llmJsonMode: llmCapture?.jsonMode,
+                llmImageCount: llmCapture?.imageCount,
               });
               options.logger?.error("pipeline.node.error", {
                 workflow: workflow.name,
@@ -242,6 +265,17 @@ export async function runWorkflow<Deps>(
           promptText: llmCapture?.prompt,
           cotText: llmCapture?.cot,
           responseText: llmCapture?.response,
+          llmRole: llmCapture?.role,
+          llmResolvedRole: llmCapture?.resolvedRole,
+          llmConfigKey: llmCapture?.configKey,
+          llmModel: llmCapture?.model,
+          llmBaseUrl: llmCapture?.baseUrl,
+          llmHost: llmCapture?.host,
+          llmTemperature: llmCapture?.temperature,
+          llmMaxTokens: llmCapture?.maxTokens,
+          llmThinking: llmCapture?.thinking,
+          llmJsonMode: llmCapture?.jsonMode,
+          llmImageCount: llmCapture?.imageCount,
         });
         options.logger?.info("pipeline.node.ok", {
           workflow: workflow.name,
@@ -271,6 +305,17 @@ export async function runWorkflow<Deps>(
           promptText: llmCapture?.prompt,
           cotText: llmCapture?.cot,
           responseText: llmCapture?.response,
+          llmRole: llmCapture?.role,
+          llmResolvedRole: llmCapture?.resolvedRole,
+          llmConfigKey: llmCapture?.configKey,
+          llmModel: llmCapture?.model,
+          llmBaseUrl: llmCapture?.baseUrl,
+          llmHost: llmCapture?.host,
+          llmTemperature: llmCapture?.temperature,
+          llmMaxTokens: llmCapture?.maxTokens,
+          llmThinking: llmCapture?.thinking,
+          llmJsonMode: llmCapture?.jsonMode,
+          llmImageCount: llmCapture?.imageCount,
         });
         options.logger?.error("pipeline.node.error", {
           workflow: workflow.name,
@@ -333,6 +378,17 @@ export interface LlmCapture {
   prompt: string;
   cot: string;
   response: string;
+  role: string;
+  resolvedRole?: string;
+  configKey?: string;
+  model?: string;
+  baseUrl?: string;
+  host?: string;
+  temperature?: number;
+  maxTokens?: number;
+  thinking?: boolean;
+  jsonMode?: boolean;
+  imageCount?: number;
 }
 
 function formatPromptForTrace(system: unknown, user: unknown): string {
@@ -354,6 +410,13 @@ function extractEmbeddedReasoning(text: string): string {
 function combineReasoning(separated: string, response: string): string {
   const embedded = extractEmbeddedReasoning(response);
   return [separated.trim(), embedded].filter(Boolean).join("\n\n");
+}
+
+function fallbackConfigKey(role: unknown): string | undefined {
+  if (role === "heavy") return "llm.chat";
+  if (role === "light") return "llm.light";
+  if (role === "images") return "llm.images";
+  return undefined;
 }
 
 function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): Deps {
@@ -380,12 +443,29 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
         return async (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
           let cot = "";
           const args = withReasoning(rest, 0, (r) => { cot = r; });
+          const options = (args[0] ?? {}) as { thinking?: boolean; jsonMode?: boolean; images?: unknown[] };
+          const metadata: LlmInvocationMetadata | undefined =
+            typeof target.metadataFor === "function" &&
+            (role === "heavy" || role === "light" || role === "images")
+              ? target.metadataFor(role) as LlmInvocationMetadata
+              : undefined;
           const response = (await target.chat(role, system, user, ...args)) as string;
           onCapture({
             promptChars: charsOf(system, user),
             prompt: formatPromptForTrace(system, user),
             cot: combineReasoning(cot, typeof response === "string" ? response : ""),
             response: typeof response === "string" ? response : "",
+            role: String(role),
+            resolvedRole: metadata?.resolvedRole,
+            configKey: metadata?.configKey ?? fallbackConfigKey(role),
+            model: metadata?.model,
+            baseUrl: metadata?.baseUrl,
+            host: metadata?.host,
+            temperature: metadata?.temperature,
+            maxTokens: metadata?.maxTokens,
+            thinking: options.thinking === true,
+            jsonMode: options.jsonMode === true,
+            imageCount: Array.isArray(options.images) ? options.images.length : 0,
           });
           return response;
         };
@@ -394,12 +474,29 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
         return async (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
           let cot = "";
           const args = withReasoning(rest, 1, (r) => { cot = r; });
+          const options = (args[1] ?? {}) as { thinking?: boolean; jsonMode?: boolean; images?: unknown[] };
+          const metadata: LlmInvocationMetadata | undefined =
+            typeof target.metadataFor === "function" &&
+            (role === "heavy" || role === "light" || role === "images")
+              ? target.metadataFor(role) as LlmInvocationMetadata
+              : undefined;
           const result = (await target.streamChat(role, system, user, ...args)) as { content?: string };
           onCapture({
             promptChars: charsOf(system, user),
             prompt: formatPromptForTrace(system, user),
             cot: combineReasoning(cot, typeof result?.content === "string" ? result.content : ""),
             response: typeof result?.content === "string" ? result.content : "",
+            role: String(role),
+            resolvedRole: metadata?.resolvedRole,
+            configKey: metadata?.configKey ?? fallbackConfigKey(role),
+            model: metadata?.model,
+            baseUrl: metadata?.baseUrl,
+            host: metadata?.host,
+            temperature: metadata?.temperature,
+            maxTokens: metadata?.maxTokens,
+            thinking: options.thinking === true,
+            jsonMode: options.jsonMode === true,
+            imageCount: Array.isArray(options.images) ? options.images.length : 0,
           });
           return result;
         };

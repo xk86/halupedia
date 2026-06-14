@@ -905,7 +905,7 @@ describe("App", () => {
     expect(await screen.findByText("No edit history yet.")).toBeInTheDocument();
   });
 
-  it("raw edit saves block-mode edits (default WYSIWYG path)", async () => {
+  it("raw edit saves pasted multi-block markdown from a plain textarea", async () => {
     const original = pagePayload({
       article: {
         ...pagePayload().article,
@@ -917,9 +917,9 @@ describe("App", () => {
     const updated = pagePayload({
       article: {
         ...original.article,
-        markdown: "# Test Article\n\nRewritten in block mode.",
-        html: "<h1>Test Article</h1><p>Rewritten in block mode.</p>",
-        plain_text: "Rewritten in block mode.",
+        markdown: "# Test Article\n\nFirst pasted paragraph.\n\nSecond pasted paragraph.",
+        html: "<h1>Test Article</h1><p>First pasted paragraph.</p><p>Second pasted paragraph.</p>",
+        plain_text: "First pasted paragraph. Second pasted paragraph.",
       },
     });
     const fetchMock = withLiveBypass((input) => {
@@ -944,13 +944,10 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Raw" }));
     const rawPanel = screen.getByRole("region", { name: "Raw markdown editor" });
 
-    // Default (block) mode: click the rendered paragraph block to edit its
-    // markdown source, change it, then save — no "Raw text" escape hatch.
-    await userEvent.click(within(rawPanel).getByText("Original body paragraph."));
-    const blockTextarea = rawPanel.querySelector(".mdedit-textarea") as HTMLTextAreaElement;
-    expect(blockTextarea).toBeTruthy();
-    await userEvent.clear(blockTextarea);
-    await userEvent.type(blockTextarea, "Rewritten in block mode.");
+    const rawTextarea = rawPanel.querySelector(".mdedit-raw-textarea") as HTMLTextAreaElement;
+    expect(rawTextarea).toBeTruthy();
+    await userEvent.clear(rawTextarea);
+    await userEvent.type(rawTextarea, "# Test Article\n\nFirst pasted paragraph.\n\nSecond pasted paragraph.");
     await userEvent.click(screen.getByRole("button", { name: "Save raw" }));
 
     await waitFor(() => {
@@ -958,7 +955,8 @@ describe("App", () => {
         String(u).includes("/raw-save") && (callInit as RequestInit)?.method === "POST"
       );
       expect(rawCall).toBeDefined();
-      expect(JSON.parse(String((rawCall![1] as RequestInit).body)).markdown).toContain("Rewritten in block mode.");
+      expect(JSON.parse(String((rawCall![1] as RequestInit).body)).markdown)
+        .toBe("# Test Article\n\nFirst pasted paragraph.\n\nSecond pasted paragraph.");
     });
   });
 
@@ -1027,8 +1025,7 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await userEvent.click(screen.getByRole("button", { name: "Raw" }));
     const rawPanel = screen.getByRole("region", { name: "Raw markdown editor" });
-    await userEvent.click(within(rawPanel).getByRole("button", { name: "Raw text" }));
-    const rawTextarea = document.querySelector(".mdedit-raw-textarea") as HTMLTextAreaElement;
+    const rawTextarea = rawPanel.querySelector(".mdedit-raw-textarea") as HTMLTextAreaElement;
     await userEvent.clear(rawTextarea);
     await userEvent.type(rawTextarea, "# Test Article\n\nChanged by raw save.");
     await userEvent.click(screen.getByRole("button", { name: "Save raw" }));

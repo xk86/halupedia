@@ -439,35 +439,55 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
   // prompt, reasoning, and response for the trace.
   const wrappedLlm = new Proxy(origLlm, {
     get(target, prop) {
+      // Build the metadata-bearing capture once; reused on both the success
+      // path and the error path (so a failed/interrupted call still records the
+      // prompt + whatever partial output the model produced before dying).
+      const captureWith = (
+        role: unknown,
+        system: unknown,
+        user: unknown,
+        options: { thinking?: boolean; jsonMode?: boolean; images?: unknown[] },
+        cot: string,
+        response: string,
+      ) => {
+        const metadata: LlmInvocationMetadata | undefined =
+          typeof target.metadataFor === "function" &&
+          (role === "heavy" || role === "light" || role === "images")
+            ? target.metadataFor(role) as LlmInvocationMetadata
+            : undefined;
+        onCapture({
+          promptChars: charsOf(system, user),
+          prompt: formatPromptForTrace(system, user),
+          cot: combineReasoning(cot, response),
+          response,
+          role: String(role),
+          resolvedRole: metadata?.resolvedRole,
+          configKey: metadata?.configKey ?? fallbackConfigKey(role),
+          model: metadata?.model,
+          baseUrl: metadata?.baseUrl,
+          host: metadata?.host,
+          temperature: metadata?.temperature,
+          maxTokens: metadata?.maxTokens,
+          thinking: options.thinking === true,
+          jsonMode: options.jsonMode === true,
+          imageCount: Array.isArray(options.images) ? options.images.length : 0,
+        });
+      };
       if (prop === "chat") {
         return async (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
           let cot = "";
           const args = withReasoning(rest, 0, (r) => { cot = r; });
           const options = (args[0] ?? {}) as { thinking?: boolean; jsonMode?: boolean; images?: unknown[] };
-          const metadata: LlmInvocationMetadata | undefined =
-            typeof target.metadataFor === "function" &&
-            (role === "heavy" || role === "light" || role === "images")
-              ? target.metadataFor(role) as LlmInvocationMetadata
-              : undefined;
-          const response = (await target.chat(role, system, user, ...args)) as string;
-          onCapture({
-            promptChars: charsOf(system, user),
-            prompt: formatPromptForTrace(system, user),
-            cot: combineReasoning(cot, typeof response === "string" ? response : ""),
-            response: typeof response === "string" ? response : "",
-            role: String(role),
-            resolvedRole: metadata?.resolvedRole,
-            configKey: metadata?.configKey ?? fallbackConfigKey(role),
-            model: metadata?.model,
-            baseUrl: metadata?.baseUrl,
-            host: metadata?.host,
-            temperature: metadata?.temperature,
-            maxTokens: metadata?.maxTokens,
-            thinking: options.thinking === true,
-            jsonMode: options.jsonMode === true,
-            imageCount: Array.isArray(options.images) ? options.images.length : 0,
-          });
-          return response;
+          try {
+            const response = (await target.chat(role, system, user, ...args)) as string;
+            captureWith(role, system, user, options, cot, typeof response === "string" ? response : "");
+            return response;
+          } catch (err) {
+            const partial = (err as { partialContent?: string }).partialContent ?? "";
+            const partialCot = (err as { partialReasoning?: string }).partialReasoning ?? "";
+            captureWith(role, system, user, options, cot || partialCot, partial);
+            throw err;
+          }
         };
       }
       if (prop === "streamChat") {
@@ -475,30 +495,17 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
           let cot = "";
           const args = withReasoning(rest, 1, (r) => { cot = r; });
           const options = (args[1] ?? {}) as { thinking?: boolean; jsonMode?: boolean; images?: unknown[] };
-          const metadata: LlmInvocationMetadata | undefined =
-            typeof target.metadataFor === "function" &&
-            (role === "heavy" || role === "light" || role === "images")
-              ? target.metadataFor(role) as LlmInvocationMetadata
-              : undefined;
-          const result = (await target.streamChat(role, system, user, ...args)) as { content?: string };
-          onCapture({
-            promptChars: charsOf(system, user),
-            prompt: formatPromptForTrace(system, user),
-            cot: combineReasoning(cot, typeof result?.content === "string" ? result.content : ""),
-            response: typeof result?.content === "string" ? result.content : "",
-            role: String(role),
-            resolvedRole: metadata?.resolvedRole,
-            configKey: metadata?.configKey ?? fallbackConfigKey(role),
-            model: metadata?.model,
-            baseUrl: metadata?.baseUrl,
-            host: metadata?.host,
-            temperature: metadata?.temperature,
-            maxTokens: metadata?.maxTokens,
-            thinking: options.thinking === true,
-            jsonMode: options.jsonMode === true,
-            imageCount: Array.isArray(options.images) ? options.images.length : 0,
-          });
-          return result;
+          try {
+            const result = (await target.streamChat(role, system, user, ...args)) as { content?: string };
+            captureWith(role, system, user, options, cot, typeof result?.content === "string" ? result.content : "");
+            return result;
+          } catch (err) {
+            // Interrupted stream: llm.streamChat attaches what it received.
+            const partial = (err as { partialContent?: string }).partialContent ?? "";
+            const partialCot = (err as { partialReasoning?: string }).partialReasoning ?? "";
+            captureWith(role, system, user, options, cot || partialCot, partial);
+            throw err;
+          }
         };
       }
       const val = Reflect.get(target, prop, target);

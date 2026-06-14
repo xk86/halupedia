@@ -194,6 +194,82 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
   assert.deepEqual((chatBodies[2] as { response_format?: unknown }).response_format, { type: "json_object" });
 });
 
+test("chat surfaces the underlying transport cause, not a bare 'fetch failed'", async (t) => {
+  const logger = new CaptureLogger();
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  globalThis.fetch = async () => {
+    // Mirror how Node's undici reports a dropped connection.
+    throw Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    });
+  };
+
+  const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 9001 };
+  const router = new OpenAICompatRouter(chatConfig, chatConfig, { enabled: false, base_url: "", api_key: "", model: "" }, logger);
+
+  await assert.rejects(
+    router.chat("heavy", "system", "user"),
+    (err: Error) => {
+      assert.match(err.message, /ECONNRESET/, "error must name the real cause");
+      assert.doesNotMatch(err.message, /^fetch failed$/);
+      return true;
+    },
+  );
+  const failure = logger.entries.find((e) => e.event === "llm.chat_request_failed");
+  assert.ok(failure, "a chat_request_failed entry must be logged");
+  assert.equal(failure!.fields.code, "ECONNRESET");
+});
+
+test("streamChat reports an interrupted stream with partial content and progress", async (t) => {
+  const logger = new CaptureLogger();
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const encoder = new TextEncoder();
+  const sse = [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: "Hello " } }] })}\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: { content: "world" } }] })}\n`,
+  ];
+  globalThis.fetch = async () => {
+    let i = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (i < sse.length) {
+          controller.enqueue(encoder.encode(sse[i++]));
+        } else {
+          // Socket drops mid-stream after some tokens arrived.
+          controller.error(Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }));
+        }
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+
+  const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 9001 };
+  const router = new OpenAICompatRouter(chatConfig, chatConfig, { enabled: false, base_url: "", api_key: "", model: "" }, logger);
+
+  const seen: string[] = [];
+  await assert.rejects(
+    router.streamChat("heavy", "system", "user", (d) => seen.push(d)),
+    (err: Error & { partialContent?: string }) => {
+      assert.match(err.message, /interrupted after 2 chunks/);
+      assert.match(err.message, /UND_ERR_SOCKET|other side closed/);
+      assert.equal(err.partialContent, "Hello world", "partial output is attached to the error");
+      return true;
+    },
+  );
+  // The deltas reached the consumer before the drop…
+  assert.deepEqual(seen, ["Hello ", "world"]);
+  // …and the interruption is logged with how far it got.
+  const interrupted = logger.entries.find((e) => e.event === "llm.stream_interrupted");
+  assert.ok(interrupted, "an llm.stream_interrupted entry must be logged");
+  assert.equal(interrupted!.fields.chunks, 2);
+  assert.equal(interrupted!.fields.content_chars, 11);
+  assert.ok(logger.entries.some((e) => e.event === "llm.stream_first_token"), "first-token latency is logged");
+});
+
 test("heavy and light OpenAI-compatible requests are sent independently", async (t) => {
   const logger = new CaptureLogger();
   const originalFetch = globalThis.fetch;

@@ -91,6 +91,44 @@ function llmErrorFields(role: LlmRole, model: string, status: number, body: stri
   };
 }
 
+/**
+ * Node's `fetch` collapses transport failures into a bare "fetch failed";
+ * the real reason (ECONNRESET, socket hang up, ETIMEDOUT, DNS, TLS) lives in
+ * `error.cause`. Unwrap it so logs and surfaced errors say what actually broke.
+ */
+function describeFetchError(err: unknown): { message: string; cause: string; code: string } {
+  if (!(err instanceof Error)) return { message: String(err), cause: "", code: "" };
+  // `cause` can nest (undici wraps the socket error). Walk to the innermost.
+  let cause: unknown = (err as { cause?: unknown }).cause;
+  let code = (err as { code?: string }).code ?? "";
+  let causeMsg = "";
+  let depth = 0;
+  while (cause && depth < 5) {
+    if (cause instanceof Error) {
+      causeMsg = cause.message;
+      code = (cause as { code?: string }).code ?? code;
+      const next = (cause as { cause?: unknown }).cause;
+      if (!next || next === cause) break;
+      cause = next;
+    } else {
+      causeMsg = String(cause);
+      break;
+    }
+    depth += 1;
+  }
+  return { message: err.message, cause: causeMsg, code };
+}
+
+/** One-line human summary of a fetch failure for error messages. */
+function fetchErrorSummary(err: unknown): string {
+  const { message, cause, code } = describeFetchError(err);
+  return [code, cause || message].filter(Boolean).join(": ") || "unknown error";
+}
+
+// Emit an in-flight progress heartbeat at most this often while streaming, so a
+// long generation shows it's alive (and how far along) instead of going dark.
+const STREAM_HEARTBEAT_MS = 5_000;
+
 function embedRequestFields(config: EmbeddingsConfig, inputCount: number) {
   return {
     role: "embeddings" as const,
@@ -123,38 +161,53 @@ class OpenAICompatClient {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
     this.logger.info("llm.chat_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.chatConfig.api_key}`,
-      },
-      body: JSON.stringify({
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.chatConfig.api_key}`,
+        },
+        body: JSON.stringify({
+          model: this.chatConfig.model,
+          temperature: this.chatConfig.temperature,
+          max_tokens: this.chatConfig.max_tokens,
+          think: options.thinking ?? false,
+          ...(options.jsonMode ? {
+            format: "json",
+            response_format: { type: "json_object" },
+          } : {}),
+          messages: [
+            { role: "system", content: system },
+            {
+              role: "user",
+              content: options.images?.length
+                ? [
+                    { type: "text", text: user },
+                    ...options.images.map((img) => ({
+                      type: "image_url",
+                      image_url: { url: `data:${img.mime};base64,${img.b64}` },
+                    })),
+                  ]
+                : user,
+            },
+          ],
+        }),
+      });
+    } catch (err) {
+      const detail = describeFetchError(err);
+      this.logger.error("llm.chat_request_failed", {
+        role: this.role,
         model: this.chatConfig.model,
-        temperature: this.chatConfig.temperature,
-        max_tokens: this.chatConfig.max_tokens,
-        think: options.thinking ?? false,
-        ...(options.jsonMode ? {
-          format: "json",
-          response_format: { type: "json_object" },
-        } : {}),
-        messages: [
-          { role: "system", content: system },
-          {
-            role: "user",
-            content: options.images?.length
-              ? [
-                  { type: "text", text: user },
-                  ...options.images.map((img) => ({
-                    type: "image_url",
-                    image_url: { url: `data:${img.mime};base64,${img.b64}` },
-                  })),
-                ]
-              : user,
-          },
-        ],
-      }),
-    });
+        url,
+        duration_ms: Date.now() - startedAt,
+        error: detail.message,
+        cause: detail.cause,
+        code: detail.code,
+      });
+      throw new Error(`chat request to ${this.chatConfig.model} failed: ${fetchErrorSummary(err)}`, { cause: err });
+    }
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -206,28 +259,43 @@ class OpenAICompatClient {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
     this.logger.info("llm.stream_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.chatConfig.api_key}`,
-      },
-      body: JSON.stringify({
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.chatConfig.api_key}`,
+        },
+        body: JSON.stringify({
+          model: this.chatConfig.model,
+          temperature: this.chatConfig.temperature,
+          max_tokens: this.chatConfig.max_tokens,
+          stream: true,
+          think: options.thinking ?? false,
+          ...(options.jsonMode ? {
+            format: "json",
+            response_format: { type: "json_object" },
+          } : {}),
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        }),
+      });
+    } catch (err) {
+      const detail = describeFetchError(err);
+      this.logger.error("llm.stream_request_failed", {
+        role: this.role,
         model: this.chatConfig.model,
-        temperature: this.chatConfig.temperature,
-        max_tokens: this.chatConfig.max_tokens,
-        stream: true,
-        think: options.thinking ?? false,
-        ...(options.jsonMode ? {
-          format: "json",
-          response_format: { type: "json_object" },
-        } : {}),
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
-    });
+        url,
+        duration_ms: Date.now() - startedAt,
+        error: detail.message,
+        cause: detail.cause,
+        code: detail.code,
+      });
+      throw new Error(`chat stream request to ${this.chatConfig.model} failed: ${fetchErrorSummary(err)}`, { cause: err });
+    }
 
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => "");
@@ -240,58 +308,118 @@ class OpenAICompatClient {
     let accumulated = "";
     let reasoning = "";
     let finishReason = "unknown";
+    let chunkCount = 0;
+    let firstTokenMs = 0;
+    let lastChunkAt = Date.now();
+    let lastHeartbeatAt = Date.now();
     const reader = response.body.getReader();
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      let newlineIndex = buffer.indexOf("\n");
-      while (newlineIndex >= 0) {
-        const line = buffer.slice(0, newlineIndex).trim();
-        buffer = buffer.slice(newlineIndex + 1);
-        newlineIndex = buffer.indexOf("\n");
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (payload === "[DONE]") {
-          newlineIndex = -1;
-          break;
+        let newlineIndex = buffer.indexOf("\n");
+        while (newlineIndex >= 0) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          newlineIndex = buffer.indexOf("\n");
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (payload === "[DONE]") {
+            newlineIndex = -1;
+            break;
+          }
+          let json:
+            | {
+                choices?: Array<{
+                  finish_reason?: string | null;
+                  delta?: Record<string, unknown>;
+                  message?: Record<string, unknown>;
+                }>;
+              }
+            | undefined;
+          try {
+            json = JSON.parse(payload) as typeof json;
+          } catch {
+            continue;
+          }
+          const choice = json?.choices?.[0];
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
+          // Reasoning/thinking arrives as its own delta field on thinking models.
+          reasoning += extractReasoning(choice?.delta) || extractReasoning(choice?.message);
+          const delta =
+            ((choice?.delta?.content ?? choice?.message?.content) as string | undefined) ?? "";
+          if (!delta) continue;
+          chunkCount += 1;
+          const now = Date.now();
+          lastChunkAt = now;
+          if (firstTokenMs === 0) {
+            firstTokenMs = now - startedAt;
+            this.logger.info("llm.stream_first_token", {
+              role: this.role,
+              model: this.chatConfig.model,
+              ttft_ms: firstTokenMs,
+            });
+          }
+          accumulated += delta;
+          // Periodic in-flight heartbeat so a long/streaming run is visibly
+          // alive and we can see how far it got if it later dies.
+          if (now - lastHeartbeatAt >= STREAM_HEARTBEAT_MS) {
+            lastHeartbeatAt = now;
+            this.logger.info("llm.stream_progress", {
+              role: this.role,
+              model: this.chatConfig.model,
+              elapsed_ms: now - startedAt,
+              chunks: chunkCount,
+              content_chars: accumulated.length,
+              reasoning_chars: reasoning.length,
+            });
+          }
+          onChunk(delta, accumulated);
         }
-        let json:
-          | {
-              choices?: Array<{
-                finish_reason?: string | null;
-                delta?: Record<string, unknown>;
-                message?: Record<string, unknown>;
-              }>;
-            }
-          | undefined;
-        try {
-          json = JSON.parse(payload) as typeof json;
-        } catch {
-          continue;
-        }
-        const choice = json?.choices?.[0];
-        if (choice?.finish_reason) finishReason = choice.finish_reason;
-        // Reasoning/thinking arrives as its own delta field on thinking models.
-        reasoning += extractReasoning(choice?.delta) || extractReasoning(choice?.message);
-        const delta =
-          ((choice?.delta?.content ?? choice?.message?.content) as string | undefined) ?? "";
-        if (!delta) continue;
-        accumulated += delta;
-        onChunk(delta, accumulated);
       }
+    } catch (err) {
+      const detail = describeFetchError(err);
+      const now = Date.now();
+      this.logger.error("llm.stream_interrupted", {
+        role: this.role,
+        model: this.chatConfig.model,
+        elapsed_ms: now - startedAt,
+        since_last_chunk_ms: now - lastChunkAt,
+        chunks: chunkCount,
+        content_chars: accumulated.length,
+        reasoning_chars: reasoning.length,
+        error: detail.message,
+        cause: detail.cause,
+        code: detail.code,
+        preview: truncateForLog(accumulated.slice(-240), 240),
+      });
+      // Surface what we got before the stream died — the trace/admin pane uses
+      // these to show the partial output of an interrupted generation.
+      const wrapped = new Error(
+        `chat stream from ${this.chatConfig.model} interrupted after ${chunkCount} chunks / ${accumulated.length} chars: ${fetchErrorSummary(err)}`,
+        { cause: err },
+      );
+      (wrapped as { partialContent?: string }).partialContent = accumulated;
+      (wrapped as { partialReasoning?: string }).partialReasoning = reasoning;
+      throw wrapped;
     }
 
     const content = accumulated.trim();
     if (reasoning.trim()) options.onReasoning?.(reasoning.trim());
     const durationMs = Date.now() - startedAt;
-    this.logger.info("llm.stream_response", chatResultFields(this.role, this.chatConfig, {
-      finishReason,
-      durationMs,
-      completionChars: content.length,
-    }));
+    this.logger.info("llm.stream_response", {
+      ...chatResultFields(this.role, this.chatConfig, {
+        finishReason,
+        durationMs,
+        completionChars: content.length,
+      }),
+      ttft_ms: firstTokenMs,
+      chunks: chunkCount,
+      reasoning_chars: reasoning.length,
+    });
     if (finishReason === "length") {
       this.logger.warn("llm.stream_truncated", {
         role: this.role,

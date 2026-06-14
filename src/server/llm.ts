@@ -21,6 +21,10 @@ export interface ChatOptions {
    *  `thinking`, OpenAI `reasoning`). Used by the pipeline tracer to surface
    *  chain-of-thought; never set by feature code. */
   onReasoning?: (reasoning: string) => void;
+  /** Internal trace hook: called as reasoning/thinking text streams in, with the
+   *  incremental delta and the full accumulated reasoning so far. Used to surface
+   *  live chain-of-thought in the admin generation view; never set by feature code. */
+  onReasoningDelta?: (delta: string, accumulated: string) => void;
 }
 
 /** Pull the separated reasoning/thinking text out of a chat message, across
@@ -351,6 +355,15 @@ class OpenAICompatClient {
     let firstTokenMs = 0;
     let lastChunkAt = Date.now();
     let lastHeartbeatAt = Date.now();
+    const markFirstToken = () => {
+      if (firstTokenMs !== 0) return;
+      firstTokenMs = Date.now() - startedAt;
+      this.logger.info("llm.stream_first_token", {
+        role: this.role,
+        model: this.chatConfig.model,
+        ttft_ms: firstTokenMs,
+      });
+    };
     const reader = response.body.getReader();
 
     try {
@@ -389,21 +402,24 @@ class OpenAICompatClient {
           const choice = json?.choices?.[0];
           if (choice?.finish_reason) finishReason = choice.finish_reason;
           // Reasoning/thinking arrives as its own delta field on thinking models.
-          reasoning += extractReasoning(choice?.delta) || extractReasoning(choice?.message);
+          const reasoningDelta =
+            extractReasoning(choice?.delta) || extractReasoning(choice?.message);
+          if (reasoningDelta) {
+            reasoning += reasoningDelta;
+            // Chain-of-thought counts toward time-to-first-token: on thinking
+            // models the model is "producing" from the first reasoning token,
+            // long before the first content token. TTFT measured at first
+            // content would otherwise report the whole reasoning phase as latency.
+            markFirstToken();
+            options.onReasoningDelta?.(reasoningDelta, reasoning);
+          }
           const delta =
             ((choice?.delta?.content ?? choice?.message?.content) as string | undefined) ?? "";
           if (!delta) continue;
           chunkCount += 1;
           const now = Date.now();
           lastChunkAt = now;
-          if (firstTokenMs === 0) {
-            firstTokenMs = now - startedAt;
-            this.logger.info("llm.stream_first_token", {
-              role: this.role,
-              model: this.chatConfig.model,
-              ttft_ms: firstTokenMs,
-            });
-          }
+          markFirstToken();
           accumulated += delta;
           // Periodic in-flight heartbeat so a long/streaming run is visibly
           // alive and we can see how far it got if it later dies.

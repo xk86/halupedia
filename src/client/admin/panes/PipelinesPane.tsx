@@ -59,6 +59,7 @@ interface PipelineRunSummary {
 interface NodeSpan {
   node_name: string;
   node_kind: string;
+  started_at?: number;
   duration_ms: number;
   status: string;
   error_message?: string | null;
@@ -89,14 +90,18 @@ interface Props {
 }
 
 export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh }: Props) {
-  const [collapsedWorkflows, setCollapsedWorkflows] = useState<Set<string>>(new Set());
-  const [workflowsCollapsed, setWorkflowsCollapsed] = useState(false);
+  // Workflow diagrams are collapsed by default — the run history is the focus.
+  // Track which are *expanded* so newly-loaded workflows start collapsed.
+  const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(new Set());
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const [runNodes, setRunNodes] = useState<Record<string, NodeSpan[]>>({});
   const [loadingRun, setLoadingRun] = useState<string | null>(null);
 
+  const allExpanded =
+    workflows.length > 0 && workflows.every((w) => expandedWorkflows.has(w.name));
+
   function toggleWorkflow(name: string) {
-    setCollapsedWorkflows((prev) => {
+    setExpandedWorkflows((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -105,13 +110,8 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
   }
 
   function toggleAllWorkflows() {
-    if (workflowsCollapsed) {
-      setCollapsedWorkflows(new Set());
-      setWorkflowsCollapsed(false);
-    } else {
-      setCollapsedWorkflows(new Set(workflows.map((w) => w.name)));
-      setWorkflowsCollapsed(true);
-    }
+    if (allExpanded) setExpandedWorkflows(new Set());
+    else setExpandedWorkflows(new Set(workflows.map((w) => w.name)));
   }
 
   async function toggleRun(runId: string) {
@@ -146,20 +146,84 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
     >
       {error ? <p className="search-error">{error}</p> : null}
 
-      <div className="admin-section-title-row" style={{ marginBottom: "0.5rem" }}>
+      {/* Run history is the primary view; the workflow diagrams below are
+          collapsed reference material. */}
+      <div className="admin-section-title-row admin-pipeline-runs-heading">
+        <h4 className="sb-heading">Recent Runs</h4>
+        <span className="all-entries-count">
+          {traceEnabled ? `${runs.length} recorded` : "trace off"}
+        </span>
+      </div>
+      {runs.length ? (
+        <div className="admin-model-table-wrap admin-pipeline-runs-wrap">
+          <table className="admin-model-table admin-pipeline-runs-table">
+            <thead>
+              <tr>
+                <th>Started</th>
+                <th>Workflow</th>
+                <th>Slug</th>
+                <th>Status</th>
+                <th>Nodes</th>
+                <th>Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((run) => (
+                <Fragment key={run.run_id}>
+                  <tr
+                    className={`admin-pipeline-run-row${expandedRun === run.run_id ? " admin-pipeline-run-row--expanded" : ""}`}
+                    onClick={() => void toggleRun(run.run_id)}
+                    title={run.error_message ?? "Click to see node breakdown"}
+                  >
+                    <td className="admin-pipeline-run-time" title={fmtFullTimestamp(run.started_at)}>
+                      {fmtTimestamp(run.started_at)}
+                    </td>
+                    <td>{run.workflow}</td>
+                    <td>{run.slug ?? ""}</td>
+                    <td className={run.status === "error" ? "admin-pipeline-run-error" : ""}>{run.status}</td>
+                    <td>{run.nodes_executed}</td>
+                    <td>{run.duration_ms} ms</td>
+                  </tr>
+                  {expandedRun === run.run_id && (
+                    <tr className="admin-pipeline-run-detail-row">
+                      <td colSpan={6}>
+                        {loadingRun === run.run_id ? (
+                          <span className="admin-pipeline-run-loading">Loading…</span>
+                        ) : runNodes[run.run_id] ? (
+                          <NodeBreakdown
+                            nodes={runNodes[run.run_id]}
+                            totalMs={run.duration_ms}
+                            runStartedAt={run.started_at}
+                          />
+                        ) : null}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="sb-copy">
+          {traceEnabled ? "No recorded pipeline runs." : "Pipeline trace storage is disabled."}
+        </p>
+      )}
+
+      <div className="admin-section-title-row" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>
         <h4 className="sb-heading">Workflows</h4>
         <button
           type="button"
           className="admin-btn admin-btn--small"
           onClick={toggleAllWorkflows}
         >
-          {workflowsCollapsed ? "Expand all" : "Collapse all"}
+          {allExpanded ? "Collapse all" : "Expand all"}
         </button>
       </div>
 
       <div className="admin-pipeline-grid">
         {workflows.map((workflow) => {
-          const collapsed = collapsedWorkflows.has(workflow.name);
+          const collapsed = !expandedWorkflows.has(workflow.name);
           return (
             <div key={workflow.name} className="admin-pipeline-workflow">
               <button
@@ -219,60 +283,6 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
           );
         })}
       </div>
-
-      <div className="admin-section-title-row admin-pipeline-runs-heading">
-        <h4 className="sb-heading">Recent Runs</h4>
-        <span className="all-entries-count">
-          {traceEnabled ? `${runs.length} recorded` : "trace off"}
-        </span>
-      </div>
-      {runs.length ? (
-        <div className="admin-model-table-wrap">
-          <table className="admin-model-table admin-pipeline-runs-table">
-            <thead>
-              <tr>
-                <th>Workflow</th>
-                <th>Slug</th>
-                <th>Status</th>
-                <th>Nodes</th>
-                <th>Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((run) => (
-                <Fragment key={run.run_id}>
-                  <tr
-                    className={`admin-pipeline-run-row${expandedRun === run.run_id ? " admin-pipeline-run-row--expanded" : ""}`}
-                    onClick={() => void toggleRun(run.run_id)}
-                    title={run.error_message ?? "Click to see node breakdown"}
-                  >
-                    <td>{run.workflow}</td>
-                    <td>{run.slug ?? ""}</td>
-                    <td className={run.status === "error" ? "admin-pipeline-run-error" : ""}>{run.status}</td>
-                    <td>{run.nodes_executed}</td>
-                    <td>{run.duration_ms} ms</td>
-                  </tr>
-                  {expandedRun === run.run_id && (
-                    <tr className="admin-pipeline-run-detail-row">
-                      <td colSpan={5}>
-                        {loadingRun === run.run_id ? (
-                          <span className="admin-pipeline-run-loading">Loading…</span>
-                        ) : runNodes[run.run_id] ? (
-                          <NodeBreakdown nodes={runNodes[run.run_id]} totalMs={run.duration_ms} />
-                        ) : null}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="sb-copy">
-          {traceEnabled ? "No recorded pipeline runs." : "Pipeline trace storage is disabled."}
-        </p>
-      )}
     </Pane>
   );
 }
@@ -281,7 +291,19 @@ function fmtK(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number }) {
+// Clock time for a run/step. Epoch ms in, "HH:MM:SS" out (local time).
+function fmtTimestamp(ms: number): string {
+  if (!ms) return "";
+  return new Date(ms).toLocaleTimeString([], { hour12: false });
+}
+
+// Full date + time, for the row's title/hover tooltip.
+function fmtFullTimestamp(ms: number): string {
+  if (!ms) return "";
+  return new Date(ms).toLocaleString();
+}
+
+function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; totalMs: number; runStartedAt?: number }) {
   const maxMs = Math.max(...nodes.map((n) => n.duration_ms), 1);
   const [openNode, setOpenNode] = useState<number | null>(null);
   return (
@@ -299,6 +321,18 @@ function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number 
                 {node.node_name}
                 {node.status === "error" && <span className="admin-pipeline-node-err"> ✕</span>}
               </span>
+              {node.started_at ? (
+                <span
+                  className="admin-pipeline-node-time"
+                  title={
+                    runStartedAt
+                      ? `${fmtFullTimestamp(node.started_at)} (+${node.started_at - runStartedAt} ms)`
+                      : fmtFullTimestamp(node.started_at)
+                  }
+                >
+                  {fmtTimestamp(node.started_at)}
+                </span>
+              ) : null}
               <span className="admin-pipeline-node-bar-wrap">
                 <span
                   className="admin-pipeline-node-bar"

@@ -37,6 +37,13 @@ export interface PipelineDeps {
    */
   onProgress?: (html: string, markdown: string) => void;
   /**
+   * Optional live chain-of-thought callback. When set, LLM call nodes forward
+   * the model's reasoning/thinking text as it streams in (delta + accumulated).
+   * Used to surface live CoT in the admin generation queue; never used by
+   * article rendering.
+   */
+  onReasoningDelta?: (delta: string, accumulated: string) => void;
+  /**
    * Optional sidecar push callback. Called by post-process write nodes when
    * they update sidecar data (infobox, caption, summary, see-also) so any
    * client subscribed to the article's /api/article/:slug/live stream receives

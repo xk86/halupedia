@@ -38,6 +38,7 @@ interface GenerationQueueItem {
   seq: number;
   startedAt: number;
   waiting: number;
+  reasoning?: string;
 }
 
 interface PipelineWorkflowSummary {
@@ -72,8 +73,6 @@ export function Admin({ onNavigate }: Props) {
   const [loading, setLoading] = useState(true);
   const [reloading, setReloading] = useState(false);
   const [resettingFeatured, setResettingFeatured] = useState(false);
-  const [wiping, setWiping] = useState(false);
-  const [wipeConfirm, setWipeConfirm] = useState(false);
   const [deleteSlug, setDeleteSlug] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [summarySlug, setSummarySlug] = useState("");
@@ -138,7 +137,7 @@ export function Admin({ onNavigate }: Props) {
     try {
       const [workflowsRes, runsRes] = await Promise.all([
         fetch("/api/admin/pipeline/workflows"),
-        fetch("/api/admin/pipeline/runs?limit=12"),
+        fetch("/api/admin/pipeline/runs?limit=100"),
       ]);
       if (!workflowsRes.ok) throw new Error(`workflows error ${workflowsRes.status}`);
       if (!runsRes.ok) throw new Error(`runs error ${runsRes.status}`);
@@ -190,21 +189,6 @@ export function Admin({ onNavigate }: Props) {
       setResettingFeatured(false);
     }
   }, []);
-
-  const wipeDatabase = useCallback(async () => {
-    setWiping(true);
-    setWipeConfirm(false);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/wipe", { method: "POST" });
-      if (!res.ok) throw new Error(`error ${res.status}`);
-      await loadOverview();
-    } catch (err: any) {
-      setError(err?.message || "failed to wipe database");
-    } finally {
-      setWiping(false);
-    }
-  }, [loadOverview]);
 
   const deleteArticle = useCallback(async () => {
     const slug = deleteSlug.trim();
@@ -376,35 +360,27 @@ export function Admin({ onNavigate }: Props) {
         <button className="all-entries-more-btn" onClick={resetFeaturedArticle} disabled={resettingFeatured}>
           {resettingFeatured ? "Resetting..." : "Reset featured article"}
         </button>
-        <button className="all-entries-more-btn admin-danger-btn" onClick={() => setWipeConfirm(true)} disabled={wiping || wipeConfirm}>
-          {wiping ? "Wiping..." : "Reset corpus"}
-        </button>
-        {wipeConfirm && (
-          <div className="restore-confirm" role="dialog" aria-label="Confirm corpus reset">
-            <strong>Delete all generated entries?</strong>
-            <div>
-              <button type="button" onClick={wipeDatabase} disabled={wiping}>
-                {wiping ? "Wiping..." : "Yes, reset"}
-              </button>
-              <button type="button" onClick={() => setWipeConfirm(false)} disabled={wiping}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
         <span className="all-entries-count">Model: {overview.model}</span>
       </div>
 
       <div className="admin-grid">
-        <RuntimePane
-          databasePath={overview.databasePath}
-          promptConfigPath={overview.promptConfigPath}
-          ragMode={overview.ragMode}
+        <PipelinesPane
+          workflows={pipelineWorkflows}
+          runs={pipelineRuns}
+          traceEnabled={pipelineTraceEnabled}
+          error={pipelineError}
+          onRefresh={loadPipelineStatus}
         />
 
         <GenerationQueuePane
           items={generationQueue}
           onNavigate={onNavigate}
+        />
+
+        <RuntimePane
+          databasePath={overview.databasePath}
+          promptConfigPath={overview.promptConfigPath}
+          ragMode={overview.ragMode}
         />
 
         <EntrySurgeryPane
@@ -422,14 +398,6 @@ export function Admin({ onNavigate }: Props) {
         <RecentArticlesPane
           articles={overview.latestArticles}
           onNavigate={onNavigate}
-        />
-
-        <PipelinesPane
-          workflows={pipelineWorkflows}
-          runs={pipelineRuns}
-          traceEnabled={pipelineTraceEnabled}
-          error={pipelineError}
-          onRefresh={loadPipelineStatus}
         />
 
         <PromptModelsPane

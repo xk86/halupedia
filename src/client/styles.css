@@ -4884,9 +4884,47 @@ button.admin-danger-btn:hover:not(:disabled) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
   padding: 0.65rem 0;
   border-top: 1px solid var(--rule);
+}
+
+/* Live chain-of-thought for the currently-generating item (admin-only). */
+.admin-queue-cot {
+  flex: 1 1 100%;
+  margin-top: 0.2rem;
+}
+
+.admin-queue-cot-toggle {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-fade);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.admin-queue-cot-toggle:hover {
+  color: var(--ink);
+}
+
+.admin-queue-cot-body {
+  margin: 0.35rem 0 0;
+  max-height: 14rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--ink-fade);
+  background: var(--surface-sunken, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.55rem 0.7rem;
 }
 
 .admin-queue-item a {
@@ -5108,6 +5146,24 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--danger);
 }
 
+.admin-pipeline-run-time {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-fade);
+  white-space: nowrap;
+}
+
+/* The run history is the primary admin view: let it use the full pane width
+   without a horizontal scrollbar, and let columns size to content. */
+.admin-pipeline-runs-wrap {
+  overflow-x: visible;
+}
+
+.admin-pipeline-runs-table {
+  min-width: 0;
+  table-layout: auto;
+}
+
 /* Expanded node breakdown */
 .admin-pipeline-run-detail-row td {
   padding: 0 0 0.75rem 0;
@@ -5130,10 +5186,17 @@ button.admin-danger-btn:hover:not(:disabled) {
 
 .admin-pipeline-node-row {
   display: grid;
-  grid-template-columns: 14rem 1fr 4.5rem 2.5rem 3rem;
+  grid-template-columns: 14rem 5rem 1fr 4.5rem 2.5rem 3rem;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.76rem;
+}
+
+.admin-pipeline-node-time {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--ink-fade);
+  white-space: nowrap;
 }
 
 .admin-pipeline-node-name {

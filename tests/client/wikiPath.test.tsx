@@ -60,7 +60,7 @@ describe("articleInputToWikiSegment", () => {
   });
 
   it("preserves apostrophes in titles", () => {
-    expect(articleInputToWikiSegment("Charlie Kirk's incest")).toBe("Charlie_Kirk's_incest");
+    expect(articleInputToWikiSegment("Rachel Carson's notebooks")).toBe("Rachel_Carson's_notebooks");
   });
 
   it("returns empty string for empty input", () => {

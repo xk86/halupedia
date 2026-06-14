@@ -494,7 +494,10 @@ export const callArticleModelNode = defineNode({
           const preview = normalizeMarkdown(partialBody);
           deps.onProgress(renderMarkdown(preview), preview);
         },
-        { thinking: renderedPrompt.thinking },
+        {
+          thinking: renderedPrompt.thinking,
+          ...(deps.onReasoningDelta ? { onReasoningDelta: deps.onReasoningDelta } : {}),
+        },
       );
       text = result.content;
       finishReason = result.finishReason;

@@ -867,6 +867,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     waiting: number;
     workflow: string;
     phase: string;
+    /** Live model chain-of-thought, accumulated as the LLM streams it. Surfaced
+     *  only in the admin generation queue. */
+    reasoning?: string;
     /** Active stream subscribers — receives every progress/status event. */
     progressListeners: Set<(event: unknown) => void>;
   }
@@ -878,6 +881,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     workflow: string;
     phase: string;
     startedAt: number;
+    /** Live model chain-of-thought, accumulated as the LLM streams it. */
+    reasoning?: string;
   }
   const activeOperations = new Map<string, ActiveOperationEntry>();
   let generationSeq = 0;
@@ -976,6 +981,25 @@ export async function createApp(options: CreateAppOptions = {}) {
     return { promise, seq, joined: false, releaseWaiter: () => {} };
   }
 
+  // Cap the live CoT surfaced to the admin queue: keep only the most recent
+  // chars so the (1s-polled) payload stays small even for long reasoning runs.
+  const LIVE_COT_TAIL_CHARS = 6_000;
+  function liveCot(reasoning: string | undefined): string | undefined {
+    if (!reasoning) return undefined;
+    return reasoning.length > LIVE_COT_TAIL_CHARS
+      ? `…${reasoning.slice(-LIVE_COT_TAIL_CHARS)}`
+      : reasoning;
+  }
+
+  // Stash the model's streaming reasoning on whichever active entry owns this
+  // slug (a generation or a non-generate operation), for live admin display.
+  function recordLiveReasoning(slug: string, accumulated: string) {
+    const gen = slugGenerations.get(slug);
+    if (gen) gen.reasoning = accumulated;
+    const op = activeOperations.get(slug);
+    if (op) op.reasoning = accumulated;
+  }
+
   function generationQueuePayload() {
     const generating = [...slugGenerations.values()]
       .sort((a, b) => a.startedAt - b.startedAt)
@@ -987,6 +1011,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         waiting: entry.waiting,
         workflow: entry.workflow,
         phase: entry.phase,
+        reasoning: liveCot(entry.reasoning),
       }));
     const updating = [...activeOperations.values()]
       .filter((op) => !slugGenerations.has(op.slug))
@@ -999,6 +1024,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         waiting: 0,
         workflow: op.workflow,
         phase: op.phase,
+        reasoning: liveCot(op.reasoning),
       }));
     return { items: [...generating, ...updating] };
   }
@@ -1498,7 +1524,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         slug,
         requestedTitle,
       },
-      deps: buildPipelineDeps({ onProgress }),
+      deps: buildPipelineDeps({
+        onProgress,
+        onReasoningDelta: (_delta, accumulated) => recordLiveReasoning(slug, accumulated),
+      }),
       recorder,
       logger,
       onNode: (nodeName) => {
@@ -2655,7 +2684,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         const rewriteOp = trackActiveOperation(article.slug, article.title, "article.rewrite");
         const result = await runWorkflow(rewriteArticleWorkflow, {
           input: rewriteInput,
-          deps: buildPipelineDeps({ onProgress }),
+          deps: buildPipelineDeps({
+            onProgress,
+            onReasoningDelta: (_delta, accumulated) => recordLiveReasoning(article.slug, accumulated),
+          }),
           recorder,
           logger,
           onNode: rewriteOp.onNode,
@@ -2763,7 +2795,10 @@ export async function createApp(options: CreateAppOptions = {}) {
           requestedTitle: article.title,
           instructions: "article.refresh",
         },
-        deps: buildPipelineDeps({ onProgress }),
+        deps: buildPipelineDeps({
+          onProgress,
+          onReasoningDelta: (_delta, accumulated) => recordLiveReasoning(article.slug, accumulated),
+        }),
         recorder,
         logger,
         onNode: refreshOp.onNode,

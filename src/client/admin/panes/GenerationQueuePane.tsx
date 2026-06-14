@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Pane } from "../Pane";
 import { toWikiSegment } from "../../wikiPath";
 
@@ -9,6 +10,8 @@ interface QueueItem {
   waiting: number;
   workflow?: string;
   phase?: string;
+  /** Live chain-of-thought streamed from the model (admin-only). */
+  reasoning?: string;
 }
 
 interface Props {
@@ -43,6 +46,48 @@ const NODE_LABELS: Record<string, string> = {
   "read.retrieve_context": "Retrieving context",
 };
 
+/**
+ * Live model chain-of-thought for the currently-generating item. Admin-only —
+ * this pane lives entirely behind the admin panel. Auto-scrolls to follow the
+ * stream unless the user has scrolled up to read earlier reasoning.
+ */
+function LiveCot({ text }: { text: string }) {
+  const [open, setOpen] = useState(true);
+  const boxRef = useRef<HTMLPreElement>(null);
+  const pinnedToBottom = useRef(true);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box || !open || !pinnedToBottom.current) return;
+    box.scrollTop = box.scrollHeight;
+  }, [text, open]);
+
+  return (
+    <div className="admin-queue-cot">
+      <button
+        type="button"
+        className="admin-queue-cot-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? "▾" : "▸"} thinking ({text.length.toLocaleString()} chars)
+      </button>
+      {open && (
+        <pre
+          ref={boxRef}
+          className="admin-queue-cot-body"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          }}
+        >
+          {text}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function formatPhase(phase?: string): string {
   if (!phase || phase === "starting") return "";
   return NODE_LABELS[phase] ?? phase.replace(/^[^.]+\./, "").replace(/_/g, " ");
@@ -75,6 +120,7 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
                   {workflowLabel}{phase ? ` · ${phase}` : ""}
                   {item.waiting > 0 && ` · ${item.waiting} waiting`}
                 </span>
+                {item.reasoning ? <LiveCot text={item.reasoning} /> : null}
               </li>
             );
           })}

@@ -16,6 +16,20 @@ export interface ChatOptions {
   jsonMode?: boolean;
   /** Attach images to the user turn (multimodal). OpenAI-compatible format. */
   images?: ChatImageAttachment[];
+  /** Internal trace hook: called with the model's reasoning/thinking text when
+   *  the API returns it in a separate field (Ollama `reasoning_content`/
+   *  `thinking`, OpenAI `reasoning`). Used by the pipeline tracer to surface
+   *  chain-of-thought; never set by feature code. */
+  onReasoning?: (reasoning: string) => void;
+}
+
+/** Pull the separated reasoning/thinking text out of a chat message, across
+ *  the field names different OpenAI-compatible backends use. */
+function extractReasoning(message: Record<string, unknown> | undefined): string {
+  if (!message) return "";
+  const candidate =
+    message.reasoning_content ?? message.reasoning ?? message.thinking;
+  return typeof candidate === "string" ? candidate : "";
 }
 
 /** Unified LLM interface. Role (heavy/light) is the first argument to every
@@ -149,9 +163,11 @@ class OpenAICompatClient {
     const json = (await response.json()) as {
       id?: string;
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
-      choices?: Array<{ finish_reason?: string | null; message?: { content?: string } }>;
+      choices?: Array<{ finish_reason?: string | null; message?: Record<string, unknown> }>;
     };
-    const content = json.choices?.[0]?.message?.content?.trim();
+    const content = (json.choices?.[0]?.message?.content as string | undefined)?.trim();
+    const reasoning = extractReasoning(json.choices?.[0]?.message);
+    if (reasoning) options.onReasoning?.(reasoning);
     const finishReason = json.choices?.[0]?.finish_reason ?? "unknown";
     const durationMs = Date.now() - startedAt;
     const totalTokens = json.usage?.total_tokens;
@@ -220,6 +236,7 @@ class OpenAICompatClient {
     const decoder = new TextDecoder();
     let buffer = "";
     let accumulated = "";
+    let reasoning = "";
     let finishReason = "unknown";
     const reader = response.body.getReader();
 
@@ -243,8 +260,8 @@ class OpenAICompatClient {
           | {
               choices?: Array<{
                 finish_reason?: string | null;
-                delta?: { content?: string };
-                message?: { content?: string };
+                delta?: Record<string, unknown>;
+                message?: Record<string, unknown>;
               }>;
             }
           | undefined;
@@ -255,7 +272,10 @@ class OpenAICompatClient {
         }
         const choice = json?.choices?.[0];
         if (choice?.finish_reason) finishReason = choice.finish_reason;
-        const delta = choice?.delta?.content ?? choice?.message?.content ?? "";
+        // Reasoning/thinking arrives as its own delta field on thinking models.
+        reasoning += extractReasoning(choice?.delta) || extractReasoning(choice?.message);
+        const delta =
+          ((choice?.delta?.content ?? choice?.message?.content) as string | undefined) ?? "";
         if (!delta) continue;
         accumulated += delta;
         onChunk(delta, accumulated);
@@ -263,6 +283,7 @@ class OpenAICompatClient {
     }
 
     const content = accumulated.trim();
+    if (reasoning.trim()) options.onReasoning?.(reasoning.trim());
     const durationMs = Date.now() - startedAt;
     this.logger.info("llm.stream_response", chatResultFields(this.role, this.chatConfig, {
       finishReason,

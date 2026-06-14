@@ -48,6 +48,12 @@ export interface NodeTraceFields {
   error?: { message: string; stack?: string };
   /** Total chars in system+user prompt for LLM nodes; undefined for non-LLM nodes. */
   promptChars?: number;
+  /** Formatted system+user prompt sent to the model (LLM nodes only). */
+  promptText?: string;
+  /** Model chain-of-thought / reasoning, when the backend separates it. */
+  cotText?: string;
+  /** Final model response text (LLM nodes only). */
+  responseText?: string;
 }
 
 export interface RunTraceFields {
@@ -151,16 +157,24 @@ class SqliteTraceRecorder implements TraceRecorder {
           status, nodes_executed, error_message, error_stack)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
     );
-    // Migrate existing DBs that predate the prompt_chars column.
-    try {
-      this.db.exec(`ALTER TABLE pipeline_nodes ADD COLUMN prompt_chars INTEGER`);
-    } catch { /* column already exists */ }
+    // Migrate existing DBs that predate later columns. Each ALTER is wrapped
+    // independently so a DB missing only some of them still gets the rest.
+    for (const col of [
+      `prompt_chars INTEGER`,
+      `prompt_text TEXT`,
+      `cot_text TEXT`,
+      `response_text TEXT`,
+    ]) {
+      try {
+        this.db.exec(`ALTER TABLE pipeline_nodes ADD COLUMN ${col}`);
+      } catch { /* column already exists */ }
+    }
     this.insertNode = this.db.prepare(
       `INSERT INTO pipeline_nodes
          (run_id, node_name, node_kind, started_at, duration_ms, status,
           reads, writes, inputs_json, patch_json, diff_json, warnings_json,
-          error_message, error_stack, prompt_chars)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          error_message, error_stack, prompt_chars, prompt_text, cot_text, response_text)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
   }
 
@@ -216,6 +230,9 @@ class SqliteTraceRecorder implements TraceRecorder {
         fields.error?.message ?? null,
         fields.error?.stack ?? null,
         fields.promptChars ?? null,
+        capText(fields.promptText),
+        capText(fields.cotText),
+        capText(fields.responseText),
       );
     } catch {
       // ditto — swallow trace failures.
@@ -229,6 +246,16 @@ class SqliteTraceRecorder implements TraceRecorder {
       // ignored
     }
   }
+}
+
+/** Cap a captured prompt/CoT/response blob so a runaway prompt can't bloat
+ *  the trace DB. 80k chars is well past any real prompt yet bounded. */
+function capText(value: string | undefined): string | null {
+  if (!value) return null;
+  const LIMIT = 80_000;
+  return value.length > LIMIT
+    ? `${value.slice(0, LIMIT)}…[truncated ${value.length - LIMIT} chars]`
+    : value;
 }
 
 function safeJson(value: unknown): string | null {
@@ -279,7 +306,10 @@ CREATE TABLE IF NOT EXISTS pipeline_nodes (
   warnings_json   TEXT,
   error_message   TEXT,
   error_stack     TEXT,
-  prompt_chars    INTEGER
+  prompt_chars    INTEGER,
+  prompt_text     TEXT,
+  cot_text        TEXT,
+  response_text   TEXT
 );
 CREATE INDEX IF NOT EXISTS pipeline_nodes_run_idx
   ON pipeline_nodes (run_id, started_at);

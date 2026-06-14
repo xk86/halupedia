@@ -2322,10 +2322,17 @@ test("random.page: workflow is registered and runs through the traced pipeline",
     "random.page must be registered in ALL_WORKFLOWS",
   );
 
-  // Stub LLM returns a parseable random-page choice for the random_page prompt.
+  // Stub LLM returns a parseable random-page choice and exercises the
+  // reasoning hook the tracer injects (simulating a thinking model).
   class RandomPageLlm extends PipelineLlm {
-    override async chat(role: "heavy" | "light", system: string, user: string): Promise<string> {
+    override async chat(
+      role: "heavy" | "light",
+      system: string,
+      user: string,
+      options?: { onReasoning?: (r: string) => void },
+    ): Promise<string> {
       if (user.includes("Presented existing articles:") || system.includes("name of a new title and slug")) {
+        options?.onReasoning?.("Considering the archive tone before picking a title.");
         return JSON.stringify({ title: "Surprise Article", slug: "surprise-article" });
       }
       return super.chat(role, system, user);
@@ -2341,14 +2348,29 @@ test("random.page: workflow is registered and runs through the traced pipeline",
   assert.equal(body.slug, "surprise-article");
   assert.match(body.path, /^\/wiki\//);
 
-  const runsRes = await request("/api/admin/pipeline/runs?workflow=random.page&limit=5");
+  // Slug tracking: the slug-less random.page run records the chosen slug.
+  const runsRes = await request("/api/admin/pipeline/runs?workflow=random.page&slug=surprise-article&limit=5");
   assert.equal(runsRes.status, 200);
-  const runsBody = await runsRes.json() as { traceEnabled: boolean; runs: Array<{ workflow: string; status: string; nodes_executed: number }> };
+  const runsBody = await runsRes.json() as { traceEnabled: boolean; runs: Array<{ run_id: string; slug: string | null; status: string; nodes_executed: number }> };
   if (runsBody.traceEnabled) {
-    const run = runsBody.runs.find((r) => r.workflow === "random.page");
-    assert.ok(run, "random.page run must be recorded in the trace");
+    const run = runsBody.runs.find((r) => r.slug === "surprise-article");
+    assert.ok(run, "random.page run must record the chosen slug, not an empty slug");
     assert.equal(run!.status, "ok");
     assert.ok(run!.nodes_executed > 0, "random.page should have executed its node");
+
+    // Prompt / CoT / output are captured on the LLM node and exposed by the
+    // run-detail endpoint (drives the click-to-expand panel in the admin UI).
+    const detailRes = await request(`/api/admin/pipeline/runs/${encodeURIComponent(run!.run_id)}`);
+    assert.equal(detailRes.status, 200);
+    const detail = await detailRes.json() as {
+      nodes: Array<{ node_kind: string; prompt_text?: string | null; cot_text?: string | null; response_text?: string | null }>;
+    };
+    const llmNode = detail.nodes.find((n) => n.node_kind === "llm");
+    assert.ok(llmNode, "random.page must have an llm node");
+    assert.match(llmNode!.prompt_text ?? "", /Presented existing articles:/, "formatted prompt captured");
+    assert.match(llmNode!.prompt_text ?? "", /### System/, "prompt is split into System/User sections");
+    assert.match(llmNode!.response_text ?? "", /surprise-article/, "model output captured");
+    assert.match(llmNode!.cot_text ?? "", /Considering the archive tone/, "chain-of-thought captured");
   }
 });
 

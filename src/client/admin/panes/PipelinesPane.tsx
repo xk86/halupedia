@@ -60,6 +60,9 @@ interface NodeSpan {
   status: string;
   error_message?: string | null;
   prompt_chars?: number | null;
+  prompt_text?: string | null;
+  cot_text?: string | null;
+  response_text?: string | null;
 }
 
 interface Props {
@@ -265,31 +268,78 @@ function fmtK(n: number): string {
 
 function NodeBreakdown({ nodes, totalMs }: { nodes: NodeSpan[]; totalMs: number }) {
   const maxMs = Math.max(...nodes.map((n) => n.duration_ms), 1);
+  const [openNode, setOpenNode] = useState<number | null>(null);
   return (
     <div className="admin-pipeline-node-breakdown">
       {nodes.map((node, i) => {
         const pct = Math.round((node.duration_ms / Math.max(totalMs, 1)) * 100);
         const barPct = Math.round((node.duration_ms / maxMs) * 100);
+        const hasPrompt = Boolean(node.prompt_text || node.cot_text || node.response_text);
+        const isOpen = openNode === i;
         return (
-          <div key={i} className={`admin-pipeline-node-row admin-pipeline-node-row--${node.node_kind ?? "unknown"}`}>
-            <span className="admin-pipeline-node-name" title={node.error_message ?? node.node_name}>
-              {node.node_name}
-              {node.status === "error" && <span className="admin-pipeline-node-err"> ✕</span>}
-            </span>
-            <span className="admin-pipeline-node-bar-wrap">
-              <span
-                className="admin-pipeline-node-bar"
-                style={{ width: `${barPct}%` }}
-              />
-            </span>
-            <span className="admin-pipeline-node-ms">{node.duration_ms} ms</span>
-            <span className="admin-pipeline-node-pct">{pct}%</span>
-            <span className="admin-pipeline-node-ctx" title="prompt chars (system + user)">
-              {node.prompt_chars != null ? `${fmtK(node.prompt_chars)}c` : ""}
-            </span>
-          </div>
+          <Fragment key={i}>
+            <div className={`admin-pipeline-node-row admin-pipeline-node-row--${node.node_kind ?? "unknown"}`}>
+              <span className="admin-pipeline-node-name" title={node.error_message ?? node.node_name}>
+                {node.node_name}
+                {node.status === "error" && <span className="admin-pipeline-node-err"> ✕</span>}
+              </span>
+              <span className="admin-pipeline-node-bar-wrap">
+                <span
+                  className="admin-pipeline-node-bar"
+                  style={{ width: `${barPct}%` }}
+                />
+              </span>
+              <span className="admin-pipeline-node-ms">{node.duration_ms} ms</span>
+              <span className="admin-pipeline-node-pct">{pct}%</span>
+              {node.prompt_chars != null ? (
+                hasPrompt ? (
+                  <button
+                    type="button"
+                    className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${isOpen ? " admin-pipeline-node-ctx--open" : ""}`}
+                    title="Show prompt, chain-of-thought, and output"
+                    onClick={() => setOpenNode(isOpen ? null : i)}
+                  >
+                    {fmtK(node.prompt_chars)}c {isOpen ? "▾" : "▸"}
+                  </button>
+                ) : (
+                  <span className="admin-pipeline-node-ctx" title="prompt chars (system + user)">
+                    {fmtK(node.prompt_chars)}c
+                  </span>
+                )
+              ) : (
+                <span className="admin-pipeline-node-ctx" />
+              )}
+            </div>
+            {isOpen && hasPrompt && (
+              <div className="admin-prompt-detail">
+                {node.prompt_text && (
+                  <PromptSection label="Prompt" text={node.prompt_text} />
+                )}
+                {node.cot_text && (
+                  <PromptSection label="Chain of thought" text={node.cot_text} variant="cot" />
+                )}
+                {node.response_text && (
+                  <PromptSection label="Output" text={node.response_text} variant="output" />
+                )}
+              </div>
+            )}
+          </Fragment>
         );
       })}
     </div>
+  );
+}
+
+function PromptSection({ label, text, variant }: { label: string; text: string; variant?: "cot" | "output" }) {
+  const copy = () => { void navigator.clipboard?.writeText(text).catch(() => {}); };
+  return (
+    <section className={`admin-prompt-section${variant ? ` admin-prompt-section--${variant}` : ""}`}>
+      <header className="admin-prompt-section-head">
+        <span className="admin-prompt-section-label">{label}</span>
+        <span className="admin-prompt-section-meta">{text.length.toLocaleString()} chars</span>
+        <button type="button" className="admin-prompt-section-copy" onClick={copy} title="Copy to clipboard">Copy</button>
+      </header>
+      <pre className="admin-prompt-section-body">{text}</pre>
+    </section>
   );
 }

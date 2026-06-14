@@ -5196,6 +5196,107 @@ button.admin-danger-btn:hover:not(:disabled) {
   text-align: right;
 }
 
+/* Clickable char-count → expands the prompt / CoT / output panel. */
+.admin-pipeline-node-ctx--btn {
+  border: 1px solid var(--rule-soft);
+  background: transparent;
+  border-radius: 3px;
+  padding: 0.05rem 0.3rem;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--accent);
+  transition: background 0.12s, border-color 0.12s;
+}
+.admin-pipeline-node-ctx--btn:hover {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+}
+.admin-pipeline-node-ctx--open {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+}
+
+/* ── Prompt / CoT / output detail panel ──────────────────────────────────── */
+
+.admin-prompt-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.2rem 0 0.5rem;
+  padding: 0.55rem;
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  background: var(--panel-surface, rgba(0, 0, 0, 0.02));
+}
+
+.admin-prompt-section {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--parchment-deep, rgba(0, 0, 0, 0.015));
+}
+
+.admin-prompt-section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.28rem 0.5rem;
+  background: var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.admin-prompt-section-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.admin-prompt-section--cot .admin-prompt-section-label { color: #a855f7; }
+.admin-prompt-section--output .admin-prompt-section-label { color: #f97316; }
+
+.admin-prompt-section-meta {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  color: var(--ink-fade);
+}
+
+.admin-prompt-section-copy {
+  margin-left: auto;
+  border: 1px solid var(--rule-soft);
+  background: transparent;
+  border-radius: 3px;
+  padding: 0.02rem 0.4rem;
+  font-size: 0.64rem;
+  font-family: var(--mono);
+  color: var(--accent);
+  cursor: pointer;
+}
+.admin-prompt-section-copy:hover {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+}
+
+.admin-prompt-section-body {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  max-height: 22rem;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 2;
+}
+
+.admin-prompt-section--cot .admin-prompt-section-body { color: var(--ink-soft); font-style: italic; }
+
 /* ── Sidebar generating indicator ────────────────────────────────────────── */
 
 .sidebar-generating {

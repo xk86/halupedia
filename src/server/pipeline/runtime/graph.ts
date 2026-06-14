@@ -128,8 +128,8 @@ export async function runWorkflow<Deps>(
           parallelNodes.map(async (node) => {
             options.onNode?.(node.name, node.kind);
             const nodeStart = Date.now();
-            let nodePromptChars: number | undefined;
-            const nodeDeps = wrapLlmDeps(options.deps, (chars) => { nodePromptChars = chars; });
+            let llmCapture: LlmCapture | undefined;
+            const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; });
             try {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const patch = await node.run(before, nodeDeps as any);
@@ -147,7 +147,10 @@ export async function runWorkflow<Deps>(
                 inputs: pickKeys(before, node.reads),
                 patch,
                 diff,
-                promptChars: nodePromptChars,
+                promptChars: llmCapture?.promptChars,
+                promptText: llmCapture?.prompt,
+                cotText: llmCapture?.cot,
+                responseText: llmCapture?.response,
               });
               options.logger?.info("pipeline.node.ok", {
                 workflow: workflow.name,
@@ -173,6 +176,10 @@ export async function runWorkflow<Deps>(
                 writes: node.writes,
                 inputs: pickKeys(before, node.reads),
                 error: { message: wrapped.message, stack: wrapped.stack },
+                promptChars: llmCapture?.promptChars,
+                promptText: llmCapture?.prompt,
+                cotText: llmCapture?.cot,
+                responseText: llmCapture?.response,
               });
               options.logger?.error("pipeline.node.error", {
                 workflow: workflow.name,
@@ -209,8 +216,8 @@ export async function runWorkflow<Deps>(
       const nodeStart = Date.now();
       options.onNode?.(edge.node.name, edge.node.kind);
       const before = state;
-      let nodePromptChars: number | undefined;
-      const nodeDeps = wrapLlmDeps(options.deps, (chars) => { nodePromptChars = chars; });
+      let llmCapture: LlmCapture | undefined;
+      const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; });
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const patch = await edge.node.run(before, nodeDeps as any);
@@ -231,7 +238,10 @@ export async function runWorkflow<Deps>(
           inputs: pickKeys(before, edge.node.reads),
           patch,
           diff,
-          promptChars: nodePromptChars,
+          promptChars: llmCapture?.promptChars,
+          promptText: llmCapture?.prompt,
+          cotText: llmCapture?.cot,
+          responseText: llmCapture?.response,
         });
         options.logger?.info("pipeline.node.ok", {
           workflow: workflow.name,
@@ -257,7 +267,10 @@ export async function runWorkflow<Deps>(
           writes: edge.node.writes,
           inputs: pickKeys(before, edge.node.reads),
           error: { message: wrapped.message, stack: wrapped.stack },
-          promptChars: nodePromptChars,
+          promptChars: llmCapture?.promptChars,
+          promptText: llmCapture?.prompt,
+          cotText: llmCapture?.cot,
+          responseText: llmCapture?.response,
         });
         options.logger?.error("pipeline.node.error", {
           workflow: workflow.name,
@@ -273,11 +286,18 @@ export async function runWorkflow<Deps>(
     }
   } finally {
     const durationMs = Date.now() - startedAt;
+    // Prefer the input slug, but for slug-less workflows (e.g. random.page)
+    // fall back to a slug the run produced so the trace row names its target.
+    const recordedSlug =
+      slug ||
+      (state as { randomPageChoice?: { slug?: string } }).randomPageChoice?.slug ||
+      state.canonicalSlug ||
+      slug;
     options.recorder.recordRun({
       workflow: workflow.name,
       runId,
       requestId,
-      slug,
+      slug: recordedSlug,
       startedAt,
       durationMs,
       status,
@@ -305,29 +325,68 @@ export async function runWorkflow<Deps>(
   };
 }
 
-function wrapLlmDeps<Deps>(deps: Deps, onCapture: (chars: number) => void): Deps {
+/** What the tracer captures from an LLM node's call: the formatted prompt,
+ *  the model's chain-of-thought (when the backend separates it), and the
+ *  response text. Only the LAST call in a node is kept (covers retries). */
+export interface LlmCapture {
+  promptChars: number;
+  prompt: string;
+  cot: string;
+  response: string;
+}
+
+function formatPromptForTrace(system: unknown, user: unknown): string {
+  const sys = typeof system === "string" ? system : "";
+  const usr = typeof user === "string" ? user : "";
+  return `### System\n${sys}\n\n### User\n${usr}`;
+}
+
+function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): Deps {
   const d = deps as Record<string, unknown>;
   if (!d || typeof d !== "object" || typeof d.llm !== "object" || !d.llm) return deps;
   const origLlm = d.llm as Record<string, (...a: unknown[]) => unknown>;
-  const capture = (system: unknown, user: unknown) => {
-    onCapture(
-      (typeof system === "string" ? system.length : 0) +
-      (typeof user === "string" ? user.length : 0),
-    );
+  // Augment the caller's options at `optsIndex` with an onReasoning hook so the
+  // client can hand back chain-of-thought without changing its return contract.
+  // chat(role, system, user, options) → options at index 0 of `rest`;
+  // streamChat(role, system, user, onChunk, options) → options at index 1.
+  const withReasoning = (rest: unknown[], optsIndex: number, onReasoning: (r: string) => void): unknown[] => {
+    const args = [...rest];
+    const opts = (args[optsIndex] ?? {}) as Record<string, unknown>;
+    args[optsIndex] = { ...opts, onReasoning };
+    return args;
   };
-  // Proxy: forwards every call to origLlm, intercepting chat/streamChat to capture prompt size.
+  const charsOf = (system: unknown, user: unknown) =>
+    (typeof system === "string" ? system.length : 0) + (typeof user === "string" ? user.length : 0);
+  // Proxy: forwards every call, intercepting chat/streamChat to capture the
+  // prompt, reasoning, and response for the trace.
   const wrappedLlm = new Proxy(origLlm, {
     get(target, prop) {
       if (prop === "chat") {
-        return (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
-          capture(system, user);
-          return target.chat(role, system, user, ...rest);
+        return async (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
+          let cot = "";
+          const args = withReasoning(rest, 0, (r) => { cot = r; });
+          const response = (await target.chat(role, system, user, ...args)) as string;
+          onCapture({
+            promptChars: charsOf(system, user),
+            prompt: formatPromptForTrace(system, user),
+            cot,
+            response: typeof response === "string" ? response : "",
+          });
+          return response;
         };
       }
       if (prop === "streamChat") {
-        return (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
-          capture(system, user);
-          return target.streamChat(role, system, user, ...rest);
+        return async (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
+          let cot = "";
+          const args = withReasoning(rest, 1, (r) => { cot = r; });
+          const result = (await target.streamChat(role, system, user, ...args)) as { content?: string };
+          onCapture({
+            promptChars: charsOf(system, user),
+            prompt: formatPromptForTrace(system, user),
+            cot,
+            response: typeof result?.content === "string" ? result.content : "",
+          });
+          return result;
         };
       }
       const val = Reflect.get(target, prop, target);

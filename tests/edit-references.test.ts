@@ -159,7 +159,12 @@ test("direct-context retrieval caps chunks per article and clips unindexed fallb
     maxChunksPerArticle: 2,
   });
   const chunkyRows = packet.sourceArticles.filter((s) => s.slug === "chunky");
-  assert.equal(chunkyRows.length, 2, "per-article chunk cap must hold");
+  // One merged entry per article (no repeated headings), holding up to the
+  // per-article chunk cap of content.
+  assert.equal(chunkyRows.length, 1, "article collapses to a single merged entry");
+  assert.match(chunkyRows[0].content, /chunk 0/);
+  assert.match(chunkyRows[0].content, /chunk 1/);
+  assert.doesNotMatch(chunkyRows[0].content, /chunk 2/, "per-article chunk cap (2) must hold");
   const longform = packet.sourceArticles.find((s) => s.slug === "longform");
   assert.ok(longform, "unindexed article still contributes context");
   assert.ok(longform!.content.length <= 2_000, "fallback markdown must be clipped, not whole-body");

@@ -63,7 +63,7 @@ import {
 } from "../src/server/slug";
 import { OpenAICompatRouter, type LlmRouter } from "../src/server/llm";
 import type { Logger, LogFields } from "../src/server/logger";
-import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
+import { formatRagContextForPrompt, indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 import {
   normalizeSummaryMarkdown,
   summaryLooksLikeLeadCopy,
@@ -928,6 +928,117 @@ test("retrieveContext summary mode caps chunk content at 360 chars", async (t) =
 
   assert(packetSummary.context.length < packetFull.context.length);
   assert.match(packetSummary.context, /Glow fruit grows in the crater orchard/);
+});
+
+test("retrieveContext collapses multiple matching chunks of one article into a single source", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-retrieval-dedupe-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const llm = new NoopLlmClient();
+  // Two content paragraphs that both match the query; a small chunk size forces
+  // them into separate chunks so the article contributes two ranked chunks.
+  const sourceMarkdown = [
+    "# Archive Entry",
+    "",
+    "Glow fruit orchard observatory notes about the crater harvest.",
+    "",
+    "Glow fruit orchard observatory lanterns guard the dusk harvest.",
+  ].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "archive-entry",
+      canonicalSlug: "archive-entry",
+      title: "Archive Entry",
+      markdown: sourceMarkdown,
+      html: renderMarkdown(sourceMarkdown),
+      plain_text: markdownToPlainText(sourceMarkdown),
+      generated_at: 1_715_000_000_000,
+    },
+    [],
+    ["archive-entry"],
+  );
+  await indexArticleChunks(db, llm, "archive-entry", sourceMarkdown, false, 60);
+
+  const packet = await retrieveContext(
+    db,
+    llm,
+    "test-article",
+    ["glow fruit orchard observatory"],
+    true,
+    "full",
+    5,
+    0.2,
+    false,
+  );
+
+  const entriesForArticle = packet.sourceArticles.filter((s) => s.slug === "archive-entry");
+  assert.equal(entriesForArticle.length, 1, "one entry per article, not one per chunk");
+  assert.equal(
+    packet.relatedTitles.length,
+    new Set(packet.relatedTitles).size,
+    "relatedTitles must not repeat",
+  );
+});
+
+test("retrieveContext drops title-only chunks that carry no real content", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-retrieval-stub-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const llm = new NoopLlmClient();
+  // A stub article whose only indexed text is its heading.
+  const stubMarkdown = "# Glow Orchard Stub";
+  saveArticle(
+    db,
+    {
+      slug: "glow-orchard-stub",
+      canonicalSlug: "glow-orchard-stub",
+      title: "Glow Orchard Stub",
+      markdown: stubMarkdown,
+      html: renderMarkdown(stubMarkdown),
+      plain_text: markdownToPlainText(stubMarkdown),
+      generated_at: 1_715_000_000_000,
+    },
+    [],
+    ["glow-orchard-stub"],
+  );
+  await indexArticleChunks(db, llm, "glow-orchard-stub", stubMarkdown, false, 800);
+
+  const packet = await retrieveContext(
+    db,
+    llm,
+    "test-article",
+    ["glow orchard stub"],
+    true,
+    "full",
+    5,
+    0.1,
+    false,
+  );
+
+  assert.equal(
+    packet.sourceArticles.some((s) => s.slug === "glow-orchard-stub"),
+    false,
+    "title-only chunk must be dropped from retrieval results",
+  );
+});
+
+test("formatRagContextForPrompt skips empty/title-only and duplicate headings, keeps real content", () => {
+  const out = formatRagContextForPrompt(
+    [
+      { title: "Alpha", content: "# Alpha", slug: "alpha" }, // title-only → dropped
+      { title: "Alpha", content: "Real prose about the alpha topic.", slug: "alpha" },
+      { title: "Alpha", content: "A second alpha chunk that should not add a heading.", slug: "alpha" }, // dup title → dropped
+      { title: "Beta", content: "Distinct content about beta.", slug: "beta" },
+    ],
+    10_000,
+  );
+  assert.equal(out.match(/^## Alpha$/gm)?.length, 1, "Alpha heading appears exactly once");
+  assert.match(out, /Real prose about the alpha topic\./);
+  assert.match(out, /## Beta/);
+  assert.doesNotMatch(out, /## Alpha\n# Alpha/, "title-only entry must not be emitted");
 });
 
 

@@ -692,6 +692,7 @@ test("retrieveContext drops low-relevance matches below the configured score thr
     "query-topic",
     ["cultural narrative stable energetic exchange"],
     true,
+    "full",
     4,
     0.6,
     false,

@@ -192,6 +192,27 @@ function contextContent(text: string, mode: RagMode) {
     : text.replace(/\s+/g, " ").trim();
 }
 
+/** Lowercase alphanumeric-only key for comparing content against a title/slug. */
+function alnumKey(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * A retrieved chunk is only worth feeding the model when it carries text
+ * beyond the article's own title/slug. Indexing keeps the H1 in the first
+ * chunk, and stub/short articles produce chunks that normalize to just their
+ * title — those add duplicate headings and noise without information. Leading
+ * Markdown heading markers are stripped before the comparison.
+ */
+function chunkHasUsefulContent(content: string, title: string, slug: string): boolean {
+  const normalized = (content ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  const body = normalized.replace(/^#{1,6}\s+/, "").trim();
+  const key = alnumKey(body);
+  if (!key) return false;
+  return key !== alnumKey(title) && key !== alnumKey(slug);
+}
+
 function formatContextLine(row: { title: string; slug: string; content: string }, mode: RagMode) {
   return `- ${row.title} (slug: ${row.slug}): ${contextContent(row.content, mode)}`;
 }
@@ -247,12 +268,20 @@ export function excludeBlacklistedSources<
  * budget is exhausted — never truncated mid-entry.
  */
 export function formatRagContextForPrompt(
-  sourceArticles: Array<{ title: string; content: string }>,
+  sourceArticles: Array<{ title: string; content: string; slug?: string }>,
   maxChars: number,
 ): string {
   const parts: string[] = [];
+  const seenTitles = new Set<string>();
   let used = 0;
   for (const s of sourceArticles) {
+    // Defense in depth: never emit an empty or title-only heading, and never
+    // repeat the same article's heading (upstream should already dedupe, but
+    // the prompt block must be clean regardless of caller).
+    if (!chunkHasUsefulContent(s.content, s.title, s.slug ?? "")) continue;
+    const titleKey = alnumKey(s.title);
+    if (titleKey && seenTitles.has(titleKey)) continue;
+    seenTitles.add(titleKey);
     const entry = `## ${s.title}\n${s.content}`;
     if (used + entry.length > maxChars && parts.length > 0) break;
     if (entry.length > maxChars) continue;
@@ -277,6 +306,8 @@ export function retrieveDirectArticleContext(
   // full text).
   const perArticle = Math.max(1, opts.maxChunksPerArticle ?? 3);
   const seen = new Set<string>([currentSlug]);
+  // One entry per article: the per-article chunks are merged under a single
+  // title so the prompt never repeats a heading. `maxResults` caps articles.
   const rows: Array<{ slug: string; title: string; content: string }> = [];
 
   for (const slug of referencedSlugs) {
@@ -293,10 +324,15 @@ export function retrieveDirectArticleContext(
          ORDER BY c.chunk_index ASC
          LIMIT ?`,
       )
-      .all(slug, Math.max(1, Math.min(perArticle, maxResults - rows.length))) as Array<{ slug: string; title: string; content: string }>;
+      .all(slug, perArticle) as Array<{ slug: string; title: string; content: string }>;
 
-    if (chunks.length > 0) {
-      rows.push(...chunks);
+    const usefulChunks = chunks.filter((row) => chunkHasUsefulContent(row.content, row.title, row.slug));
+    if (usefulChunks.length > 0) {
+      rows.push({
+        slug,
+        title: usefulChunks[0].title,
+        content: usefulChunks.map((row) => row.content.trim()).join("\n\n"),
+      });
       continue;
     }
 
@@ -310,7 +346,9 @@ export function retrieveDirectArticleContext(
       .get(slug) as { slug: string; title: string; content: string } | undefined;
     // Unindexed article fallback: never inject whole markdown bodies — keep
     // them chunk-sized so one big unindexed article can't dominate the prompt.
-    if (article) rows.push({ ...article, content: article.content.slice(0, 2_000) });
+    if (article && chunkHasUsefulContent(article.content, article.title, article.slug)) {
+      rows.push({ ...article, content: article.content.slice(0, 2_000) });
+    }
   }
 
   const picked = rows.slice(0, maxResults);
@@ -409,13 +447,31 @@ export async function retrieveContext(
       .sort((a, b) => b.score - a.score);
   }
 
-  const picked = ranked.slice(0, maxResults);
+  // `ranked` is one entry PER CHUNK, sorted by score. Collapse it to one entry
+  // per article — keeping the best-scoring chunk — and drop chunks that carry
+  // no content beyond the title. Without this the prompt repeats the same
+  // heading once per chunk and includes title-only filler. `maxResults` then
+  // caps distinct source articles, not raw chunks.
+  const seenSlugs = new Set<string>();
+  const picked: typeof ranked = [];
+  let droppedEmpty = 0;
+  for (const row of ranked) {
+    if (!chunkHasUsefulContent(row.content, row.title, row.slug)) {
+      droppedEmpty += 1;
+      continue;
+    }
+    if (seenSlugs.has(row.slug)) continue;
+    seenSlugs.add(row.slug);
+    picked.push(row);
+    if (picked.length >= maxResults) break;
+  }
   logger?.info("rag.retrieve_complete", {
     slug,
     hints: hints.length,
     strategy: useEmbeddings ? "embeddings" : "lexical",
     corpus_chunks: rows.length,
     ranked_chunks: ranked.length,
+    dropped_empty: droppedEmpty,
     picked: picked.length,
     // Each entry shows slug, data type, and score so it's clear what fed the LLM context
     sources: picked.map((row) => `${row.slug}[chunk:${row.score.toFixed(3)}]`).join(", ") || "(none)",
@@ -426,7 +482,7 @@ export async function retrieveContext(
     context: picked
       .map((row) => formatContextLine(row, mode))
       .join("\n"),
-    relatedTitles: picked.map((row) => row.title),
+    relatedTitles: [...new Set(picked.map((row) => row.title))],
     sourceArticles: picked.map((row) => ({
       slug: row.slug,
       title: row.title,

@@ -212,9 +212,9 @@ export type RagMode = "summary" | "full";
 
 function summaryContent(text: string) {
   const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length <= 360
+  return normalized.length <= 3600
     ? normalized
-    : `${normalized.slice(0, 360).trim()}...`;
+    : `${normalized.slice(0, 3600).trim()}...`; // TODO: what is being sliced here, why 360? this is responsible for what's breaking the RAG for RN, so i'm upping it to a much higher value for now
 }
 
 function contextContent(text: string, mode: RagMode) {
@@ -313,13 +313,13 @@ export function formatRagContextForPrompt(
     const titleKey = alnumKey(s.title);
     if (titleKey && seenTitles.has(titleKey)) continue;
     seenTitles.add(titleKey);
-    const entry = `## ${s.title}\n${s.content}`;
+    const entry = `${s.title}\n${s.content}`;
     if (used + entry.length > maxChars && parts.length > 0) break;
     if (entry.length > maxChars) continue;
     parts.push(entry);
-    used += entry.length + 2;
+    used += entry.length + 4; // accounting for the .join() below
   }
-  return parts.join("\n\n");
+  return parts.join("===\n");
 }
 
 export function retrieveDirectArticleContext(
@@ -378,7 +378,7 @@ export function retrieveDirectArticleContext(
     // Unindexed article fallback: never inject whole markdown bodies — keep
     // them chunk-sized so one big unindexed article can't dominate the prompt.
     if (article && chunkHasUsefulContent(article.content, article.title, article.slug)) {
-      rows.push({ ...article, content: article.content.slice(0, 2_000) });
+      rows.push({ ...article, content: article.content });
     }
   }
 
@@ -401,6 +401,7 @@ export function retrieveDirectArticleContext(
   };
 }
 
+// TODO: Document this function, then later replace it with better RAG pipeline instead of baking everything ourselves
 export async function retrieveContext(
   db: DatabaseSync,
   llm: LlmRouter,

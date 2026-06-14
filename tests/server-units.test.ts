@@ -1232,7 +1232,7 @@ test("retrieveContext uses lexical RAG without calling embed when indexed chunks
   );
 });
 
-test("retrieveContext summary mode caps chunk content at 360 chars", async (t) => {
+test("retrieveContext summary mode caps chunk content at 3600 chars", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-retrieval-summary-"));
   t.after(() => {
     rmSync(root, { recursive: true, force: true });
@@ -1240,7 +1240,9 @@ test("retrieveContext summary mode caps chunk content at 360 chars", async (t) =
 
   const db = openDatabase(join(root, TEST_CONFIG.database_path));
   const llm = new NoopLlmClient();
-  const longParagraph = "Glow fruit grows in the crater orchard near the observatory. ".repeat(10).trim();
+  // Exceed the 3600-char summary cap so summary mode still truncates while full
+  // mode keeps the whole chunk (~4200 chars).
+  const longParagraph = "Glow fruit grows in the crater orchard near the observatory. ".repeat(70).trim();
   const sourceMarkdown = `# Archive Entry\n\n${longParagraph}`;
   saveArticle(
     db,
@@ -1256,7 +1258,9 @@ test("retrieveContext summary mode caps chunk content at 360 chars", async (t) =
     [],
     ["archive-entry"],
   );
-  await indexArticleChunks(db, llm, "archive-entry", sourceMarkdown, false, 800);
+  // Large chunk size so the whole long paragraph stays in one chunk and the
+  // summary cap (not the chunker) is what truncates it.
+  await indexArticleChunks(db, llm, "archive-entry", sourceMarkdown, false, 8000);
 
   const packetFull = await retrieveContext(
     db,
@@ -1392,10 +1396,10 @@ test("formatRagContextForPrompt skips empty/title-only and duplicate headings, k
     ],
     10_000,
   );
-  assert.equal(out.match(/^## Alpha$/gm)?.length, 1, "Alpha heading appears exactly once");
+  assert.equal(out.match(/^Alpha$/gm)?.length, 1, "Alpha heading appears exactly once");
   assert.match(out, /Real prose about the alpha topic\./);
-  assert.match(out, /## Beta/);
-  assert.doesNotMatch(out, /## Alpha\n# Alpha/, "title-only entry must not be emitted");
+  assert.match(out, /^Beta$/m);
+  assert.doesNotMatch(out, /Alpha\n# Alpha/, "title-only entry must not be emitted");
 });
 
 

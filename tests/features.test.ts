@@ -218,10 +218,10 @@ test("ensureDykHasSourceLink: fact mentions title as plain text but has no link 
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");
 });
 
-test("ensureDykHasSourceLink: fact does not mention title → restructured as '... that [Title] — fact?'", () => {
+test("ensureDykHasSourceLink: fact does not mention title → restructured as '... that according to [Title], fact?'", () => {
   const fact = "... the craters glow at night due to bioluminescent fungi.";
   const result = ensureDykHasSourceLink(fact, "glow-fruit", "Glow Fruit");
-  assert.match(result, /\.\.\. that \[Glow Fruit\]/);
+  assert.match(result, /\.\.\. that according to \[Glow Fruit\]/);
   assert.match(result, /\(halu:glow-fruit "Glow Fruit"\)/);
   assert.match(result, /craters glow at night/, "original fact content preserved");
   assert.doesNotMatch(result, /\/wiki\//, "must not use wiki-path format");

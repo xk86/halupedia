@@ -167,7 +167,7 @@ test("direct-context retrieval caps chunks per article and clips unindexed fallb
   assert.doesNotMatch(chunkyRows[0].content, /chunk 2/, "per-article chunk cap (2) must hold");
   const longform = packet.sourceArticles.find((s) => s.slug === "longform");
   assert.ok(longform, "unindexed article still contributes context");
-  assert.ok(longform!.content.length <= 2_000, "fallback markdown must be clipped, not whole-body");
+  assert.ok(longform!.content.length >= 10_000, "unindexed fallback now contributes the full body");
 });
 
 test("formatRagContextForPrompt enforces the character budget at entry boundaries", () => {
@@ -177,8 +177,8 @@ test("formatRagContextForPrompt enforces the character budget at entry boundarie
     { title: "C", content: "c".repeat(100) },
   ];
   const out = formatRagContextForPrompt(sources, 250);
-  assert.ok(out.includes("## A") && out.includes("## B"));
-  assert.ok(!out.includes("## C"), "entries past the budget are dropped whole");
+  assert.ok(out.includes("a".repeat(100)) && out.includes("b".repeat(100)));
+  assert.ok(!out.includes("c".repeat(100)), "entries past the budget are dropped whole");
   assert.ok(out.length <= 250);
 });
 

@@ -51,6 +51,7 @@ export function renderTemplate(
   });
 }
 
+// todo: should be jsonrepair, not bespoke regex
 const JSON_FENCE_RE = /^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/;
 
 export function stripJsonFences(raw: string): string {

@@ -73,17 +73,19 @@ export function ensureDykHasSourceLink(
     );
   }
 
-  // Title not in text — restructure as "... that [Title] — rest of fact?"
+  //TODO: we do this too much- should fix w prompting or something.
+  // Title not in text — restructure as "... that according to [Title], rest of fact?"
   // so the link is always the grammatical subject, never prepended with a colon.
   const stripped = normalized
     .replace(/^\.\.\.\s*that\s+/i, "")
     .replace(/^\.\.\.\s*/i, "")
     .replace(/[.?!\s]+$/, "")
     .trim();
-  return `... that ${sourceLink} — ${stripped}?`;
+  return `... that according to ${sourceLink}, ${stripped}?`;
 }
 
 export function normalizeHomepageFact(raw: string): string {
+  // todo: use jsonrepair to fix json, not bespoke regexp
   let fact = stripJsonFences(raw)
     .replace(/^["']|["']$/g, "")
     .replace(/\s+/g, " ")

@@ -905,6 +905,63 @@ describe("App", () => {
     expect(await screen.findByText("No edit history yet.")).toBeInTheDocument();
   });
 
+  it("raw edit saves block-mode edits (default WYSIWYG path)", async () => {
+    const original = pagePayload({
+      article: {
+        ...pagePayload().article,
+        markdown: "# Test Article\n\nOriginal body paragraph.",
+        html: "<h1>Test Article</h1><p>Original body paragraph.</p>",
+        plain_text: "Original body paragraph.",
+      },
+    });
+    const updated = pagePayload({
+      article: {
+        ...original.article,
+        markdown: "# Test Article\n\nRewritten in block mode.",
+        html: "<h1>Test Article</h1><p>Rewritten in block mode.</p>",
+        plain_text: "Rewritten in block mode.",
+      },
+    });
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      if (url.includes("/raw-save")) {
+        return new Response(JSON.stringify({ article: updated.article }), { headers: { "content-type": "application/json" } });
+      }
+      if (url.includes("/references")) {
+        return new Response(JSON.stringify({ references: [] }), { headers: { "content-type": "application/json" } });
+      }
+      if (url.includes("/api/page/")) {
+        return new Response(JSON.stringify(original), { headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ image: null }), { headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Test Article" });
+    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+    await userEvent.click(screen.getByRole("button", { name: "Raw" }));
+    const rawPanel = screen.getByRole("region", { name: "Raw markdown editor" });
+
+    // Default (block) mode: click the rendered paragraph block to edit its
+    // markdown source, change it, then save — no "Raw text" escape hatch.
+    await userEvent.click(within(rawPanel).getByText("Original body paragraph."));
+    const blockTextarea = rawPanel.querySelector(".mdedit-textarea") as HTMLTextAreaElement;
+    expect(blockTextarea).toBeTruthy();
+    await userEvent.clear(blockTextarea);
+    await userEvent.type(blockTextarea, "Rewritten in block mode.");
+    await userEvent.click(screen.getByRole("button", { name: "Save raw" }));
+
+    await waitFor(() => {
+      const rawCall = fetchMock.mock.calls.find(([u, callInit]) =>
+        String(u).includes("/raw-save") && (callInit as RequestInit)?.method === "POST"
+      );
+      expect(rawCall).toBeDefined();
+      expect(JSON.parse(String((rawCall![1] as RequestInit).body)).markdown).toContain("Rewritten in block mode.");
+    });
+  });
+
   it("raw edit applies markdown and refreshes an already-open revision history", async () => {
     const original = pagePayload();
     const updated = pagePayload({

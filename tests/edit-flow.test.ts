@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, saveArticle, getArticleByLookup, listArticleRevisions } from "../src/server/db";
+import { slugify } from "../src/server/slug";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmRouter } from "../src/server/llm";
@@ -406,6 +407,70 @@ test("post-process does not overwrite article edited after generation", async (t
 
   const skipped = logEntries.filter((e) => e.event === "page.post_process_skipped");
   assert.ok(skipped.length > 0, "post-processing should be skipped for modified article");
+  await server.shutdown();
+});
+
+test("raw-save applies the new markdown and records a raw-edit revision", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "raw-target", "Raw Target", "Original body paragraph.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("unused");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const newMarkdown = "# Raw Target\n\nCompletely rewritten body via raw edit.";
+  const res = await server.request("/api/article/raw-target/raw-save", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown: newMarkdown }),
+  });
+  assert.equal(res.status, 200);
+  const payload = await res.json() as { article?: { markdown: string } };
+  assert.match(payload.article?.markdown ?? "", /Completely rewritten body via raw edit/);
+
+  const db = openDatabase(databasePath);
+  const saved = getArticleByLookup(db, "raw-target");
+  const revisions = listArticleRevisions(db, "raw-target");
+  db.close();
+  // The edit must actually apply to the canonical article row…
+  assert.ok(saved, "article still exists");
+  assert.match(saved!.markdown, /Completely rewritten body via raw edit/, "raw edit must apply to the stored article");
+  assert.doesNotMatch(saved!.markdown, /Original body paragraph/, "old body must be replaced");
+  // …and leave a raw-edit revision behind for history/revert.
+  assert.ok(
+    revisions.some((r) => r.operation === "raw-edit"),
+    `expected a raw-edit revision, got operations: ${revisions.map((r) => r.operation).join(", ")}`,
+  );
+  await server.shutdown();
+});
+
+test("raw-save applies in place when the title-derived slug differs from the stored slug", async (t) => {
+  // The regression: raw-save re-derived the canonical slug from the title, so
+  // an article whose title slugifies to something OTHER than its stored slug
+  // (colon/dash titles) was saved under a brand-new slug — the edit never
+  // applied to the viewed article and the revision landed on the phantom slug.
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "anomalous-article-624", "Anomalous Article 624: Purple Cheez-Its", "Original body.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // Sanity: title and stored slug genuinely diverge.
+  assert.notEqual(slugify("Anomalous Article 624: Purple Cheez-Its"), "anomalous-article-624");
+
+  const server = await createTestServer({ databasePath, llmClient: new RewriteLlmClient("unused") });
+  const res = await server.request("/api/article/anomalous-article-624/raw-save", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ markdown: "# Anomalous Article 624: Purple Cheez-Its\n\nApplied to the real article." }),
+  });
+  assert.equal(res.status, 200);
+
+  const db = openDatabase(databasePath);
+  const saved = getArticleByLookup(db, "anomalous-article-624");
+  const revisions = listArticleRevisions(db, "anomalous-article-624");
+  const count = (db.prepare(`SELECT COUNT(*) AS n FROM articles`).get() as { n: number }).n;
+  db.close();
+  assert.match(saved!.markdown, /Applied to the real article/, "edit must apply to the existing slug, not a phantom one");
+  assert.ok(revisions.some((r) => r.operation === "raw-edit"), "raw-edit revision must land on the existing slug");
+  assert.equal(count, 1, "must not spawn a duplicate article under the title-derived slug");
   await server.shutdown();
 });
 

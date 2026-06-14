@@ -39,6 +39,7 @@ import {
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
+import { ALL_WORKFLOWS } from "../src/server/pipeline/registry";
 import type { LlmRouter } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
 import {
@@ -2307,6 +2308,47 @@ test("generation: pipeline admin endpoint records a trace for the run", async (t
       assert.equal(run.status, "ok");
       assert.ok(run.nodes_executed > 0, "should have executed nodes");
     }
+  }
+});
+
+test("random.page: workflow is registered and runs through the traced pipeline", async (t) => {
+  const { root, databasePath } = makeTempDbPath();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // The registry is the single source of truth the admin viz iterates; the
+  // random-page workflow must be in it so it shows up as a pipeline.
+  assert.ok(
+    ALL_WORKFLOWS.some((w) => w.name === "random.page"),
+    "random.page must be registered in ALL_WORKFLOWS",
+  );
+
+  // Stub LLM returns a parseable random-page choice for the random_page prompt.
+  class RandomPageLlm extends PipelineLlm {
+    override async chat(role: "heavy" | "light", system: string, user: string): Promise<string> {
+      if (user.includes("Presented existing articles:") || system.includes("name of a new title and slug")) {
+        return JSON.stringify({ title: "Surprise Article", slug: "surprise-article" });
+      }
+      return super.chat(role, system, user);
+    }
+  }
+
+  const { request, shutdown } = await makeTestApp(databasePath, new RandomPageLlm());
+  t.after(() => shutdown());
+
+  const res = await request("/api/random-page");
+  assert.equal(res.status, 200);
+  const body = await res.json() as { path: string; slug: string; title: string };
+  assert.equal(body.slug, "surprise-article");
+  assert.match(body.path, /^\/wiki\//);
+
+  const runsRes = await request("/api/admin/pipeline/runs?workflow=random.page&limit=5");
+  assert.equal(runsRes.status, 200);
+  const runsBody = await runsRes.json() as { traceEnabled: boolean; runs: Array<{ workflow: string; status: string; nodes_executed: number }> };
+  if (runsBody.traceEnabled) {
+    const run = runsBody.runs.find((r) => r.workflow === "random.page");
+    assert.ok(run, "random.page run must be recorded in the trace");
+    assert.equal(run!.status, "ok");
+    assert.ok(run!.nodes_executed > 0, "random.page should have executed its node");
   }
 });
 

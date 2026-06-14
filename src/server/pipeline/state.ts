@@ -80,6 +80,12 @@ export const WorkflowInputSchema = z.object({
   /** Media DB id of the image to caption. */
   imageId: z.string().optional(),
 
+  // Random-page-specific ─────────────────────────────────────────────────────
+  /** Existing articles offered to the model as inspiration for a random pick. */
+  inspiration: z
+    .array(z.object({ slug: z.string(), title: z.string() }))
+    .optional(),
+
 });
 export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
 
@@ -250,6 +256,10 @@ export const PipelineStateSchema = z.object({
   /** Formatted description of the current article's headline image, or ""
    *  if none attached. Injected into generation/rewrite/refresh prompts. */
   headlineImageContext: z.string().optional(),
+
+  // Random page ──────────────────────────────────────────────────────────────
+  /** Title/slug the model chose for a random page (random.page workflow). */
+  randomPageChoice: z.object({ slug: z.string(), title: z.string() }).optional(),
 
   // Image caption ──────────────────────────────────────────────────────────
   /** LLM-generated caption result for the image.caption workflow. */

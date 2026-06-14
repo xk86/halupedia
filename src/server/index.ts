@@ -112,7 +112,7 @@ import {
   stripTopLevelSections,
   summaryMarkdownFromArticle,
 } from "./markdown";
-import { getPrompt, getSharedPrompt, renderTemplate, stripJsonFences } from "./prompts";
+import { getPrompt, getSharedPrompt, renderTemplate } from "./prompts";
 import {
   indexArticleChunks,
   flattenInfoboxForRag,
@@ -192,6 +192,7 @@ import {
 } from "./pipeline/workflows/deterministicArticleSave";
 import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
 import { regenerateSummaryWorkflow } from "./pipeline/workflows/utilities";
+import { randomPageWorkflow } from "./pipeline/workflows/randomPage";
 import type { PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
 
@@ -595,39 +596,6 @@ async function generateArticleSummary(
   return summaryMarkdownFromArticle(articleMarkdown);
 }
 
-
-function normalizeRandomPageChoice(raw: string): { title: string; slug: string } {
-  const cleaned = stripJsonFences(raw).trim();
-  let title = "";
-  let slug = "";
-  try {
-    const json = JSON.parse(cleaned) as { title?: unknown; slug?: unknown };
-    let rawTitle = String(json.title ?? "").trim();
-    // A slug-shaped title ("archive-rotation-protocol") must expand to words
-    // BEFORE canonical capitalization — capitalizing first would turn it into
-    // a hyphenated title ("Archive-rotation-protocol"), which now slugs with
-    // named dashes and is a different article.
-    if (isSlugForm(rawTitle.normalize("NFC"))) rawTitle = slugToTitle(rawTitle);
-    title = normalizeCanonicalTitle(rawTitle);
-    slug = slugify(String(json.slug ?? ""));
-  } catch {
-    const wikiMatch = cleaned.match(/(?:^|[/\s"'])wiki\/([^\n"'<>#?]+)/i);
-    const candidate = (wikiMatch?.[1] ?? cleaned.split(/\n/)[0] ?? "")
-      .replace(/^["'`/]+|["'`/]+$/g, "")
-      .replace(/[?#].*$/, "")
-      .trim();
-    title = normalizeCanonicalTitle(wikiSegmentToRequestedTitle(candidate));
-    slug = slugify(title);
-  }
-  if (title && slug && slugify(title) === slug && isSlugStyleWikiSegment(title)) {
-    title = wikiSegmentToRequestedTitle(title);
-  }
-  if (!title && slug) title = normalizeCanonicalTitle(slugToTitle(slug));
-  if (!slug && title) slug = slugify(title);
-  if (!title || !slug) throw new Error("random page prompt returned an empty title or slug");
-  return { title, slug };
-}
-
 function sampleRandomInspirationArticles(
   db: ReturnType<typeof openDatabase>,
   count: number,
@@ -641,42 +609,6 @@ function sampleRandomInspirationArticles(
     .all(Math.max(0, count)) as Array<{ title: string; slug: string }>;
 
   return articles;
-}
-
-async function generateRandomPageChoice(
-  llm: LlmRouter,
-  promptConfig: ReturnType<typeof loadConfig>["prompts"],
-  inspiration: Array<{ title: string; slug: string }> = [],
-): Promise<{ title: string; slug: string }> {
-  const prompt = getPrompt(promptConfig, "random_page");
-  const role = prompt.model ?? "heavy";
-  const raw = await llm.chat(
-    role,
-    prompt.system,
-    renderTemplate(prompt.user, {
-      slug: "",
-      requested_title: "",
-      current_article: "",
-      previous_summary: "",
-      summary_feedback: "",
-      article_excerpt: "",
-      rag_context: "",
-      link_hints: "",
-      related_titles: "",
-      parent_comment: "",
-      selected_text: "",
-      edit_instructions: "",
-      full_article: "",
-      dyk_articles: "",
-      article_title: "",
-      inspiration_titles: inspiration.length
-        ? inspiration.map((a) => `- ${a.title} (${a.slug})`).join("\n")
-        : "(none)",
-    }),
-    { thinking: prompt.thinking, jsonMode: prompt.json },
-  );
-
-  return normalizeRandomPageChoice(raw);
 }
 
 async function ensureHomepageCache(
@@ -1781,11 +1713,22 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger.info("random_page.request", {
         "random article inspiration titles": inspiration.map((a) => `${a.title} (${a.slug})`).join(", "),
       });
-      const choice = await generateRandomPageChoice(
-        llm,
-        runtime.prompts,
-        inspiration,
-      );
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const result = await runWorkflow(randomPageWorkflow, {
+        input: {
+          requestId: randomUUID(),
+          workflow: "random.page",
+          slug: "",
+          inspiration,
+        },
+        deps: buildPipelineDeps(),
+        recorder,
+        logger,
+      });
+      if (result.status !== "ok" || !result.state.randomPageChoice) {
+        throw result.error ?? new Error("random page workflow failed");
+      }
+      const choice = result.state.randomPageChoice;
       logger.info("random_page.done", { slug: choice.slug, title: choice.title });
       const wikiSegment = titleToWikiSegment(slugToTitle(choice.slug));
       return c.json({

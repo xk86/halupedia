@@ -1950,16 +1950,13 @@ export function App() {
               </div>
             </div>
             <div className={`raw-edit-body${rawEditPreview ? " raw-edit-body--split" : ""}`}>
-              <div className="mdedit raw-edit-mdedit">
-                <textarea
-                  className="mdedit-raw-textarea"
-                  value={rawEditMarkdown}
-                  onChange={(e) => { setRawEditMarkdown(e.target.value); setRawEditPreview(null); }}
-                  spellCheck
-                  disabled={editBusy}
-                  rows={12}
-                />
-              </div>
+              <MarkdownEditor
+                className="raw-edit-mdedit"
+                value={rawEditMarkdown}
+                onChange={(v) => { setRawEditMarkdown(v); setRawEditPreview(null); }}
+                minRows={4}
+                disabled={editBusy}
+              />
               {rawEditPreview && (
                 <div className="raw-edit-preview-pane">
                   <div

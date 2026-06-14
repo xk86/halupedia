@@ -167,7 +167,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
         "http://127.0.0.1:11434/v1",
       api_key: llm.embeddings?.api_key ?? llm.chat?.api_key ?? "local",
       model: llm.embeddings?.model ?? "local-embed-model",
-      request_timeout_ms: llm.embeddings?.request_timeout_ms ?? 60_000,
+      request_timeout_ms: llm.embeddings?.request_timeout_ms ?? 2_000,
     },
   };
 }

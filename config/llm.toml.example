@@ -32,4 +32,4 @@ enabled = true
 base_url = "http://127.0.0.1:11434/v1"
 api_key = "local"
 model = "nomic-embed-text-v2-moe:latest"
-request_timeout_ms = 60000
+request_timeout_ms = 2000

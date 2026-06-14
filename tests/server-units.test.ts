@@ -119,6 +119,15 @@ class FailingEmbedLlmClient extends NoopLlmClient {
   }
 }
 
+class UnexpectedEmbedLlmClient extends NoopLlmClient {
+  embedCalls = 0;
+
+  async embed(): Promise<number[][]> {
+    this.embedCalls += 1;
+    throw new Error("embed should not be called");
+  }
+}
+
 class CaptureLogger implements Logger {
   entries: Array<{ level: string; event: string; fields: LogFields }> = [];
 
@@ -1033,6 +1042,12 @@ test("retrieveContext falls back to lexical context when embeddings fail", async
     ["harbor-index"],
   );
   await indexArticleChunks(db, new NoopLlmClient(), "harbor-index", sourceMarkdown, false, 120);
+  prepared(
+    db,
+    `UPDATE article_chunks
+     SET embedding_json = ?
+     WHERE slug = ?`,
+  ).run(JSON.stringify([0.1, 0.2, 0.3]), "harbor-index");
 
   const packet = await retrieveContext(
     db,
@@ -1053,6 +1068,92 @@ test("retrieveContext falls back to lexical context when embeddings fail", async
   assert.equal(
     logger.entries.find((entry) => entry.event === "rag.retrieve_complete")?.fields.strategy,
     "lexical_fallback",
+  );
+});
+
+test("indexArticleChunks persists text chunks when embedding indexing fails", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-rag-index-fallback-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const logger = new CaptureLogger();
+  const sourceMarkdown = [
+    "# Harbor Index",
+    "",
+    "Signal lanterns mark the harbor archive beside the glass pier.",
+  ].join("\n");
+
+  await indexArticleChunks(db, new FailingEmbedLlmClient(), "harbor-index", sourceMarkdown, true, 120, logger);
+
+  const rows = prepared(
+    db,
+    `SELECT slug, content, embedding_json
+     FROM article_chunks
+     WHERE slug = ?
+     ORDER BY chunk_index ASC`,
+  ).all("harbor-index") as Array<{ slug: string; content: string; embedding_json: string | null }>;
+
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].content, /Signal lanterns mark the harbor archive/);
+  assert.equal(rows[0].embedding_json, null);
+  assert.ok(logger.entries.some((entry) => entry.event === "rag.index_embed_failed"));
+  assert.equal(
+    logger.entries.find((entry) => entry.event === "rag.index_complete")?.fields.embedded_chunks,
+    0,
+  );
+});
+
+test("retrieveContext uses lexical RAG without calling embed when indexed chunks have no vectors", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-retrieval-null-vectors-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const llm = new UnexpectedEmbedLlmClient();
+  const logger = new CaptureLogger();
+  const sourceMarkdown = [
+    "# Harbor Index",
+    "",
+    "Signal lanterns mark the harbor archive beside the glass pier.",
+  ].join("\n");
+  saveArticle(
+    db,
+    {
+      slug: "harbor-index",
+      canonicalSlug: "harbor-index",
+      title: "Harbor Index",
+      markdown: sourceMarkdown,
+      html: renderMarkdown(sourceMarkdown),
+      plain_text: markdownToPlainText(sourceMarkdown),
+      generated_at: 1_715_000_000_000,
+    },
+    [],
+    ["harbor-index"],
+  );
+  await indexArticleChunks(db, new FailingEmbedLlmClient(), "harbor-index", sourceMarkdown, true, 120);
+
+  const packet = await retrieveContext(
+    db,
+    llm,
+    "new-entry",
+    ["harbor archive signal lantern"],
+    true,
+    "full",
+    3,
+    0.2,
+    true,
+    logger,
+  );
+
+  assert.equal(llm.embedCalls, 0);
+  assert.equal(packet.relatedTitles[0], "Harbor Index");
+  assert.match(packet.context, /Signal lanterns mark the harbor archive/);
+  assert.equal(
+    logger.entries.find((entry) => entry.event === "rag.retrieve_complete")?.fields.strategy,
+    "lexical_no_embeddings",
   );
 });
 
@@ -1106,6 +1207,8 @@ test("retrieveContext summary mode caps chunk content at 360 chars", async (t) =
   );
 
   assert(packetSummary.context.length < packetFull.context.length);
+  assert(packetSummary.sourceArticles[0].content.length < packetFull.sourceArticles[0].content.length);
+  assert.equal(packetSummary.sourceArticles[0].content.endsWith("..."), true);
   assert.match(packetSummary.context, /Glow fruit grows in the crater orchard/);
 });
 
@@ -3134,7 +3237,7 @@ test("wrapLlmDeps proxy preserves supportsVision through the prompt-capture wrap
   assert.equal(wrapped.supportsVision("heavy"), false); // not probed, defaults to false
 });
 
-test("images model returns a non-empty text description for a tiny PNG", { timeout: 30_000, skip: process.env.HALUPEDIA_RUN_LIVE_LLM_TESTS !== "1" }, async () => {
+test("images model returns a non-empty text description for a tiny PNG", { timeout: 30_000 }, async (t) => {
   const liveConfig = TEST_CONFIG;
   const chatConfig = {
     base_url: liveConfig.llm_base_url,
@@ -3156,6 +3259,16 @@ test("images model returns a non-empty text description for a tiny PNG", { timeo
     chatConfig,
     embeddingsConfig,
   );
+  try {
+    await router.probeConnections();
+  } catch {
+    t.skip("LLM not reachable at test URL, skipping real vision generation test");
+    return;
+  }
+  if (!router.supportsVision("light")) {
+    t.skip("test LLM model does not report vision support, skipping real vision generation test");
+    return;
+  }
 
   const png = makeTinyPng();
   const result = await router.chat(

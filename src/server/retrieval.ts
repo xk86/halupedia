@@ -149,7 +149,20 @@ export async function indexArticleChunks(
   const infoboxChunks = infoboxText?.trim() ? [infoboxText.trim()] : [];
   const chunks = [...textChunks, ...imgChunks, ...infoboxChunks];
 
-  const embeddings = useEmbeddings && chunks.length ? await llm.embed(chunks) : [];
+  let embeddings: number[][] = [];
+  let embeddingError: string | undefined;
+  if (useEmbeddings && chunks.length) {
+    try {
+      embeddings = await llm.embed(chunks);
+    } catch (err) {
+      embeddingError = err instanceof Error ? err.message : String(err);
+      logger?.warn("rag.index_embed_failed", {
+        slug,
+        chunks: chunks.length,
+        error: embeddingError,
+      });
+    }
+  }
   const deleteStmt = db.prepare(`DELETE FROM article_chunks WHERE slug = ?`);
   const insertStmt = db.prepare(`
     INSERT INTO article_chunks (slug, chunk_index, content, embedding_json)
@@ -174,6 +187,7 @@ export async function indexArticleChunks(
     infobox_chunk: infoboxChunks.length,
     embeddings_enabled: useEmbeddings,
     embedded_chunks: embeddings.length,
+    ...(embeddingError ? { embedding_error: embeddingError } : {}),
   });
 }
 
@@ -365,7 +379,7 @@ export function retrieveDirectArticleContext(
     sourceArticles: picked.map((row) => ({
       slug: row.slug,
       title: row.title,
-      content: row.content,
+      content: contextContent(row.content, mode),
     })),
   };
 }
@@ -417,13 +431,13 @@ export async function retrieveContext(
 
   const explicitQuery = queryOverride?.replace(/\s+/g, " ").trim();
   const query = explicitQuery || [slug, ...hints.slice(0, 8)].join("\n");
+  const words = query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 4)
+    .slice(0, 16);
 
   const rankLexically = () => {
-    const words = query
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((word) => word.length >= 4)
-      .slice(0, 16);
     return rows
       .map((row) => ({
         slug: row.slug,
@@ -438,26 +452,35 @@ export async function retrieveContext(
   let ranked: Array<{ slug: string; title: string; content: string; score: number }> = [];
   let strategy = useEmbeddings ? "embeddings" : "lexical";
   if (useEmbeddings) {
-    try {
-      const [queryEmbedding] = await llm.embed([query]);
-      ranked = rows
-        .map((row) => ({
-          slug: row.slug,
-          title: row.title,
-          content: row.content,
-          score: row.embedding_json ? cosineSimilarity(queryEmbedding, JSON.parse(row.embedding_json) as number[]) : 0,
-        }))
-        .filter((row) => row.score >= minScore)
-        .sort((a, b) => b.score - a.score);
-    } catch (err) {
-      // Embeddings down/timed out: degrade to lexical retrieval rather than
-      // failing the whole generation. RAG is best-effort context, not a gate.
-      logger?.warn("rag.embed_failed_fallback_lexical", {
-        slug,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      strategy = "lexical_fallback";
+    const rowsWithEmbeddings = rows.filter((row) => row.embedding_json);
+    if (rowsWithEmbeddings.length === 0) {
+      strategy = "lexical_no_embeddings";
       ranked = rankLexically();
+    } else {
+      if (rowsWithEmbeddings.length < rows.length) strategy = "embeddings_mixed";
+      try {
+        const [queryEmbedding] = await llm.embed([query]);
+        ranked = rows
+          .map((row) => ({
+            slug: row.slug,
+            title: row.title,
+            content: row.content,
+            score: row.embedding_json
+              ? cosineSimilarity(queryEmbedding, JSON.parse(row.embedding_json) as number[])
+              : lexicalScore(words, row.content),
+          }))
+          .filter((row) => row.score >= minScore)
+          .sort((a, b) => b.score - a.score);
+      } catch (err) {
+        // Embeddings down/timed out: degrade to lexical retrieval rather than
+        // failing the whole generation. RAG is best-effort context, not a gate.
+        logger?.warn("rag.embed_failed_fallback_lexical", {
+          slug,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        strategy = "lexical_fallback";
+        ranked = rankLexically();
+      }
     }
   } else {
     ranked = rankLexically();
@@ -502,7 +525,7 @@ export async function retrieveContext(
     sourceArticles: picked.map((row) => ({
       slug: row.slug,
       title: row.title,
-      content: row.content,
+      content: contextContent(row.content, mode),
       score: row.score,
     })),
   };

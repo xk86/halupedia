@@ -64,6 +64,8 @@ import {
 import { OpenAICompatRouter, type LlmRouter } from "../src/server/llm";
 import type { Logger, LogFields } from "../src/server/logger";
 import { formatRagContextForPrompt, indexArticleChunks, retrieveContext } from "../src/server/retrieval";
+import { indexRagChunksNode } from "../src/server/pipeline/nodes/postProcess";
+import type { PipelineDeps } from "../src/server/pipeline/deps";
 import {
   normalizeSummaryMarkdown,
   summaryLooksLikeLeadCopy,
@@ -1085,7 +1087,15 @@ test("indexArticleChunks persists text chunks when embedding indexing fails", as
     "Signal lanterns mark the harbor archive beside the glass pier.",
   ].join("\n");
 
-  await indexArticleChunks(db, new FailingEmbedLlmClient(), "harbor-index", sourceMarkdown, true, 120, logger);
+  const result = await indexArticleChunks(
+    db,
+    new FailingEmbedLlmClient(),
+    "harbor-index",
+    sourceMarkdown,
+    true,
+    120,
+    logger,
+  );
 
   const rows = prepared(
     db,
@@ -1098,11 +1108,76 @@ test("indexArticleChunks persists text chunks when embedding indexing fails", as
   assert.equal(rows.length, 1);
   assert.match(rows[0].content, /Signal lanterns mark the harbor archive/);
   assert.equal(rows[0].embedding_json, null);
+  assert.equal(result.embeddingError, "connect ETIMEDOUT");
+  assert.equal(result.embeddedChunks, 0);
   assert.ok(logger.entries.some((entry) => entry.event === "rag.index_embed_failed"));
   assert.equal(
     logger.entries.find((entry) => entry.event === "rag.index_complete")?.fields.embedded_chunks,
     0,
   );
+});
+
+test("indexRagChunksNode marks embedding failures as workflow errors after persisting chunks", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-rag-index-node-failure-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const logger = new CaptureLogger();
+  const runtime = loadConfig();
+  const sourceMarkdown = [
+    "# Harbor Index",
+    "",
+    "Signal lanterns mark the harbor archive beside the glass pier.",
+  ].join("\n");
+  const deps = {
+    db,
+    llm: new FailingEmbedLlmClient(),
+    logger,
+    prompts: {},
+    runtime: {
+      ...runtime,
+      app: {
+        ...runtime.app,
+        rag: {
+          ...runtime.app.rag,
+          enabled: true,
+        },
+      },
+      llm: {
+        ...runtime.llm,
+        embeddings: {
+          ...runtime.llm.embeddings,
+          enabled: true,
+        },
+      },
+    },
+  } as unknown as PipelineDeps;
+
+  await assert.rejects(
+    () =>
+      indexRagChunksNode.run(
+        {
+          input: { slug: "harbor-index" },
+          finalArticleBody: sourceMarkdown,
+        },
+        deps,
+      ),
+    /RAG chunk embeddings failed: connect ETIMEDOUT/,
+  );
+
+  const rows = prepared(
+    db,
+    `SELECT content, embedding_json
+     FROM article_chunks
+     WHERE slug = ?
+     ORDER BY chunk_index ASC`,
+  ).all("harbor-index") as Array<{ content: string; embedding_json: string | null }>;
+
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].content, /Signal lanterns mark the harbor archive/);
+  assert.equal(rows[0].embedding_json, null);
 });
 
 test("retrieveContext uses lexical RAG without calling embed when indexed chunks have no vectors", async (t) => {

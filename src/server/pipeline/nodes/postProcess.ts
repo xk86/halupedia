@@ -538,7 +538,7 @@ export const indexRagChunksNode = defineNode({
     const infobox = getArticleInfobox(deps.db, slug);
     const infoboxText = infobox ? flattenInfoboxForRag(slug, infobox) : undefined;
 
-    await indexArticleChunks(
+    const result = await indexArticleChunks(
       deps.db,
       deps.llm,
       slug,
@@ -549,6 +549,9 @@ export const indexRagChunksNode = defineNode({
       imageDescriptions,
       infoboxText,
     );
+    if (result.embeddingError) {
+      throw new Error(`RAG chunk embeddings failed: ${result.embeddingError}`);
+    }
     return { ragIndexed: true };
   },
 });

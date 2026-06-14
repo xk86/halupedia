@@ -25,6 +25,15 @@ export interface RetrievedContextPacket {
   sourceArticles: RetrievedSourceArticle[];
 }
 
+export interface IndexArticleChunksResult {
+  textChunks: number;
+  imageChunks: number;
+  infoboxChunks: number;
+  embeddingsEnabled: boolean;
+  embeddedChunks: number;
+  embeddingError?: string;
+}
+
 // Promises for RAG indexing runs that have been kicked off but not yet
 // finished. Retrieval waits on these (bounded by a timeout) so that an article
 // persisted moments ago is visible to the next generation's RAG pass instead
@@ -139,7 +148,7 @@ export async function indexArticleChunks(
   imageDescriptions: Array<{ id: string; description: string }> = [],
   /** Flattened infobox text (from flattenInfoboxForRag). One chunk, relevance-gated. */
   infoboxText?: string,
-) {
+): Promise<IndexArticleChunksResult> {
   const textChunks = chunkText(markdown, chunkSize);
   // Append one chunk per attached image that has a description.
   const imgChunks = imageDescriptions
@@ -189,6 +198,14 @@ export async function indexArticleChunks(
     embedded_chunks: embeddings.length,
     ...(embeddingError ? { embedding_error: embeddingError } : {}),
   });
+  return {
+    textChunks: textChunks.length,
+    imageChunks: imgChunks.length,
+    infoboxChunks: infoboxChunks.length,
+    embeddingsEnabled: useEmbeddings,
+    embeddedChunks: embeddings.length,
+    ...(embeddingError ? { embeddingError } : {}),
+  };
 }
 
 export type RagMode = "summary" | "full";

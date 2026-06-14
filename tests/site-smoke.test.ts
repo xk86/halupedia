@@ -1283,6 +1283,39 @@ test("admin generation queue reports active articles and waiter counts", async (
   assert.deepEqual(queue.items, []);
 });
 
+test("admin generation queue polling does not spam request logs", async (t) => {
+  const entries: CapturedLogEntry[] = [];
+  const server = await createTestServer({
+    seed: false,
+    logger: createMemoryLogger(entries),
+  });
+  cleanupTestServer(t, server);
+
+  for (let i = 0; i < 3; i++) {
+    const res = await server.request("/api/admin/generation-queue");
+    assert.equal(res.status, 200);
+  }
+
+  const queueRequestLogs = entries.filter(
+    (entry) =>
+      entry.event === "http.request" &&
+      entry.fields?.method === "GET" &&
+      entry.fields?.path === "/api/admin/generation-queue",
+  );
+  assert.equal(queueRequestLogs.length, 0);
+
+  const healthRes = await server.request("/api/health");
+  assert.equal(healthRes.status, 200);
+  assert.ok(
+    entries.some(
+      (entry) =>
+        entry.event === "http.request" &&
+        entry.fields?.method === "GET" &&
+        entry.fields?.path === "/api/health",
+    ),
+  );
+});
+
 test("failed generation releases the slug so a retry can succeed", async (t) => {
   let callCount = 0;
   const hybridLlm: LlmRouter = {

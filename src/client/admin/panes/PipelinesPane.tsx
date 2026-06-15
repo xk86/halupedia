@@ -62,6 +62,12 @@ interface PipelineRunSummary {
 interface NodeSpan {
   node_name: string;
   node_kind: string;
+  reads?: unknown;
+  writes?: unknown;
+  inputs?: unknown;
+  patch?: unknown;
+  diff?: unknown;
+  warnings?: unknown;
   started_at?: number;
   duration_ms: number;
   status: string;
@@ -409,7 +415,7 @@ function fmtFullTimestamp(ms: number): string {
 
 function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; totalMs: number; runStartedAt?: number }) {
   const maxMs = Math.max(...nodes.map((n) => n.duration_ms), 1);
-  const [openNode, setOpenNode] = useState<number | null>(null);
+  const [openPanel, setOpenPanel] = useState<{ node: number; panel: "prompt" | "rag" } | null>(null);
   return (
     <div className="admin-pipeline-node-breakdown">
       {nodes.map((node, i) => {
@@ -417,7 +423,10 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
         const barPct = Math.round((node.duration_ms / maxMs) * 100);
         const hasMetadata = Boolean(node.llm_role || node.llm_model || node.llm_config_key);
         const hasPrompt = Boolean(node.prompt_text || node.cot_text || node.response_text || hasMetadata);
-        const isOpen = openNode === i;
+        const ragDetail = getRagTraceDetail(node);
+        const hasRag = Boolean(ragDetail);
+        const promptOpen = openPanel?.node === i && openPanel.panel === "prompt";
+        const ragOpen = openPanel?.node === i && openPanel.panel === "rag";
         return (
           <Fragment key={i}>
             <div className={`admin-pipeline-node-row admin-pipeline-node-row--${node.node_kind ?? "unknown"}`}>
@@ -449,11 +458,11 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
                 hasPrompt ? (
                   <button
                     type="button"
-                    className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${isOpen ? " admin-pipeline-node-ctx--open" : ""}`}
+                    className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${promptOpen ? " admin-pipeline-node-ctx--open" : ""}`}
                     title="Show prompt, chain-of-thought, and output"
-                    onClick={() => setOpenNode(isOpen ? null : i)}
+                    onClick={() => setOpenPanel(promptOpen ? null : { node: i, panel: "prompt" })}
                   >
-                    {fmtK(node.prompt_chars)}c {isOpen ? "▾" : "▸"}
+                    {fmtK(node.prompt_chars)}c {promptOpen ? "▾" : "▸"}
                   </button>
                 ) : (
                   <span className="admin-pipeline-node-ctx" title="prompt chars (system + user)">
@@ -463,8 +472,20 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
               ) : (
                 <span className="admin-pipeline-node-ctx" />
               )}
+              {hasRag ? (
+                <button
+                  type="button"
+                  className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${ragOpen ? " admin-pipeline-node-ctx--open" : ""}`}
+                  title="Show retrieved RAG context and selected source segments"
+                  onClick={() => setOpenPanel(ragOpen ? null : { node: i, panel: "rag" })}
+                >
+                  RAG {ragDetail?.sources.length ?? 0} {ragOpen ? "▾" : "▸"}
+                </button>
+              ) : (
+                <span className="admin-pipeline-node-ctx" />
+              )}
             </div>
-            {isOpen && hasPrompt && (
+            {promptOpen && hasPrompt && (
               <div className="admin-prompt-detail">
                 {hasMetadata && <LlmMetadata node={node} />}
                 {node.prompt_text && (
@@ -478,11 +499,171 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
                 )}
               </div>
             )}
+            {ragOpen && ragDetail && <RagDetail detail={ragDetail} />}
           </Fragment>
         );
       })}
     </div>
   );
+}
+
+interface RagSourceTrace {
+  slug: string;
+  title: string;
+  content: string;
+  score?: number;
+}
+
+interface RagTraceDetail {
+  promptContext?: string;
+  relatedTitlesPrompt?: string;
+  sources: RagSourceTrace[];
+  ragTitles: string[];
+  backlinks: Array<{ slug: string; title: string }>;
+}
+
+function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
+  const patch = asRecord(node.patch);
+  const inputs = asRecord(node.inputs);
+  const diff = asRecord(node.diff);
+  const retrieved =
+    normalizeRetrievedContext(patch?.retrievedContext) ??
+    normalizeRetrievedContext(diffAfter(diff, "retrievedContext")) ??
+    normalizeRetrievedContext(inputs?.retrievedContext);
+  const rendered =
+    asRecord(patch?.renderedPrompt) ??
+    asRecord(diffAfter(diff, "renderedPrompt"));
+  const vars = asRecord(rendered?.variables);
+  const promptContext = cleanTraceText(vars?.rag_context);
+  const relatedTitlesPrompt = cleanTraceText(vars?.related_titles);
+
+  if (
+    !retrieved &&
+    !promptContext &&
+    !relatedTitlesPrompt
+  ) {
+    return null;
+  }
+
+  return {
+    promptContext,
+    relatedTitlesPrompt,
+    sources: retrieved?.sources ?? [],
+    ragTitles: retrieved?.ragTitles ?? [],
+    backlinks: retrieved?.backlinks ?? [],
+  };
+}
+
+function RagDetail({ detail }: { detail: RagTraceDetail }) {
+  const scoreValues = detail.sources
+    .map((s) => s.score)
+    .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
+  const rows = [
+    ["Sources", String(detail.sources.length)],
+    ["Related titles", String(detail.ragTitles.length)],
+    ["Backlinks", String(detail.backlinks.length)],
+    ["Prompt context", detail.promptContext ? `${detail.promptContext.length.toLocaleString()} chars` : null],
+    [
+      "Score range",
+      scoreValues.length
+        ? `${Math.min(...scoreValues).toFixed(3)}-${Math.max(...scoreValues).toFixed(3)}`
+        : null,
+    ],
+  ].filter((row): row is [string, string] => Boolean(row[1]));
+
+  return (
+    <div className="admin-prompt-detail">
+      <dl className="admin-prompt-meta-grid">
+        {rows.map(([label, value]) => (
+          <Fragment key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </Fragment>
+        ))}
+      </dl>
+      {detail.promptContext && (
+        <PromptSection label="RAG context in prompt" text={detail.promptContext} />
+      )}
+      {detail.sources.length > 0 && (
+        <PromptSection label="Retrieved source segments" text={formatRagSources(detail.sources)} />
+      )}
+      {detail.relatedTitlesPrompt && (
+        <PromptSection label="Related titles in prompt" text={detail.relatedTitlesPrompt} />
+      )}
+      {detail.backlinks.length > 0 && (
+        <PromptSection
+          label="Backlinks"
+          text={detail.backlinks.map((b) => `- ${b.title} (${b.slug})`).join("\n")}
+        />
+      )}
+    </div>
+  );
+}
+
+function formatRagSources(sources: RagSourceTrace[]): string {
+  return sources
+    .map((s, i) => {
+      const meta = [
+        `slug: ${s.slug}`,
+        typeof s.score === "number" ? `score: ${s.score.toFixed(3)}` : null,
+      ].filter(Boolean).join(" · ");
+      return `## ${i + 1}. ${s.title}\n${meta}\n\n${s.content}`;
+    })
+    .join("\n\n---\n\n");
+}
+
+function normalizeRetrievedContext(value: unknown): { sources: RagSourceTrace[]; ragTitles: string[]; backlinks: Array<{ slug: string; title: string }> } | null {
+  const obj = asRecord(value);
+  if (!obj) return null;
+  const sources = Array.isArray(obj.sourceArticles)
+    ? obj.sourceArticles.map(normalizeRagSource).filter((s): s is RagSourceTrace => Boolean(s))
+    : [];
+  const ragTitles = Array.isArray(obj.ragTitles)
+    ? obj.ragTitles.filter((t): t is string => typeof t === "string")
+    : [];
+  const backlinks = Array.isArray(obj.backlinks)
+    ? obj.backlinks.map(normalizeBacklink).filter((b): b is { slug: string; title: string } => Boolean(b))
+    : [];
+  if (sources.length === 0 && ragTitles.length === 0 && backlinks.length === 0) return null;
+  return { sources, ragTitles, backlinks };
+}
+
+function normalizeRagSource(value: unknown): RagSourceTrace | null {
+  const obj = asRecord(value);
+  if (!obj) return null;
+  const slug = typeof obj.slug === "string" ? obj.slug : "";
+  const title = typeof obj.title === "string" ? obj.title : slug;
+  const content = typeof obj.content === "string" ? obj.content : "";
+  const score = typeof obj.score === "number" ? obj.score : undefined;
+  if (!slug && !title && !content) return null;
+  return { slug, title, content, score };
+}
+
+function normalizeBacklink(value: unknown): { slug: string; title: string } | null {
+  const obj = asRecord(value);
+  if (!obj) return null;
+  const slug = typeof obj.slug === "string" ? obj.slug : "";
+  const title = typeof obj.title === "string" ? obj.title : slug;
+  if (!slug && !title) return null;
+  return { slug, title };
+}
+
+function diffAfter(diff: Record<string, unknown> | null, key: string): unknown {
+  const entry = asRecord(diff?.[key]);
+  return entry?.after;
+}
+
+function cleanTraceText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  if (!text || text === "(none)" || text === "(none yet)") return undefined;
+  return text;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function boolText(value: number | boolean | null | undefined): string | null {

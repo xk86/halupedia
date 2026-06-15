@@ -74,4 +74,82 @@ describe("PipelinesPane", () => {
     expect(within(detail as HTMLElement).getByText("constraints").tagName).toBe("STRONG");
     expect(within(detail as HTMLElement).getByText("answer").tagName).toBe("STRONG");
   });
+
+  it("renders retrieved RAG context in a prompt-style dropdown", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({
+        nodes: [
+          {
+            node_name: "read.retrieve_context",
+            node_kind: "read",
+            duration_ms: 7,
+            status: "ok",
+            patch: {
+              retrievedContext: {
+                sourceArticles: [
+                  {
+                    slug: "source-topic",
+                    title: "Source Topic",
+                    content: "Selected source segment text.",
+                    score: 0.8123,
+                  },
+                ],
+                ragTitles: ["Source Topic"],
+                backlinks: [{ slug: "backlink-topic", title: "Backlink Topic" }],
+              },
+            },
+          },
+          {
+            node_name: "transform.render_article_prompt",
+            node_kind: "transform",
+            duration_ms: 3,
+            status: "ok",
+            diff: {
+              renderedPrompt: {
+                kind: "add",
+                after: {
+                  variables: {
+                    rag_context: "## [Source Topic](ref:source-topic)\nSelected source segment text.",
+                    related_titles: "- [Source Topic](ref:source-topic)",
+                  },
+                },
+              },
+            },
+          },
+        ],
+      }), { headers: { "content-type": "application/json" } }),
+    ));
+
+    render(
+      <PipelinesPane
+        workflows={[]}
+        runs={[{
+          run_id: "run-2",
+          workflow: "article.generate",
+          slug: "target-slug",
+          started_at: 1,
+          duration_ms: 10,
+          status: "ok",
+          nodes_executed: 2,
+          error_message: null,
+        }]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    await userEvent.click(screen.getByText("article.generate"));
+    await userEvent.click(await screen.findByRole("button", { name: /RAG 1/ }));
+
+    const detail = screen.getByText("Retrieved source segments").closest(".admin-prompt-detail");
+    expect(detail).toBeTruthy();
+    expect(within(detail as HTMLElement).getByText(/slug: source-topic .* score: 0\.812/)).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("Selected source segment text.")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText(/Backlink Topic/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /RAG 0/ }));
+    expect(screen.getByText("RAG context in prompt")).toBeInTheDocument();
+    expect(screen.getByText("Related titles in prompt")).toBeInTheDocument();
+  });
 });

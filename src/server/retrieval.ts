@@ -210,16 +210,30 @@ export async function indexArticleChunks(
 
 export type RagMode = "summary" | "full";
 
-function summaryContent(text: string) {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length <= 3600
-    ? normalized
-    : `${normalized.slice(0, 3600).trim()}...`; // TODO: what is being sliced here, why 360? this is responsible for what's breaking the RAG for RN, so i'm upping it to a much higher value for now
+/**
+ * Controls how summary-mode RAG truncates a source's content.
+ * - `enabled: false` → never truncate (summary mode keeps the whole chunk).
+ * - `enabled: true`  → clip to `chars`, appending an ellipsis.
+ * Backed by the `rag.summary_cap_enabled` / `rag.summary_cap_chars` config.
+ */
+export interface SummaryCap {
+  enabled: boolean;
+  chars: number;
 }
 
-function contextContent(text: string, mode: RagMode) {
+/** Fallback used when no config-derived cap is threaded through (tests, callers
+ *  predating the config item). Matches the historical hard-coded ceiling. */
+const DEFAULT_SUMMARY_CAP: SummaryCap = { enabled: true, chars: 3600 };
+
+function summaryContent(text: string, cap: SummaryCap = DEFAULT_SUMMARY_CAP) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!cap.enabled || normalized.length <= cap.chars) return normalized;
+  return `${normalized.slice(0, cap.chars).trim()}...`;
+}
+
+function contextContent(text: string, mode: RagMode, cap: SummaryCap = DEFAULT_SUMMARY_CAP) {
   return mode === "summary"
-    ? summaryContent(text)
+    ? summaryContent(text, cap)
     : text.replace(/\s+/g, " ").trim();
 }
 
@@ -244,8 +258,12 @@ function chunkHasUsefulContent(content: string, title: string, slug: string): bo
   return key !== alnumKey(title) && key !== alnumKey(slug);
 }
 
-function formatContextLine(row: { title: string; slug: string; content: string }, mode: RagMode) {
-  return `- ${row.title} (slug: ${row.slug}): ${contextContent(row.content, mode)}`;
+function formatContextLine(
+  row: { title: string; slug: string; content: string },
+  mode: RagMode,
+  cap: SummaryCap = DEFAULT_SUMMARY_CAP,
+) {
+  return `- ${row.title} (slug: ${row.slug}): ${contextContent(row.content, mode, cap)}`;
 }
 
 export function mergeRetrievedContextPackets(
@@ -329,8 +347,9 @@ export function retrieveDirectArticleContext(
   mode: RagMode,
   maxResults: number,
   logger?: Logger,
-  opts: { maxChunksPerArticle?: number } = {},
+  opts: { maxChunksPerArticle?: number; summaryCap?: SummaryCap } = {},
 ): RetrievedContextPacket {
+  const cap = opts.summaryCap ?? DEFAULT_SUMMARY_CAP;
   // Per-article chunk cap — without it the first referenced article fills the
   // entire max_results budget with chunks of itself and the remaining
   // references contribute nothing (and prompts balloon with one article's
@@ -391,12 +410,12 @@ export function retrieveDirectArticleContext(
   });
 
   return {
-    context: picked.map((row) => formatContextLine(row, mode)).join("\n"),
+    context: picked.map((row) => formatContextLine(row, mode, cap)).join("\n"),
     relatedTitles: [...new Set(picked.map((row) => row.title))],
     sourceArticles: picked.map((row) => ({
       slug: row.slug,
       title: row.title,
-      content: contextContent(row.content, mode),
+      content: contextContent(row.content, mode, cap),
     })),
   };
 }
@@ -414,6 +433,7 @@ export async function retrieveContext(
   useEmbeddings: boolean,
   logger?: Logger,
   queryOverride?: string,
+  summaryCap: SummaryCap = DEFAULT_SUMMARY_CAP,
 ): Promise<RetrievedContextPacket> {
   if (!enabled) {
     logger?.info("rag.retrieve_skipped", {
@@ -537,13 +557,13 @@ export async function retrieveContext(
   });
   return {
     context: picked
-      .map((row) => formatContextLine(row, mode))
+      .map((row) => formatContextLine(row, mode, summaryCap))
       .join("\n"),
     relatedTitles: [...new Set(picked.map((row) => row.title))],
     sourceArticles: picked.map((row) => ({
       slug: row.slug,
       title: row.title,
-      content: contextContent(row.content, mode),
+      content: contextContent(row.content, mode, summaryCap),
       score: row.score,
     })),
   };

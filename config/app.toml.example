@@ -15,6 +15,11 @@ max_results = 12
 # Changing chunk size after initialization is risky
 chunk_size = 500
 min_score = 0.4
+# Summary-mode content cap. When summary_cap_enabled is true, each source's
+# content is clipped to summary_cap_chars (with an ellipsis) in summary mode;
+# set summary_cap_enabled = false to keep whole chunks untruncated.
+summary_cap_enabled = true
+summary_cap_chars = 3600
 # Reference-list tuning (independent of general RAG so it can be tightened/loosened separately).
 # reference_max_results caps only newly-discovered vector-search (RAG) results per build.
 # Body-linked, user-added, and prior-save references are NOT subject to this cap — they

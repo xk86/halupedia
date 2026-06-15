@@ -143,6 +143,7 @@ export const retrieveContextForRewriteNode = defineNode({
   async run({ input, loadedArticle }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
     const rag = deps.runtime.app.rag;
+    const summaryCap = { enabled: rag.summary_cap_enabled, chars: rag.summary_cap_chars };
     const useEmbeddings = rag.enabled && deps.runtime.llm.embeddings.enabled;
 
     // Decode rewrite-specific options from instructions encoding.
@@ -161,7 +162,7 @@ export const retrieveContextForRewriteNode = defineNode({
     if (explicitSlugs.length > 0) {
       // User-selected refs: load directly, merge with prior refs for continuity.
       const allDirect = [...new Set([...explicitSlugs, ...priorSlugs])];
-      const direct = retrieveDirectArticleContext(deps.db, slug, allDirect, rag.mode, rag.max_results, deps.logger, { maxChunksPerArticle: rag.direct_chunks_per_article });
+      const direct = retrieveDirectArticleContext(deps.db, slug, allDirect, rag.mode, rag.max_results, deps.logger, { maxChunksPerArticle: rag.direct_chunks_per_article, summaryCap });
       retrieved = {
         sourceArticles: direct.sourceArticles.map((s) => ({ ...s })),
         ragTitles: direct.relatedTitles,
@@ -177,7 +178,7 @@ export const retrieveContextForRewriteNode = defineNode({
         deps.db, deps.llm, slug,
         query ? [query] : hintStrings,
         rag.enabled, rag.mode, rag.max_results, rag.min_score,
-        useEmbeddings, deps.logger, query || undefined,
+        useEmbeddings, deps.logger, query || undefined, summaryCap,
       );
       const editReferences = findReferencedArticlesInEditText(
         deps.db,
@@ -206,7 +207,7 @@ export const retrieveContextForRewriteNode = defineNode({
             rag.mode,
             rag.max_results,
             deps.logger,
-            { maxChunksPerArticle: rag.direct_chunks_per_article },
+            { maxChunksPerArticle: rag.direct_chunks_per_article, summaryCap },
           )
         : { context: "", relatedTitles: [], sourceArticles: [] };
       const merged = mergeRetrievedContextPackets(direct, packet);
@@ -225,10 +226,10 @@ export const retrieveContextForRewriteNode = defineNode({
       const primary = await retrieveContextLegacy(
         deps.db, deps.llm, slug, hintStrings,
         rag.enabled, rag.mode, rag.max_results, rag.min_score,
-        useEmbeddings, deps.logger, queryOverride,
+        useEmbeddings, deps.logger, queryOverride, summaryCap,
       );
       const direct = backlinkSlugs.length
-        ? retrieveDirectArticleContext(deps.db, slug, backlinkSlugs, rag.mode, rag.max_results, deps.logger, { maxChunksPerArticle: rag.direct_chunks_per_article })
+        ? retrieveDirectArticleContext(deps.db, slug, backlinkSlugs, rag.mode, rag.max_results, deps.logger, { maxChunksPerArticle: rag.direct_chunks_per_article, summaryCap })
         : { context: "", relatedTitles: [], sourceArticles: [] };
       const merged = mergeRetrievedContextPackets(primary, direct);
       retrieved = {

@@ -83,6 +83,8 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       max_results: app.rag?.max_results ?? 4,
       chunk_size: app.rag?.chunk_size ?? 500,
       min_score: app.rag?.min_score ?? 0.2,
+      summary_cap_enabled: app.rag?.summary_cap_enabled ?? true,
+      summary_cap_chars: app.rag?.summary_cap_chars ?? 3600,
       reference_max_results: app.rag?.reference_max_results ?? 8,
       reference_min_score: app.rag?.reference_min_score ?? 0.4,
       max_references: app.rag?.max_references ?? 50,

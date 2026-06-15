@@ -2276,6 +2276,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         runtime.app.rag.enabled, runtime.app.rag.mode, runtime.app.rag.max_results,
         runtime.app.rag.min_score, runtime.llm.embeddings.enabled, logger,
         body.ragQuery.trim(),
+        { enabled: runtime.app.rag.summary_cap_enabled, chars: runtime.app.rag.summary_cap_chars },
       );
       for (const src of retrieved.sourceArticles) {
         addArticle({ slug: src.slug, title: src.title, summaryMarkdown: src.content?.slice(0, 360) ?? "" });
@@ -2310,6 +2311,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       runtime.app.rag.min_score,
       runtime.llm.embeddings.enabled,
       logger,
+      undefined,
+      { enabled: runtime.app.rag.summary_cap_enabled, chars: runtime.app.rag.summary_cap_chars },
     );
     const excerpt = extractSelectionExcerpt(article.markdown, selectedText);
     const wrapRange = findBestWrapRange(article.markdown, selectedText);
@@ -3067,24 +3070,27 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
   });
 
-  app.post("/api/admin/wipe", (c) => {
-    const dbPath = resolve(process.cwd(), runtime.app.storage.database_path);
-    if (existsSync(dbPath)) {
-      const ts = new Date().toISOString().replace(/[:.]/g, "-");
-      const backupPath = `${dbPath}.backup-${ts}`;
-      try {
-        copyFileSync(dbPath, backupPath);
-        logger.info("admin.backup_before_wipe", { backup: backupPath });
-      } catch (err) {
-        logger.error("admin.backup_failed", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    wipeGeneratedCorpus(db);
-    logger.warn("admin.wipe_generated_corpus");
-    return c.json({ ok: true });
-  });
+  // Corpus wipe endpoint — disabled. The admin button was removed; leaving the
+  // route live made it too easy to nuke the whole corpus with a stray POST.
+  // Uncomment (and restore a confirmation flow) if a reset surface is needed.
+  // app.post("/api/admin/wipe", (c) => {
+  //   const dbPath = resolve(process.cwd(), runtime.app.storage.database_path);
+  //   if (existsSync(dbPath)) {
+  //     const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  //     const backupPath = `${dbPath}.backup-${ts}`;
+  //     try {
+  //       copyFileSync(dbPath, backupPath);
+  //       logger.info("admin.backup_before_wipe", { backup: backupPath });
+  //     } catch (err) {
+  //       logger.error("admin.backup_failed", {
+  //         error: err instanceof Error ? err.message : String(err),
+  //       });
+  //     }
+  //   }
+  //   wipeGeneratedCorpus(db);
+  //   logger.warn("admin.wipe_generated_corpus");
+  //   return c.json({ ok: true });
+  // });
 
   app.post("/api/admin/delete-article", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { slug?: string };

@@ -20,6 +20,13 @@ export interface RagConfig {
   chunk_size: number;
   min_score: number;
   /**
+   * Summary-mode content cap. When `summary_cap_enabled` is true, each source's
+   * content is clipped to `summary_cap_chars` (with an ellipsis) in summary
+   * mode; when false, summary mode keeps the whole chunk untruncated.
+   */
+  summary_cap_enabled: boolean;
+  summary_cap_chars: number;
+  /**
    * Maximum number of candidate references to keep after ranking.
    * The reference list is built from RAG sources (summaries + chunks);
    * this trims the long tail. Pinned references do NOT count toward this cap.

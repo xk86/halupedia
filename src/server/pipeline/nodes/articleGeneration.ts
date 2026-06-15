@@ -167,6 +167,7 @@ export const retrieveContextNode = defineNode({
       useEmbeddings,
       deps.logger,
       queryOverride,
+      { enabled: rag.summary_cap_enabled, chars: rag.summary_cap_chars },
     );
 
     const referencedSlugs = hints
@@ -180,7 +181,10 @@ export const retrieveContextNode = defineNode({
           rag.mode,
           rag.max_results,
           deps.logger,
-          { maxChunksPerArticle: rag.direct_chunks_per_article },
+          {
+            maxChunksPerArticle: rag.direct_chunks_per_article,
+            summaryCap: { enabled: rag.summary_cap_enabled, chars: rag.summary_cap_chars },
+          },
         )
       : { context: "", relatedTitles: [], sourceArticles: [] };
 

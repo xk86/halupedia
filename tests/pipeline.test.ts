@@ -43,6 +43,7 @@ import { ALL_WORKFLOWS } from "../src/server/pipeline/registry";
 import type { LlmRouter } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
 import {
+  ensureLeadingTitleHeading,
   extractInternalLinks,
   normalizeHaluLinks,
   renderMarkdown,
@@ -1662,6 +1663,42 @@ test("normalizeMarkdown: trims leading and trailing whitespace", () => {
   const result = normalizeMarkdown(md);
   assert.doesNotMatch(result, /^\n/);
   assert.doesNotMatch(result, /\n$/);
+});
+
+test("ensureLeadingTitleHeading: rewrites a wrong/any-level leading heading to the canonical H1", () => {
+  assert.equal(
+    ensureLeadingTitleHeading("# Wrong Title\n\nBody.", "Right Title"),
+    "# Right Title\n\nBody.",
+  );
+  assert.equal(
+    ensureLeadingTitleHeading("## Right Title\n\nBody.", "Right Title"),
+    "# Right Title\n\nBody.",
+  );
+});
+
+test("ensureLeadingTitleHeading: upgrades a bold title restatement to an H1", () => {
+  assert.equal(
+    ensureLeadingTitleHeading("**Jojo Test**\n\nJojo Test is a system.", "Jojo Test"),
+    "# Jojo Test\n\nJojo Test is a system.",
+  );
+});
+
+test("ensureLeadingTitleHeading: prepends the H1 when the body opens with prose", () => {
+  assert.equal(
+    ensureLeadingTitleHeading("The concept emerged as a bridge.", "Test-Dash-Dash"),
+    "# Test-Dash-Dash\n\nThe concept emerged as a bridge.",
+  );
+  // A leading bold span that is NOT the title is prose, not a heading.
+  assert.equal(
+    ensureLeadingTitleHeading("**Important:** read this.", "Test-Dash-Dash"),
+    "# Test-Dash-Dash\n\n**Important:** read this.",
+  );
+});
+
+test("ensureLeadingTitleHeading: idempotent and whitespace-tolerant", () => {
+  const canonical = "# My Title\n\nBody.";
+  assert.equal(ensureLeadingTitleHeading(canonical, "My Title"), canonical);
+  assert.equal(ensureLeadingTitleHeading("\n\n  # My Title\n\nBody.", "My Title"), canonical);
 });
 
 /* ─────────────────────────────────────────────────────────────────

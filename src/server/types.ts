@@ -86,6 +86,18 @@ export interface RagConfig {
    * Entries past the budget are dropped whole (never mid-entry).
    */
   prompt_context_max_chars: number;
+  /**
+   * Refresh-specific context caps. Refresh improves an existing article rather
+   * than writing a new one, so it gets a much tighter budget than generation —
+   * otherwise a wall of low-relevance corpus chunks can drown a short article
+   * and the model rewrites it into a summary of the context. See
+   * config/prompts/article_refresh.toml for the matching prompt framing.
+   */
+  refresh_context_max_chars: number;
+  /** Max sources given a full content block in refresh's retrieved-context. */
+  refresh_context_max_articles: number;
+  /** Max "suggested related topics" listed in refresh prompts. */
+  refresh_related_titles_max: number;
 }
 
 /**

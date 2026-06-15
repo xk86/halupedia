@@ -14,6 +14,9 @@ Prefer keeping the original words and phrasings of the original article.
 {{link_hints}}
 
 Refresh Constraints:
+- The CURRENT ARTICLE is the single source of truth for this document's subject, content, structure, and wording. Retrieved context, references, and suggested topics are supporting link material ONLY — use them to add or repair `[text](ref:slug)` links and, at most, minor corroborating detail that fits the existing prose.
+- Retrieved context is NOT the subject of this article. If it describes a different topic than the current article, ignore its subject matter entirely and only borrow links that fit naturally. Never let it replace, reframe, redirect, or expand the article's topic.
+- Never restructure the article into generic scaffolding such as "Overview", "Summary", "Extracted Information", "Related Concepts", or "Conclusion", and never summarize or describe the retrieved context. The output must be recognizably the SAME article — same topic, same headings, same prose — only cleaner and better linked.
 - Return the full refreshed article, not a diff or notes.
 - Link to pinned references where relevant; other references may be linked if they fit naturally.
 - Keep the article on the same topic as the requested article title.
@@ -43,17 +46,17 @@ and linked where relevant. Irrelevant references are fine to omit from the artic
 
 {{references_prompt_text}}
 
-Retrieved context:
+Retrieved context (supplementary — a source of links and minor facts only; NOT the subject of this article; ignore anything off-topic):
 
 {{rag_context}}
 
-Suggested related existing topics:
+Suggested related existing topics (link only where one fits the existing prose; never adopt as the article's subject):
 
 {{related_titles}}
 
 {{headline_image}}
 
-Output the full refreshed Markdown article.
+Output the full refreshed Markdown article. Keep it the same article on the same topic as the current article above.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics.
 

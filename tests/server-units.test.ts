@@ -1396,10 +1396,10 @@ test("formatRagContextForPrompt skips empty/title-only and duplicate headings, k
     ],
     10_000,
   );
-  assert.equal(out.match(/^Alpha$/gm)?.length, 1, "Alpha heading appears exactly once");
+  assert.equal(out.match(/^## \[Alpha\]\(ref:alpha\)$/gm)?.length, 1, "Alpha heading appears exactly once as a ref link");
   assert.match(out, /Real prose about the alpha topic\./);
-  assert.match(out, /^Beta$/m);
-  assert.doesNotMatch(out, /Alpha\n# Alpha/, "title-only entry must not be emitted");
+  assert.match(out, /^## \[Beta\]\(ref:beta\)$/m);
+  assert.doesNotMatch(out, /\(ref:alpha\)\n# Alpha/, "title-only entry must not be emitted");
 });
 
 

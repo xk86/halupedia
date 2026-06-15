@@ -178,8 +178,10 @@ test("formatRagContextForPrompt enforces the character budget at entry boundarie
   ];
   const out = formatRagContextForPrompt(sources, 250);
   assert.ok(out.includes("a".repeat(100)) && out.includes("b".repeat(100)));
-  assert.ok(!out.includes("c".repeat(100)), "entries past the budget are dropped whole");
-  assert.ok(out.length <= 250);
+  assert.ok(!out.includes("c".repeat(100)), "content past the budget is not emitted whole");
+  // C's content doesn't fit, but its title is surfaced in the overflow list.
+  assert.match(out, /Additional related topics[^\n]*\n- C/);
+  assert.match(out, /^## A$/m, "entries use their own markdown heading");
 });
 
 test("re-adding a blocked slug as a reference unblocks it", (t) => {

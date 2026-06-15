@@ -36,6 +36,7 @@ import {
 import {
   excludeBlacklistedSources,
   formatRagContextForPrompt,
+  formatRelatedTitlesForPrompt,
   retrieveContext as retrieveContextLegacy,
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
@@ -396,7 +397,10 @@ export const renderRewritePromptNode = defineNode({
         ? `Recent edit history, oldest to newest:\n${recentEditHistory}`
         : "",
       rag_context: ragContext || "(none)",
-      related_titles: (retrievedContext?.ragTitles ?? []).map((t) => `- ${t}`).join("\n"),
+      related_titles: formatRelatedTitlesForPrompt(
+        retrievedContext?.ragTitles ?? [],
+        retrievedContext?.sourceArticles ?? [],
+      ),
       article_excerpt: selectedMarkdown?.slice(0, 2000) ?? "",
       parent_comment: "",
       headline_image: headlineImageContext ?? "",

@@ -154,9 +154,11 @@ export async function indexArticleChunks(
   const imgChunks = imageDescriptions
     .filter((img) => img.description.trim())
     .map((img) => `[img:${img.id}]\n${img.description.trim()}`);
-  // Append one infobox chunk when available so sidebar data is discoverable via RAG.
-  const infoboxChunks = infoboxText?.trim() ? [infoboxText.trim()] : [];
-  const chunks = [...textChunks, ...imgChunks, ...infoboxChunks];
+  // Infobox chunks are temporarily excluded from RAG indexing — sidebar data
+  // was polluting retrieval with title-only / key-value noise. flattenInfoboxForRag
+  // still runs upstream; to re-enable, restore `...infoboxChunks` in `chunks` below.
+  const infoboxChunks: string[] = []; // was: infoboxText?.trim() ? [infoboxText.trim()] : []
+  const chunks = [...textChunks, ...imgChunks];
 
   let embeddings: number[][] = [];
   let embeddingError: string | undefined;
@@ -312,15 +314,57 @@ export function excludeBlacklistedSources<
 }
 
 /**
- * Assemble retrieved source articles into the `rag_context` prompt block,
- * respecting a hard character budget. Entries are dropped whole once the
- * budget is exhausted — never truncated mid-entry.
+ * Strip a leading echo of the article title from chunk content. Indexing keeps
+ * the H1 in the first chunk, so retrieved content usually opens by restating
+ * the title verbatim (optionally as a `# Heading`). Left in place, the prompt
+ * block would render the title twice — once as our heading, once in the body.
+ *
+ * Only strips when the title is followed by a word boundary, so a single-letter
+ * title like "A" is never clipped off content that merely starts with "a".
+ */
+export function stripLeadingTitleEcho(content: string, title: string): string {
+  const body = content.replace(/^\s+/, "").replace(/^#{1,6}\s+/, "");
+  const t = title.trim();
+  if (!t) return body.trim();
+  if (body.slice(0, t.length).toLowerCase() === t.toLowerCase()) {
+    const after = body[t.length] ?? "";
+    // Require a boundary after the echoed title (end-of-string or non-alphanumeric)
+    // so we don't bite into a longer word that happens to share the prefix.
+    if (after === "" || !/[\p{L}\p{N}]/u.test(after)) {
+      return body.slice(t.length).replace(/^[\s:.–—-]+/, "").trim();
+    }
+  }
+  return body.trim();
+}
+
+/**
+ * Assemble retrieved source articles into the `rag_context` prompt block.
+ *
+ * Each source becomes its own `## Title` heading followed by its content, with
+ * a leading title-echo stripped so the heading isn't immediately repeated.
+ * Entries are added whole while they fit a hard character budget; any source
+ * whose content can't fit is NOT dropped silently — its title is collected into
+ * a compact "additional related topics" list appended below, so the model still
+ * knows the topic exists. Each title appears at most once across both sections.
  */
 export function formatRagContextForPrompt(
   sourceArticles: Array<{ title: string; content: string; slug?: string }>,
   maxChars: number,
+  /**
+   * Hard cap on how many sources get a full `## heading + body`. Sources past
+   * the cap (or past the char budget) collapse into the title-only overflow
+   * list. Refresh/rewrite pass a small cap so a wall of low-relevance context
+   * can't drown the article being edited. 0 / omitted = unlimited.
+   */
+  maxArticles = 0,
 ): string {
+  // Render the title as a ref link when we know the slug, so the linkable form
+  // is repeated through the context and the model is nudged to cite it.
+  const titleLabel = (s: { title: string; slug?: string }) =>
+    s.slug ? `[${s.title}](ref:${s.slug})` : s.title;
+
   const parts: string[] = [];
+  const overflow: string[] = []; // refs whose content didn't fit the budget
   const seenTitles = new Set<string>();
   let used = 0;
   for (const s of sourceArticles) {
@@ -331,13 +375,58 @@ export function formatRagContextForPrompt(
     const titleKey = alnumKey(s.title);
     if (titleKey && seenTitles.has(titleKey)) continue;
     seenTitles.add(titleKey);
-    const entry = `${s.title}\n${s.content}`;
-    if (used + entry.length > maxChars && parts.length > 0) break;
-    if (entry.length > maxChars) continue;
+    const entry = `## ${titleLabel(s)}\n${stripLeadingTitleEcho(s.content, s.title)}`;
+    // Article-count cap reached, too big to ever fit, or no room left: list the
+    // title below instead of giving it a full content block.
+    if (
+      (maxArticles > 0 && parts.length >= maxArticles) ||
+      entry.length > maxChars ||
+      (used + entry.length + 2 > maxChars && parts.length > 0)
+    ) {
+      overflow.push(titleLabel(s));
+      continue;
+    }
     parts.push(entry);
-    used += entry.length + 4; // accounting for the .join() below
+    used += entry.length + 2; // "\n\n" separator joined below
   }
-  return parts.join("===\n");
+  let out = parts.join("\n\n");
+  if (overflow.length > 0) {
+    const list = overflow.map((t) => `- ${t}`).join("\n");
+    out += `${out ? "\n\n" : ""}Additional related topics (content omitted for length):\n${list}`;
+  }
+  return out;
+}
+
+/**
+ * Format the "suggested related topics" bullet list for prompts. When a title
+ * matches a known retrieved source we render it as a `[Title](ref:slug)` link
+ * so the linkable form is repeated in context; titles without a resolvable
+ * slug stay plain bullets (there is nothing safe to link them to). Duplicate
+ * titles are collapsed.
+ */
+export function formatRelatedTitlesForPrompt(
+  ragTitles: string[],
+  sourceArticles: Array<{ title: string; slug?: string }> = [],
+  /** Cap the number of suggestions (0 / omitted = unlimited). Refresh passes a
+   *  small cap so a long noisy title list can't dominate the prompt. */
+  limit = 0,
+): string {
+  const slugByTitle = new Map<string, string>();
+  for (const s of sourceArticles) {
+    const key = alnumKey(s.title);
+    if (key && s.slug && !slugByTitle.has(key)) slugByTitle.set(key, s.slug);
+  }
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const t of ragTitles) {
+    if (limit > 0 && lines.length >= limit) break;
+    const key = alnumKey(t);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    const slug = slugByTitle.get(key);
+    lines.push(slug ? `- [${t}](ref:${slug})` : `- ${t}`);
+  }
+  return lines.join("\n");
 }
 
 export function retrieveDirectArticleContext(

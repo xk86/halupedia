@@ -31,6 +31,7 @@ import { getMediaById } from "../../mediaDb";
 import {
   excludeBlacklistedSources,
   formatRagContextForPrompt,
+  formatRelatedTitlesForPrompt,
   retrieveContext as retrieveContextLegacy,
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
@@ -49,6 +50,7 @@ import {
   extractInternalLinks,
   extractTitle,
   extractDisplayTitle,
+  ensureLeadingTitleHeading,
   fixSlugVisibleText,
   markdownToPlainText,
   normalizeMarkdown,
@@ -460,9 +462,10 @@ export const renderArticlePromptNode = defineNode({
         retrievedContext?.sourceArticles ?? [],
         deps.runtime.app.rag.prompt_context_max_chars,
       ),
-      related_titles: (retrievedContext?.ragTitles ?? [])
-        .map((t) => `- ${t}`)
-        .join("\n"),
+      related_titles: formatRelatedTitlesForPrompt(
+        retrievedContext?.ragTitles ?? [],
+        retrievedContext?.sourceArticles ?? [],
+      ),
       recent_edit_history: recentEditHistory ?? "",
       link_hints: linkHints || "(none)",
       headline_image: headlineImageContext ?? "",
@@ -661,10 +664,11 @@ export const resolveLinksNode = defineNode({
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
     const slug = canonicalSlug ?? "";
 
-    // Rewrite H1 to the canonical title before resolving links so the title
-    // line participates in the same self-link stripping pass.
+    // Enforce that the article opens with the canonical title as its H1 (the
+    // model sometimes leads with prose or a bold restatement). Done before link
+    // resolution so the title line participates in the same self-link strip pass.
     if (canonicalTitle) {
-      body = body.replace(/^#\s+.+$/m, `# ${canonicalTitle}`);
+      body = ensureLeadingTitleHeading(body, canonicalTitle);
     }
 
     body = normalizeMarkdownLinks(body, "article").markdown;

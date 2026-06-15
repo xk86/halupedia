@@ -30,6 +30,7 @@ import type {
   ParsedInternalLink,
 } from "./types";
 import type { RetrievedSourceArticle } from "./retrieval";
+import { stripLeadingTitleEcho } from "./retrieval";
 import {
   getArticleByEquivalentLookup,
   getArticleByLookup,
@@ -548,25 +549,39 @@ export function formatReferencesForPromptText(refs: ReferenceList, contentMinSco
   const cappedEligible = contentTopK > 0 ? eligible.slice(0, contentTopK) : eligible;
   const withContent = new Set(cappedEligible.map((r) => r.slug));
 
-  const fmtEntry = (r: typeof refs[number], forceContent: boolean) => {
-    const content = (forceContent || withContent.has(r.slug)) ? (r.content || null) : null;
-    return content
-      ? `- [${r.title}](ref:${r.slug}): ${content}`
-      : `- [${r.title}](ref:${r.slug})`;
+  // Always render the title as a ref link so the linkable form is repeated in
+  // context and the model is nudged to cite it.
+  const refLink = (r: typeof refs[number]) => `[${r.title}](ref:${r.slug})`;
+
+  /**
+   * Render a group under `label`: every ref that carries content gets its own
+   * `### heading + body`; refs without content (didn't make the score/topK cut,
+   * or simply have none) collapse into a trailing ref-link list so their slug
+   * still appears in context without bloating the prompt.
+   */
+  const section = (label: string, list: typeof refs, forceContent: boolean): string => {
+    const detailed: string[] = [];
+    const listed: string[] = [];
+    for (const r of list) {
+      const raw = (forceContent || withContent.has(r.slug)) ? (r.content?.trim() || "") : "";
+      // Strip a leading echo of the title so the body doesn't restate the heading.
+      const content = raw ? stripLeadingTitleEcho(raw, r.title) : "";
+      if (content) detailed.push(`### ${refLink(r)}\n${content}`);
+      else listed.push(`- ${refLink(r)}`);
+    }
+    const blocks = [label, ...detailed];
+    if (listed.length > 0) {
+      blocks.push(`Other related references:\n${listed.join("\n")}`);
+    }
+    return blocks.join("\n\n");
   };
 
   const parts: string[] = [];
   if (pinnedRefs.length > 0) {
-    parts.push(
-      "PINNED REFERENCES — prioritize linking to these:\n" +
-      pinnedRefs.map((r) => fmtEntry(r, true)).join("\n"),
-    );
+    parts.push(section("PINNED REFERENCES — prioritize linking to these:", pinnedRefs, true));
   }
   if (otherRefs.length > 0) {
-    parts.push(
-      "ADDITIONAL REFERENCES — use if relevant:\n" +
-      otherRefs.map((r) => fmtEntry(r, false)).join("\n"),
-    );
+    parts.push(section("ADDITIONAL REFERENCES — use if relevant:", otherRefs, false));
   }
   return parts.join("\n\n");
 }

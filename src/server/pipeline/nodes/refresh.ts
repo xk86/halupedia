@@ -24,7 +24,7 @@ import {
   formatReferencesForPromptText,
 } from "../../referenceList";
 import { formatIncomingHintsForPrompt } from "../../linkHints";
-import { formatRagContextForPrompt } from "../../retrieval";
+import { formatRagContextForPrompt, formatRelatedTitlesForPrompt } from "../../retrieval";
 import {
   normalizeMarkdown,
   renderMarkdown,
@@ -100,11 +100,20 @@ export const renderRefreshPromptNode = defineNode({
         deps.runtime.app.rag.prompt_ref_content_min_score,
         deps.runtime.app.rag.prompt_ref_content_top_k,
       ),
+      // Refresh polishes an EXISTING article; retrieved context is only link
+      // material. Cap its volume hard (via the refresh_* config knobs) so a wall
+      // of low-relevance corpus chunks can't drown the current article and tempt
+      // the model into re-topicing it.
       rag_context: formatRagContextForPrompt(
         retrievedContext?.sourceArticles ?? [],
-        deps.runtime.app.rag.prompt_context_max_chars,
+        deps.runtime.app.rag.refresh_context_max_chars,
+        deps.runtime.app.rag.refresh_context_max_articles,
       ) || "(none)",
-      related_titles: (retrievedContext?.ragTitles ?? []).map((t) => `- ${t}`).join("\n"),
+      related_titles: formatRelatedTitlesForPrompt(
+        retrievedContext?.ragTitles ?? [],
+        retrievedContext?.sourceArticles ?? [],
+        deps.runtime.app.rag.refresh_related_titles_max,
+      ),
       article_excerpt: "",
       parent_comment: "",
       selected_text: "",

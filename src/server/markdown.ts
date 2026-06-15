@@ -272,6 +272,39 @@ export function normalizeMarkdown(input: string): string {
   return markdown;
 }
 
+/**
+ * Guarantee the article body begins with `# <title>` (the canonical H1).
+ *
+ * The model is told to open with the title, but doesn't always: it may lead
+ * with prose, a bold restatement (`**Title**`), or an H1 that disagrees with
+ * the canonical title. This normalizes all of those:
+ *   - First non-blank line is any-level heading → replaced with the canonical H1.
+ *   - First non-blank line is a bold-only line restating the title → upgraded to H1.
+ *   - Otherwise → the canonical H1 is prepended.
+ *
+ * Idempotent: a body that already starts with `# <title>` is returned unchanged.
+ */
+export function ensureLeadingTitleHeading(markdown: string, title: string): string {
+  const cleanTitle = title.trim();
+  if (!cleanTitle) return markdown;
+  const heading = `# ${cleanTitle}`;
+
+  const body = markdown.replace(/^\s+/, "");
+  if (!body) return heading;
+
+  const nl = body.indexOf("\n");
+  const firstLine = (nl === -1 ? body : body.slice(0, nl)).trim();
+  const rest = nl === -1 ? "" : body.slice(nl); // keeps the leading newline(s)
+
+  const isHeading = /^#{1,6}\s+\S/.test(firstLine);
+  const bold = firstLine.match(/^\*\*(.+?)\*\*$/) ?? firstLine.match(/^__(.+?)__$/);
+  const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const boldRestatesTitle = bold ? key(bold[1]) === key(cleanTitle) : false;
+
+  if (isHeading || boldRestatesTitle) return `${heading}${rest}`;
+  return `${heading}\n\n${body}`;
+}
+
 function convertWikilinks(markdown: string): string {
   return markdown.replace(
     /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,

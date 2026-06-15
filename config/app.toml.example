@@ -50,6 +50,12 @@ prompt_link_hints_max = 40
 # Entries past the budget are dropped whole.
 prompt_context_max_chars = 24000
 
+# Refresh-specific context caps. Refresh improves an existing article instead of
+# writing a new one, so it gets a tighter budget than generation.
+refresh_context_max_chars = 4000
+refresh_context_max_articles = 4
+refresh_related_titles_max = 6
+
 [homepage]
 rotation_hours = 4
 

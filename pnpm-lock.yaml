@@ -107,6 +107,9 @@ importers:
       troika-three-text:
         specifier: ^0.52.4
         version: 0.52.4(three@0.184.0)
+      undici:
+        specifier: ^7.25.0
+        version: 7.25.0
       unist-util-visit:
         specifier: ^5.1.0
         version: 5.1.0

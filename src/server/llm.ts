@@ -1,4 +1,4 @@
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 import type { ChatConfig, EmbeddingsConfig, HostConfig, LlmConfig, LlmInvocationMetadata } from "./types";
 import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 
@@ -10,13 +10,27 @@ import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 // (AbortSignal.timeout for non-stream, the idle-reset controller for stream), so
 // disable undici's internal request timers and let our logic be the single
 // source of truth. connectTimeout still guards a genuinely dead host.
-const llmDispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
+export const LLM_DISPATCHER_OPTIONS = Object.freeze({
+  headersTimeout: 0,
+  bodyTimeout: 0,
+});
+const llmDispatcher = new Agent(LLM_DISPATCHER_OPTIONS);
 
-/** fetch() pinned to {@link llmDispatcher}. The `dispatcher` option is a Node/
- *  undici extension absent from the lib's RequestInit type, so it's injected
- *  here behind a cast rather than at every call site. */
+type LlmFetch = (url: string, init: RequestInit) => Promise<Response>;
+
+/** fetch() pinned to {@link llmDispatcher}. The Agent and fetch implementation
+ *  must come from the same Undici package; Node's built-in fetch can reject a
+ *  userland Undici Agent when their internal dispatcher interfaces drift. */
+let llmFetchImpl: LlmFetch = (url, init) =>
+  undiciFetch(url, { ...init, dispatcher: llmDispatcher } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
+
+export function setLlmFetchForTests(fetchImpl: LlmFetch | null): void {
+  llmFetchImpl = fetchImpl ?? ((url, init) =>
+    undiciFetch(url, { ...init, dispatcher: llmDispatcher } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>);
+}
+
 function llmFetch(url: string, init: RequestInit): Promise<Response> {
-  return fetch(url, { ...init, dispatcher: llmDispatcher } as RequestInit);
+  return llmFetchImpl(url, init);
 }
 
 // How long to skip a host after it fails a request, so a flapping backend isn't
@@ -902,7 +916,7 @@ async function probeVisionSupport(
   // Derive the Ollama-native base URL by stripping the /v1 suffix.
   const ollamaBase = baseUrl.replace(/\/v1\/?$/, "");
   try {
-    const response = await fetch(`${ollamaBase}/api/show`, {
+    const response = await llmFetch(`${ollamaBase}/api/show`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

@@ -61,7 +61,7 @@ import {
   wikiSegmentToTitle,
   normalizeCanonicalTitle,
 } from "../src/server/slug";
-import { type LlmRouter } from "../src/server/llm";
+import { LLM_DISPATCHER_OPTIONS, setLlmFetchForTests, type LlmRouter } from "../src/server/llm";
 import { makeRouter } from "./helpers/router";
 import type { Logger, LogFields } from "../src/server/logger";
 import { formatRagContextForPrompt, indexArticleChunks, retrieveContext } from "../src/server/retrieval";
@@ -151,15 +151,17 @@ class CaptureLogger implements Logger {
   }
 }
 
+test("LLM dispatcher disables Undici headers/body timers", () => {
+  assert.equal(LLM_DISPATCHER_OPTIONS.headersTimeout, 0);
+  assert.equal(LLM_DISPATCHER_OPTIONS.bodyTimeout, 0);
+});
+
 test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embeddings", async (t) => {
   const logger = new CaptureLogger();
-  const originalFetch = globalThis.fetch;
   const chatBodies: unknown[] = [];
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-  });
+  t.after(() => setLlmFetchForTests(null));
 
-  globalThis.fetch = async (input, init) => {
+  setLlmFetchForTests(async (input, init) => {
     const url = String(input);
     if (url.endsWith("/api/chat")) {
       chatBodies.push(JSON.parse(String(init?.body ?? "{}")));
@@ -178,7 +180,7 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
       );
     }
     return new Response("not found", { status: 404 });
-  };
+  });
 
   const chatConfig = {
     base_url: "http://llm.test/v1",
@@ -212,16 +214,15 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
 });
 
 test("configured sampler params (top_k/top_p/min_p) are sent; unset ones are omitted", async (t) => {
-  const originalFetch = globalThis.fetch;
   let body: any = null;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async (_input, init) => {
+  t.after(() => setLlmFetchForTests(null));
+  setLlmFetchForTests(async (_input, init) => {
     body = JSON.parse(String(init?.body ?? "{}"));
     return new Response(
       JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "ok" } }], usage: { total_tokens: 1 } }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
-  };
+  });
 
   const heavy = { base_url: "http://llm.test/v1", api_key: "k", model: "gemma4", temperature: 1, max_tokens: 100, top_k: 10, top_p: 0.85 };
   const light = { base_url: "http://llm.test/v1", api_key: "k", model: "gemma4", temperature: 1, max_tokens: 100 };
@@ -239,15 +240,14 @@ test("configured sampler params (top_k/top_p/min_p) are sent; unset ones are omi
 
 test("chat surfaces the underlying transport cause, not a bare 'fetch failed'", async (t) => {
   const logger = new CaptureLogger();
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
+  t.after(() => setLlmFetchForTests(null));
 
-  globalThis.fetch = async () => {
+  setLlmFetchForTests(async () => {
     // Mirror how Node's undici reports a dropped connection.
     throw Object.assign(new TypeError("fetch failed"), {
       cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
     });
-  };
+  });
 
   const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 9001 };
   const router = makeRouter(chatConfig, chatConfig, { enabled: false, base_url: "", api_key: "", model: "" }, logger);
@@ -267,15 +267,14 @@ test("chat surfaces the underlying transport cause, not a bare 'fetch failed'", 
 
 test("streamChat reports an interrupted stream with partial content and progress", async (t) => {
   const logger = new CaptureLogger();
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
+  t.after(() => setLlmFetchForTests(null));
 
   const encoder = new TextEncoder();
   const sse = [
     `data: ${JSON.stringify({ choices: [{ delta: { content: "Hello " } }] })}\n`,
     `data: ${JSON.stringify({ choices: [{ delta: { content: "world" } }] })}\n`,
   ];
-  globalThis.fetch = async () => {
+  setLlmFetchForTests(async () => {
     let i = 0;
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
@@ -288,7 +287,7 @@ test("streamChat reports an interrupted stream with partial content and progress
       },
     });
     return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
-  };
+  });
 
   const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 9001 };
   const router = makeRouter(chatConfig, chatConfig, { enabled: false, base_url: "", api_key: "", model: "" }, logger);
@@ -315,14 +314,13 @@ test("streamChat reports an interrupted stream with partial content and progress
 
 test("embed surfaces the transport cause and times out instead of hanging", async (t) => {
   const logger = new CaptureLogger();
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
+  t.after(() => setLlmFetchForTests(null));
 
-  globalThis.fetch = async () => {
+  setLlmFetchForTests(async () => {
     throw Object.assign(new TypeError("fetch failed"), {
       cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
     });
-  };
+  });
 
   const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 100, request_timeout_ms: 5000 };
   const embeddingsConfig = { enabled: true, base_url: "http://llm.test/v1", api_key: "local", model: "nomic", request_timeout_ms: 5000 };
@@ -340,14 +338,13 @@ test("embed surfaces the transport cause and times out instead of hanging", asyn
 
 test("startup probes log the underlying transport cause", async (t) => {
   const logger = new CaptureLogger();
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
+  t.after(() => setLlmFetchForTests(null));
 
-  globalThis.fetch = async () => {
+  setLlmFetchForTests(async () => {
     throw Object.assign(new TypeError("fetch failed"), {
       cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
     });
-  };
+  });
 
   const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 100, request_timeout_ms: 5000 };
   const embeddingsConfig = { enabled: false, base_url: "http://llm.test/v1", api_key: "local", model: "nomic", request_timeout_ms: 5000 };
@@ -360,14 +357,11 @@ test("startup probes log the underlying transport cause", async (t) => {
 
 test("heavy and light OpenAI-compatible requests are sent independently", async (t) => {
   const logger = new CaptureLogger();
-  const originalFetch = globalThis.fetch;
   const heavyGate = Promise.withResolvers<void>();
   const completed: string[] = [];
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-  });
+  t.after(() => setLlmFetchForTests(null));
 
-  globalThis.fetch = async (input) => {
+  setLlmFetchForTests(async (input) => {
     const url = String(input);
     if (url.startsWith("http://heavy.test")) {
       await heavyGate.promise;
@@ -385,7 +379,7 @@ test("heavy and light OpenAI-compatible requests are sent independently", async 
       );
     }
     return new Response("not found", { status: 404 });
-  };
+  });
 
   const embeddingsConfig = {
     enabled: false,

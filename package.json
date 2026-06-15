@@ -61,6 +61,7 @@
     "three": "^0.184.0",
     "toml": "^4.1.1",
     "troika-three-text": "^0.52.4",
+    "undici": "^7.25.0",
     "unist-util-visit": "^5.1.0",
     "zod": "^4.4.3"
   },

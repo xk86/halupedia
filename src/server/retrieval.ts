@@ -144,16 +144,14 @@ export async function indexArticleChunks(
   useEmbeddings: boolean,
   chunkSize: number,
   logger?: Logger,
-  /** Image descriptions to index alongside the text chunks. */
+  /** Image descriptions are accepted for legacy callers but not indexed into article RAG. */
   imageDescriptions: Array<{ id: string; description: string }> = [],
   /** Flattened infobox text (from flattenInfoboxForRag). One chunk, relevance-gated. */
   infoboxText?: string,
 ): Promise<IndexArticleChunksResult> {
   const textChunks = chunkText(markdown, chunkSize);
-  // Append one chunk per attached image that has a description.
-  const imgChunks = imageDescriptions
-    .filter((img) => img.description.trim())
-    .map((img) => `[img:${img.id}]\n${img.description.trim()}`);
+  void imageDescriptions;
+  const imgChunks: string[] = [];
   // Infobox chunks are temporarily excluded from RAG indexing — sidebar data
   // was polluting retrieval with title-only / key-value noise. flattenInfoboxForRag
   // still runs upstream; to re-enable, restore `...infoboxChunks` in `chunks` below.

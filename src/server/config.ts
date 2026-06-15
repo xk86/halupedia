@@ -95,7 +95,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       prompt_ref_content_min_score: app.rag?.prompt_ref_content_min_score ?? 0.5,
       prompt_ref_content_top_k: app.rag?.prompt_ref_content_top_k ?? 6,
       direct_chunks_per_article: app.rag?.direct_chunks_per_article ?? 3,
-      prompt_link_hints_max: app.rag?.prompt_link_hints_max ?? 40,
+      prompt_link_hints_max: app.rag?.prompt_link_hints_max ?? 12,
       prompt_context_max_chars: app.rag?.prompt_context_max_chars ?? 24_000,
       refresh_context_max_chars: app.rag?.refresh_context_max_chars ?? 4_000,
       refresh_context_max_articles: app.rag?.refresh_context_max_articles ?? 4,

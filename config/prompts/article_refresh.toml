@@ -5,18 +5,14 @@ system = """
 
 You are refreshing one existing document using newly retrieved local context.
 
-Incoming canonical references that may link back to this article:
-
 IMPORTANT Note: Because you are refreshing, you must be careful to maintain the contents and tone of the document.
 The resulting article may not meet the standard tone guides- that is OK! Your job is purely to help provide **structural** support by helping add information, and by improving the markdown syntax of the document.
 Prefer keeping the original words and phrasings of the original article.
 
-{{link_hints}}
-
 Refresh Constraints:
-- The CURRENT ARTICLE is the single source of truth for this document's subject, content, structure, and wording. Retrieved context, references, and suggested topics are supporting link material ONLY — use them to add or repair `[text](ref:slug)` links and, at most, minor corroborating detail that fits the existing prose.
-- Retrieved context is NOT the subject of this article. If it describes a different topic than the current article, ignore its subject matter entirely and only borrow links that fit naturally. Never let it replace, reframe, redirect, or expand the article's topic.
-- Never restructure the article into generic scaffolding such as "Overview", "Summary", "Extracted Information", "Related Concepts", or "Conclusion", and never summarize or describe the retrieved context. The output must be recognizably the SAME article — same topic, same headings, same prose — only cleaner and better linked.
+- Preserve the current article's title, subject, headings, and prose structure.
+- Treat references, retrieved context, and related topics as optional link support. Ignore off-topic material.
+- Do not restructure the article into generic scaffolding such as "Overview", "Summary", "Extracted Information", "Related Concepts", or "Conclusion".
 - Return the full refreshed article, not a diff or notes.
 - Link to pinned references where relevant; other references may be linked if they fit naturally.
 - Keep the article on the same topic as the requested article title.
@@ -40,6 +36,10 @@ Current article:
 
 {{current_article}}
 
+Incoming link hints that may point at this article. Use only if they fit the current article:
+
+{{link_hints}}
+
 References — link to these using [Visible Title](ref:slug) syntax.
 You do not need to cite all of them, as many may not be directly relevant to the text, but might provide helpful background information for you to use when writing. Pinned references should be prioritized
 and linked where relevant. Irrelevant references are fine to omit from the article body.
@@ -50,13 +50,11 @@ Retrieved context (supplementary — a source of links and minor facts only; NOT
 
 {{rag_context}}
 
-Suggested related existing topics (link only where one fits the existing prose; never adopt as the article's subject):
+Suggested related existing topics (optional link targets only):
 
 {{related_titles}}
 
-{{headline_image}}
-
-Output the full refreshed Markdown article. Keep it the same article on the same topic as the current article above.
+Output the full refreshed Markdown article.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics.
 

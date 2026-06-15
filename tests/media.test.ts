@@ -12,7 +12,7 @@
  *   multimodal       — image_url content-block construction in chat
  *   http             — HTTP API routes (media serve, article image CRUD)
  *   pipeline-nodes   — generateInfoboxNode + persistInfoboxNode
- *   image-context    — readHeadlineImageNode + RAG image chunk indexing
+ *   image-context    — readHeadlineImageNode + article RAG exclusion
  *   ingest           — ingestImageFromBuffer with real vips
  */
 
@@ -1251,7 +1251,6 @@ describe("image-context", () => {
     assert.match(patch.headlineImageContext!, /img:test-crystal/, "slug in context");
     assert.match(patch.headlineImageContext!, /shimmering crystalline/, "description in context");
     assert.match(patch.headlineImageContext!, /The crystal/, "caption in context");
-    assert.match(patch.headlineImageContext!, /media:test-crystal/, "image syntax shown");
     db.close(); mediaDb.close();
   });
 
@@ -1272,9 +1271,9 @@ describe("image-context", () => {
     db.close(); mediaDb.close();
   });
 
-  // ── renderArticlePromptNode includes headline_image ──────────────────────
+  // ── renderArticlePromptNode excludes headline_image ──────────────────────
 
-  test("renderArticlePromptNode: headline_image appears in rendered user prompt", async (t) => {
+  test("renderArticlePromptNode: headline_image is not rendered into article prompts", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = makeArticleDb(dir);
     const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
@@ -1290,7 +1289,8 @@ describe("image-context", () => {
     };
     const patch = await renderArticlePromptNode.run(state as any, deps as any);
     assert.ok(patch.renderedPrompt, "prompt was rendered");
-    assert.match(patch.renderedPrompt!.user, /shimmering crystal/, "image description in rendered user prompt");
+    assert.doesNotMatch(patch.renderedPrompt!.user, /shimmering crystal/);
+    assert.doesNotMatch(patch.renderedPrompt!.user, /media:crystal-test/);
     db.close(); mediaDb.close();
   });
 
@@ -1314,9 +1314,9 @@ describe("image-context", () => {
     db.close(); mediaDb.close();
   });
 
-  // ── indexArticleChunks includes image description chunk ──────────────────
+  // ── indexArticleChunks excludes image description chunks ─────────────────
 
-  test("indexArticleChunks: image description added as extra chunk", async (t) => {
+  test("indexArticleChunks: image descriptions are not added as chunks", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = openDatabase(join(dir, "articles.sqlite"));
     const llm = new FakeLlm();
@@ -1327,11 +1327,9 @@ describe("image-context", () => {
     );
 
     const chunks = db.prepare("SELECT content FROM article_chunks WHERE slug = ? ORDER BY chunk_index").all("test-slug") as Array<{ content: string }>;
-    assert.ok(chunks.length >= 2, "at least body chunk + image chunk");
-
-    const imageChunk = chunks.find((c) => c.content.includes("[img:my-image]"));
-    assert.ok(imageChunk, "image chunk present");
-    assert.match(imageChunk!.content, /shimmering crystalline formation/);
+    assert.equal(chunks.length, 1);
+    assert.doesNotMatch(chunks.map((c) => c.content).join("\n"), /\[img:my-image\]/);
+    assert.doesNotMatch(chunks.map((c) => c.content).join("\n"), /shimmering crystalline formation/);
     db.close();
   });
 
@@ -1351,7 +1349,7 @@ describe("image-context", () => {
     db.close();
   });
 
-  test("indexArticleChunks: multiple image descriptions produce multiple chunks", async (t) => {
+  test("indexArticleChunks: multiple image descriptions still produce no image chunks", async (t) => {
     const { dir, cleanup } = tmpDir(); t.after(cleanup);
     const db = openDatabase(join(dir, "articles.sqlite"));
     const llm = new FakeLlm();
@@ -1366,9 +1364,7 @@ describe("image-context", () => {
 
     const chunks = db.prepare("SELECT content FROM article_chunks WHERE slug = ? ORDER BY chunk_index").all("test-slug") as Array<{ content: string }>;
     const imgChunks = chunks.filter((c) => c.content.startsWith("[img:"));
-    assert.equal(imgChunks.length, 2, "two image chunks");
-    assert.ok(imgChunks.some((c) => c.content.includes("img-a")));
-    assert.ok(imgChunks.some((c) => c.content.includes("img-b")));
+    assert.equal(imgChunks.length, 0);
     db.close();
   });
 });

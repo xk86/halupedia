@@ -46,7 +46,8 @@
  *    Staleness guard: aborts if a concurrent edit landed since this pass started.
  *
  * 11. write.index_rag_chunks
- *    Re-indexes article body (and image description if present) as RAG chunks.
+ *    Re-indexes article body as RAG chunks. Image descriptions stay out of
+ *    article text retrieval.
  *
  * Sidebar rendering:
  *    The sidebar (sidepane) is assembled server-side from two sidecars:

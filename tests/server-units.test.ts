@@ -479,6 +479,37 @@ test("formatIncomingHintsForPrompt preserves the requested target slug for misma
   assert.doesNotMatch(promptText, /halu:mismatched-visible-label/);
 });
 
+test("formatIncomingHintsForPrompt dedupes repeated hints before applying cap", () => {
+  const promptText = formatIncomingHintsForPrompt(
+    [
+      {
+        sourceSlug: "source-a",
+        sourceTitle: "Source A",
+        visibleLabel: "Shared Label",
+        hiddenHint: "same target context",
+      },
+      {
+        sourceSlug: "source-b",
+        sourceTitle: "Source B",
+        visibleLabel: "Shared Label",
+        hiddenHint: "same target context",
+      },
+      {
+        sourceSlug: "source-c",
+        sourceTitle: "Source C",
+        visibleLabel: "Other Label",
+        hiddenHint: "different target context",
+      },
+    ],
+    "actual-target",
+    2,
+  );
+
+  assert.equal(promptText.match(/halu:actual-target/g)?.length, 2);
+  assert.equal(promptText.match(/Shared Label/g)?.length, 1);
+  assert.match(promptText, /Other Label/);
+});
+
 test("malformed halu links render and extract when the hidden hint quote is left open", () => {
   const markdown = [
     'Primarily engineered by [The Boring Company](halu:the-boring-company "subterranean infrastructure and tunneling enterprise),',

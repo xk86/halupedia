@@ -346,7 +346,7 @@ export const readHeadlineImageNode = defineNode({
   kind: "read",
   description:
     "Load the current article's headline image description from article_media + media DB. " +
-    "Formats a context block injected into the generation/rewrite/refresh prompts.",
+    "Kept for media-specific workflows; article text prompts do not consume it.",
   reads: ["input"] as const,
   writes: ["headlineImageContext"] as const,
   run({ input }, deps: PipelineDeps) {
@@ -365,10 +365,6 @@ export const readHeadlineImageNode = defineNode({
       `  Slug: img:${record.id}`,
       `  Description: ${record.description}`,
       `  Caption: ${caption}`,
-      ``,
-      `To embed this image in the article body use: ![your caption here](media:${record.id})`,
-      `If the context above mentions images from other articles (lines starting with [img:...]),`,
-      `you may also reference those using the same syntax: ![caption](media:their-slug)`,
     ];
     return { headlineImageContext: lines.join("\n") };
   },
@@ -435,11 +431,10 @@ export const renderArticlePromptNode = defineNode({
     "references",
     "retrievedContext",
     "recentEditHistory",
-    "headlineImageContext",
   ] as const,
   writes: ["renderedPrompt"] as const,
   run(
-    { input, references, retrievedContext, recentEditHistory, headlineImageContext },
+    { input, references, retrievedContext, recentEditHistory },
     deps: PipelineDeps,
   ) {
     const refs = (references ?? []).map((r) =>
@@ -468,7 +463,6 @@ export const renderArticlePromptNode = defineNode({
       ),
       recent_edit_history: recentEditHistory ?? "",
       link_hints: linkHints || "(none)",
-      headline_image: headlineImageContext ?? "",
     });
     return { renderedPrompt: rendered };
   },

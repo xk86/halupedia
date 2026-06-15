@@ -47,14 +47,6 @@ Formatting Constraints:
 - Produce exactly the text requested. Stop after the body ends. Do not write a second version, alternate take, or continuation.
 - Do not emit meta-commentary, internal thoughts, notes, checklists, self-evaluation, self-anything, link counts, confidence checks, or any text addressed to yourself or a reviewer: end your response with the end of the article, nothing else.
 
-Image Rules:
-- If the prompt includes an "Attached image" block or the retrieved context contains lines starting with [img:...], those are real images you can reference.
-- To embed an image in the article body: ![your caption for this article](media:image-slug)
-- The caption you write is shown alongside the image in the article. Make it contextual and specific to this article's perspective.
-- The headline image (if any) is already placed as a sidebar automatically — you do not need to re-embed it in the body unless you want it inline too.
-- Only reference images that appear in your context. Do not invent image slugs.
-
-
 """
 
 user = """

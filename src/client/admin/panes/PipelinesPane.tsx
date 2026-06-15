@@ -6,6 +6,39 @@ import { toWikiSegment } from "../../wikiPath";
 const RUNS_PER_PAGE = 10;
 
 const md = new MarkdownIt({ html: false, linkify: false });
+const defaultTraceLinkOpen =
+  md.renderer.rules.link_open ??
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  const hrefIndex = token.attrIndex("href");
+  const titleIndex = token.attrIndex("title");
+  const href = hrefIndex >= 0 ? token.attrs?.[hrefIndex]?.[1] ?? "" : "";
+  const internalHref = traceInternalHrefToWiki(href);
+  if (internalHref) {
+    token.attrSet("href", internalHref);
+    if (titleIndex >= 0) token.attrs?.splice(titleIndex, 1);
+  }
+  return defaultTraceLinkOpen(tokens, idx, options, env, self);
+};
+
+function traceInternalHrefToWiki(href: string): string | null {
+  if (href.startsWith("/wiki/")) return href;
+  if (!href.startsWith("ref:") && !href.startsWith("halu:")) return null;
+  const rawTarget = href.slice(href.indexOf(":") + 1).split(/["' \t\r\n]/)[0] ?? "";
+  const slug = rawTarget.trim().toLowerCase();
+  if (!slug || !/^[a-z0-9-]+$/.test(slug)) return null;
+  return `/wiki/${toWikiSegment(slugToTraceTitle(slug))}`;
+}
+
+function slugToTraceTitle(slug: string): string {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 interface WorkflowNode {
   name: string;

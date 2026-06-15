@@ -17,7 +17,7 @@ describe("PipelinesPane", () => {
             duration_ms: 5,
             status: "ok",
             prompt_chars: 123,
-            prompt_text: "### System\nUse **bold** rules.\n\n### User\nWrite **user** content.",
+            prompt_text: "### System\nUse **bold** [Alpha](ref:alpha) rules.\n\n### User\nWrite **user** [Beta](halu:beta-topic \"hint\") content.",
             cot_text: "## Thought\nConsider **constraints**.",
             response_text: "## Output\nFinal **answer**.",
             llm_role: "images",
@@ -73,6 +73,8 @@ describe("PipelinesPane", () => {
     expect(within(detail as HTMLElement).getAllByText("on").length).toBeGreaterThan(0);
     expect(within(detail as HTMLElement).getByText("bold").tagName).toBe("STRONG");
     expect(within(detail as HTMLElement).getByText("user").tagName).toBe("STRONG");
+    expect(within(detail as HTMLElement).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", "/wiki/Alpha");
+    expect(within(detail as HTMLElement).getByRole("link", { name: "Beta" })).toHaveAttribute("href", "/wiki/Beta_Topic");
     expect(within(detail as HTMLElement).getByText("constraints").tagName).toBe("STRONG");
     expect(within(detail as HTMLElement).getByText("answer").tagName).toBe("STRONG");
   });
@@ -261,6 +263,6 @@ describe("PipelinesPane", () => {
     expect(screen.getByText("Reference list after step")).toBeInTheDocument();
     expect(screen.getByText("Reference context in prompt")).toBeInTheDocument();
     expect(screen.getAllByText("Prompt refs").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: "Alpha" })).toHaveAttribute("href", "ref:alpha");
+    expect(screen.getByRole("link", { name: "Alpha" })).toHaveAttribute("href", "/wiki/Alpha");
   });
 });

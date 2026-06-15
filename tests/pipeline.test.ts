@@ -69,6 +69,7 @@ import {
   findExistingArticleLinkReferences,
   findTitleMentionedArticles,
   formatReferencesForPrompt,
+  formatReferencesForPromptText,
   linkMentionedReferencesInBody,
   linkReferences,
   linkReferencesInline,
@@ -913,6 +914,17 @@ test("formatReferencesForPrompt: one entry per ref in - [Title](ref:slug) format
   const prompt = formatReferencesForPrompt(refs);
   assert.match(prompt, /- \[Alpha\]\(ref:alpha\)/);
   assert.match(prompt, /- \[Beta\]\(ref:beta\)/);
+});
+
+test("formatReferencesForPromptText: image and infobox-bearing articles remain plain refs", () => {
+  const refs = [
+    makeRef("article-with-image", "Article With Image"),
+    makeRef("article-with-infobox", "Article With Infobox"),
+  ];
+  const prompt = formatReferencesForPromptText(refs);
+  assert.match(prompt, /### \[Article With Image\]\(ref:article-with-image\)/);
+  assert.match(prompt, /### \[Article With Infobox\]\(ref:article-with-infobox\)/);
+  assert.doesNotMatch(prompt, /(?:Image|Infobox):\s*\[/);
 });
 
 /* ─────────────────────────────────────────────────────────────────

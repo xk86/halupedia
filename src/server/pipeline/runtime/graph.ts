@@ -130,7 +130,12 @@ export async function runWorkflow<Deps>(
             options.onNode?.(node.name, node.kind);
             const nodeStart = Date.now();
             let llmCapture: LlmCapture | undefined;
-            const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; });
+            const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; }, {
+              workflow: workflow.name,
+              slug: before.input.slug,
+              title: before.input.requestedTitle,
+              node: node.name,
+            });
             try {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const patch = await node.run(before, nodeDeps as any);
@@ -248,7 +253,12 @@ export async function runWorkflow<Deps>(
       options.onNode?.(edge.node.name, edge.node.kind);
       const before = state;
       let llmCapture: LlmCapture | undefined;
-      const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; });
+      const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; }, {
+        workflow: workflow.name,
+        slug: before.input.slug,
+        title: before.input.requestedTitle,
+        node: edge.node.name,
+      });
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const patch = await edge.node.run(before, nodeDeps as any);
@@ -439,7 +449,11 @@ function fallbackConfigKey(role: unknown): string | undefined {
   return undefined;
 }
 
-function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): Deps {
+function wrapLlmDeps<Deps>(
+  deps: Deps,
+  onCapture: (cap: LlmCapture) => void,
+  dispatchContext?: { workflow?: string; slug?: string; title?: string; node?: string },
+): Deps {
   const d = deps as Record<string, unknown>;
   if (!d || typeof d !== "object" || typeof d.llm !== "object" || !d.llm) return deps;
   const origLlm = d.llm as Record<string, (...a: unknown[]) => unknown>;
@@ -450,7 +464,7 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
   const withReasoning = (rest: unknown[], optsIndex: number, onReasoning: (r: string) => void): unknown[] => {
     const args = [...rest];
     const opts = (args[optsIndex] ?? {}) as Record<string, unknown>;
-    args[optsIndex] = { ...opts, onReasoning };
+    args[optsIndex] = { ...opts, onReasoning, dispatchContext };
     return args;
   };
   const charsOf = (system: unknown, user: unknown) =>

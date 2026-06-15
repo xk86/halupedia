@@ -3092,6 +3092,9 @@ export async function createApp(options: CreateAppOptions = {}) {
         blacklist: h.blacklist,
         online: l?.online ?? false,
         active: l?.active ?? 0,
+        queued: l?.queued ?? 0,
+        activeJobs: l?.activeJobs ?? [],
+        queuedJobs: l?.queuedJobs ?? [],
         models: l?.models ?? null,
       };
     });

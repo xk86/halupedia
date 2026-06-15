@@ -59,11 +59,13 @@ interface HostState {
    *  being excluded outright. */
   models: Set<string> | null;
   cooldownUntil: number;
+  activeJobs: Map<number, DispatchJob>;
 }
 
 interface Waiter {
   candidates: string[];
   tried: Set<string>;
+  job: DispatchJob;
   resolve: (slot: { hostId: string; release: () => void }) => void;
 }
 
@@ -89,6 +91,7 @@ function normalizeModelId(model: string): string {
 export class HostScheduler {
   private readonly hosts = new Map<string, HostState>();
   private readonly waiters: Waiter[] = [];
+  private nextJobId = 1;
 
   constructor(private readonly logger: Logger) {}
 
@@ -116,6 +119,7 @@ export class HostScheduler {
           blacklist: new Set(cfg.blacklist),
           models: null,
           cooldownUntil: 0,
+          activeJobs: new Map(),
         });
       }
     }
@@ -143,7 +147,11 @@ export class HostScheduler {
     blacklist: string[];
     models: string[] | null;
     online: boolean;
+    queued: number;
+    activeJobs: DispatchJobSnapshot[];
+    queuedJobs: DispatchJobSnapshot[];
   }> {
+    const now = Date.now();
     return [...this.hosts.values()].map((s) => ({
       id: s.id,
       baseUrl: s.baseUrl,
@@ -153,6 +161,11 @@ export class HostScheduler {
       blacklist: [...s.blacklist],
       models: s.models ? [...s.models] : null,
       online: s.models !== null,
+      queued: this.waiters.filter((w) => w.candidates.includes(s.id)).length,
+      activeJobs: [...s.activeJobs.values()].map((j) => snapshotJob(j, now)),
+      queuedJobs: this.waiters
+        .filter((w) => w.candidates.includes(s.id))
+        .map((w) => snapshotJob(w.job, now)),
     }));
   }
 
@@ -188,17 +201,32 @@ export class HostScheduler {
     preferredHosts: string[],
     model: string,
     exec: (endpoint: HostEndpoint) => Promise<T>,
+    context?: LlmDispatchContext,
   ): Promise<T> {
     const candidates = this.candidates(preferredHosts, model);
     if (candidates.length === 0) {
       throw new NoEligibleHostError(`no configured host can serve model "${model}" for role ${roleLabel}`);
     }
     const tried = new Set<string>();
+    const job: DispatchJob = {
+      id: this.nextJobId++,
+      role: roleLabel,
+      model,
+      preferredHosts: [...preferredHosts],
+      candidates: [...candidates],
+      tried: [],
+      enqueuedAt: Date.now(),
+      context,
+    };
     let lastErr: unknown;
     const cap = Math.min(candidates.length, HOST_RETRY_CAP);
     for (let attempt = 0; attempt < cap; attempt++) {
-      const slot = await this.acquireAny(candidates, tried);
+      job.tried = [...tried];
+      const slot = await this.acquireAny(candidates, tried, job);
       const state = this.hosts.get(slot.hostId)!;
+      job.hostId = state.id;
+      job.startedAt = Date.now();
+      state.activeJobs.set(job.id, job);
       try {
         const result = await exec({ hostId: state.id, baseUrl: state.baseUrl, apiKey: state.apiKey });
         slot.release();
@@ -227,7 +255,7 @@ export class HostScheduler {
     throw lastErr ?? new Error(`all hosts failed for role ${roleLabel}`);
   }
 
-  private tryAcquire(candidates: string[], tried: Set<string>): { hostId: string; release: () => void } | null {
+  private tryAcquire(candidates: string[], tried: Set<string>, job: DispatchJob): { hostId: string; release: () => void } | null {
     const now = Date.now();
     for (const id of candidates) {
       if (tried.has(id)) continue;
@@ -235,27 +263,28 @@ export class HostScheduler {
       if (!s || s.cooldownUntil > now) continue;
       if (s.active < s.permits) {
         s.active += 1;
-        return { hostId: id, release: this.makeRelease(s) };
+        return { hostId: id, release: this.makeRelease(s, job.id) };
       }
     }
     return null;
   }
 
-  private makeRelease(state: HostState): () => void {
+  private makeRelease(state: HostState, jobId: number): () => void {
     let released = false;
     return () => {
       if (released) return;
       released = true;
+      state.activeJobs.delete(jobId);
       state.active -= 1;
       this.pump();
     };
   }
 
-  private acquireAny(candidates: string[], tried: Set<string>): Promise<{ hostId: string; release: () => void }> {
-    const immediate = this.tryAcquire(candidates, tried);
+  private acquireAny(candidates: string[], tried: Set<string>, job: DispatchJob): Promise<{ hostId: string; release: () => void }> {
+    const immediate = this.tryAcquire(candidates, tried, job);
     if (immediate) return Promise.resolve(immediate);
     return new Promise((resolve) => {
-      this.waiters.push({ candidates, tried, resolve });
+      this.waiters.push({ candidates, tried, job, resolve });
     });
   }
 
@@ -264,7 +293,7 @@ export class HostScheduler {
   private pump(): void {
     for (let i = 0; i < this.waiters.length; ) {
       const w = this.waiters[i];
-      const got = this.tryAcquire(w.candidates, w.tried);
+      const got = this.tryAcquire(w.candidates, w.tried, w.job);
       if (got) {
         this.waiters.splice(i, 1);
         w.resolve(got);
@@ -273,6 +302,26 @@ export class HostScheduler {
       }
     }
   }
+}
+
+function snapshotJob(job: DispatchJob, now: number): DispatchJobSnapshot {
+  return {
+    id: job.id,
+    role: job.role,
+    model: job.model,
+    preferredHosts: job.preferredHosts,
+    candidates: job.candidates,
+    tried: job.tried,
+    enqueuedAt: job.enqueuedAt,
+    queuedMs: Math.max(0, (job.startedAt ?? now) - job.enqueuedAt),
+    startedAt: job.startedAt,
+    runningMs: job.startedAt ? Math.max(0, now - job.startedAt) : undefined,
+    hostId: job.hostId,
+    workflow: job.context?.workflow,
+    slug: job.context?.slug,
+    title: job.context?.title,
+    node: job.context?.node,
+  };
 }
 
 /** Fetch the model ids a host serves (OpenAI-compatible `GET /models`). Returns
@@ -326,6 +375,46 @@ export interface ChatOptions {
    *  incremental delta and the full accumulated reasoning so far. Used to surface
    *  live chain-of-thought in the admin generation view; never set by feature code. */
   onReasoningDelta?: (delta: string, accumulated: string) => void;
+  /** Internal scheduler/debug metadata surfaced in the admin LLM utilization view. */
+  dispatchContext?: LlmDispatchContext;
+}
+
+export interface LlmDispatchContext {
+  workflow?: string;
+  slug?: string;
+  title?: string;
+  node?: string;
+}
+
+interface DispatchJob {
+  id: number;
+  role: string;
+  model: string;
+  preferredHosts: string[];
+  candidates: string[];
+  tried: string[];
+  enqueuedAt: number;
+  startedAt?: number;
+  hostId?: string;
+  context?: LlmDispatchContext;
+}
+
+export interface DispatchJobSnapshot {
+  id: number;
+  role: string;
+  model: string;
+  preferredHosts: string[];
+  candidates: string[];
+  tried: string[];
+  enqueuedAt: number;
+  queuedMs: number;
+  startedAt?: number;
+  runningMs?: number;
+  hostId?: string;
+  workflow?: string;
+  slug?: string;
+  title?: string;
+  node?: string;
 }
 
 /** Pull the separated reasoning/thinking text out of a chat message, across
@@ -1021,6 +1110,7 @@ export class OpenAICompatRouter implements LlmRouter {
     const cfg = this.roleConfig(role);
     return this.scheduler.dispatch(role, cfg.hosts, cfg.model, (endpoint) =>
       this.client(role).chat(endpoint, system, user, options),
+      options?.dispatchContext,
     );
   }
 
@@ -1034,6 +1124,7 @@ export class OpenAICompatRouter implements LlmRouter {
     const cfg = this.roleConfig(role);
     return this.scheduler.dispatch(role, cfg.hosts, cfg.model, (endpoint) =>
       this.client(role).streamChat(endpoint, system, user, onChunk, options),
+      options?.dispatchContext,
     );
   }
 

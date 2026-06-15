@@ -94,6 +94,50 @@ test("dispatch waits indefinitely, then is admitted when a slot frees", async ()
   assert.equal(await p1, 1);
 });
 
+test("snapshot reports active and queued dispatch context", async () => {
+  const s = new HostScheduler(noop);
+  s.configure([host("a", 0, 1)]);
+  s.setCapabilities("a", new Set(["m"]));
+
+  let releaseA = () => {};
+  const hold = new Promise<void>((r) => (releaseA = r));
+  const p1 = s.dispatch(
+    "heavy",
+    ["a"],
+    "m",
+    async () => {
+      await hold;
+      return 1;
+    },
+    { workflow: "article.generate", slug: "target", title: "Target", node: "llm.generate_article" },
+  );
+  const p2 = s.dispatch(
+    "light",
+    ["a"],
+    "m",
+    async () => 2,
+    { workflow: "article.post_process", slug: "target", title: "Target", node: "llm.regenerate_summary" },
+  );
+  await tick();
+
+  const snap = s.snapshot()[0];
+  assert.equal(snap.active, 1);
+  assert.equal(snap.queued, 1);
+  assert.equal(snap.activeJobs[0].role, "heavy");
+  assert.equal(snap.activeJobs[0].workflow, "article.generate");
+  assert.equal(snap.activeJobs[0].slug, "target");
+  assert.equal(snap.activeJobs[0].node, "llm.generate_article");
+  assert.equal(snap.queuedJobs[0].role, "light");
+  assert.equal(snap.queuedJobs[0].workflow, "article.post_process");
+  assert.deepEqual(snap.queuedJobs[0].candidates, ["a"]);
+
+  releaseA();
+  assert.equal(await p2, 2);
+  assert.equal(await p1, 1);
+  assert.equal(s.snapshot()[0].active, 0);
+  assert.equal(s.snapshot()[0].queued, 0);
+});
+
 test("dispatch re-queues to the next host on failure", async () => {
   const s = new HostScheduler(noop);
   s.configure([host("a", 0, 1), host("b", 1, 1)]);

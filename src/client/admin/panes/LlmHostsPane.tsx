@@ -10,7 +10,28 @@ interface HostInfo {
   blacklist: string[];
   online: boolean;
   active: number;
+  queued: number;
+  activeJobs: DispatchJob[];
+  queuedJobs: DispatchJob[];
   models: string[] | null;
+}
+
+interface DispatchJob {
+  id: number;
+  role: string;
+  model: string;
+  preferredHosts: string[];
+  candidates: string[];
+  tried: string[];
+  enqueuedAt: number;
+  queuedMs: number;
+  startedAt?: number;
+  runningMs?: number;
+  hostId?: string;
+  workflow?: string;
+  slug?: string;
+  title?: string;
+  node?: string;
 }
 
 interface RoleInfo {
@@ -58,6 +79,8 @@ export function LlmHostsPane() {
 
   useEffect(() => {
     void load();
+    const interval = window.setInterval(() => void load(), 1000);
+    return () => window.clearInterval(interval);
   }, [load]);
 
   const send = useCallback(
@@ -143,8 +166,9 @@ function HostCard({ host, busy, onSave }: { host: HostInfo; busy: string | null;
         <span className={host.online ? "llm-dot-online" : "llm-dot-offline"}>
           {host.online ? `online · ${host.models?.length ?? 0} models` : "offline"}
         </span>
-        <span style={{ opacity: 0.6 }}>{host.active} in-flight</span>
+        <span style={{ opacity: 0.6 }}>{host.active}/{host.max_in_flight} in-flight · {host.queued} queued</span>
       </div>
+      <HostUtilization host={host} />
       <div className="llm-card-grid">
         <label>base_url<input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} /></label>
         <label>api_key<input type="password" placeholder={host.api_key || "(none)"} value={apiKey} onChange={(e) => setApiKey(e.target.value)} /></label>
@@ -169,6 +193,53 @@ function HostCard({ host, busy, onSave }: { host: HostInfo; busy: string | null;
       </button>
     </div>
   );
+}
+
+function HostUtilization({ host }: { host: HostInfo }) {
+  const hasJobs = host.activeJobs.length > 0 || host.queuedJobs.length > 0;
+  return (
+    <div className="llm-utilization">
+      <div className="llm-util-bar" title={`${host.active}/${host.max_in_flight} active`}>
+        <span style={{ width: `${Math.min(100, Math.round((host.active / Math.max(host.max_in_flight, 1)) * 100))}%` }} />
+      </div>
+      {hasJobs ? (
+        <div className="llm-job-list">
+          {host.activeJobs.map((job) => <JobRow key={`active:${job.id}`} job={job} state="active" />)}
+          {host.queuedJobs.map((job) => <JobRow key={`queued:${job.id}:${host.id}`} job={job} state="queued" />)}
+        </div>
+      ) : (
+        <p className="llm-job-empty">No active or queued LLM dispatches.</p>
+      )}
+    </div>
+  );
+}
+
+function JobRow({ job, state }: { job: DispatchJob; state: "active" | "queued" }) {
+  const topic = job.title || job.slug || "(no slug)";
+  const timing = state === "active"
+    ? `${formatDuration(job.runningMs ?? 0)} running`
+    : `${formatDuration(job.queuedMs)} queued`;
+  return (
+    <div className={`llm-job-row llm-job-row--${state}`}>
+      <span className="llm-job-state">{state}</span>
+      <span className="llm-job-main" title={topic}>
+        <strong>{job.role}</strong>
+        <span>{job.workflow ?? "(direct)"}</span>
+        <span>{topic}</span>
+      </span>
+      <span className="llm-job-meta" title={job.candidates.join(" → ")}>
+        {job.node ?? "llm"} · {job.model} · {timing}
+      </span>
+    </div>
+  );
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${s % 60}s`;
 }
 
 function AddHostForm({ busy, onAdd }: { busy: string | null; onAdd: (body: Record<string, unknown>) => void }) {

@@ -259,6 +259,11 @@ export interface ChatConfig {
    *  token arrives for this long (idle timeout). Guards against the endpoint
    *  hanging on undici's 5-minute default. */
   request_timeout_ms: number;
+  /** Max concurrent requests we'll have in flight against this model's *host* at
+   *  once. Requests beyond this wait in our own queue (no socket, no timeout
+   *  clock) instead of piling into the backend's queue. Pooled per host across
+   *  roles, so a shared host is bounded once. */
+  max_in_flight: number;
 }
 
 export interface EmbeddingsConfig {
@@ -268,6 +273,9 @@ export interface EmbeddingsConfig {
   model: string;
   /** Abort an embeddings request after this long. */
   request_timeout_ms: number;
+  /** Max concurrent embeddings requests in flight against this host. See
+   *  {@link ChatConfig.max_in_flight}. */
+  max_in_flight: number;
 }
 
 export interface LlmInvocationMetadata {

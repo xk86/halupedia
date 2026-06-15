@@ -133,6 +133,13 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
   };
 }
 
+// Default per-host concurrency caps. Conservative: a single local Ollama box
+// typically runs only a handful of parallel slots, and anything past that just
+// queues inside the backend where it can time out waiting its turn. Tune per
+// host in config (a beefier box can take more) via `max_in_flight`.
+const DEFAULT_CHAT_MAX_IN_FLIGHT = 4;
+const DEFAULT_EMBED_MAX_IN_FLIGHT = 8;
+
 function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
   return {
     chat: {
@@ -142,6 +149,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       temperature: llm.chat?.temperature ?? 0.8,
       max_tokens: llm.chat?.max_tokens ?? 2400,
       request_timeout_ms: llm.chat?.request_timeout_ms ?? 180_000,
+      max_in_flight: llm.chat?.max_in_flight ?? DEFAULT_CHAT_MAX_IN_FLIGHT,
     },
     light: {
       base_url:
@@ -153,6 +161,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       temperature: llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
       max_tokens: llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
       request_timeout_ms: llm.light?.request_timeout_ms ?? llm.chat?.request_timeout_ms ?? 180_000,
+      max_in_flight: llm.light?.max_in_flight ?? llm.chat?.max_in_flight ?? DEFAULT_CHAT_MAX_IN_FLIGHT,
     },
     images: llm.images
       ? {
@@ -162,6 +171,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
           temperature: llm.images.temperature ?? llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
           max_tokens: llm.images.max_tokens ?? llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
           request_timeout_ms: llm.images.request_timeout_ms ?? llm.light?.request_timeout_ms ?? llm.chat?.request_timeout_ms ?? 180_000,
+          max_in_flight: llm.images.max_in_flight ?? llm.light?.max_in_flight ?? llm.chat?.max_in_flight ?? DEFAULT_CHAT_MAX_IN_FLIGHT,
         }
       : undefined,
     embeddings: {
@@ -173,6 +183,7 @@ function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
       api_key: llm.embeddings?.api_key ?? llm.chat?.api_key ?? "local",
       model: llm.embeddings?.model ?? "local-embed-model",
       request_timeout_ms: llm.embeddings?.request_timeout_ms ?? 2_000,
+      max_in_flight: llm.embeddings?.max_in_flight ?? DEFAULT_EMBED_MAX_IN_FLIGHT,
     },
   };
 }

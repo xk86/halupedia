@@ -1,5 +1,70 @@
+import { Agent } from "undici";
 import type { ChatConfig, EmbeddingsConfig, LlmInvocationMetadata } from "./types";
 import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
+
+// undici's fetch enforces its own headersTimeout/bodyTimeout (300s each by
+// default). Those fire independently of our AbortSignal/idle timers, so a
+// request that's merely queued behind other work on a busy host dies on undici's
+// clock long before the timeout we configured — and reports as a transport
+// "fetch failed" rather than a timeout. We own request lifetime explicitly
+// (AbortSignal.timeout for non-stream, the idle-reset controller for stream), so
+// disable undici's internal request timers and let our logic be the single
+// source of truth. connectTimeout still guards a genuinely dead host.
+const llmDispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
+
+/** fetch() pinned to {@link llmDispatcher}. The `dispatcher` option is a Node/
+ *  undici extension absent from the lib's RequestInit type, so it's injected
+ *  here behind a cast rather than at every call site. */
+function llmFetch(url: string, init: RequestInit): Promise<Response> {
+  return fetch(url, { ...init, dispatcher: llmDispatcher } as RequestInit);
+}
+
+/**
+ * A fair FIFO counting semaphore bounding how many requests we hand a single
+ * host at once. Permits are acquired *before* fetch() so excess work waits in
+ * our own in-memory queue — no open socket, no timeout clock running — instead
+ * of stampeding the backend's queue, where it would burn its timeout budget
+ * idling for a slot it can't see.
+ */
+class HostGate {
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+  constructor(readonly permits: number) {}
+
+  async acquire(): Promise<() => void> {
+    // When at capacity we park; the releasing call hands its permit straight to
+    // us without ever lowering `active`, so there's no window for a fresh
+    // acquire() to slip in and oversubscribe the host.
+    if (this.active >= this.permits) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    } else {
+      this.active += 1;
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = this.waiters.shift();
+      if (next) next();
+      else this.active -= 1;
+    };
+  }
+}
+
+// One gate per host, shared across roles — heavy/light/images/embeddings that
+// target the same backend contend for the same memory and must be bounded
+// together. The first config to register a host fixes its permit count (heavy
+// chat is constructed first, so its cap wins for a shared host).
+const hostGates = new Map<string, HostGate>();
+function hostGateFor(baseUrl: string, permits: number): HostGate {
+  const host = hostForBaseUrl(baseUrl);
+  let gate = hostGates.get(host);
+  if (!gate) {
+    gate = new HostGate(Math.max(1, permits));
+    hostGates.set(host, gate);
+  }
+  return gate;
+}
 
 export type LlmRole = "heavy" | "light" | "images" | "embeddings";
 type ChatLlmRole = Exclude<LlmRole, "embeddings">;
@@ -129,15 +194,31 @@ function fetchErrorSummary(err: unknown): string {
   return [code, cause || message].filter(Boolean).join(": ") || "unknown error";
 }
 
-/** True when an error is an AbortSignal.timeout() / AbortController abort. */
+// undici surfaces its own timeouts as a "fetch failed" TypeError whose real
+// reason — code and message — lives on the nested cause, not on the top-level
+// error. List the codes so we recognize a queue/transport timeout as a timeout
+// even though our own AbortSignal never fired.
+const UNDICI_TIMEOUT_CODES = new Set([
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+/** True when an error is a timeout — our AbortSignal.timeout()/AbortController
+ *  abort, or one of undici's internal request timeouts buried on the cause. */
 function isTimeoutError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  return (
+  if (
     err.name === "TimeoutError" ||
     err.name === "AbortError" ||
-    (err as { code?: string }).code === "ABORT_ERR" ||
-    /aborted|timeout/i.test(err.message)
-  );
+    (err as { code?: string }).code === "ABORT_ERR"
+  ) {
+    return true;
+  }
+  // describeFetchError walks the cause chain undici nests the real reason under;
+  // the top-level message is just "fetch failed" and never matches on its own.
+  const { message, cause, code } = describeFetchError(err);
+  return UNDICI_TIMEOUT_CODES.has(code) || /abort|timeout|timed out/i.test(`${message} ${cause}`);
 }
 
 // Emit an in-flight progress heartbeat at most this often while streaming, so a
@@ -165,21 +246,31 @@ function embedResponseFields(config: EmbeddingsConfig, vectorCount: number, dura
  *  only, for signatures like comments.ts). */
 export type { OpenAICompatClient };
 class OpenAICompatClient {
+  private readonly chatGate: HostGate;
+  private readonly embedGate: HostGate;
+
   constructor(
     private readonly chatConfig: ChatConfig,
     private readonly embeddingsConfig: EmbeddingsConfig,
     private readonly logger: Logger,
     private readonly role: ChatLlmRole,
-  ) {}
+  ) {
+    this.chatGate = hostGateFor(chatConfig.base_url, chatConfig.max_in_flight);
+    this.embedGate = hostGateFor(embeddingsConfig.base_url, embeddingsConfig.max_in_flight);
+  }
 
   async chat(system: string, user: string, options: ChatOptions = {}): Promise<string> {
     const startedAt = Date.now();
     const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
     this.logger.info("llm.chat_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
     const timeoutMs = this.chatConfig.request_timeout_ms ?? 180_000;
+    // Wait for a host slot before starting the request clock — queue time must
+    // not count against the timeout.
+    const release = await this.chatGate.acquire();
+    try {
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await llmFetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -269,6 +360,9 @@ class OpenAICompatClient {
       throw new Error("chat completion returned empty content");
     }
     return content;
+    } finally {
+      release();
+    }
   }
 
   async streamChat(
@@ -295,10 +389,14 @@ class OpenAICompatClient {
       idleTimer.unref?.();
     };
     const clearIdle = () => { if (idleTimer) clearTimeout(idleTimer); };
+    // Wait for a host slot before arming the idle clock or opening a socket —
+    // queue time must not register as an idle stall.
+    const release = await this.chatGate.acquire();
     armIdle();
+    try {
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await llmFetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -494,6 +592,9 @@ class OpenAICompatClient {
       throw new Error("chat stream returned empty content");
     }
     return { content, finishReason, ttftMs: firstTokenMs || undefined };
+    } finally {
+      release();
+    }
   }
 
   async embed(input: string[]): Promise<number[][]> {
@@ -505,9 +606,11 @@ class OpenAICompatClient {
     const url = `${this.embeddingsConfig.base_url.replace(/\/$/, "")}/embeddings`;
     const timeoutMs = this.embeddingsConfig.request_timeout_ms ?? 60_000;
     this.logger.info("llm.embed_request", embedRequestFields(this.embeddingsConfig, input.length));
+    const release = await this.embedGate.acquire();
+    try {
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await llmFetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -548,6 +651,9 @@ class OpenAICompatClient {
     };
     this.logger.info("llm.embed_response", embedResponseFields(this.embeddingsConfig, json.data?.length ?? 0, Date.now() - startedAt));
     return (json.data ?? []).map((item) => item.embedding ?? []);
+    } finally {
+      release();
+    }
   }
 
   async probeEndpoint(role: LlmRole, baseUrl: string, apiKey: string): Promise<void> {

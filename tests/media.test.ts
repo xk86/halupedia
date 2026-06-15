@@ -9,7 +9,7 @@
  *   rendering        — renderInfoboxHtml output
  *   markdown         — :::sidebar container + media: image scheme
  *   vision-probe     — LLM capability check via Ollama /api/show
- *   multimodal       — image_url content-block construction in chat
+ *   multimodal       — native /api/chat base64 images array construction
  *   http             — HTTP API routes (media serve, article image CRUD)
  *   pipeline-nodes   — generateInfoboxNode + persistInfoboxNode
  *   image-context    — readHeadlineImageNode + article RAG exclusion
@@ -27,7 +27,8 @@ import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, i
 import { openDatabase, saveArticle, getArticleHeadlineMedia, upsertArticleHeadlineMedia, updateArticleMediaCaption, removeArticleMedia, getArticleMediaRows, getArticleInfobox, setArticleInfobox, listImageBacklinks, type InfoboxData } from "../src/server/db";
 import { renderInfoboxHtml } from "../src/server/articleRender";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
-import { OpenAICompatRouter, type LlmRouter, type ChatOptions } from "../src/server/llm";
+import { type LlmRouter, type ChatOptions } from "../src/server/llm";
+import { makeRouter } from "./helpers/router";
 import { createApp } from "../src/server/index";
 import { loadConfig } from "../src/server/config";
 import type { Logger } from "../src/server/logger";
@@ -566,15 +567,15 @@ describe("vision-probe", () => {
     return () => { globalThis.fetch = orig; };
   }
 
-  function makeRouter(imagesChatConfig?: { base_url: string; api_key: string; model: string; temperature: number; max_tokens: number }) {
+  function makeVisionRouter(imagesChatConfig?: { base_url: string; api_key: string; model: string; temperature: number; max_tokens: number }) {
     const cfg = { base_url: "http://ollama.test/v1", api_key: "local", model: "m", temperature: 1, max_tokens: 100 };
-    return new OpenAICompatRouter(cfg, cfg, { enabled: false, base_url: "", api_key: "", model: "" }, noop(), imagesChatConfig);
+    return makeRouter(cfg, cfg, { enabled: false, base_url: "", api_key: "", model: "" }, noop(), imagesChatConfig);
   }
 
   test("true when model_info has clip.* key", async (t) => {
     const restore = mockShowEndpoint({ model_info: { "clip.vision_encoder": "clip" } });
     t.after(restore);
-    const r = makeRouter();
+    const r = makeVisionRouter();
     await r.probeConnections();
     assert.equal(r.supportsVision("light"), true);
   });
@@ -582,7 +583,7 @@ describe("vision-probe", () => {
   test("false when model_info has no clip keys", async (t) => {
     const restore = mockShowEndpoint({ model_info: { "general.architecture": "gemma" } });
     t.after(restore);
-    const r = makeRouter();
+    const r = makeVisionRouter();
     await r.probeConnections();
     assert.equal(r.supportsVision("light"), false);
   });
@@ -590,7 +591,7 @@ describe("vision-probe", () => {
   test("true when details.families includes 'clip'", async (t) => {
     const restore = mockShowEndpoint({ details: { families: ["llama", "clip"] } });
     t.after(restore);
-    const r = makeRouter();
+    const r = makeVisionRouter();
     await r.probeConnections();
     assert.equal(r.supportsVision("heavy"), true);
   });
@@ -599,7 +600,7 @@ describe("vision-probe", () => {
     const orig = globalThis.fetch;
     t.after(() => { globalThis.fetch = orig; });
     globalThis.fetch = async () => { throw new Error("refused"); };
-    const r = makeRouter();
+    const r = makeVisionRouter();
     await r.probeConnections();
     assert.equal(r.supportsVision("heavy"), false);
   });
@@ -607,7 +608,7 @@ describe("vision-probe", () => {
   test("true when capabilities array includes 'vision'", async (t) => {
     const restore = mockShowEndpoint({ capabilities: ["completion", "vision"] });
     t.after(restore);
-    const r = makeRouter();
+    const r = makeVisionRouter();
     await r.probeConnections();
     assert.equal(r.supportsVision("light"), true);
   });
@@ -615,7 +616,7 @@ describe("vision-probe", () => {
   test("supportsVision('images') returns false when no imagesChatConfig", async (t) => {
     const restore = mockShowEndpoint({ model_info: { "clip.vision_encoder": "clip" } });
     t.after(restore);
-    const r = makeRouter(); // no 5th arg
+    const r = makeVisionRouter(); // no 5th arg
     await r.probeConnections();
     assert.equal(r.supportsVision("images"), false);
   });
@@ -624,7 +625,7 @@ describe("vision-probe", () => {
     const restore = mockShowEndpoint({ capabilities: ["completion", "vision"] });
     t.after(restore);
     const imagesCfg = { base_url: "http://ollama.test/v1", api_key: "local", model: "vision-model", temperature: 1, max_tokens: 100 };
-    const r = makeRouter(imagesCfg);
+    const r = makeVisionRouter(imagesCfg);
     await r.probeConnections();
     assert.equal(r.supportsVision("images"), true);
   });
@@ -642,34 +643,31 @@ describe("multimodal", () => {
       return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "ok" } }], usage: { total_tokens: 1 } }), { status: 200, headers: { "content-type": "application/json" } });
     };
     const cfg = { base_url: "http://llm.test/v1", api_key: "k", model: "m", temperature: 1, max_tokens: 10 };
-    const router = new OpenAICompatRouter(cfg, cfg, { enabled: false, base_url: "", api_key: "", model: "" }, noop());
+    const router = makeRouter(cfg, cfg, { enabled: false, base_url: "", api_key: "", model: "" }, noop());
     return { router, getBody: () => lastBody, restore };
   }
 
-  test("with images: user content is array with text + image_url blocks", async (t) => {
+  test("with images: user turn carries text content + native base64 images array", async (t) => {
     const { router, getBody, restore } = makeCaptureRouter(); t.after(restore);
     await router.chat("light", "sys", "user text", { images: [{ mime: "image/jpeg", b64: "abc" }] });
-    const content = getBody().messages[1].content;
-    assert.ok(Array.isArray(content));
-    assert.equal(content[0].type, "text");
-    assert.equal(content[0].text, "user text");
-    assert.equal(content[1].type, "image_url");
-    assert.equal(content[1].image_url.url, "data:image/jpeg;base64,abc");
+    const userMsg = getBody().messages[1];
+    assert.equal(userMsg.content, "user text");
+    assert.deepEqual(userMsg.images, ["abc"]);
   });
 
-  test("without images: user content is plain string", async (t) => {
+  test("without images: user turn has plain string content and no images key", async (t) => {
     const { router, getBody, restore } = makeCaptureRouter(); t.after(restore);
     await router.chat("heavy", "sys", "just text");
-    assert.equal(typeof getBody().messages[1].content, "string");
-    assert.equal(getBody().messages[1].content, "just text");
+    const userMsg = getBody().messages[1];
+    assert.equal(typeof userMsg.content, "string");
+    assert.equal(userMsg.content, "just text");
+    assert.equal(userMsg.images, undefined);
   });
 
-  test("multiple images produce multiple image_url blocks", async (t) => {
+  test("multiple images produce multiple base64 entries", async (t) => {
     const { router, getBody, restore } = makeCaptureRouter(); t.after(restore);
     await router.chat("light", "s", "u", { images: [{ mime: "image/png", b64: "aaa" }, { mime: "image/png", b64: "bbb" }] });
-    const content = getBody().messages[1].content;
-    assert.ok(Array.isArray(content));
-    assert.equal(content.filter((b: any) => b.type === "image_url").length, 2);
+    assert.deepEqual(getBody().messages[1].images, ["aaa", "bbb"]);
   });
 });
 

@@ -987,7 +987,7 @@ export function findExistingArticleLinkReferences(
   const normalizedBody = normalizeHaluLinks(body);
   for (const link of parseMarkdownLinks(normalizedBody).links) {
     if (link.kind !== "halu") continue;
-    const slug = slugify(link.slug ?? link.target);
+    const slug = haluLinkTargetSlug(link);
     if (!slug || slug === normalizedSelf || seen.has(slug)) continue;
     const article = resolveExistingArticleForLink(db, slug, link.label);
     if (!article) continue;
@@ -1018,6 +1018,46 @@ function articleToReferenceEntry(
     revisionId: "current",
     source: "body",
   };
+}
+
+/**
+ * Remove matched markdown emphasis asterisks wrapping a label (`*x*`, `**x**`,
+ * `***x***`). Asterisks only — wiki URLs are underscore-cased (spaces → `_`,
+ * e.g. `/wiki/Foo_Bar`), so an underscore is a word separator and must survive
+ * into the slug (slugify already treats it as one), never be peeled off as
+ * emphasis.
+ */
+function stripWrappingEmphasis(text: string): string {
+  let s = text.trim();
+  let prev: string;
+  do {
+    prev = s;
+    const m = s.match(/^(\*{1,3})([\s\S]+?)\1$/);
+    if (m) s = m[2].trim();
+  } while (s !== prev);
+  return s;
+}
+
+/**
+ * Canonical slug for a halu link, collapsing markdown emphasis the model
+ * wrapped around the name. An emphasized label like `[*Algebra*]` slugifies to
+ * `star-algebra-star` (slugify maps `*` → "star"); left alone that bogus slug
+ * survives as a generation seed and spawns a duplicate "star-thing-star"
+ * article. When the target slug was clearly derived straight from an
+ * emphasis-wrapped label, re-derive it from the de-emphasized label so the link
+ * seeds / resolves to the real "algebra" article. A deliberately different slug
+ * (e.g. `[*New York City*](halu:nyc)`) is left untouched — redirect/alias
+ * resolution still runs on the result via resolveExistingArticleForLink.
+ */
+function haluLinkTargetSlug(link: { slug?: string; target: string; label: string }): string {
+  const slug = slugify(link.slug ?? link.target);
+  const trimmedLabel = link.label.trim();
+  const cleanedLabel = stripWrappingEmphasis(trimmedLabel);
+  if (cleanedLabel !== trimmedLabel && slug === slugify(trimmedLabel)) {
+    const cleanedSlug = slugify(cleanedLabel);
+    if (cleanedSlug) return cleanedSlug;
+  }
+  return slug;
 }
 
 function resolveExistingArticleForLink(
@@ -1192,7 +1232,7 @@ export function convertExistingArticleLinksToRefs(
   let output = "";
   let cursor = 0;
   for (const link of parsed) {
-    const slug = slugify(link.slug ?? link.target);
+    const slug = haluLinkTargetSlug(link);
     let replacement = link.raw;
     if (slug && slug !== normalizedSelf) {
       const article = resolveExistingArticleForLink(db, slug, link.label);

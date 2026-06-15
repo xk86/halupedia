@@ -5529,6 +5529,81 @@ button.admin-danger-btn:hover:not(:disabled) {
   text-transform: uppercase;
 }
 
+.llm-card {
+  border: 1px solid var(--rule-strong);
+  padding: 0.7rem 0.8rem;
+  margin: 0.5rem 0;
+  background: var(--input-surface);
+}
+
+.llm-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font: 0.85rem var(--mono);
+  margin-bottom: 0.5rem;
+}
+
+.llm-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.llm-card-grid label,
+.llm-card-grid .llm-wide {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font: 0.72rem var(--mono);
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.llm-card-grid .llm-wide {
+  grid-column: 1 / -1;
+}
+
+.llm-card-grid input {
+  border: 1px solid var(--rule-strong);
+  background: var(--paper, #fff);
+  color: var(--ink);
+  padding: 0.3rem 0.4rem;
+  font: 0.8rem var(--mono);
+  text-transform: none;
+}
+
+.llm-dot-online { color: #2e7d32; font: 0.72rem var(--mono); }
+.llm-dot-offline { color: #b00020; font: 0.72rem var(--mono); }
+
+.llm-host-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.llm-host-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--rule-strong);
+  padding: 0.2rem 0.4rem;
+  font: 0.78rem var(--mono);
+}
+
+.llm-host-chip button {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0 0.15rem;
+}
+
+.llm-host-chip button:disabled { opacity: 0.3; cursor: default; }
+
 @media (max-width: 600px) {
   .admin-ban-form {
     flex-direction: column;

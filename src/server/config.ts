@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
-import type { AppConfig, ImagesConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
+import type { AppConfig, HostConfig, ImagesConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
 
 const ROOT = process.cwd();
 
@@ -139,58 +139,174 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
 // host in config (a beefier box can take more) via `max_in_flight`.
 const DEFAULT_CHAT_MAX_IN_FLIGHT = 4;
 const DEFAULT_EMBED_MAX_IN_FLIGHT = 8;
+// Default fallback preference for a host that doesn't set one — high (least
+// preferred) so explicitly-ranked hosts win.
+const DEFAULT_HOST_PREF = 100;
+const DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 
-function withLlmDefaults(llm: Partial<LlmConfig>): LlmConfig {
+// Raw (pre-resolution) shapes as they appear in llm.toml: roles may reference
+// hosts via `hosts`/`host`, or carry a legacy inline `base_url`.
+interface RawHost {
+  base_url?: string;
+  api_key?: string;
+  max_in_flight?: number;
+  pref?: number;
+  blacklist?: string[];
+}
+interface RawRole {
+  hosts?: string[];
+  host?: string;
+  base_url?: string;
+  api_key?: string;
+  max_in_flight?: number;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  top_k?: number;
+  top_p?: number;
+  min_p?: number;
+  request_timeout_ms?: number;
+}
+interface RawEmbeddings extends RawRole {
+  enabled?: boolean;
+}
+interface RawLlm {
+  host?: Record<string, RawHost>;
+  chat?: RawRole;
+  light?: RawRole;
+  images?: RawRole;
+  embeddings?: RawEmbeddings;
+}
+
+/** Host id synthesized from a legacy inline base_url (e.g. "cat-desktop:11434"). */
+function synthHostId(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
+function withLlmDefaults(raw: RawLlm): LlmConfig {
+  const hosts: Record<string, HostConfig> = {};
+
+  const upsertHost = (id: string, partial: RawHost, fallbackMaxInFlight: number): HostConfig => {
+    const existing = hosts[id];
+    const host: HostConfig = {
+      id,
+      base_url: partial.base_url ?? existing?.base_url ?? DEFAULT_BASE_URL,
+      api_key: partial.api_key ?? existing?.api_key ?? "local",
+      max_in_flight: partial.max_in_flight ?? existing?.max_in_flight ?? fallbackMaxInFlight,
+      pref: partial.pref ?? existing?.pref ?? DEFAULT_HOST_PREF,
+      blacklist: (partial.blacklist ?? existing?.blacklist ?? []).map(String),
+    };
+    hosts[id] = host;
+    return host;
+  };
+
+  // 1. Explicit named hosts.
+  for (const [id, h] of Object.entries(raw.host ?? {})) {
+    upsertHost(id, h ?? {}, DEFAULT_CHAT_MAX_IN_FLIGHT);
+  }
+
+  // Resolve a role's ordered host ids, registering an implicit host for a legacy
+  // inline base_url so old configs keep working with zero migration.
+  const resolveHosts = (
+    role: RawRole | undefined,
+    fallbackMaxInFlight: number,
+    inherit: string[],
+  ): string[] => {
+    if (role?.hosts?.length) return role.hosts.map(String);
+    if (role?.host) return [String(role.host)];
+    if (role?.base_url) {
+      const id = synthHostId(role.base_url);
+      upsertHost(
+        id,
+        { base_url: role.base_url, api_key: role.api_key, max_in_flight: role.max_in_flight },
+        fallbackMaxInFlight,
+      );
+      return [id];
+    }
+    return inherit;
+  };
+
+  // Endpoint of the first preferred host that actually exists, for trace/legacy display.
+  const primary = (ids: string[]): { base_url: string; api_key: string } => {
+    const host = ids.map((id) => hosts[id]).find(Boolean);
+    return { base_url: host?.base_url ?? DEFAULT_BASE_URL, api_key: host?.api_key ?? "local" };
+  };
+
+  // Optional sampler params: kept only when set (so an unset value leaves the
+  // backend default alone), inheriting down the chat → light → images chain.
+  const samplers = (...roles: (RawRole | undefined)[]): { top_k?: number; top_p?: number; min_p?: number } => {
+    const pick = (key: "top_k" | "top_p" | "min_p") => {
+      for (const r of roles) if (typeof r?.[key] === "number") return r[key];
+      return undefined;
+    };
+    const out: { top_k?: number; top_p?: number; min_p?: number } = {};
+    const tk = pick("top_k");
+    const tp = pick("top_p");
+    const mp = pick("min_p");
+    if (tk !== undefined) out.top_k = tk;
+    if (tp !== undefined) out.top_p = tp;
+    if (mp !== undefined) out.min_p = mp;
+    return out;
+  };
+
+  let chatHosts = resolveHosts(raw.chat, DEFAULT_CHAT_MAX_IN_FLIGHT, []);
+  if (chatHosts.length === 0) {
+    upsertHost(synthHostId(DEFAULT_BASE_URL), {}, DEFAULT_CHAT_MAX_IN_FLIGHT);
+    chatHosts = [synthHostId(DEFAULT_BASE_URL)];
+  }
+  const lightHosts = resolveHosts(raw.light, DEFAULT_CHAT_MAX_IN_FLIGHT, chatHosts);
+  const imagesHosts = resolveHosts(raw.images, DEFAULT_CHAT_MAX_IN_FLIGHT, lightHosts);
+  const embHosts = resolveHosts(raw.embeddings, DEFAULT_EMBED_MAX_IN_FLIGHT, chatHosts);
+
   return {
+    hosts,
     chat: {
-      base_url: llm.chat?.base_url ?? "http://127.0.0.1:11434/v1",
-      api_key: llm.chat?.api_key ?? "local",
-      model: llm.chat?.model ?? "local-model",
-      temperature: llm.chat?.temperature ?? 0.8,
-      max_tokens: llm.chat?.max_tokens ?? 2400,
-      request_timeout_ms: llm.chat?.request_timeout_ms ?? 180_000,
-      max_in_flight: llm.chat?.max_in_flight ?? DEFAULT_CHAT_MAX_IN_FLIGHT,
+      hosts: chatHosts,
+      ...primary(chatHosts),
+      model: raw.chat?.model ?? "local-model",
+      temperature: raw.chat?.temperature ?? 0.8,
+      max_tokens: raw.chat?.max_tokens ?? 2400,
+      ...samplers(raw.chat),
+      request_timeout_ms: raw.chat?.request_timeout_ms ?? 180_000,
     },
     light: {
-      base_url:
-        llm.light?.base_url ??
-        llm.chat?.base_url ??
-        "http://127.0.0.1:11434/v1",
-      api_key: llm.light?.api_key ?? llm.chat?.api_key ?? "local",
-      model: llm.light?.model ?? llm.chat?.model ?? "local-model",
-      temperature: llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
-      max_tokens: llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
-      request_timeout_ms: llm.light?.request_timeout_ms ?? llm.chat?.request_timeout_ms ?? 180_000,
-      max_in_flight: llm.light?.max_in_flight ?? llm.chat?.max_in_flight ?? DEFAULT_CHAT_MAX_IN_FLIGHT,
+      hosts: lightHosts,
+      ...primary(lightHosts),
+      model: raw.light?.model ?? raw.chat?.model ?? "local-model",
+      temperature: raw.light?.temperature ?? raw.chat?.temperature ?? 0.8,
+      max_tokens: raw.light?.max_tokens ?? raw.chat?.max_tokens ?? 2400,
+      ...samplers(raw.light, raw.chat),
+      request_timeout_ms: raw.light?.request_timeout_ms ?? raw.chat?.request_timeout_ms ?? 180_000,
     },
-    images: llm.images
+    images: raw.images
       ? {
-          base_url: llm.images.base_url ?? llm.light?.base_url ?? llm.chat?.base_url ?? "http://127.0.0.1:11434/v1",
-          api_key: llm.images.api_key ?? llm.light?.api_key ?? llm.chat?.api_key ?? "local",
-          model: llm.images.model ?? llm.light?.model ?? llm.chat?.model ?? "local-model",
-          temperature: llm.images.temperature ?? llm.light?.temperature ?? llm.chat?.temperature ?? 0.8,
-          max_tokens: llm.images.max_tokens ?? llm.light?.max_tokens ?? llm.chat?.max_tokens ?? 2400,
-          request_timeout_ms: llm.images.request_timeout_ms ?? llm.light?.request_timeout_ms ?? llm.chat?.request_timeout_ms ?? 180_000,
-          max_in_flight: llm.images.max_in_flight ?? llm.light?.max_in_flight ?? llm.chat?.max_in_flight ?? DEFAULT_CHAT_MAX_IN_FLIGHT,
+          hosts: imagesHosts,
+          ...primary(imagesHosts),
+          model: raw.images.model ?? raw.light?.model ?? raw.chat?.model ?? "local-model",
+          temperature: raw.images.temperature ?? raw.light?.temperature ?? raw.chat?.temperature ?? 0.8,
+          max_tokens: raw.images.max_tokens ?? raw.light?.max_tokens ?? raw.chat?.max_tokens ?? 2400,
+          ...samplers(raw.images, raw.light, raw.chat),
+          request_timeout_ms:
+            raw.images.request_timeout_ms ?? raw.light?.request_timeout_ms ?? raw.chat?.request_timeout_ms ?? 180_000,
         }
       : undefined,
     embeddings: {
-      enabled: llm.embeddings?.enabled ?? false,
-      base_url:
-        llm.embeddings?.base_url ??
-        llm.chat?.base_url ??
-        "http://127.0.0.1:11434/v1",
-      api_key: llm.embeddings?.api_key ?? llm.chat?.api_key ?? "local",
-      model: llm.embeddings?.model ?? "local-embed-model",
-      request_timeout_ms: llm.embeddings?.request_timeout_ms ?? 2_000,
-      max_in_flight: llm.embeddings?.max_in_flight ?? DEFAULT_EMBED_MAX_IN_FLIGHT,
+      enabled: raw.embeddings?.enabled ?? false,
+      hosts: embHosts,
+      ...primary(embHosts),
+      model: raw.embeddings?.model ?? "local-embed-model",
+      request_timeout_ms: raw.embeddings?.request_timeout_ms ?? 2_000,
     },
   };
 }
 
 export function loadConfig() {
   const app = withDefaults(readToml<Partial<AppConfig>>("config/app.toml"));
-  const llmFile = readToml<{ llm?: Partial<LlmConfig> }>("config/llm.toml");
+  const llmFile = readToml<{ llm?: RawLlm }>("config/llm.toml");
   const llm = withLlmDefaults(llmFile.llm ?? {});
   const prompts = loadPromptConfig("config/prompts");
   mkdirSync(dirname(resolve(ROOT, app.storage.database_path)), {

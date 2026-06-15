@@ -750,7 +750,7 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
   });
 
   await t.test("browser entry routes serve the SPA shell and bare slugs redirect", async () => {
-    for (const path of ["/", "/search", "/all-entries", "/admin", "/wiki/Test_Article", "/wiki/%E6%98%AF%E9%B1%BC%E6%88%91"]) {
+    for (const path of ["/", "/search", "/all-entries", "/admin", "/media", "/wiki/Test_Article", "/wiki/%E6%98%AF%E9%B1%BC%E6%88%91"]) {
       const res = await server.request(path);
       assert.equal(res.status, 200, path);
       assert.match(res.headers.get("content-type") ?? "", /text\/html/);
@@ -758,6 +758,11 @@ test("site smoke tests cover core routes and API contracts", async (t) => {
       assert.match(html, /<div id="root"><\/div>/);
       assert.doesNotMatch(html, /googletagmanager|gtag|google-analytics/i);
     }
+
+    // Reloading /media must serve the SPA shell, not redirect to /wiki/Media as
+    // if "media" were a bare article slug.
+    const mediaReloadRes = await server.request("/media", { redirect: "manual" });
+    assert.equal(mediaReloadRes.status, 200);
 
     const redirectRes = await server.request("/test-article", { redirect: "manual" });
     assert.equal(redirectRes.status, 302);

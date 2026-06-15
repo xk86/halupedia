@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Context, Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
-import type { OpenAICompatClient } from "./llm";
+import type { LlmRouter } from "./llm";
 import { getPrompt, renderTemplate } from "./prompts";
 import type { PromptConfig } from "./types";
 
@@ -46,9 +46,10 @@ function sanitizeName(input: string): string {
   return input.replace(/[<>"]/g, "").replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
-async function generateIdentity(llm: OpenAICompatClient, prompts: PromptConfig) {
+async function generateIdentity(llm: LlmRouter, prompts: PromptConfig) {
   const prompt = getPrompt(prompts, "identity");
   const raw = await llm.chat(
+    "light",
     prompt.system,
     renderTemplate(prompt.user, {
       slug: "",
@@ -78,7 +79,7 @@ function fallbackIdentity(id: string) {
   };
 }
 
-async function ensureUser(c: Context, db: DatabaseSync, llm: OpenAICompatClient, prompts: PromptConfig) {
+async function ensureUser(c: Context, db: DatabaseSync, llm: LlmRouter, prompts: PromptConfig) {
   const existingId = getCookie(c, COOKIE_NAME);
   if (existingId) {
     const existing = db.prepare(`SELECT id, name, username, created_at FROM users WHERE id = ?`).get(existingId) as UserRow | undefined;
@@ -151,7 +152,7 @@ function buildTree(rows: Array<CommentRow & { name: string; username: string; vo
 export function registerCommentRoutes(
   app: Hono,
   db: DatabaseSync,
-  llm: OpenAICompatClient,
+  llm: LlmRouter,
   prompts: PromptConfig
 ) {
   app.get("/api/comments/:slug", async (c) => {

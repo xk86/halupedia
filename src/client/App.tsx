@@ -1396,7 +1396,7 @@ export function App() {
     }
 
     if (route.kind === "admin") {
-      return <Admin onNavigate={navigateToArticle} />;
+      return <Admin onNavigate={navigateToArticle} onNavigateHome={navigateHome} />;
     }
 
     if (route.kind === "graph") {

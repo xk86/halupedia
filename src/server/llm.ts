@@ -1,5 +1,5 @@
 import { Agent } from "undici";
-import type { ChatConfig, EmbeddingsConfig, LlmInvocationMetadata } from "./types";
+import type { ChatConfig, EmbeddingsConfig, HostConfig, LlmConfig, LlmInvocationMetadata } from "./types";
 import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
 
 // undici's fetch enforces its own headersTimeout/bodyTimeout (300s each by
@@ -19,51 +19,273 @@ function llmFetch(url: string, init: RequestInit): Promise<Response> {
   return fetch(url, { ...init, dispatcher: llmDispatcher } as RequestInit);
 }
 
-/**
- * A fair FIFO counting semaphore bounding how many requests we hand a single
- * host at once. Permits are acquired *before* fetch() so excess work waits in
- * our own in-memory queue — no open socket, no timeout clock running — instead
- * of stampeding the backend's queue, where it would burn its timeout budget
- * idling for a slot it can't see.
- */
-class HostGate {
-  private active = 0;
-  private readonly waiters: Array<() => void> = [];
-  constructor(readonly permits: number) {}
+// How long to skip a host after it fails a request, so a flapping backend isn't
+// handed fresh work ahead of healthy hosts. Tunable.
+const HOST_COOLDOWN_MS = 15_000;
+// Max distinct hosts a single request will try before giving up.
+const HOST_RETRY_CAP = 4;
 
-  async acquire(): Promise<() => void> {
-    // When at capacity we park; the releasing call hands its permit straight to
-    // us without ever lowering `active`, so there's no window for a fresh
-    // acquire() to slip in and oversubscribe the host.
-    if (this.active >= this.permits) {
-      await new Promise<void>((resolve) => this.waiters.push(resolve));
-    } else {
-      this.active += 1;
+/** Resolved connection for the host a single request was routed to. */
+export interface HostEndpoint {
+  hostId: string;
+  baseUrl: string;
+  apiKey: string;
+}
+
+interface HostState {
+  id: string;
+  baseUrl: string;
+  apiKey: string;
+  permits: number;
+  active: number;
+  pref: number;
+  blacklist: Set<string>;
+  /** Probed model ids, or null when the probe failed/was unsupported — in which
+   *  case the host is assumed able to serve any non-blacklisted model rather than
+   *  being excluded outright. */
+  models: Set<string> | null;
+  cooldownUntil: number;
+}
+
+interface Waiter {
+  candidates: string[];
+  tried: Set<string>;
+  resolve: (slot: { hostId: string; release: () => void }) => void;
+}
+
+/** Thrown when no configured host can serve a role's model. */
+export class NoEligibleHostError extends Error {}
+
+/** Drop Ollama's implicit `:latest` tag so "gemma4" and "gemma4:latest" compare equal. */
+function normalizeModelId(model: string): string {
+  return model.endsWith(":latest") ? model.slice(0, -":latest".length) : model;
+}
+
+/**
+ * Routes each request to a host. A request prefers its role's configured hosts,
+ * then spills onto any other host whose probed model set includes the model
+ * (ordered by host `pref`) when the preferred ones are saturated, cooling down,
+ * or lack the model. Each host's queue is unbounded — callers wait indefinitely
+ * for a slot rather than being dropped — and a host that fails a dispatch is put
+ * on a short cooldown so the request re-queues onto the next eligible host.
+ *
+ * Permits are acquired *before* fetch() (i.e. before any timeout clock arms), so
+ * queue time never counts against a request's timeout budget.
+ */
+export class HostScheduler {
+  private readonly hosts = new Map<string, HostState>();
+  private readonly waiters: Waiter[] = [];
+
+  constructor(private readonly logger: Logger) {}
+
+  /** (Re)apply host connection + queue-depth config, preserving in-flight counts
+   *  and probed capabilities across reloads so the UI can retune live. */
+  configure(hostConfigs: HostConfig[]): void {
+    const seen = new Set<string>();
+    for (const cfg of hostConfigs) {
+      seen.add(cfg.id);
+      const existing = this.hosts.get(cfg.id);
+      if (existing) {
+        existing.baseUrl = cfg.base_url;
+        existing.apiKey = cfg.api_key;
+        existing.pref = cfg.pref;
+        existing.blacklist = new Set(cfg.blacklist);
+        existing.permits = Math.max(1, cfg.max_in_flight);
+      } else {
+        this.hosts.set(cfg.id, {
+          id: cfg.id,
+          baseUrl: cfg.base_url,
+          apiKey: cfg.api_key,
+          permits: Math.max(1, cfg.max_in_flight),
+          active: 0,
+          pref: cfg.pref,
+          blacklist: new Set(cfg.blacklist),
+          models: null,
+          cooldownUntil: 0,
+        });
+      }
     }
+    for (const id of [...this.hosts.keys()]) {
+      if (!seen.has(id)) this.hosts.delete(id);
+    }
+    this.pump(); // a permit increase may admit parked waiters
+  }
+
+  setCapabilities(hostId: string, models: Set<string> | null): void {
+    const state = this.hosts.get(hostId);
+    if (state) state.models = models;
+  }
+
+  endpoints(): HostEndpoint[] {
+    return [...this.hosts.values()].map((s) => ({ hostId: s.id, baseUrl: s.baseUrl, apiKey: s.apiKey }));
+  }
+
+  snapshot(): Array<{
+    id: string;
+    baseUrl: string;
+    permits: number;
+    active: number;
+    pref: number;
+    blacklist: string[];
+    models: string[] | null;
+    online: boolean;
+  }> {
+    return [...this.hosts.values()].map((s) => ({
+      id: s.id,
+      baseUrl: s.baseUrl,
+      permits: s.permits,
+      active: s.active,
+      pref: s.pref,
+      blacklist: [...s.blacklist],
+      models: s.models ? [...s.models] : null,
+      online: s.models !== null,
+    }));
+  }
+
+  private usable(state: HostState, model: string): boolean {
+    if (state.blacklist.has(model)) return false;
+    if (state.models === null) return true; // unprobed — assume capable
+    if (state.models.has(model)) return true;
+    // Tolerate Ollama's implicit `:latest` tag: config "gemma4" matches a probed
+    // "gemma4:latest" and vice versa.
+    const nm = normalizeModelId(model);
+    for (const probed of state.models) {
+      if (normalizeModelId(probed) === nm) return true;
+    }
+    return false;
+  }
+
+  /** Ordered candidate host ids: role-preferred (in listed order) first, then any
+   *  other eligible host by ascending pref. */
+  candidates(preferredHosts: string[], model: string): string[] {
+    const eligible = (id: string) => {
+      const s = this.hosts.get(id);
+      return !!s && this.usable(s, model);
+    };
+    const preferred = preferredHosts.filter((id, i) => eligible(id) && preferredHosts.indexOf(id) === i);
+    const rest = [...this.hosts.keys()]
+      .filter((id) => !preferred.includes(id) && eligible(id))
+      .sort((a, b) => this.hosts.get(a)!.pref - this.hosts.get(b)!.pref || a.localeCompare(b));
+    return [...preferred, ...rest];
+  }
+
+  async dispatch<T>(
+    roleLabel: string,
+    preferredHosts: string[],
+    model: string,
+    exec: (endpoint: HostEndpoint) => Promise<T>,
+  ): Promise<T> {
+    const candidates = this.candidates(preferredHosts, model);
+    if (candidates.length === 0) {
+      throw new NoEligibleHostError(`no configured host can serve model "${model}" for role ${roleLabel}`);
+    }
+    const tried = new Set<string>();
+    let lastErr: unknown;
+    const cap = Math.min(candidates.length, HOST_RETRY_CAP);
+    for (let attempt = 0; attempt < cap; attempt++) {
+      const slot = await this.acquireAny(candidates, tried);
+      const state = this.hosts.get(slot.hostId)!;
+      try {
+        const result = await exec({ hostId: state.id, baseUrl: state.baseUrl, apiKey: state.apiKey });
+        slot.release();
+        return result;
+      } catch (err) {
+        slot.release();
+        tried.add(slot.hostId);
+        state.cooldownUntil = Date.now() + HOST_COOLDOWN_MS;
+        setTimeout(() => this.pump(), HOST_COOLDOWN_MS).unref?.();
+        this.pump();
+        lastErr = err;
+        const remaining = candidates.filter((c) => !tried.has(c));
+        // Mid-stream failures set `noFailover` — restarting would replay a
+        // partial generation, so we surface them instead of retrying elsewhere.
+        const noFailover = (err as { noFailover?: boolean }).noFailover === true;
+        if (remaining.length === 0 || noFailover) break;
+        this.logger.warn("llm.host_failover", {
+          role: roleLabel,
+          model,
+          failed_host: slot.hostId,
+          remaining: remaining.length,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    throw lastErr ?? new Error(`all hosts failed for role ${roleLabel}`);
+  }
+
+  private tryAcquire(candidates: string[], tried: Set<string>): { hostId: string; release: () => void } | null {
+    const now = Date.now();
+    for (const id of candidates) {
+      if (tried.has(id)) continue;
+      const s = this.hosts.get(id);
+      if (!s || s.cooldownUntil > now) continue;
+      if (s.active < s.permits) {
+        s.active += 1;
+        return { hostId: id, release: this.makeRelease(s) };
+      }
+    }
+    return null;
+  }
+
+  private makeRelease(state: HostState): () => void {
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      const next = this.waiters.shift();
-      if (next) next();
-      else this.active -= 1;
+      state.active -= 1;
+      this.pump();
     };
+  }
+
+  private acquireAny(candidates: string[], tried: Set<string>): Promise<{ hostId: string; release: () => void }> {
+    const immediate = this.tryAcquire(candidates, tried);
+    if (immediate) return Promise.resolve(immediate);
+    return new Promise((resolve) => {
+      this.waiters.push({ candidates, tried, resolve });
+    });
+  }
+
+  /** Admit parked waiters (oldest first) onto any candidate that now has a free
+   *  slot. Called on every release, permit increase, and cooldown expiry. */
+  private pump(): void {
+    for (let i = 0; i < this.waiters.length; ) {
+      const w = this.waiters[i];
+      const got = this.tryAcquire(w.candidates, w.tried);
+      if (got) {
+        this.waiters.splice(i, 1);
+        w.resolve(got);
+      } else {
+        i += 1;
+      }
+    }
   }
 }
 
-// One gate per host, shared across roles — heavy/light/images/embeddings that
-// target the same backend contend for the same memory and must be bounded
-// together. The first config to register a host fixes its permit count (heavy
-// chat is constructed first, so its cap wins for a shared host).
-const hostGates = new Map<string, HostGate>();
-function hostGateFor(baseUrl: string, permits: number): HostGate {
-  const host = hostForBaseUrl(baseUrl);
-  let gate = hostGates.get(host);
-  if (!gate) {
-    gate = new HostGate(Math.max(1, permits));
-    hostGates.set(host, gate);
+/** Fetch the model ids a host serves (OpenAI-compatible `GET /models`). Returns
+ *  null when the host is unreachable or the endpoint is unsupported, so callers
+ *  can treat capabilities as "unknown" rather than "none". */
+export async function fetchHostModels(
+  baseUrl: string,
+  apiKey: string,
+  logger?: Logger,
+): Promise<string[] | null> {
+  const url = `${baseUrl.replace(/\/$/, "")}/models`;
+  try {
+    const response = await llmFetch(url, {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      logger?.warn("llm.models_probe_failed", { url, status: response.status });
+      return null;
+    }
+    const json = (await response.json()) as { data?: Array<{ id?: string }> };
+    return (json.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === "string");
+  } catch (error) {
+    const detail = describeFetchError(error);
+    logger?.warn("llm.models_probe_error", { url, error: detail.message, cause: detail.cause, code: detail.code });
+    return null;
   }
-  return gate;
 }
 
 export type LlmRole = "heavy" | "light" | "images" | "embeddings";
@@ -225,6 +447,22 @@ function isTimeoutError(err: unknown): boolean {
 // long generation shows it's alive (and how far along) instead of going dark.
 const STREAM_HEARTBEAT_MS = 5_000;
 
+/** Ollama's native chat endpoint, derived by stripping the OpenAI `/v1` suffix
+ *  from the configured base URL. We route chat here (rather than
+ *  `/v1/chat/completions`) so sampler params under `options` — top_k, min_p —
+ *  are honored, not just the OpenAI-mapped subset. */
+function ollamaChatUrl(baseUrl: string): string {
+  return `${baseUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "")}/api/chat`;
+}
+
+/** Native /api/chat messages. Images attach as base64 strings on the user turn
+ *  (Ollama's shape), not OpenAI `image_url` content blocks. */
+function nativeMessages(system: string, user: string, images?: ChatImageAttachment[]) {
+  const userMsg: { role: "user"; content: string; images?: string[] } = { role: "user", content: user };
+  if (images?.length) userMsg.images = images.map((img) => img.b64);
+  return [{ role: "system" as const, content: system }, userMsg];
+}
+
 function embedRequestFields(config: EmbeddingsConfig, inputCount: number) {
   return {
     role: "embeddings" as const,
@@ -245,62 +483,51 @@ function embedResponseFields(config: EmbeddingsConfig, vectorCount: number, dura
 /** Per-role chat/stream client. Internal to this module (exported as a type
  *  only, for signatures like comments.ts). */
 export type { OpenAICompatClient };
+// Executes chat/stream/embed against whatever host the scheduler picks for the
+// role. Holds role params (model, temperature, timeouts); the endpoint
+// (base_url, api_key) is supplied per call.
 class OpenAICompatClient {
-  private readonly chatGate: HostGate;
-  private readonly embedGate: HostGate;
-
   constructor(
     private readonly chatConfig: ChatConfig,
     private readonly embeddingsConfig: EmbeddingsConfig,
     private readonly logger: Logger,
     private readonly role: ChatLlmRole,
-  ) {
-    this.chatGate = hostGateFor(chatConfig.base_url, chatConfig.max_in_flight);
-    this.embedGate = hostGateFor(embeddingsConfig.base_url, embeddingsConfig.max_in_flight);
+  ) {}
+
+  /** Native /api/chat `options`: generation params. Sampler params are included
+   *  only when configured, so an unset value leaves the backend default alone. */
+  private nativeOptions(): Record<string, number> {
+    const c = this.chatConfig;
+    return {
+      temperature: c.temperature,
+      num_predict: c.max_tokens,
+      ...(c.top_k !== undefined ? { top_k: c.top_k } : {}),
+      ...(c.top_p !== undefined ? { top_p: c.top_p } : {}),
+      ...(c.min_p !== undefined ? { min_p: c.min_p } : {}),
+    };
   }
 
-  async chat(system: string, user: string, options: ChatOptions = {}): Promise<string> {
+  async chat(endpoint: HostEndpoint, system: string, user: string, options: ChatOptions = {}): Promise<string> {
     const startedAt = Date.now();
-    const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
-    this.logger.info("llm.chat_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
+    const url = ollamaChatUrl(endpoint.baseUrl);
+    this.logger.info("llm.chat_request", { ...chatRequestFields(this.role, this.chatConfig, system.length + user.length, options), host: endpoint.hostId });
     const timeoutMs = this.chatConfig.request_timeout_ms ?? 180_000;
-    // Wait for a host slot before starting the request clock — queue time must
-    // not count against the timeout.
-    const release = await this.chatGate.acquire();
-    try {
     let response: Response;
     try {
       response = await llmFetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${this.chatConfig.api_key}`,
+          authorization: `Bearer ${endpoint.apiKey}`,
         },
         signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           model: this.chatConfig.model,
-          temperature: this.chatConfig.temperature,
-          max_tokens: this.chatConfig.max_tokens,
+          messages: nativeMessages(system, user, options.images),
+          stream: false,
           think: options.thinking ?? false,
-          ...(options.jsonMode ? {
-            format: "json",
-            response_format: { type: "json_object" },
-          } : {}),
-          messages: [
-            { role: "system", content: system },
-            {
-              role: "user",
-              content: options.images?.length
-                ? [
-                    { type: "text", text: user },
-                    ...options.images.map((img) => ({
-                      type: "image_url",
-                      image_url: { url: `data:${img.mime};base64,${img.b64}` },
-                    })),
-                  ]
-                : user,
-            },
-          ],
+          ...(options.jsonMode ? { format: "json" } : {}),
+          options: this.nativeOptions(),
         }),
       });
     } catch (err) {
@@ -308,6 +535,7 @@ class OpenAICompatClient {
       const detail = describeFetchError(err);
       this.logger.error("llm.chat_request_failed", {
         role: this.role,
+        host: endpoint.hostId,
         model: this.chatConfig.model,
         url,
         duration_ms: Date.now() - startedAt,
@@ -327,17 +555,25 @@ class OpenAICompatClient {
       throw new Error(`chat completion failed: ${response.status} ${text.slice(0, 300)}`);
     }
 
+    // Parse tolerantly: native /api/chat (`message`, `done_reason`, eval counts)
+    // or an OpenAI-shaped response (`choices[0].message`, `usage`).
     const json = (await response.json()) as {
-      id?: string;
+      message?: Record<string, unknown>;
+      done_reason?: string;
+      prompt_eval_count?: number;
+      eval_count?: number;
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       choices?: Array<{ finish_reason?: string | null; message?: Record<string, unknown> }>;
     };
-    const content = (json.choices?.[0]?.message?.content as string | undefined)?.trim();
-    const reasoning = extractReasoning(json.choices?.[0]?.message);
+    const message = json.message ?? json.choices?.[0]?.message;
+    const content = (message?.content as string | undefined)?.trim();
+    const reasoning = extractReasoning(message);
     if (reasoning) options.onReasoning?.(reasoning);
-    const finishReason = json.choices?.[0]?.finish_reason ?? "unknown";
+    const finishReason = json.done_reason ?? json.choices?.[0]?.finish_reason ?? "unknown";
     const durationMs = Date.now() - startedAt;
-    const totalTokens = json.usage?.total_tokens;
+    const totalTokens =
+      json.usage?.total_tokens ??
+      (json.eval_count !== undefined ? (json.prompt_eval_count ?? 0) + json.eval_count : undefined);
     this.logger.info("llm.chat_response", chatResultFields(this.role, this.chatConfig, {
       finishReason,
       durationMs,
@@ -349,10 +585,10 @@ class OpenAICompatClient {
         role: this.role,
         model: this.chatConfig.model,
         finish_reason: finishReason,
-        prompt_tokens: json.usage?.prompt_tokens ?? "?",
-        completion_tokens: json.usage?.completion_tokens ?? "?",
+        prompt_tokens: json.usage?.prompt_tokens ?? json.prompt_eval_count ?? "?",
+        completion_tokens: json.usage?.completion_tokens ?? json.eval_count ?? "?",
         total_tokens: totalTokens ?? "?",
-        choices: json.choices?.length ?? 0,
+        choices: json.choices?.length ?? (json.message ? 1 : 0),
         content_suffix: truncateForLog((content ?? "").slice(-240), 240),
       });
     }
@@ -360,20 +596,18 @@ class OpenAICompatClient {
       throw new Error("chat completion returned empty content");
     }
     return content;
-    } finally {
-      release();
-    }
   }
 
   async streamChat(
+    endpoint: HostEndpoint,
     system: string,
     user: string,
     onChunk: (delta: string, accumulated: string) => void,
     options: ChatOptions = {},
   ): Promise<{ content: string; finishReason: string; ttftMs?: number }> {
     const startedAt = Date.now();
-    const url = `${this.chatConfig.base_url.replace(/\/$/, "")}/chat/completions`;
-    this.logger.info("llm.stream_request", chatRequestFields(this.role, this.chatConfig, system.length + user.length, options));
+    const url = ollamaChatUrl(endpoint.baseUrl);
+    this.logger.info("llm.stream_request", { ...chatRequestFields(this.role, this.chatConfig, system.length + user.length, options), host: endpoint.hostId });
     // Idle-based abort: fires when no token has arrived for request_timeout_ms,
     // covering both a hung connection (no headers) and a mid-stream stall. The
     // timer is reset on every chunk so a healthy long generation is never cut.
@@ -389,34 +623,23 @@ class OpenAICompatClient {
       idleTimer.unref?.();
     };
     const clearIdle = () => { if (idleTimer) clearTimeout(idleTimer); };
-    // Wait for a host slot before arming the idle clock or opening a socket —
-    // queue time must not register as an idle stall.
-    const release = await this.chatGate.acquire();
     armIdle();
-    try {
     let response: Response;
     try {
       response = await llmFetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${this.chatConfig.api_key}`,
+          authorization: `Bearer ${endpoint.apiKey}`,
         },
         signal: idleController.signal,
         body: JSON.stringify({
           model: this.chatConfig.model,
-          temperature: this.chatConfig.temperature,
-          max_tokens: this.chatConfig.max_tokens,
+          messages: nativeMessages(system, user, options.images),
           stream: true,
           think: options.thinking ?? false,
-          ...(options.jsonMode ? {
-            format: "json",
-            response_format: { type: "json_object" },
-          } : {}),
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
+          ...(options.jsonMode ? { format: "json" } : {}),
+          options: this.nativeOptions(),
         }),
       });
     } catch (err) {
@@ -425,6 +648,7 @@ class OpenAICompatClient {
       const detail = describeFetchError(err);
       this.logger.error("llm.stream_request_failed", {
         role: this.role,
+        host: endpoint.hostId,
         model: this.chatConfig.model,
         url,
         duration_ms: Date.now() - startedAt,
@@ -477,14 +701,22 @@ class OpenAICompatClient {
           const line = buffer.slice(0, newlineIndex).trim();
           buffer = buffer.slice(newlineIndex + 1);
           newlineIndex = buffer.indexOf("\n");
-          if (!line.startsWith("data:")) continue;
-          const payload = line.slice(5).trim();
-          if (payload === "[DONE]") {
-            newlineIndex = -1;
-            break;
+          if (!line) continue;
+          // Tolerate both native /api/chat NDJSON (one JSON object per line) and
+          // OpenAI SSE (`data: {…}` / `data: [DONE]`).
+          let payload = line;
+          if (line.startsWith("data:")) {
+            payload = line.slice(5).trim();
+            if (payload === "[DONE]") {
+              newlineIndex = -1;
+              break;
+            }
           }
           let json:
             | {
+                done?: boolean;
+                done_reason?: string;
+                message?: Record<string, unknown>;
                 choices?: Array<{
                   finish_reason?: string | null;
                   delta?: Record<string, unknown>;
@@ -498,10 +730,12 @@ class OpenAICompatClient {
             continue;
           }
           const choice = json?.choices?.[0];
-          if (choice?.finish_reason) finishReason = choice.finish_reason;
-          // Reasoning/thinking arrives as its own delta field on thinking models.
-          const reasoningDelta =
-            extractReasoning(choice?.delta) || extractReasoning(choice?.message);
+          // Native carries the chunk under `message`; OpenAI under `delta`.
+          const chunkMsg = json?.message ?? choice?.delta ?? choice?.message;
+          if (json?.done && json.done_reason) finishReason = json.done_reason;
+          else if (choice?.finish_reason) finishReason = choice.finish_reason;
+          // Reasoning/thinking arrives as its own field on thinking models.
+          const reasoningDelta = extractReasoning(chunkMsg);
           if (reasoningDelta) {
             reasoning += reasoningDelta;
             // Chain-of-thought counts toward time-to-first-token: on thinking
@@ -511,8 +745,7 @@ class OpenAICompatClient {
             markFirstToken();
             options.onReasoningDelta?.(reasoningDelta, reasoning);
           }
-          const delta =
-            ((choice?.delta?.content ?? choice?.message?.content) as string | undefined) ?? "";
+          const delta = (chunkMsg?.content as string | undefined) ?? "";
           if (!delta) continue;
           chunkCount += 1;
           const now = Date.now();
@@ -541,6 +774,7 @@ class OpenAICompatClient {
       const idleTimedOut = idleController.signal.aborted || isTimeoutError(err);
       this.logger.error("llm.stream_interrupted", {
         role: this.role,
+        host: endpoint.hostId,
         model: this.chatConfig.model,
         elapsed_ms: now - startedAt,
         since_last_chunk_ms: now - lastChunkAt,
@@ -563,6 +797,10 @@ class OpenAICompatClient {
       );
       (wrapped as { partialContent?: string }).partialContent = accumulated;
       (wrapped as { partialReasoning?: string }).partialReasoning = reasoning;
+      // Once the model has begun producing (any content or reasoning token), a
+      // retry on another host would replay a partial generation — so don't fail
+      // over. A failure before first token is safe to re-queue elsewhere.
+      (wrapped as { noFailover?: boolean }).noFailover = firstTokenMs !== 0;
       throw wrapped;
     } finally {
       clearIdle();
@@ -592,29 +830,24 @@ class OpenAICompatClient {
       throw new Error("chat stream returned empty content");
     }
     return { content, finishReason, ttftMs: firstTokenMs || undefined };
-    } finally {
-      release();
-    }
   }
 
-  async embed(input: string[]): Promise<number[][]> {
+  async embed(endpoint: HostEndpoint, input: string[]): Promise<number[][]> {
     if (!this.embeddingsConfig.enabled || input.length === 0) {
       return [];
     }
 
     const startedAt = Date.now();
-    const url = `${this.embeddingsConfig.base_url.replace(/\/$/, "")}/embeddings`;
+    const url = `${endpoint.baseUrl.replace(/\/$/, "")}/embeddings`;
     const timeoutMs = this.embeddingsConfig.request_timeout_ms ?? 60_000;
-    this.logger.info("llm.embed_request", embedRequestFields(this.embeddingsConfig, input.length));
-    const release = await this.embedGate.acquire();
-    try {
+    this.logger.info("llm.embed_request", { ...embedRequestFields(this.embeddingsConfig, input.length), host: endpoint.hostId });
     let response: Response;
     try {
       response = await llmFetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${this.embeddingsConfig.api_key}`,
+          authorization: `Bearer ${endpoint.apiKey}`,
         },
         signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
@@ -627,6 +860,7 @@ class OpenAICompatClient {
       const detail = describeFetchError(err);
       this.logger.error("llm.embed_request_failed", {
         role: "embeddings",
+        host: endpoint.hostId,
         model: this.embeddingsConfig.model,
         url,
         duration_ms: Date.now() - startedAt,
@@ -651,36 +885,6 @@ class OpenAICompatClient {
     };
     this.logger.info("llm.embed_response", embedResponseFields(this.embeddingsConfig, json.data?.length ?? 0, Date.now() - startedAt));
     return (json.data ?? []).map((item) => item.embedding ?? []);
-    } finally {
-      release();
-    }
-  }
-
-  async probeEndpoint(role: LlmRole, baseUrl: string, apiKey: string): Promise<void> {
-    const url = `${baseUrl.replace(/\/$/, "")}/models`;
-    this.logger.info("llm.probe_start", { role, url });
-    try {
-      const response = await fetch(url, {
-        headers: { authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(10_000),
-      });
-      const text = await response.text().catch(() => "");
-      if (!response.ok) {
-        this.logger.warn("llm.probe_failed", { role, status: response.status, body: truncateForLog(text, 220) });
-        return;
-      }
-      this.logger.info("llm.probe_ok", { role, body: truncateForLog(text, 220) });
-    } catch (error) {
-      const detail = describeFetchError(error);
-      this.logger.warn("llm.probe_error", {
-        role,
-        timed_out: isTimeoutError(error),
-        timeout_ms: 10_000,
-        error: detail.message,
-        cause: detail.cause,
-        code: detail.code,
-      });
-    }
   }
 }
 
@@ -738,24 +942,25 @@ function hostForBaseUrl(baseUrl: string): string {
   }
 }
 
-/** Production LlmRouter that holds separate heavy, light, and optional images chat clients. */
+/** Production LlmRouter. Holds per-role executors and a {@link HostScheduler}
+ *  that routes each call to a host by preference + probed capability. */
 export class OpenAICompatRouter implements LlmRouter {
+  private readonly scheduler: HostScheduler;
   private readonly heavy: OpenAICompatClient;
   private readonly light: OpenAICompatClient;
   private readonly images: OpenAICompatClient | null;
   private readonly visionSupport = new Map<"heavy" | "light" | "images", boolean>();
 
   constructor(
-    private readonly heavyChatConfig: ChatConfig,
-    private readonly lightChatConfig: ChatConfig,
-    private readonly embeddingsConfig: EmbeddingsConfig,
+    private readonly llm: LlmConfig,
     private readonly logger: Logger = createConsoleLogger(),
-    private readonly imagesChatConfig?: ChatConfig,
   ) {
-    this.heavy = new OpenAICompatClient(heavyChatConfig, embeddingsConfig, logger, "heavy");
-    this.light = new OpenAICompatClient(lightChatConfig, embeddingsConfig, logger, "light");
-    this.images = imagesChatConfig
-      ? new OpenAICompatClient(imagesChatConfig, embeddingsConfig, logger, "images")
+    this.scheduler = new HostScheduler(logger);
+    this.scheduler.configure(Object.values(llm.hosts));
+    this.heavy = new OpenAICompatClient(llm.chat, llm.embeddings, logger, "heavy");
+    this.light = new OpenAICompatClient(llm.light, llm.embeddings, logger, "light");
+    this.images = llm.images
+      ? new OpenAICompatClient(llm.images, llm.embeddings, logger, "images")
       : null;
   }
 
@@ -764,19 +969,19 @@ export class OpenAICompatRouter implements LlmRouter {
     return role === "light" ? this.light : this.heavy;
   }
 
+  private roleConfig(role: "heavy" | "light" | "images"): ChatConfig {
+    if (role === "heavy") return this.llm.chat;
+    if (role === "images") return this.llm.images ?? this.llm.light;
+    return this.llm.light;
+  }
+
   metadataFor(role: "heavy" | "light" | "images"): LlmInvocationMetadata {
-    const config =
-      role === "heavy"
-        ? this.heavyChatConfig
-        : role === "images" && this.imagesChatConfig
-          ? this.imagesChatConfig
-          : this.lightChatConfig;
-    const resolvedRole =
-      role === "images" && !this.imagesChatConfig ? "light" : role;
+    const config = this.roleConfig(role);
+    const resolvedRole = role === "images" && !this.llm.images ? "light" : role;
     const configKey =
       role === "heavy"
         ? "llm.chat"
-        : role === "images" && this.imagesChatConfig
+        : role === "images" && this.llm.images
           ? "llm.images"
           : "llm.light";
     return {
@@ -788,6 +993,9 @@ export class OpenAICompatRouter implements LlmRouter {
       host: hostForBaseUrl(config.base_url),
       temperature: config.temperature,
       maxTokens: config.max_tokens,
+      topK: config.top_k,
+      topP: config.top_p,
+      minP: config.min_p,
     };
   }
 
@@ -796,7 +1004,10 @@ export class OpenAICompatRouter implements LlmRouter {
   }
 
   chat(role: "heavy" | "light" | "images", system: string, user: string, options?: ChatOptions): Promise<string> {
-    return this.client(role).chat(system, user, options);
+    const cfg = this.roleConfig(role);
+    return this.scheduler.dispatch(role, cfg.hosts, cfg.model, (endpoint) =>
+      this.client(role).chat(endpoint, system, user, options),
+    );
   }
 
   streamChat(
@@ -806,46 +1017,64 @@ export class OpenAICompatRouter implements LlmRouter {
     onChunk: (delta: string, accumulated: string) => void,
     options?: ChatOptions,
   ): Promise<{ content: string; finishReason: string; ttftMs?: number }> {
-    return this.client(role).streamChat(system, user, onChunk, options);
+    const cfg = this.roleConfig(role);
+    return this.scheduler.dispatch(role, cfg.hosts, cfg.model, (endpoint) =>
+      this.client(role).streamChat(endpoint, system, user, onChunk, options),
+    );
   }
 
   embed(input: string[]): Promise<number[][]> {
-    return this.heavy.embed(input);
+    if (!this.llm.embeddings.enabled || input.length === 0) return Promise.resolve([]);
+    const cfg = this.llm.embeddings;
+    return this.scheduler.dispatch("embeddings", cfg.hosts, cfg.model, (endpoint) =>
+      this.heavy.embed(endpoint, input),
+    );
+  }
+
+  /** Live host state (queue depth, in-flight count, probed models) for the admin UI. */
+  hostSnapshot(): ReturnType<HostScheduler["snapshot"]> {
+    return this.scheduler.snapshot();
+  }
+
+  /** Resolved candidate host order for a role — the order the scheduler would try. */
+  candidatesFor(role: "heavy" | "light" | "images" | "embeddings"): string[] {
+    const cfg = role === "embeddings" ? this.llm.embeddings : this.roleConfig(role);
+    return this.scheduler.candidates(cfg.hosts, cfg.model);
   }
 
   async probeConnections(): Promise<void> {
-    await this.heavy.probeEndpoint("heavy", this.heavyChatConfig.base_url, this.heavyChatConfig.api_key);
-    await this.light.probeEndpoint("light", this.lightChatConfig.base_url, this.lightChatConfig.api_key);
-    if (this.imagesChatConfig) {
-      await this.images!.probeEndpoint("images", this.imagesChatConfig.base_url, this.imagesChatConfig.api_key);
+    // Build the capability map: probe each host's served model list. Hosts that
+    // don't answer are marked unknown (null) — assumed able to serve any
+    // non-blacklisted model rather than excluded — so a transient probe miss
+    // doesn't strand a role with no candidates.
+    for (const ep of this.scheduler.endpoints()) {
+      const models = await fetchHostModels(ep.baseUrl, ep.apiKey, this.logger);
+      this.scheduler.setCapabilities(ep.hostId, models ? new Set(models) : null);
+      this.logger.info("llm.host_capabilities", {
+        host: ep.hostId,
+        online: models !== null,
+        models: models?.length ?? 0,
+      });
     }
-    if (this.embeddingsConfig.enabled) {
-      await this.heavy.probeEndpoint("embeddings", this.embeddingsConfig.base_url, this.embeddingsConfig.api_key);
-    } else {
+    if (!this.llm.embeddings.enabled) {
       this.logger.info("llm.embed_disabled", { role: "embeddings" });
     }
-    // Probe vision support via provider capabilities. We try the Ollama-native
-    // POST /api/show endpoint (derived by stripping /v1 from the base URL).
-    // If the provider is not Ollama or the endpoint is unreachable, we fall back
-    // to false rather than making a real chat call.
+    // Probe vision support via provider capabilities (Ollama POST /api/show),
+    // against each role's primary host. Falls back to false when unsupported.
     for (const role of ["light", "heavy"] as const) {
-      const cfg = role === "light" ? this.lightChatConfig : this.heavyChatConfig;
+      const cfg = this.roleConfig(role);
       const hasVision = await probeVisionSupport(cfg.base_url, cfg.api_key, cfg.model, this.logger);
       this.visionSupport.set(role, hasVision);
       this.logger.info("llm.vision_capability", { role, model: cfg.model, vision: hasVision });
     }
-    if (this.imagesChatConfig) {
-      const hasVision = await probeVisionSupport(
-        this.imagesChatConfig.base_url,
-        this.imagesChatConfig.api_key,
-        this.imagesChatConfig.model,
-        this.logger,
-      );
+    if (this.llm.images) {
+      const cfg = this.llm.images;
+      const hasVision = await probeVisionSupport(cfg.base_url, cfg.api_key, cfg.model, this.logger);
       this.visionSupport.set("images", hasVision);
-      this.logger.info("llm.vision_capability", { role: "images", model: this.imagesChatConfig.model, vision: hasVision });
+      this.logger.info("llm.vision_capability", { role: "images", model: cfg.model, vision: hasVision });
       if (!hasVision) {
         this.logger.warn("llm.images_no_vision", {
-          model: this.imagesChatConfig.model,
+          model: cfg.model,
           message: "configured [llm.images] model does not support vision — image descriptions will be text-only",
         });
       }

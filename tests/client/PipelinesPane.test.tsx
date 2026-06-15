@@ -28,6 +28,9 @@ describe("PipelinesPane", () => {
             llm_host: "cat-desktop:11434",
             llm_temperature: 0.7,
             llm_max_tokens: 2400,
+            llm_top_k: 10,
+            llm_top_p: 0.85,
+            llm_min_p: 0.05,
             llm_thinking: 1,
             llm_json_mode: 0,
             llm_image_count: 2,
@@ -70,6 +73,12 @@ describe("PipelinesPane", () => {
     expect(within(detail as HTMLElement).getByText("cat-desktop:11434")).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByText("http://cat-desktop:11434/v1")).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByText("2400")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("Top K")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("10")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("Top P")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("0.85")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("Min P")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("0.05")).toBeInTheDocument();
     expect(within(detail as HTMLElement).getAllByText("on").length).toBeGreaterThan(0);
     expect(within(detail as HTMLElement).getByText("bold").tagName).toBe("STRONG");
     expect(within(detail as HTMLElement).getByText("user").tagName).toBe("STRONG");

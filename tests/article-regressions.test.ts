@@ -7,7 +7,8 @@ import { getArticle, getArticleByLookup, getLatestArticleReferences, listArticle
 import { slugify } from "../src/server/slug";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
-import { OpenAICompatRouter, type LlmRouter } from "../src/server/llm";
+import { type LlmRouter } from "../src/server/llm";
+import { makeRouter } from "./helpers/router";
 import {
   extractInternalLinks,
   markdownToPlainText,
@@ -1901,7 +1902,7 @@ test("generated article uses ref:slug links when references are available", { ti
   let llmClient: LlmRouter;
   const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
   try {
-    const client = new OpenAICompatRouter(chatConfig, chatConfig, embeddingsConfig, noopLogger);
+    const client = makeRouter(chatConfig, chatConfig, embeddingsConfig, noopLogger);
     await client.probeConnections();
     llmClient = client;
   } catch {

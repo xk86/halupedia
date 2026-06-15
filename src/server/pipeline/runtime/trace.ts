@@ -63,6 +63,9 @@ export interface NodeTraceFields {
   llmHost?: string;
   llmTemperature?: number;
   llmMaxTokens?: number;
+  llmTopK?: number;
+  llmTopP?: number;
+  llmMinP?: number;
   llmThinking?: boolean;
   llmJsonMode?: boolean;
   llmImageCount?: number;
@@ -185,6 +188,9 @@ class SqliteTraceRecorder implements TraceRecorder {
       `llm_host TEXT`,
       `llm_temperature REAL`,
       `llm_max_tokens INTEGER`,
+      `llm_top_k REAL`,
+      `llm_top_p REAL`,
+      `llm_min_p REAL`,
       `llm_thinking INTEGER`,
       `llm_json_mode INTEGER`,
       `llm_image_count INTEGER`,
@@ -200,9 +206,10 @@ class SqliteTraceRecorder implements TraceRecorder {
           reads, writes, inputs_json, patch_json, diff_json, warnings_json,
           error_message, error_stack, prompt_chars, prompt_text, cot_text, response_text,
           llm_role, llm_resolved_role, llm_config_key, llm_model, llm_base_url,
-          llm_host, llm_temperature, llm_max_tokens, llm_thinking, llm_json_mode,
+          llm_host, llm_temperature, llm_max_tokens, llm_top_k, llm_top_p, llm_min_p,
+          llm_thinking, llm_json_mode,
           llm_image_count, llm_ttft_ms)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
   }
 
@@ -269,6 +276,9 @@ class SqliteTraceRecorder implements TraceRecorder {
         fields.llmHost ?? null,
         fields.llmTemperature ?? null,
         fields.llmMaxTokens ?? null,
+        fields.llmTopK ?? null,
+        fields.llmTopP ?? null,
+        fields.llmMinP ?? null,
         fields.llmThinking === undefined ? null : fields.llmThinking ? 1 : 0,
         fields.llmJsonMode === undefined ? null : fields.llmJsonMode ? 1 : 0,
         fields.llmImageCount ?? null,
@@ -358,6 +368,9 @@ CREATE TABLE IF NOT EXISTS pipeline_nodes (
   llm_host        TEXT,
   llm_temperature REAL,
   llm_max_tokens  INTEGER,
+  llm_top_k       REAL,
+  llm_top_p       REAL,
+  llm_min_p       REAL,
   llm_thinking    INTEGER,
   llm_json_mode   INTEGER,
   llm_image_count INTEGER,

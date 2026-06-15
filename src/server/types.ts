@@ -249,33 +249,61 @@ export interface AppConfig {
   images: ImagesConfig;
 }
 
-export interface ChatConfig {
+/** A named LLM backend. Hosts own the connection, the queue depth, and the
+ *  fallback ordering; roles reference hosts by id. */
+export interface HostConfig {
+  id: string;
   base_url: string;
   api_key: string;
+  /** Max concurrent requests in flight against this host at once. Requests beyond
+   *  this wait in our own queue (no socket, no timeout clock) instead of piling
+   *  into the backend's queue. The queue is keyed by host, so every role sharing
+   *  the host shares one bound. */
+  max_in_flight: number;
+  /** Fallback preference — lower is more preferred. When a role's preferred hosts
+   *  are saturated, a waiting request spills onto the next eligible host ordered
+   *  by this value. */
+  pref: number;
+  /** Models we refuse to run on this host. Excluded when the capability map is
+   *  built at startup probe, so the host never appears as a candidate for them. */
+  blacklist: string[];
+}
+
+export interface ChatConfig {
+  /** Ordered preferred host ids for this role (most preferred first). The
+   *  scheduler falls back to any other host whose probed model set includes
+   *  `model`, ordered by host `pref`. */
+  hosts: string[];
   model: string;
   temperature: number;
   max_tokens: number;
+  /** Optional sampler params. Sent top-level (like Ollama's `think`/`format`
+   *  extensions) only when set, so an unset value leaves the backend default
+   *  untouched. */
+  top_k?: number;
+  top_p?: number;
+  min_p?: number;
   /** Abort a non-streaming chat after this long; for streaming, abort when no
    *  token arrives for this long (idle timeout). Guards against the endpoint
    *  hanging on undici's 5-minute default. */
   request_timeout_ms: number;
-  /** Max concurrent requests we'll have in flight against this model's *host* at
-   *  once. Requests beyond this wait in our own queue (no socket, no timeout
-   *  clock) instead of piling into the backend's queue. Pooled per host across
-   *  roles, so a shared host is bounded once. */
-  max_in_flight: number;
+  /** Resolved primary-host endpoint (first preferred host). For trace/metadata
+   *  display and legacy callers; the scheduler is authoritative for the host a
+   *  given call actually runs on. */
+  base_url: string;
+  api_key: string;
 }
 
 export interface EmbeddingsConfig {
   enabled: boolean;
-  base_url: string;
-  api_key: string;
+  /** Ordered preferred host ids. See {@link ChatConfig.hosts}. */
+  hosts: string[];
   model: string;
   /** Abort an embeddings request after this long. */
   request_timeout_ms: number;
-  /** Max concurrent embeddings requests in flight against this host. See
-   *  {@link ChatConfig.max_in_flight}. */
-  max_in_flight: number;
+  /** Resolved primary-host endpoint. See {@link ChatConfig.base_url}. */
+  base_url: string;
+  api_key: string;
 }
 
 export interface LlmInvocationMetadata {
@@ -287,9 +315,14 @@ export interface LlmInvocationMetadata {
   host: string;
   temperature: number;
   maxTokens: number;
+  topK?: number;
+  topP?: number;
+  minP?: number;
 }
 
 export interface LlmConfig {
+  /** Named backends keyed by id, referenced by roles via their `hosts` lists. */
+  hosts: Record<string, HostConfig>;
   chat: ChatConfig;
   light: ChatConfig;
   /** Dedicated vision model for image captioning. Falls back to light if unset. */

@@ -1145,6 +1145,64 @@ test("convertExistingArticleLinksToRefs: halu link for unknown article unchanged
   }
 });
 
+test("convertExistingArticleLinksToRefs: emphasized link resolves to plain article (redirect catch)", () => {
+  const { root, db } = makeTempDb();
+  try {
+    seedDbArticle(db, "algebra", "Algebra");
+    // An emphasized label slugifies to star-algebra-star; it must still resolve
+    // to the real "algebra" article instead of dangling.
+    const body = '[*Algebra*](halu:star-algebra-star "hint")';
+    const result = convertExistingArticleLinksToRefs(db, body, "host");
+    assert.match(result, /ref:algebra/);
+    assert.doesNotMatch(result, /star-algebra-star/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("convertExistingArticleLinksToRefs: emphasized seed for unknown article drops the star slug", () => {
+  const { root, db } = makeTempDb();
+  try {
+    // No "algebra" article exists yet — the seed must point at "algebra", not
+    // spawn a bogus "star-algebra-star" duplicate when generated.
+    const body = '[*Algebra*](halu:star-algebra-star "hint")';
+    const result = convertExistingArticleLinksToRefs(db, body, "host");
+    assert.match(result, /halu:algebra\b/);
+    assert.doesNotMatch(result, /star-algebra-star/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("convertExistingArticleLinksToRefs: deliberate abbreviated slug under emphasis is preserved", () => {
+  const { root, db } = makeTempDb();
+  try {
+    // The slug is not a slugified form of the emphasized label, so it is a
+    // deliberate target and must be left intact.
+    const body = '[*New York City*](halu:nyc "hint")';
+    const result = convertExistingArticleLinksToRefs(db, body, "host");
+    assert.match(result, /halu:nyc\b/);
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("findExistingArticleLinkReferences: emphasized link finds the plain article", () => {
+  const { root, db } = makeTempDb();
+  try {
+    seedDbArticle(db, "eigenvalue", "Eigenvalue");
+    const body = '[**Eigenvalue**](halu:star-star-eigenvalue-star-star "hint")';
+    const refs = findExistingArticleLinkReferences(db, body, "host");
+    assert.ok(refs.some((r) => r.slug === "eigenvalue"), "plain article should be found");
+  } finally {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 /* ─────────────────────────────────────────────────────────────────
    findTitleMentionedArticles
    ───────────────────────────────────────────────────────────────── */

@@ -117,6 +117,9 @@ interface NodeSpan {
   llm_host?: string | null;
   llm_temperature?: number | null;
   llm_max_tokens?: number | null;
+  llm_top_k?: number | null;
+  llm_top_p?: number | null;
+  llm_min_p?: number | null;
   llm_thinking?: number | boolean | null;
   llm_json_mode?: number | boolean | null;
   llm_image_count?: number | null;
@@ -141,9 +144,10 @@ interface Props {
   error: string | null;
   onRefresh: () => void;
   onNavigate?: (segment: string) => void;
+  onNavigateHome?: () => void;
 }
 
-export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, error, onRefresh, onNavigate }: Props) {
+export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, error, onRefresh, onNavigate, onNavigateHome }: Props) {
   // Workflow diagrams are collapsed by default — the run history is the focus.
   // Track which are *expanded* so newly-loaded workflows start collapsed.
   const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(new Set());
@@ -253,7 +257,7 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
                           {fmtTimestamp(a.startedAt)}
                         </td>
                         <td>{a.workflow ?? "—"}</td>
-                        <td><SlugCell slug={a.slug} segment={toWikiSegment(a.title || a.slug)} onNavigate={navigateTo} /></td>
+                        <td><SlugCell slug={a.slug} segment={toWikiSegment(a.title || a.slug)} onNavigate={navigateTo} onNavigateHome={onNavigateHome} /></td>
                         <td className="admin-pipeline-run-inprogress">in progress</td>
                         <td>{a.phase && a.phase !== "starting" ? a.phase.replace(/^[^.]+\./, "") : "…"}</td>
                         <td>—</td>
@@ -274,7 +278,7 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
                         <td>{run.workflow}</td>
                         <td>
                           {run.slug
-                            ? <SlugCell slug={run.slug} segment={toWikiSegment(run.slug)} onNavigate={navigateTo} />
+                            ? <SlugCell slug={run.slug} segment={toWikiSegment(run.slug)} onNavigate={navigateTo} onNavigateHome={onNavigateHome} />
                             : ""}
                         </td>
                         <td className={run.status === "error" ? "admin-pipeline-run-error" : ""}>{run.status}</td>
@@ -411,18 +415,41 @@ function fmtK(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
+// The homepage-refresh workflow runs under this reserved pseudo-slug. It is not
+// a real article — the homepage lives at "/", so its slug must not be rendered
+// as a /wiki/ link.
+const HOMEPAGE_PSEUDO_SLUG = "homepage";
+
 // Renders a run's slug as a wiki link. `segment` is the /wiki/ path segment
 // (slugs resolve via the server's legacy-slug handling); clicking navigates
-// without toggling the row's expansion.
+// without toggling the row's expansion. The homepage pseudo-slug instead links
+// to "/" so it lands on the real homepage rather than a dead /wiki/Homepage.
 function SlugCell({
   slug,
   segment,
   onNavigate,
+  onNavigateHome,
 }: {
   slug: string;
   segment: string;
   onNavigate: (e: MouseEvent, segment: string) => void;
+  onNavigateHome?: () => void;
 }) {
+  if (slug === HOMEPAGE_PSEUDO_SLUG) {
+    return (
+      <a
+        className="admin-pipeline-run-slug"
+        href="/"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onNavigateHome?.();
+        }}
+      >
+        {slug}
+      </a>
+    );
+  }
   return (
     <a
       className="admin-pipeline-run-slug"
@@ -871,6 +898,9 @@ function LlmMetadata({ node }: { node: NodeSpan }) {
     ["Base URL", node.llm_base_url],
     ["Temperature", node.llm_temperature == null ? null : String(node.llm_temperature)],
     ["Max tokens", node.llm_max_tokens == null ? null : String(node.llm_max_tokens)],
+    ["Top K", node.llm_top_k == null ? null : String(node.llm_top_k)],
+    ["Top P", node.llm_top_p == null ? null : String(node.llm_top_p)],
+    ["Min P", node.llm_min_p == null ? null : String(node.llm_min_p)],
     ["TTFT", node.llm_ttft_ms == null ? null : `${node.llm_ttft_ms} ms`],
     ["Thinking", boolText(node.llm_thinking)],
     ["JSON mode", boolText(node.llm_json_mode)],

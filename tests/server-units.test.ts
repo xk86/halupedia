@@ -61,7 +61,8 @@ import {
   wikiSegmentToTitle,
   normalizeCanonicalTitle,
 } from "../src/server/slug";
-import { OpenAICompatRouter, type LlmRouter } from "../src/server/llm";
+import { type LlmRouter } from "../src/server/llm";
+import { makeRouter } from "./helpers/router";
 import type { Logger, LogFields } from "../src/server/logger";
 import { formatRagContextForPrompt, indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 import { indexRagChunksNode } from "../src/server/pipeline/nodes/postProcess";
@@ -160,7 +161,7 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
 
   globalThis.fetch = async (input, init) => {
     const url = String(input);
-    if (url.endsWith("/chat/completions")) {
+    if (url.endsWith("/api/chat")) {
       chatBodies.push(JSON.parse(String(init?.body ?? "{}")));
       return new Response(
         JSON.stringify({
@@ -192,7 +193,7 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
     api_key: "local",
     model: "nomic",
   };
-  const router = new OpenAICompatRouter(chatConfig, { ...chatConfig, max_tokens: 3000 }, embeddingsConfig, logger);
+  const router = makeRouter(chatConfig, { ...chatConfig, max_tokens: 3000 }, embeddingsConfig, logger);
 
   await router.chat("heavy", "system", "user");
   await router.chat("light", "system", "user", { thinking: true });
@@ -208,7 +209,32 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
   assert.equal((chatBodies[0] as { think?: boolean }).think, false);
   assert.equal((chatBodies[1] as { think?: boolean }).think, true);
   assert.equal((chatBodies[2] as { format?: string }).format, "json");
-  assert.deepEqual((chatBodies[2] as { response_format?: unknown }).response_format, { type: "json_object" });
+});
+
+test("configured sampler params (top_k/top_p/min_p) are sent; unset ones are omitted", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let body: any = null;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (_input, init) => {
+    body = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(
+      JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "ok" } }], usage: { total_tokens: 1 } }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+
+  const heavy = { base_url: "http://llm.test/v1", api_key: "k", model: "gemma4", temperature: 1, max_tokens: 100, top_k: 10, top_p: 0.85 };
+  const light = { base_url: "http://llm.test/v1", api_key: "k", model: "gemma4", temperature: 1, max_tokens: 100 };
+  const router = makeRouter(heavy, light, { enabled: false, base_url: "", api_key: "", model: "" });
+
+  await router.chat("heavy", "s", "u");
+  assert.equal(body.options.top_k, 10);
+  assert.equal(body.options.top_p, 0.85);
+  assert.equal("min_p" in body.options, false, "unset min_p must be omitted entirely");
+
+  await router.chat("light", "s", "u");
+  assert.equal("top_k" in body.options, false, "light set none -> no sampler keys");
+  assert.equal("top_p" in body.options, false);
 });
 
 test("chat surfaces the underlying transport cause, not a bare 'fetch failed'", async (t) => {
@@ -224,7 +250,7 @@ test("chat surfaces the underlying transport cause, not a bare 'fetch failed'", 
   };
 
   const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 9001 };
-  const router = new OpenAICompatRouter(chatConfig, chatConfig, { enabled: false, base_url: "", api_key: "", model: "" }, logger);
+  const router = makeRouter(chatConfig, chatConfig, { enabled: false, base_url: "", api_key: "", model: "" }, logger);
 
   await assert.rejects(
     router.chat("heavy", "system", "user"),
@@ -265,7 +291,7 @@ test("streamChat reports an interrupted stream with partial content and progress
   };
 
   const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 9001 };
-  const router = new OpenAICompatRouter(chatConfig, chatConfig, { enabled: false, base_url: "", api_key: "", model: "" }, logger);
+  const router = makeRouter(chatConfig, chatConfig, { enabled: false, base_url: "", api_key: "", model: "" }, logger);
 
   const seen: string[] = [];
   await assert.rejects(
@@ -300,7 +326,7 @@ test("embed surfaces the transport cause and times out instead of hanging", asyn
 
   const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 100, request_timeout_ms: 5000 };
   const embeddingsConfig = { enabled: true, base_url: "http://llm.test/v1", api_key: "local", model: "nomic", request_timeout_ms: 5000 };
-  const router = new OpenAICompatRouter(chatConfig, chatConfig, embeddingsConfig, logger);
+  const router = makeRouter(chatConfig, chatConfig, embeddingsConfig, logger);
 
   await assert.rejects(
     router.embed(["a chunk"]),
@@ -325,11 +351,11 @@ test("startup probes log the underlying transport cause", async (t) => {
 
   const chatConfig = { base_url: "http://llm.test/v1", api_key: "local", model: "gemma4", temperature: 1, max_tokens: 100, request_timeout_ms: 5000 };
   const embeddingsConfig = { enabled: false, base_url: "http://llm.test/v1", api_key: "local", model: "nomic", request_timeout_ms: 5000 };
-  const router = new OpenAICompatRouter(chatConfig, chatConfig, embeddingsConfig, logger);
+  const router = makeRouter(chatConfig, chatConfig, embeddingsConfig, logger);
 
   await router.probeConnections();
 
-  assert.ok(logger.entries.some((e) => e.event === "llm.probe_error" && e.fields.code === "ECONNRESET"));
+  assert.ok(logger.entries.some((e) => e.event === "llm.models_probe_error" && e.fields.code === "ECONNRESET"));
 });
 
 test("heavy and light OpenAI-compatible requests are sent independently", async (t) => {
@@ -367,7 +393,7 @@ test("heavy and light OpenAI-compatible requests are sent independently", async 
     api_key: "local",
     model: "nomic",
   };
-  const router = new OpenAICompatRouter(
+  const router = makeRouter(
     { base_url: "http://heavy.test/v1", api_key: "local", model: "heavy-model", temperature: 1, max_tokens: 9001 },
     { base_url: "http://light.test/v1", api_key: "local", model: "light-model", temperature: 1, max_tokens: 3000 },
     embeddingsConfig,
@@ -3328,7 +3354,7 @@ test("wrapLlmDeps proxy preserves supportsVision through the prompt-capture wrap
   // (like supportsVision) survive the Proxy used to intercept chat/streamChat.
   const embeddingsConfig = { enabled: false, base_url: "http://x/v1", api_key: "x", model: "x" };
   const chatCfg = { base_url: "http://x/v1", api_key: "x", model: "x", temperature: 1, max_tokens: 100 };
-  const router = new OpenAICompatRouter(chatCfg, chatCfg, embeddingsConfig);
+  const router = makeRouter(chatCfg, chatCfg, embeddingsConfig);
 
   // Manually apply the same Proxy logic used in wrapLlmDeps.
   const origLlm = router as unknown as Record<string, (...a: unknown[]) => unknown>;
@@ -3364,7 +3390,7 @@ test("images model returns a non-empty text description for a tiny PNG", { timeo
     model: "none",
     request_timeout_ms: 5_000,
   };
-  const router = new OpenAICompatRouter(
+  const router = makeRouter(
     chatConfig,
     chatConfig,
     embeddingsConfig,

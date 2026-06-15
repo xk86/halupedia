@@ -160,6 +160,9 @@ export async function runWorkflow<Deps>(
                 llmHost: llmCapture?.host,
                 llmTemperature: llmCapture?.temperature,
                 llmMaxTokens: llmCapture?.maxTokens,
+                llmTopK: llmCapture?.topK,
+                llmTopP: llmCapture?.topP,
+                llmMinP: llmCapture?.minP,
                 llmThinking: llmCapture?.thinking,
                 llmJsonMode: llmCapture?.jsonMode,
                 llmImageCount: llmCapture?.imageCount,
@@ -201,6 +204,9 @@ export async function runWorkflow<Deps>(
                 llmHost: llmCapture?.host,
                 llmTemperature: llmCapture?.temperature,
                 llmMaxTokens: llmCapture?.maxTokens,
+                llmTopK: llmCapture?.topK,
+                llmTopP: llmCapture?.topP,
+                llmMinP: llmCapture?.minP,
                 llmThinking: llmCapture?.thinking,
                 llmJsonMode: llmCapture?.jsonMode,
                 llmImageCount: llmCapture?.imageCount,
@@ -275,6 +281,9 @@ export async function runWorkflow<Deps>(
           llmHost: llmCapture?.host,
           llmTemperature: llmCapture?.temperature,
           llmMaxTokens: llmCapture?.maxTokens,
+          llmTopK: llmCapture?.topK,
+          llmTopP: llmCapture?.topP,
+          llmMinP: llmCapture?.minP,
           llmThinking: llmCapture?.thinking,
           llmJsonMode: llmCapture?.jsonMode,
           llmImageCount: llmCapture?.imageCount,
@@ -316,6 +325,9 @@ export async function runWorkflow<Deps>(
           llmHost: llmCapture?.host,
           llmTemperature: llmCapture?.temperature,
           llmMaxTokens: llmCapture?.maxTokens,
+          llmTopK: llmCapture?.topK,
+          llmTopP: llmCapture?.topP,
+          llmMinP: llmCapture?.minP,
           llmThinking: llmCapture?.thinking,
           llmJsonMode: llmCapture?.jsonMode,
           llmImageCount: llmCapture?.imageCount,
@@ -390,6 +402,9 @@ export interface LlmCapture {
   host?: string;
   temperature?: number;
   maxTokens?: number;
+  topK?: number;
+  topP?: number;
+  minP?: number;
   thinking?: boolean;
   jsonMode?: boolean;
   imageCount?: number;
@@ -474,6 +489,9 @@ function wrapLlmDeps<Deps>(deps: Deps, onCapture: (cap: LlmCapture) => void): De
           host: metadata?.host,
           temperature: metadata?.temperature,
           maxTokens: metadata?.maxTokens,
+          topK: metadata?.topK,
+          topP: metadata?.topP,
+          minP: metadata?.minP,
           thinking: options.thinking === true,
           jsonMode: options.jsonMode === true,
           imageCount: Array.isArray(options.images) ? options.images.length : 0,

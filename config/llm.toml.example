@@ -1,7 +1,32 @@
-# Gemma models require temperature of 1
-[llm.chat]
+# Named hosts own the connection, the queue, and the fallback ordering. Roles
+# (below) reference hosts by id and pick a model.
+#
+#   max_in_flight  per-host queue depth — concurrent requests we hand this host
+#                  at once. Excess work waits in-process (no timeout clock) until
+#                  a slot frees, so multiple users can queue indefinitely.
+#   pref           fallback preference, lower = preferred. When a role's hosts
+#                  are saturated, a waiting request spills to the next eligible
+#                  host by pref. Roles can also list their own ordered `hosts`.
+#   blacklist      models we refuse to run on this host (excluded at startup
+#                  probe, which is how the valid host↔model map is built).
+
+[llm.host.local]
 base_url = "http://127.0.0.1:11434/v1"
 api_key = "ollama"
+max_in_flight = 4
+pref = 0
+
+# A second host the busy roles can spill onto. Uncomment and point at a real box.
+#[llm.host.host-b]
+#base_url = "http://host-b:11434/v1"
+#api_key = "ollama"
+#max_in_flight = 2
+#pref = 1
+#blacklist = ["some-model-we-dont-want-here"]
+
+# Gemma models require temperature of 1
+[llm.chat]
+hosts = ["local"]
 model = "gemma4"
 temperature = 1
 top_k = 150
@@ -11,8 +36,7 @@ max_tokens = 9001
 request_timeout_ms = 180000
 
 [llm.light]
-base_url = "http://127.0.0.1:11434/v1"
-api_key = "ollama"
+hosts = ["local"]
 #model = "gemma4:e2b"
 model = "gemma3:4b-it-qat"
 temperature = 1
@@ -20,8 +44,7 @@ max_tokens = 4800
 request_timeout_ms = 180000
 
 [llm.images]
-base_url = "http://127.0.0.1:11434/v1"
-api_key = "ollama"
+hosts = ["local"]
 model = "gemma3:4b-it-qat"
 temperature = 1
 max_tokens = 4800
@@ -29,7 +52,6 @@ request_timeout_ms = 180000
 
 [llm.embeddings]
 enabled = true
-base_url = "http://127.0.0.1:11434/v1"
-api_key = "local"
+hosts = ["local"]
 model = "nomic-embed-text-v2-moe:latest"
 request_timeout_ms = 2000

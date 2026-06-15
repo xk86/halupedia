@@ -88,7 +88,8 @@ import {
   findFuzzyTitleMatchesInEditText,
   findReferencedArticlesInEditText,
 } from "./editReferences";
-import { OpenAICompatRouter, type LlmRouter } from "./llm";
+import { OpenAICompatRouter, fetchHostModels, type LlmRouter } from "./llm";
+import { addTomlTable, setTomlTableValue } from "./tomlEdit";
 import { createConsoleLogger, type Logger } from "./logger";
 import { MaintenanceScheduler } from "./maintenance";
 import {
@@ -204,6 +205,7 @@ const RESERVED_PATHS = new Set([
   "random",
   "Random",
   "graph",
+  "media",
   "api",
   "assets",
 ]);
@@ -806,13 +808,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   let llm: LlmRouter =
     options.llmClient ??
-    new OpenAICompatRouter(
-      runtime.llm.chat,
-      runtime.llm.light,
-      runtime.llm.embeddings,
-      logger,
-      runtime.llm.images,
-    );
+    new OpenAICompatRouter(runtime.llm, logger);
   const app = new Hono();
 
   // Log every request that reaches the server — method, path, status, and
@@ -1139,13 +1135,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         }
       : nextRuntime;
     if (!options.llmClient) {
-      llm = new OpenAICompatRouter(
-        runtime.llm.chat,
-        runtime.llm.light,
-        runtime.llm.embeddings,
-        logger,
-        runtime.llm.images,
-      );
+      llm = new OpenAICompatRouter(runtime.llm, logger);
     }
     logger.info("startup", {
       server: `http://${runtime.app.server.host}:${runtime.app.server.port}`,
@@ -3070,6 +3060,180 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
   });
 
+  // ----- LLM hosts / roles admin -----
+  // All writes patch config/llm.toml surgically (comments preserved) and apply
+  // live via reloadRuntime() — which rebuilds the router, re-probes host model
+  // capabilities, and re-applies per-host queue depths.
+  const ROLE_TABLE: Record<string, string> = {
+    heavy: "llm.chat",
+    light: "llm.light",
+    images: "llm.images",
+    embeddings: "llm.embeddings",
+  };
+  const MASKED_API_KEY = "********";
+  const HOST_ID_RE = /^[A-Za-z0-9_-]+$/;
+  const editLlmToml = (mutate: (src: string) => string) => {
+    const path = resolve(process.cwd(), "config", "llm.toml");
+    const src = existsSync(path) ? readFileSync(path, "utf8") : "";
+    writeFileSync(path, mutate(src));
+  };
+  const liveRouter = () => (llm instanceof OpenAICompatRouter ? llm : null);
+
+  app.get("/api/admin/llm", (c) => {
+    const live = new Map((liveRouter()?.hostSnapshot() ?? []).map((h) => [h.id, h]));
+    const hosts = Object.values(runtime.llm.hosts).map((h) => {
+      const l = live.get(h.id);
+      return {
+        id: h.id,
+        base_url: h.base_url,
+        api_key: h.api_key ? MASKED_API_KEY : "",
+        max_in_flight: h.max_in_flight,
+        pref: h.pref,
+        blacklist: h.blacklist,
+        online: l?.online ?? false,
+        active: l?.active ?? 0,
+        models: l?.models ?? null,
+      };
+    });
+    const roleEntry = (cfg: {
+      hosts: string[];
+      model: string;
+      temperature: number;
+      max_tokens: number;
+      top_k?: number;
+      top_p?: number;
+      min_p?: number;
+    }) => ({
+      hosts: cfg.hosts,
+      model: cfg.model,
+      temperature: cfg.temperature,
+      max_tokens: cfg.max_tokens,
+      top_k: cfg.top_k ?? null,
+      top_p: cfg.top_p ?? null,
+      min_p: cfg.min_p ?? null,
+    });
+    const roles = {
+      heavy: { ...roleEntry(runtime.llm.chat), candidates: liveRouter()?.candidatesFor("heavy") ?? [] },
+      light: { ...roleEntry(runtime.llm.light), candidates: liveRouter()?.candidatesFor("light") ?? [] },
+      images: runtime.llm.images
+        ? { ...roleEntry(runtime.llm.images), candidates: liveRouter()?.candidatesFor("images") ?? [] }
+        : null,
+      embeddings: {
+        hosts: runtime.llm.embeddings.hosts,
+        model: runtime.llm.embeddings.model,
+        enabled: runtime.llm.embeddings.enabled,
+        candidates: liveRouter()?.candidatesFor("embeddings") ?? [],
+      },
+    };
+    return c.json({ hosts, roles });
+  });
+
+  app.get("/api/admin/llm/host/:id/models", async (c) => {
+    const host = runtime.llm.hosts[c.req.param("id")];
+    if (!host) return c.json({ error: "unknown host" }, 404);
+    const models = await fetchHostModels(host.base_url, host.api_key, logger);
+    if (models === null) return c.json({ error: "host unreachable", models: [] }, 502);
+    return c.json({ models });
+  });
+
+  app.put("/api/admin/llm/role/:role", async (c) => {
+    const role = c.req.param("role");
+    const table = ROLE_TABLE[role];
+    if (!table) return c.json({ error: "unknown role" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      hosts?: unknown;
+      model?: unknown;
+      temperature?: unknown;
+      max_tokens?: unknown;
+      top_k?: unknown;
+      top_p?: unknown;
+      min_p?: unknown;
+      enabled?: unknown;
+    };
+    try {
+      editLlmToml((src) => {
+        let next = src;
+        if (Array.isArray(body.hosts)) next = setTomlTableValue(next, table, "hosts", body.hosts.map(String));
+        if (typeof body.model === "string") next = setTomlTableValue(next, table, "model", body.model);
+        if (typeof body.temperature === "number") next = setTomlTableValue(next, table, "temperature", body.temperature);
+        if (typeof body.max_tokens === "number") next = setTomlTableValue(next, table, "max_tokens", body.max_tokens);
+        for (const key of ["top_k", "top_p", "min_p"] as const) {
+          if (typeof body[key] === "number") next = setTomlTableValue(next, table, key, body[key] as number);
+        }
+        if (role === "embeddings" && typeof body.enabled === "boolean")
+          next = setTomlTableValue(next, table, "enabled", body.enabled);
+        return next;
+      });
+      await reloadRuntime();
+      return c.json({ ok: true });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.put("/api/admin/llm/host/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!runtime.llm.hosts[id]) return c.json({ error: "unknown host" }, 404);
+    if (!HOST_ID_RE.test(id)) return c.json({ error: "host id is not directly editable; define it in config" }, 400);
+    const table = `llm.host.${id}`;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      base_url?: unknown;
+      api_key?: unknown;
+      max_in_flight?: unknown;
+      pref?: unknown;
+      blacklist?: unknown;
+    };
+    try {
+      editLlmToml((src) => {
+        let next = src;
+        if (typeof body.base_url === "string") next = setTomlTableValue(next, table, "base_url", body.base_url);
+        // Only write the key when the UI sends a real (non-masked) value.
+        if (typeof body.api_key === "string" && body.api_key !== MASKED_API_KEY && body.api_key.length > 0)
+          next = setTomlTableValue(next, table, "api_key", body.api_key);
+        if (typeof body.max_in_flight === "number") next = setTomlTableValue(next, table, "max_in_flight", body.max_in_flight);
+        if (typeof body.pref === "number") next = setTomlTableValue(next, table, "pref", body.pref);
+        if (Array.isArray(body.blacklist)) next = setTomlTableValue(next, table, "blacklist", body.blacklist.map(String));
+        return next;
+      });
+      await reloadRuntime();
+      return c.json({ ok: true });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.post("/api/admin/llm/host", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      id?: unknown;
+      base_url?: unknown;
+      api_key?: unknown;
+      max_in_flight?: unknown;
+      pref?: unknown;
+      blacklist?: unknown;
+    };
+    const id = String(body.id ?? "");
+    if (!HOST_ID_RE.test(id)) return c.json({ error: "id must match [A-Za-z0-9_-]+" }, 400);
+    if (runtime.llm.hosts[id]) return c.json({ error: "host already exists" }, 409);
+    if (typeof body.base_url !== "string" || !body.base_url) return c.json({ error: "base_url is required" }, 400);
+    try {
+      editLlmToml((src) =>
+        addTomlTable(src, `llm.host.${id}`, {
+          base_url: body.base_url as string,
+          api_key: typeof body.api_key === "string" && body.api_key.length > 0 ? body.api_key : "local",
+          max_in_flight: typeof body.max_in_flight === "number" ? body.max_in_flight : 4,
+          pref: typeof body.pref === "number" ? body.pref : 100,
+          ...(Array.isArray(body.blacklist) && body.blacklist.length
+            ? { blacklist: body.blacklist.map(String) }
+            : {}),
+        }),
+      );
+      await reloadRuntime();
+      return c.json({ ok: true, id });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
   // Corpus wipe endpoint — disabled. The admin button was removed; leaving the
   // route live made it too easy to nuke the whole corpus with a stray POST.
   // Uncomment (and restore a confirmation flow) if a reset surface is needed.
@@ -4052,6 +4216,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       path === "/all-entries" ||
       path === "/admin" ||
       path === "/graph" ||
+      path === "/media" ||
       path.startsWith("/media/") ||
       routeSlug(path)
     ) {

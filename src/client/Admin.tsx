@@ -3,6 +3,7 @@ import { RuntimePane } from "./admin/panes/RuntimePane";
 import { GenerationQueuePane } from "./admin/panes/GenerationQueuePane";
 import { PipelinesPane } from "./admin/panes/PipelinesPane";
 import { PromptModelsPane } from "./admin/panes/PromptModelsPane";
+import { LlmHostsPane } from "./admin/panes/LlmHostsPane";
 import { PromptEditorPane } from "./admin/panes/PromptEditorPane";
 import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
 import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
@@ -67,9 +68,10 @@ interface PipelineRunSummary {
 
 interface Props {
   onNavigate: (slug: string) => void;
+  onNavigateHome: () => void;
 }
 
-export function Admin({ onNavigate }: Props) {
+export function Admin({ onNavigate, onNavigateHome }: Props) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -380,6 +382,7 @@ export function Admin({ onNavigate }: Props) {
           error={pipelineError}
           onRefresh={loadPipelineStatus}
           onNavigate={onNavigate}
+          onNavigateHome={onNavigateHome}
         />
 
         <GenerationQueuePane
@@ -415,6 +418,8 @@ export function Admin({ onNavigate }: Props) {
           savingKey={savingPromptKey}
           onUpdate={updatePromptModel}
         />
+
+        <LlmHostsPane />
 
         <PromptEditorPane />
 

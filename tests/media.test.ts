@@ -1312,6 +1312,25 @@ describe("image-context", () => {
     db.close(); mediaDb.close();
   });
 
+  test("renderArticlePromptNode: repeats requested title in system and user prompts", async (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = makeArticleDb(dir);
+    const mediaDb = openMediaDatabase(join(dir, "m.sqlite"));
+    const deps = makeDepsWithMedia(db, mediaDb);
+
+    const state = {
+      ...initialPipelineState({ requestId: randomUUID(), workflow: "article.generate", slug: "test-article", requestedTitle: "Test Article" }),
+      references: [],
+      retrievedContext: { sourceArticles: [], ragTitles: [], backlinks: [] },
+      recentEditHistory: "",
+    };
+    const patch = await renderArticlePromptNode.run(state as any, deps as any);
+
+    assert.match(patch.renderedPrompt!.system, /Requested article title:\s+Test Article/);
+    assert.equal((patch.renderedPrompt!.user.match(/Test Article/g) ?? []).length, 2);
+    db.close(); mediaDb.close();
+  });
+
   // ── indexArticleChunks excludes image description chunks ─────────────────
 
   test("indexArticleChunks: image descriptions are not added as chunks", async (t) => {

@@ -415,7 +415,15 @@ function fmtFullTimestamp(ms: number): string {
 
 function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; totalMs: number; runStartedAt?: number }) {
   const maxMs = Math.max(...nodes.map((n) => n.duration_ms), 1);
-  const [openPanel, setOpenPanel] = useState<{ node: number; panel: "prompt" | "rag" } | null>(null);
+  const [openPanels, setOpenPanels] = useState<Set<string>>(new Set());
+  function togglePanel(key: string) {
+    setOpenPanels((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
   return (
     <div className="admin-pipeline-node-breakdown">
       {nodes.map((node, i) => {
@@ -425,8 +433,10 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
         const hasPrompt = Boolean(node.prompt_text || node.cot_text || node.response_text || hasMetadata);
         const ragDetail = getRagTraceDetail(node);
         const hasRag = Boolean(ragDetail);
-        const promptOpen = openPanel?.node === i && openPanel.panel === "prompt";
-        const ragOpen = openPanel?.node === i && openPanel.panel === "rag";
+        const promptKey = `${i}:prompt`;
+        const ragKey = `${i}:rag`;
+        const promptOpen = openPanels.has(promptKey);
+        const ragOpen = openPanels.has(ragKey);
         return (
           <Fragment key={i}>
             <div className={`admin-pipeline-node-row admin-pipeline-node-row--${node.node_kind ?? "unknown"}`}>
@@ -460,7 +470,7 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
                     type="button"
                     className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${promptOpen ? " admin-pipeline-node-ctx--open" : ""}`}
                     title="Show prompt, chain-of-thought, and output"
-                    onClick={() => setOpenPanel(promptOpen ? null : { node: i, panel: "prompt" })}
+                    onClick={() => togglePanel(promptKey)}
                   >
                     {fmtK(node.prompt_chars)}c {promptOpen ? "▾" : "▸"}
                   </button>
@@ -477,9 +487,9 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
                   type="button"
                   className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${ragOpen ? " admin-pipeline-node-ctx--open" : ""}`}
                   title="Show retrieved RAG context and selected source segments"
-                  onClick={() => setOpenPanel(ragOpen ? null : { node: i, panel: "rag" })}
+                  onClick={() => togglePanel(ragKey)}
                 >
-                  RAG {ragDetail?.sources.length ?? 0} {ragOpen ? "▾" : "▸"}
+                  RAG {ragDetail?.displayCount ?? 0} {ragOpen ? "▾" : "▸"}
                 </button>
               ) : (
                 <span className="admin-pipeline-node-ctx" />
@@ -488,9 +498,7 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
             {promptOpen && hasPrompt && (
               <div className="admin-prompt-detail">
                 {hasMetadata && <LlmMetadata node={node} />}
-                {node.prompt_text && (
-                  <PromptSection label="Prompt" text={node.prompt_text} />
-                )}
+                {node.prompt_text && <PromptTraceSections text={node.prompt_text} />}
                 {node.cot_text && (
                   <PromptSection label="Chain of thought" text={node.cot_text} variant="cot" />
                 )}
@@ -517,6 +525,8 @@ interface RagSourceTrace {
 interface RagTraceDetail {
   promptContext?: string;
   relatedTitlesPrompt?: string;
+  promptRefs?: string;
+  displayCount: number;
   sources: RagSourceTrace[];
   ragTitles: string[];
   backlinks: Array<{ slug: string; title: string }>;
@@ -526,28 +536,32 @@ function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
   const patch = asRecord(node.patch);
   const inputs = asRecord(node.inputs);
   const diff = asRecord(node.diff);
+  const isLlm = node.node_kind === "llm";
   const retrieved =
     normalizeRetrievedContext(patch?.retrievedContext) ??
     normalizeRetrievedContext(diffAfter(diff, "retrievedContext")) ??
     normalizeRetrievedContext(inputs?.retrievedContext);
-  const rendered =
-    asRecord(patch?.renderedPrompt) ??
-    asRecord(diffAfter(diff, "renderedPrompt"));
-  const vars = asRecord(rendered?.variables);
-  const promptContext = cleanTraceText(vars?.rag_context);
-  const relatedTitlesPrompt = cleanTraceText(vars?.related_titles);
+  const promptSections = isLlm ? extractPromptRagSections(node.prompt_text ?? "") : {};
+  const promptContext = promptSections.ragContext;
+  const relatedTitlesPrompt = promptSections.relatedTitles;
+  const promptRefs = promptSections.promptRefs;
 
   if (
     !retrieved &&
     !promptContext &&
-    !relatedTitlesPrompt
+    !relatedTitlesPrompt &&
+    !promptRefs
   ) {
     return null;
   }
 
+  const promptRefCount = countPromptRefs([promptContext, relatedTitlesPrompt, promptRefs].filter(Boolean).join("\n"));
+
   return {
     promptContext,
     relatedTitlesPrompt,
+    promptRefs,
+    displayCount: retrieved?.sources.length || promptRefCount,
     sources: retrieved?.sources ?? [],
     ragTitles: retrieved?.ragTitles ?? [],
     backlinks: retrieved?.backlinks ?? [],
@@ -559,9 +573,10 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
     .map((s) => s.score)
     .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
   const rows = [
-    ["Sources", String(detail.sources.length)],
-    ["Related titles", String(detail.ragTitles.length)],
-    ["Backlinks", String(detail.backlinks.length)],
+    ["Sources", detail.sources.length ? String(detail.sources.length) : null],
+    ["Related titles", detail.ragTitles.length ? String(detail.ragTitles.length) : null],
+    ["Backlinks", detail.backlinks.length ? String(detail.backlinks.length) : null],
+    ["Prompt refs", detail.displayCount ? String(detail.displayCount) : null],
     ["Prompt context", detail.promptContext ? `${detail.promptContext.length.toLocaleString()} chars` : null],
     [
       "Score range",
@@ -589,6 +604,9 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
       )}
       {detail.relatedTitlesPrompt && (
         <PromptSection label="Related titles in prompt" text={detail.relatedTitlesPrompt} />
+      )}
+      {detail.promptRefs && (
+        <PromptSection label="Reference context in prompt" text={detail.promptRefs} />
       )}
       {detail.backlinks.length > 0 && (
         <PromptSection
@@ -626,6 +644,69 @@ function normalizeRetrievedContext(value: unknown): { sources: RagSourceTrace[];
     : [];
   if (sources.length === 0 && ragTitles.length === 0 && backlinks.length === 0) return null;
   return { sources, ragTitles, backlinks };
+}
+
+function PromptTraceSections({ text }: { text: string }) {
+  const split = splitPromptTrace(text);
+  if (!split) return <PromptSection label="Prompt" text={text} />;
+  return (
+    <>
+      <PromptSection label="System prompt" text={split.system} />
+      <PromptSection label="User prompt" text={split.user} />
+    </>
+  );
+}
+
+function splitPromptTrace(text: string): { system: string; user: string } | null {
+  const match = text.match(/^### System\n([\s\S]*?)\n\n### User\n([\s\S]*)$/);
+  if (!match) return null;
+  return { system: match[1].trim(), user: match[2].trim() };
+}
+
+function extractPromptRagSections(promptText: string): {
+  ragContext?: string;
+  relatedTitles?: string;
+  promptRefs?: string;
+} {
+  const split = splitPromptTrace(promptText);
+  const user = split?.user ?? promptText;
+  return {
+    ragContext: extractLabeledBlock(user, /^Retrieved context\b.*:/im, [
+      /^Suggested related existing topics\b.*:/im,
+      /^Output\b/im,
+    ]),
+    relatedTitles: extractLabeledBlock(user, /^Suggested related existing topics\b.*:/im, [
+      /^Output\b/im,
+    ]),
+    promptRefs: extractLabeledBlock(user, /^Known encyclopedia articles\b.*:/im, [
+      /^Generate the infobox JSON\b/im,
+      /^Output\b/im,
+    ]),
+  };
+}
+
+function extractLabeledBlock(text: string, startPattern: RegExp, endPatterns: RegExp[]): string | undefined {
+  const start = startPattern.exec(text);
+  if (!start || start.index == null) return undefined;
+  const bodyStart = start.index + start[0].length;
+  const rest = text.slice(bodyStart);
+  let end = rest.length;
+  for (const pattern of endPatterns) {
+    const match = pattern.exec(rest);
+    if (match && match.index != null) end = Math.min(end, match.index);
+  }
+  return cleanTraceText(rest.slice(0, end));
+}
+
+function countPromptRefs(text: string): number {
+  const refs = new Set<string>();
+  for (const match of text.matchAll(/\(ref:([^)]+)\)/g)) {
+    const slug = match[1]?.trim();
+    if (slug) refs.add(slug);
+  }
+  if (refs.size > 0) return refs.size;
+  const nonEmptyLines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  return nonEmptyLines.length;
 }
 
 function normalizeRagSource(value: unknown): RagSourceTrace | null {

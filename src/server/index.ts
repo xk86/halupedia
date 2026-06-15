@@ -819,6 +819,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   // otherwise flood the log once per second. Errors still log normally.
   const NOISY_POLL_PATHS = new Set([
     "/api/admin/generation-queue",
+    "/api/admin/llm",
   ]);
   app.use("*", async (c, next) => {
     const { method } = c.req;

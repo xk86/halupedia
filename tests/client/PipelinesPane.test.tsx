@@ -112,6 +112,13 @@ describe("PipelinesPane", () => {
               "System text.",
               "",
               "### User",
+              "References — link to these using [Visible Title](ref:slug) syntax.",
+              "",
+              "ADDITIONAL REFERENCES — use if relevant:",
+              "",
+              "### [Source Topic](ref:source-topic)",
+              "Selected source segment text.",
+              "",
               "Retrieved context:",
               "",
               "## [Source Topic](ref:source-topic)",
@@ -159,6 +166,7 @@ describe("PipelinesPane", () => {
 
     await userEvent.click(ragButtons[1]);
     expect(screen.getByText("Retrieved source segments")).toBeInTheDocument();
+    expect(screen.getByText("Reference context in prompt")).toBeInTheDocument();
     expect(screen.getByText("RAG context in prompt")).toBeInTheDocument();
     expect(screen.getByText("Related titles in prompt")).toBeInTheDocument();
   });
@@ -172,6 +180,29 @@ describe("PipelinesPane", () => {
             node_kind: "read",
             duration_ms: 1,
             status: "ok",
+            diff: {
+              references: {
+                kind: "add",
+                after: [
+                  {
+                    slug: "alpha",
+                    title: "Alpha",
+                    content: "Alpha summary.",
+                    kind: "summary",
+                    pinned: false,
+                    source: "body",
+                  },
+                  {
+                    slug: "beta",
+                    title: "Beta",
+                    content: "Beta summary.",
+                    kind: "summary",
+                    pinned: false,
+                    source: "body",
+                  },
+                ],
+              },
+            },
           },
           {
             node_name: "llm.generate_infobox",
@@ -221,9 +252,15 @@ describe("PipelinesPane", () => {
 
     await userEvent.click(screen.getByText("article.post_process"));
     expect(screen.queryByText("RAG 0")).not.toBeInTheDocument();
-    await userEvent.click(await screen.findByRole("button", { name: /RAG 2/ }));
+    const ragButtons = await screen.findAllByRole("button", { name: /RAG 2/ });
+    await userEvent.click(ragButtons[0]);
+    expect(screen.getByText("Reference list after step")).toBeInTheDocument();
+    expect(screen.getByText("Alpha summary.")).toBeInTheDocument();
+
+    await userEvent.click(ragButtons[1]);
+    expect(screen.getByText("Reference list after step")).toBeInTheDocument();
     expect(screen.getByText("Reference context in prompt")).toBeInTheDocument();
-    expect(screen.getByText("Prompt refs")).toBeInTheDocument();
+    expect(screen.getAllByText("Prompt refs").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Alpha" })).toHaveAttribute("href", "ref:alpha");
   });
 });

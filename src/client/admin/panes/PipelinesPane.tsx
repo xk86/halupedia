@@ -522,12 +522,24 @@ interface RagSourceTrace {
   score?: number;
 }
 
+interface ReferenceTrace {
+  slug: string;
+  title: string;
+  content: string;
+  kind?: string;
+  pinned?: boolean;
+  score?: number;
+  source?: string;
+}
+
 interface RagTraceDetail {
   promptContext?: string;
   relatedTitlesPrompt?: string;
   promptRefs?: string;
   displayCount: number;
+  promptRefCount: number;
   sources: RagSourceTrace[];
+  references: ReferenceTrace[];
   ragTitles: string[];
   backlinks: Array<{ slug: string; title: string }>;
 }
@@ -541,13 +553,26 @@ function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
     normalizeRetrievedContext(patch?.retrievedContext) ??
     normalizeRetrievedContext(diffAfter(diff, "retrievedContext")) ??
     normalizeRetrievedContext(inputs?.retrievedContext);
+  const references =
+    normalizeReferences(patch?.references) ??
+    normalizeReferences(diffAfter(diff, "references")) ??
+    normalizeReferences(inputs?.references) ??
+    [];
+  const rendered =
+    asRecord(patch?.renderedPrompt) ??
+    asRecord(diffAfter(diff, "renderedPrompt"));
+  const vars = asRecord(rendered?.variables);
   const promptSections = isLlm ? extractPromptRagSections(node.prompt_text ?? "") : {};
-  const promptContext = promptSections.ragContext;
-  const relatedTitlesPrompt = promptSections.relatedTitles;
-  const promptRefs = promptSections.promptRefs;
+  const promptContext = cleanTraceText(vars?.rag_context) ?? promptSections.ragContext;
+  const relatedTitlesPrompt = cleanTraceText(vars?.related_titles) ?? promptSections.relatedTitles;
+  const promptRefs =
+    cleanTraceText(vars?.references_prompt_text) ??
+    cleanTraceText(vars?.ref_links) ??
+    promptSections.promptRefs;
 
   if (
     !retrieved &&
+    references.length === 0 &&
     !promptContext &&
     !relatedTitlesPrompt &&
     !promptRefs
@@ -561,8 +586,10 @@ function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
     promptContext,
     relatedTitlesPrompt,
     promptRefs,
-    displayCount: retrieved?.sources.length || promptRefCount,
+    displayCount: retrieved?.sources.length || references.length || promptRefCount,
+    promptRefCount,
     sources: retrieved?.sources ?? [],
+    references,
     ragTitles: retrieved?.ragTitles ?? [],
     backlinks: retrieved?.backlinks ?? [],
   };
@@ -574,9 +601,10 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
     .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
   const rows = [
     ["Sources", detail.sources.length ? String(detail.sources.length) : null],
+    ["References", detail.references.length ? String(detail.references.length) : null],
     ["Related titles", detail.ragTitles.length ? String(detail.ragTitles.length) : null],
     ["Backlinks", detail.backlinks.length ? String(detail.backlinks.length) : null],
-    ["Prompt refs", detail.displayCount ? String(detail.displayCount) : null],
+    ["Prompt refs", detail.promptRefCount ? String(detail.promptRefCount) : null],
     ["Prompt context", detail.promptContext ? `${detail.promptContext.length.toLocaleString()} chars` : null],
     [
       "Score range",
@@ -601,6 +629,9 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
       )}
       {detail.sources.length > 0 && (
         <PromptSection label="Retrieved source segments" text={formatRagSources(detail.sources)} />
+      )}
+      {detail.references.length > 0 && (
+        <PromptSection label="Reference list after step" text={formatReferences(detail.references)} />
       )}
       {detail.relatedTitlesPrompt && (
         <PromptSection label="Related titles in prompt" text={detail.relatedTitlesPrompt} />
@@ -630,6 +661,21 @@ function formatRagSources(sources: RagSourceTrace[]): string {
     .join("\n\n---\n\n");
 }
 
+function formatReferences(references: ReferenceTrace[]): string {
+  return references
+    .map((r, i) => {
+      const meta = [
+        `slug: ${r.slug}`,
+        r.source ? `source: ${r.source}` : null,
+        r.kind ? `kind: ${r.kind}` : null,
+        r.pinned ? "pinned" : null,
+        typeof r.score === "number" ? `score: ${r.score.toFixed(3)}` : null,
+      ].filter(Boolean).join(" · ");
+      return `## ${i + 1}. ${r.title}\n${meta}\n\n${r.content}`;
+    })
+    .join("\n\n---\n\n");
+}
+
 function normalizeRetrievedContext(value: unknown): { sources: RagSourceTrace[]; ragTitles: string[]; backlinks: Array<{ slug: string; title: string }> } | null {
   const obj = asRecord(value);
   if (!obj) return null;
@@ -644,6 +690,26 @@ function normalizeRetrievedContext(value: unknown): { sources: RagSourceTrace[];
     : [];
   if (sources.length === 0 && ragTitles.length === 0 && backlinks.length === 0) return null;
   return { sources, ragTitles, backlinks };
+}
+
+function normalizeReferences(value: unknown): ReferenceTrace[] | null {
+  if (!Array.isArray(value)) return null;
+  const refs = value.map(normalizeReference).filter((r): r is ReferenceTrace => Boolean(r));
+  return refs;
+}
+
+function normalizeReference(value: unknown): ReferenceTrace | null {
+  const obj = asRecord(value);
+  if (!obj) return null;
+  const slug = typeof obj.slug === "string" ? obj.slug : "";
+  const title = typeof obj.title === "string" ? obj.title : slug;
+  const content = typeof obj.content === "string" ? obj.content : "";
+  const kind = typeof obj.kind === "string" ? obj.kind : undefined;
+  const source = typeof obj.source === "string" ? obj.source : undefined;
+  const pinned = typeof obj.pinned === "boolean" ? obj.pinned : undefined;
+  const score = typeof obj.score === "number" ? obj.score : undefined;
+  if (!slug && !title && !content) return null;
+  return { slug, title, content, kind, source, pinned, score };
 }
 
 function PromptTraceSections({ text }: { text: string }) {
@@ -678,10 +744,17 @@ function extractPromptRagSections(promptText: string): {
     relatedTitles: extractLabeledBlock(user, /^Suggested related existing topics\b.*:/im, [
       /^Output\b/im,
     ]),
-    promptRefs: extractLabeledBlock(user, /^Known encyclopedia articles\b.*:/im, [
-      /^Generate the infobox JSON\b/im,
-      /^Output\b/im,
-    ]),
+    promptRefs:
+      extractLabeledBlock(user, /^References\s+[—–-].*$/im, [
+        /^Retrieved context\b.*:/im,
+        /^Suggested related existing topics\b.*:/im,
+        /^Recent edit history\b.*:/im,
+        /^Output\b/im,
+      ]) ??
+      extractLabeledBlock(user, /^Known encyclopedia articles\b.*:/im, [
+        /^Generate the infobox JSON\b/im,
+        /^Output\b/im,
+      ]),
   };
 }
 

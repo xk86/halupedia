@@ -1,6 +1,9 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
+import { toWikiSegment } from "../../wikiPath";
+
+const RUNS_PER_PAGE = 10;
 
 const md = new MarkdownIt({ html: false, linkify: false });
 
@@ -81,21 +84,53 @@ interface NodeSpan {
   llm_ttft_ms?: number | null;
 }
 
+/** An article whose pipeline is still running — sourced from the live
+ *  generation queue, not the trace DB (which only has completed runs). */
+interface ActiveRun {
+  slug: string;
+  title: string;
+  workflow?: string;
+  phase?: string;
+  startedAt: number;
+}
+
 interface Props {
   workflows: PipelineWorkflowSummary[];
   runs: PipelineRunSummary[];
+  activeRuns?: ActiveRun[];
   traceEnabled: boolean;
   error: string | null;
   onRefresh: () => void;
+  onNavigate?: (segment: string) => void;
 }
 
-export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh }: Props) {
+export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, error, onRefresh, onNavigate }: Props) {
   // Workflow diagrams are collapsed by default — the run history is the focus.
   // Track which are *expanded* so newly-loaded workflows start collapsed.
   const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(new Set());
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const [runNodes, setRunNodes] = useState<Record<string, NodeSpan[]>>({});
   const [loadingRun, setLoadingRun] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+
+  // In-progress articles lead the list; completed runs follow. Together they
+  // paginate 10 at a time.
+  const totalRows = activeRuns.length + runs.length;
+  const pageCount = Math.max(1, Math.ceil(totalRows / RUNS_PER_PAGE));
+  // Clamp the page if the list shrinks (e.g. a run finishes and drops off).
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1);
+  }, [page, pageCount]);
+  const activeRows = activeRuns.map((a) => ({ kind: "active" as const, item: a }));
+  const runRows = runs.map((r) => ({ kind: "run" as const, item: r }));
+  const allRows = [...activeRows, ...runRows];
+  const pageRows = allRows.slice(page * RUNS_PER_PAGE, page * RUNS_PER_PAGE + RUNS_PER_PAGE);
+
+  function navigateTo(e: MouseEvent, segment: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    onNavigate?.(segment);
+  }
 
   const allExpanded =
     workflows.length > 0 && workflows.every((w) => expandedWorkflows.has(w.name));
@@ -147,63 +182,109 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
       {error ? <p className="search-error">{error}</p> : null}
 
       {/* Run history is the primary view; the workflow diagrams below are
-          collapsed reference material. */}
+          collapsed reference material. In-progress articles lead the list. */}
       <div className="admin-section-title-row admin-pipeline-runs-heading">
         <h4 className="sb-heading">Recent Runs</h4>
         <span className="all-entries-count">
+          {activeRuns.length > 0 && `${activeRuns.length} active · `}
           {traceEnabled ? `${runs.length} recorded` : "trace off"}
         </span>
       </div>
-      {runs.length ? (
-        <div className="admin-model-table-wrap admin-pipeline-runs-wrap">
-          <table className="admin-model-table admin-pipeline-runs-table">
-            <thead>
-              <tr>
-                <th>Started</th>
-                <th>Workflow</th>
-                <th>Slug</th>
-                <th>Status</th>
-                <th>Nodes</th>
-                <th>Duration</th>
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((run) => (
-                <Fragment key={run.run_id}>
-                  <tr
-                    className={`admin-pipeline-run-row${expandedRun === run.run_id ? " admin-pipeline-run-row--expanded" : ""}`}
-                    onClick={() => void toggleRun(run.run_id)}
-                    title={run.error_message ?? "Click to see node breakdown"}
-                  >
-                    <td className="admin-pipeline-run-time" title={fmtFullTimestamp(run.started_at)}>
-                      {fmtTimestamp(run.started_at)}
-                    </td>
-                    <td>{run.workflow}</td>
-                    <td>{run.slug ?? ""}</td>
-                    <td className={run.status === "error" ? "admin-pipeline-run-error" : ""}>{run.status}</td>
-                    <td>{run.nodes_executed}</td>
-                    <td>{run.duration_ms} ms</td>
-                  </tr>
-                  {expandedRun === run.run_id && (
-                    <tr className="admin-pipeline-run-detail-row">
-                      <td colSpan={6}>
-                        {loadingRun === run.run_id ? (
-                          <span className="admin-pipeline-run-loading">Loading…</span>
-                        ) : runNodes[run.run_id] ? (
-                          <NodeBreakdown
-                            nodes={runNodes[run.run_id]}
-                            totalMs={run.duration_ms}
-                            runStartedAt={run.started_at}
-                          />
-                        ) : null}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {totalRows ? (
+        <>
+          <div className="admin-model-table-wrap admin-pipeline-runs-wrap">
+            <table className="admin-model-table admin-pipeline-runs-table">
+              <thead>
+                <tr>
+                  <th>Started</th>
+                  <th>Workflow</th>
+                  <th>Slug</th>
+                  <th>Status</th>
+                  <th>Nodes</th>
+                  <th>Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((row) => {
+                  if (row.kind === "active") {
+                    const a = row.item;
+                    return (
+                      <tr key={`active:${a.slug}`} className="admin-pipeline-run-row admin-pipeline-run-row--active">
+                        <td className="admin-pipeline-run-time" title={fmtFullTimestamp(a.startedAt)}>
+                          {fmtTimestamp(a.startedAt)}
+                        </td>
+                        <td>{a.workflow ?? "—"}</td>
+                        <td><SlugCell slug={a.slug} segment={toWikiSegment(a.title || a.slug)} onNavigate={navigateTo} /></td>
+                        <td className="admin-pipeline-run-inprogress">in progress</td>
+                        <td>{a.phase && a.phase !== "starting" ? a.phase.replace(/^[^.]+\./, "") : "…"}</td>
+                        <td>—</td>
+                      </tr>
+                    );
+                  }
+                  const run = row.item;
+                  return (
+                    <Fragment key={run.run_id}>
+                      <tr
+                        className={`admin-pipeline-run-row${expandedRun === run.run_id ? " admin-pipeline-run-row--expanded" : ""}`}
+                        onClick={() => void toggleRun(run.run_id)}
+                        title={run.error_message ?? "Click to see node breakdown"}
+                      >
+                        <td className="admin-pipeline-run-time" title={fmtFullTimestamp(run.started_at)}>
+                          {fmtTimestamp(run.started_at)}
+                        </td>
+                        <td>{run.workflow}</td>
+                        <td>
+                          {run.slug
+                            ? <SlugCell slug={run.slug} segment={toWikiSegment(run.slug)} onNavigate={navigateTo} />
+                            : ""}
+                        </td>
+                        <td className={run.status === "error" ? "admin-pipeline-run-error" : ""}>{run.status}</td>
+                        <td>{run.nodes_executed}</td>
+                        <td>{run.duration_ms} ms</td>
+                      </tr>
+                      {expandedRun === run.run_id && (
+                        <tr className="admin-pipeline-run-detail-row">
+                          <td colSpan={6}>
+                            {loadingRun === run.run_id ? (
+                              <span className="admin-pipeline-run-loading">Loading…</span>
+                            ) : runNodes[run.run_id] ? (
+                              <NodeBreakdown
+                                nodes={runNodes[run.run_id]}
+                                totalMs={run.duration_ms}
+                                runStartedAt={run.started_at}
+                              />
+                            ) : null}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {pageCount > 1 && (
+            <div className="admin-pipeline-runs-pager">
+              <button
+                type="button"
+                className="admin-btn admin-btn--small"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+              >
+                ← Prev
+              </button>
+              <span className="all-entries-count">Page {page + 1} of {pageCount}</span>
+              <button
+                type="button"
+                className="admin-btn admin-btn--small"
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                disabled={page >= pageCount - 1}
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         <p className="sb-copy">
           {traceEnabled ? "No recorded pipeline runs." : "Pipeline trace storage is disabled."}
@@ -289,6 +370,29 @@ export function PipelinesPane({ workflows, runs, traceEnabled, error, onRefresh 
 
 function fmtK(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+// Renders a run's slug as a wiki link. `segment` is the /wiki/ path segment
+// (slugs resolve via the server's legacy-slug handling); clicking navigates
+// without toggling the row's expansion.
+function SlugCell({
+  slug,
+  segment,
+  onNavigate,
+}: {
+  slug: string;
+  segment: string;
+  onNavigate: (e: MouseEvent, segment: string) => void;
+}) {
+  return (
+    <a
+      className="admin-pipeline-run-slug"
+      href={`/wiki/${segment}`}
+      onClick={(e) => onNavigate(e, segment)}
+    >
+      {slug}
+    </a>
+  );
 }
 
 // Clock time for a run/step. Epoch ms in, "HH:MM:SS" out (local time).

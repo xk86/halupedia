@@ -5153,6 +5153,38 @@ button.admin-danger-btn:hover:not(:disabled) {
   white-space: nowrap;
 }
 
+.admin-pipeline-run-slug {
+  color: var(--link);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+/* In-progress article rows (sourced from the live generation queue). */
+.admin-pipeline-runs-table tbody tr.admin-pipeline-run-row--active {
+  cursor: default;
+}
+
+.admin-pipeline-runs-table tbody tr.admin-pipeline-run-row--active td {
+  background: var(--accent-wash);
+}
+
+.admin-pipeline-runs-table tbody tr.admin-pipeline-run-row--active:hover td {
+  background: var(--accent-wash);
+}
+
+.admin-pipeline-run-inprogress {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-pipeline-runs-pager {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+}
+
 /* The run history is the primary admin view: let it use the full pane width
    without a horizontal scrollbar, and let columns size to content. */
 .admin-pipeline-runs-wrap {

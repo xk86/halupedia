@@ -38,6 +38,8 @@ interface GenerationQueueItem {
   seq: number;
   startedAt: number;
   waiting: number;
+  workflow?: string;
+  phase?: string;
   reasoning?: string;
 }
 
@@ -367,9 +369,17 @@ export function Admin({ onNavigate }: Props) {
         <PipelinesPane
           workflows={pipelineWorkflows}
           runs={pipelineRuns}
+          activeRuns={generationQueue.map((item) => ({
+            slug: item.slug,
+            title: item.title,
+            workflow: item.workflow,
+            phase: item.phase,
+            startedAt: item.startedAt,
+          }))}
           traceEnabled={pipelineTraceEnabled}
           error={pipelineError}
           onRefresh={loadPipelineStatus}
+          onNavigate={onNavigate}
         />
 
         <GenerationQueuePane

@@ -62,6 +62,11 @@ rotation_hours = 4
 [random_page]
 inspiration_count = 50
 
+[generation]
+# Full article-generation workflows admitted at once. Extra misses wait in the
+# app queue so trace duration measures active generation time, not queue wait.
+max_in_flight = 1
+
 [pipeline.trace]
 # Structural tracing of the LangGraph pipeline. Each workflow run records its
 # nodes, timings, state diffs, and warnings to a dedicated SQLite database so

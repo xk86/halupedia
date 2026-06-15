@@ -188,6 +188,13 @@ export interface RandomPageConfig {
   inspiration_count: number;
 }
 
+export interface GenerationConfig {
+  /** Max full article-generation workflows allowed to run at once. Extra cache
+   *  misses wait in the app queue so trace duration measures generation work,
+   *  not time spent waiting for another article to finish. */
+  max_in_flight: number;
+}
+
 export interface TestConfig {
   database_path: string;
   llm_base_url: string;
@@ -244,6 +251,7 @@ export interface AppConfig {
   rag: RagConfig;
   homepage: HomepageConfig;
   random_page: RandomPageConfig;
+  generation: GenerationConfig;
   tests: TestConfig;
   pipeline: PipelineConfig;
   images: ImagesConfig;

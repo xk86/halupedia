@@ -860,10 +860,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     slug: string;
     title: string;
     seq: number;
-    startedAt: number;
+    queuedAt: number;
+    startedAt?: number;
     waiting: number;
     workflow: string;
     phase: string;
+    state: "queued" | "processing" | "llm";
     /** Live model chain-of-thought, accumulated as the LLM streams it. Surfaced
      *  only in the admin generation queue. */
     reasoning?: string;
@@ -871,6 +873,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     progressListeners: Set<(event: unknown) => void>;
   }
   const slugGenerations = new Map<string, GenerationQueueEntry>();
+  let activeArticleGenerations = 0;
+  const articleGenerationWaiters: Array<() => void> = [];
   // Tracks any active non-generate workflow (refresh, rewrite, post_process) per slug.
   interface ActiveOperationEntry {
     slug: string;
@@ -936,6 +940,38 @@ export async function createApp(options: CreateAppOptions = {}) {
     return promise;
   }
 
+  function articleGenerationLimit(): number {
+    return Math.max(1, Math.floor(runtime.app.generation.max_in_flight));
+  }
+
+  function pumpArticleGenerationQueue() {
+    while (activeArticleGenerations < articleGenerationLimit()) {
+      const next = articleGenerationWaiters.shift();
+      if (!next) return;
+      next();
+    }
+  }
+
+  async function acquireArticleGenerationSlot(): Promise<() => void> {
+    if (activeArticleGenerations < articleGenerationLimit()) {
+      activeArticleGenerations += 1;
+      return () => {
+        activeArticleGenerations = Math.max(0, activeArticleGenerations - 1);
+        pumpArticleGenerationQueue();
+      };
+    }
+    await new Promise<void>((resolve) => {
+      articleGenerationWaiters.push(() => {
+        activeArticleGenerations += 1;
+        resolve();
+      });
+    });
+    return () => {
+      activeArticleGenerations = Math.max(0, activeArticleGenerations - 1);
+      pumpArticleGenerationQueue();
+    };
+  }
+
   function reserveSlugGeneration(
     slug: string,
     title: string,
@@ -962,13 +998,25 @@ export async function createApp(options: CreateAppOptions = {}) {
       slug,
       title,
       seq,
-      startedAt: Date.now(),
+      queuedAt: Date.now(),
       waiting: 0,
       workflow: "article.generate",
-      phase: "starting",
+      phase: "queued",
+      state: "queued",
       progressListeners: new Set(),
     };
-    const promise = generate().finally(() => {
+    const promise = (async () => {
+      const release = await acquireArticleGenerationSlot();
+      entry.startedAt = Date.now();
+      entry.phase = "starting";
+      entry.state = "processing";
+      entry.progressListeners.forEach((cb) => cb({ type: "status", message: "Writing..." }));
+      try {
+        return await trackGeneration(generate());
+      } finally {
+        release();
+      }
+    })().finally(() => {
       if (slugGenerations.get(slug)?.seq === seq) {
         slugGenerations.delete(slug);
       }
@@ -998,16 +1046,21 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   function generationQueuePayload() {
+    const now = Date.now();
     const generating = [...slugGenerations.values()]
-      .sort((a, b) => a.startedAt - b.startedAt)
+      .sort((a, b) => (a.startedAt ?? a.queuedAt) - (b.startedAt ?? b.queuedAt))
       .map((entry) => ({
         slug: entry.slug,
         title: entry.title,
         seq: entry.seq,
+        queuedAt: entry.queuedAt,
         startedAt: entry.startedAt,
+        queuedMs: Math.max(0, (entry.startedAt ?? now) - entry.queuedAt),
+        activeMs: entry.startedAt ? Math.max(0, now - entry.startedAt) : 0,
         waiting: entry.waiting,
         workflow: entry.workflow,
         phase: entry.phase,
+        state: entry.state,
         reasoning: liveCot(entry.reasoning),
       }));
     const updating = [...activeOperations.values()]
@@ -1017,13 +1070,22 @@ export async function createApp(options: CreateAppOptions = {}) {
         slug: op.slug,
         title: op.title,
         seq: -1,
+        queuedAt: op.startedAt,
         startedAt: op.startedAt,
+        queuedMs: 0,
+        activeMs: Math.max(0, Date.now() - op.startedAt),
         waiting: 0,
         workflow: op.workflow,
         phase: op.phase,
+        state: "processing",
         reasoning: liveCot(op.reasoning),
       }));
-    return { items: [...generating, ...updating] };
+    return {
+      maxInFlight: articleGenerationLimit(),
+      active: activeArticleGenerations,
+      queued: articleGenerationWaiters.length,
+      items: [...generating, ...updating],
+    };
   }
 
   /**
@@ -1108,10 +1170,14 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   async function shutdown() {
     await maintenance.shutdown();
-    if (inFlightGenerations.size > 0) {
-      logger.info("shutdown.draining", { in_flight: inFlightGenerations.size });
+    const draining = new Set<Promise<unknown>>([
+      ...inFlightGenerations,
+      ...[...slugGenerations.values()].map((entry) => entry.promise),
+    ]);
+    if (draining.size > 0) {
+      logger.info("shutdown.draining", { in_flight: inFlightGenerations.size, queued: slugGenerations.size });
       const startTime = Date.now();
-      await Promise.allSettled([...inFlightGenerations]);
+      await Promise.allSettled([...draining]);
       const elapsed = Date.now() - startTime;
       logger.info("shutdown.drained", { elapsed_ms: elapsed });
     }
@@ -1155,6 +1221,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!options.skipLlmProbe) {
       await llm.probeConnections();
     }
+    pumpArticleGenerationQueue();
   }
 
   await reloadRuntime();
@@ -1522,7 +1589,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       recorder,
       logger,
       onNode: (nodeName) => {
-        if (genEntry) genEntry.phase = nodeName;
+        if (genEntry) {
+          genEntry.phase = nodeName;
+          genEntry.state = nodeName.startsWith("llm.") ? "llm" : "processing";
+        }
       },
     });
     if (result.status === "error") throw result.error ?? new Error("article generation failed");
@@ -2062,7 +2132,6 @@ export async function createApp(options: CreateAppOptions = {}) {
             releaseWaiter();
           });
 
-        trackGeneration(generation.catch(() => {}));
       },
       cancel() {
         if (originSend) slugGenerations.get(lookupSlug)?.progressListeners.delete(originSend);

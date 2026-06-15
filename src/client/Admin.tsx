@@ -37,10 +37,14 @@ interface GenerationQueueItem {
   slug: string;
   title: string;
   seq: number;
-  startedAt: number;
+  queuedAt: number;
+  startedAt?: number;
+  queuedMs?: number;
+  activeMs?: number;
   waiting: number;
   workflow?: string;
   phase?: string;
+  state?: "queued" | "processing" | "llm";
   reasoning?: string;
 }
 
@@ -371,13 +375,15 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         <PipelinesPane
           workflows={pipelineWorkflows}
           runs={pipelineRuns}
-          activeRuns={generationQueue.map((item) => ({
-            slug: item.slug,
-            title: item.title,
-            workflow: item.workflow,
-            phase: item.phase,
-            startedAt: item.startedAt,
-          }))}
+          activeRuns={generationQueue
+            .filter((item) => item.state !== "queued" && typeof item.startedAt === "number")
+            .map((item) => ({
+              slug: item.slug,
+              title: item.title,
+              workflow: item.workflow,
+              phase: item.phase,
+              startedAt: item.startedAt!,
+            }))}
           traceEnabled={pipelineTraceEnabled}
           error={pipelineError}
           onRefresh={loadPipelineStatus}

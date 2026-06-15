@@ -4886,8 +4886,25 @@ button.admin-danger-btn:hover:not(:disabled) {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.4rem 1rem;
-  padding: 0.65rem 0;
+  padding: 0.65rem 0.7rem;
   border-top: 1px solid var(--rule);
+  border-left: 3px solid transparent;
+  background: transparent;
+}
+
+.admin-queue-item--queued {
+  border-left-color: #a87d2a;
+  background: rgba(168, 125, 42, 0.08);
+}
+
+.admin-queue-item--processing {
+  border-left-color: #4d7f93;
+  background: rgba(77, 127, 147, 0.08);
+}
+
+.admin-queue-item--llm {
+  border-left-color: var(--accent);
+  background: var(--accent-wash);
 }
 
 /* Live chain-of-thought for the currently-generating item (admin-only). */

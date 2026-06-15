@@ -6,10 +6,14 @@ interface QueueItem {
   slug: string;
   title: string;
   seq: number;
-  startedAt: number;
+  queuedAt: number;
+  startedAt?: number;
+  queuedMs?: number;
+  activeMs?: number;
   waiting: number;
   workflow?: string;
   phase?: string;
+  state?: "queued" | "processing" | "llm";
   /** Live chain-of-thought streamed from the model (admin-only). */
   reasoning?: string;
 }
@@ -97,16 +101,43 @@ function formatWorkflow(workflow?: string): string {
   return workflow ? (WORKFLOW_LABELS[workflow] ?? workflow) : "Active";
 }
 
+function formatDuration(ms?: number): string {
+  const value = Math.max(0, Math.floor(ms ?? 0));
+  if (value < 1000) return `${value} ms`;
+  const sec = Math.floor(value / 1000);
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return min > 0 ? `${min}m ${rem}s` : `${sec}s`;
+}
+
+function queueState(item: QueueItem): "queued" | "processing" | "llm" {
+  if (item.state === "queued") return "queued";
+  if (item.state === "llm" || item.phase?.startsWith("llm.")) return "llm";
+  return "processing";
+}
+
+function stateLabel(state: "queued" | "processing" | "llm"): string {
+  if (state === "queued") return "Queued";
+  if (state === "llm") return "Ollama";
+  return "Processing";
+}
+
 export function GenerationQueuePane({ items, onNavigate }: Props) {
+  const queued = items.filter((item) => queueState(item) === "queued").length;
+  const active = items.length - queued;
   return (
-    <Pane id="generation-queue" title="Generation Queue" count={`${items.length} active`}>
+    <Pane id="generation-queue" title="Generation Queue" count={`${active} active · ${queued} queued`}>
       {items.length ? (
         <ul className="admin-queue-list">
           {items.map((item) => {
             const phase = formatPhase(item.phase);
             const workflowLabel = formatWorkflow(item.workflow);
+            const state = queueState(item);
+            const timer = state === "queued"
+              ? `${formatDuration(item.queuedMs)} queued`
+              : `${formatDuration(item.activeMs)} active`;
             return (
-              <li key={`${item.slug}-${item.seq}`} className="admin-queue-item">
+              <li key={`${item.slug}-${item.seq}`} className={`admin-queue-item admin-queue-item--${state}`}>
                 <a
                   href={`/wiki/${toWikiSegment(item.title)}`}
                   onClick={(e) => {
@@ -117,7 +148,7 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
                   {item.title}
                 </a>
                 <span className="admin-queue-meta">
-                  {workflowLabel}{phase ? ` · ${phase}` : ""}
+                  {stateLabel(state)} · {timer} · {workflowLabel}{phase ? ` · ${phase}` : ""}
                   {item.waiting > 0 && ` · ${item.waiting} waiting`}
                 </span>
                 {item.reasoning ? <LiveCot text={item.reasoning} /> : null}

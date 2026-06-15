@@ -107,6 +107,9 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     random_page: {
       inspiration_count: app.random_page?.inspiration_count ?? 12,
     },
+    generation: {
+      max_in_flight: Math.max(1, Math.floor(app.generation?.max_in_flight ?? 1)),
+    },
     tests: {
       database_path: app.tests?.database_path ?? "halupedia.sqlite",
       llm_base_url: app.tests?.llm_base_url ?? "http://127.0.0.1:11434/v1",

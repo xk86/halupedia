@@ -35,6 +35,12 @@ interface ArticleSearchDropdownProps {
   inputClassName?: string;
   /** Optional sticky first row, e.g. the header's "Go to: <typed text>". */
   leading?: { label: ReactNode; onSelect: () => void };
+  /**
+   * Optional per-item preview rendered under the title (e.g. a summary). When
+   * omitted the rows are compact (the "quick" dropdown); when provided they are
+   * taller "previewed" rows — same component, different flag.
+   */
+  renderPreview?: (item: Suggestion) => ReactNode;
 }
 
 export function ArticleSearchDropdown({
@@ -47,6 +53,7 @@ export function ArticleSearchDropdown({
   wrapClassName,
   inputClassName,
   leading,
+  renderPreview,
 }: ArticleSearchDropdownProps) {
   const [open, setOpen] = useState(false);
   const { items, hasMore, loading, loadMore } = useArticleSuggestions(query);
@@ -102,7 +109,16 @@ export function ArticleSearchDropdown({
                   onPick(s);
                 }}
               >
-                {s.title}
+                {renderPreview ? (
+                  <span className="block">
+                    <span className="block">{s.title}</span>
+                    <span className="mt-[0.15rem] block text-[0.78rem] text-ink-fade">
+                      {renderPreview(s)}
+                    </span>
+                  </span>
+                ) : (
+                  s.title
+                )}
               </button>
             </li>
           ))}

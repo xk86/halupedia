@@ -204,16 +204,8 @@ export function App() {
   const [editBlacklist, setEditBlacklist] = useState<string[]>([]);
   const [editBlacklistOpen, setEditBlacklistOpen] = useState(false);
   const [editBlacklistInput, setEditBlacklistInput] = useState("");
-  const [editFuzzyQuery, setEditFuzzyQuery] = useState("");
-  const [editRagSearchQuery, setEditRagSearchQuery] = useState("");
-  const [editRefResults, setEditRefResults] = useState<
-    Array<{ slug: string; title: string; summaryMarkdown: string }>
-  >([]);
-  const [editRefSearchBusy, setEditRefSearchBusy] = useState(false);
-  const [editRefSearchError, setEditRefSearchError] = useState<string | null>(
-    null,
-  );
-  const [editRefSearchDone, setEditRefSearchDone] = useState(false);
+  // Typeahead query for adding references (single unified search dropdown).
+  const [editRefSearchDraft, setEditRefSearchDraft] = useState("");
   const [editRewriteMode, setEditRewriteMode] = useState<
     "aggressive" | "subtle"
   >("aggressive");
@@ -359,12 +351,7 @@ export function App() {
       setEditBlacklist([]);
       setEditBlacklistOpen(false);
       setEditBlacklistInput("");
-      setEditFuzzyQuery("");
-      setEditRagSearchQuery("");
-      setEditRefResults([]);
-      setEditRefSearchBusy(false);
-      setEditRefSearchError(null);
-      setEditRefSearchDone(false);
+      setEditRefSearchDraft("");
       setEditBusy(false);
       setEditError(null);
       setHistoryOpen(false);
@@ -900,64 +887,22 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editOpen, page?.article.slug]);
 
-  // Search for references: runs both fuzzy and RAG queries against find-references endpoint
-  const searchEditRefs = useCallback(
-    async (mode: "fuzzy" | "rag") => {
-      if (!page?.article.slug || editRefSearchBusy) return;
-      const query = mode === "fuzzy" ? editFuzzyQuery : editRagSearchQuery;
-      if (!query.trim()) return;
-      setEditRefSearchBusy(true);
-      setEditRefSearchError(null);
-      setEditRefSearchDone(false);
-      setEditRefResults([]);
-      try {
-        const res = await fetch(
-          `/api/article/${encodeURIComponent(page.article.slug)}/find-references`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(
-              mode === "fuzzy" ? { fuzzyTitles: query } : { ragQuery: query },
-            ),
-          },
-        );
-        const payload = (await res.json()) as {
-          articles?: Array<{
-            slug: string;
-            title: string;
-            summaryMarkdown: string;
-          }>;
-        };
-        if (!res.ok)
-          throw new Error((payload as any)?.error || `error ${res.status}`);
-        const existing = new Set(editRefs.map((r) => r.slug));
-        setEditRefResults(
-          (payload.articles ?? []).filter((a) => !existing.has(a.slug)),
-        );
-      } catch (err: any) {
-        setEditRefSearchError(err?.message || "Search failed.");
-      } finally {
-        setEditRefSearchBusy(false);
-        setEditRefSearchDone(true);
-      }
-    },
-    [
-      page?.article.slug,
-      editFuzzyQuery,
-      editRagSearchQuery,
-      editRefSearchBusy,
-      editRefs,
-    ],
-  );
-
   const addEditRef = useCallback(
-    (ref: { slug: string; title: string; summaryMarkdown: string }) => {
+    (ref: { slug: string; title: string; summary?: string }) => {
       setEditRefs((prev) =>
         prev.some((r) => r.slug === ref.slug)
           ? prev
-          : [...prev, { ...ref, pinned: false }],
+          : [
+              ...prev,
+              {
+                slug: ref.slug,
+                title: ref.title,
+                summaryMarkdown: ref.summary ?? "",
+                pinned: false,
+              },
+            ],
       );
-      setEditRefResults((prev) => prev.filter((r) => r.slug !== ref.slug));
+      setEditRefSearchDraft("");
     },
     [],
   );
@@ -1308,12 +1253,7 @@ export function App() {
       setEditBlacklist([]);
       setEditBlacklistOpen(false);
       setEditBlacklistInput("");
-      setEditFuzzyQuery("");
-      setEditRagSearchQuery("");
-      setEditRefResults([]);
-      setEditRefSearchBusy(false);
-      setEditRefSearchError(null);
-      setEditRefSearchDone(false);
+      setEditRefSearchDraft("");
       setEditBusy(false);
       setHistoryOpen(false);
       setRevisions([]);
@@ -2047,7 +1987,7 @@ export function App() {
                     setEditRefsEnabled(e.target.checked);
                     if (!e.target.checked) {
                       setEditAddRefsOpen(false);
-                      setEditRefResults([]);
+                      setEditRefSearchDraft("");
                     }
                   }}
                   disabled={editBusy || editRefsToggleLocked}
@@ -2060,7 +2000,7 @@ export function App() {
                   className="edit-refs-add-btn"
                   onClick={() => {
                     setEditAddRefsOpen((o) => !o);
-                    setEditRefResults([]);
+                    setEditRefSearchDraft("");
                   }}
                   disabled={editBusy}
                   aria-label="Add references"
@@ -2185,115 +2125,15 @@ export function App() {
             )}
 
             {editRefsEnabled && editAddRefsOpen && (
-              <div className="edit-refs-search-panel">
-                {/* Left: CSV fuzzy title/slug/wiki-path search */}
-                <div className="edit-refs-search-col">
-                  <label className="edit-refs-search-label">
-                    Title / slug (CSV)
-                  </label>
-                  <div className="edit-refs-search-row">
-                    <input
-                      type="text"
-                      className="edit-refs-search-input"
-                      value={editFuzzyQuery}
-                      onChange={(e) => {
-                        setEditFuzzyQuery(e.target.value);
-                        setEditRefSearchDone(false);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void searchEditRefs("fuzzy");
-                        }
-                      }}
-                      placeholder="Title, slug, or wiki/Path (CSV)"
-                      disabled={editBusy || editRefSearchBusy}
-                    />
-                    <button
-                      type="button"
-                      className="edit-refs-search-btn"
-                      onClick={() => void searchEditRefs("fuzzy")}
-                      disabled={
-                        editBusy || editRefSearchBusy || !editFuzzyQuery.trim()
-                      }
-                    >
-                      Find
-                    </button>
-                  </div>
-                </div>
-                {/* Right: freeform RAG / vector search */}
-                <div className="edit-refs-search-col">
-                  <label className="edit-refs-search-label">
-                    Freeform search (RAG)
-                  </label>
-                  <div className="edit-refs-search-row">
-                    <input
-                      type="text"
-                      className="edit-refs-search-input"
-                      value={editRagSearchQuery}
-                      onChange={(e) => {
-                        setEditRagSearchQuery(e.target.value);
-                        setEditRefSearchDone(false);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void searchEditRefs("rag");
-                        }
-                      }}
-                      placeholder="Describe topic to find related articles..."
-                      disabled={editBusy || editRefSearchBusy}
-                    />
-                    <button
-                      type="button"
-                      className="edit-refs-search-btn"
-                      onClick={() => void searchEditRefs("rag")}
-                      disabled={
-                        editBusy ||
-                        editRefSearchBusy ||
-                        !editRagSearchQuery.trim()
-                      }
-                    >
-                      Search
-                    </button>
-                  </div>
-                </div>
-
-                {editRefSearchError && (
-                  <p className="edit-refs-search-error">{editRefSearchError}</p>
-                )}
-                {editRefSearchBusy && (
-                  <p className="edit-refs-search-status">Searching...</p>
-                )}
-                {editRefSearchDone &&
-                  !editRefSearchBusy &&
-                  !editRefSearchError &&
-                  editRefResults.length === 0 && (
-                    <p className="edit-refs-search-status">No results found.</p>
-                  )}
-                {editRefResults.length > 0 && (
-                  <ul className="edit-refs-results">
-                    {editRefResults.map((r) => (
-                      <li key={r.slug}>
-                        <button
-                          type="button"
-                          className="edit-refs-result-btn"
-                          onClick={() => addEditRef(r)}
-                          disabled={editBusy}
-                        >
-                          <span className="edit-refs-result-title">
-                            {r.title}
-                          </span>
-                          {r.summaryMarkdown && (
-                            <span className="edit-refs-result-summary">
-                              {r.summaryMarkdown.slice(0, 100)}
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              <div className="mt-[0.3rem]">
+                <ArticleSearchDropdown
+                  inputType="text"
+                  query={editRefSearchDraft}
+                  onQueryChange={setEditRefSearchDraft}
+                  placeholder="Search articles to reference…"
+                  onPick={addEditRef}
+                  renderPreview={(s) => s.summary?.slice(0, 100)}
+                />
               </div>
             )}
 
@@ -2711,17 +2551,11 @@ export function App() {
     editIsPartial,
     editInitialRefSlugSet,
     editAddRefsOpen,
-    editFuzzyQuery,
-    editRagSearchQuery,
-    editRefResults,
-    editRefSearchBusy,
-    editRefSearchError,
-    editRefSearchDone,
+    editRefSearchDraft,
     editRefsChanged,
     editBlacklist,
     editBlacklistOpen,
     editBlacklistInput,
-    searchEditRefs,
     addEditRef,
     removeEditRef,
     blacklistEditRef,

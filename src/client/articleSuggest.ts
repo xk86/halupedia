@@ -7,15 +7,26 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export interface Suggestion { slug: string; title: string; }
+export interface Suggestion {
+  slug: string;
+  title: string;
+  summary?: string;
+}
 
 export async function fetchArticleSuggestions(
-  q: string, offset: number, signal?: AbortSignal,
+  q: string,
+  offset: number,
+  signal?: AbortSignal,
 ): Promise<{ hits: Suggestion[]; hasMore: boolean }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d: any = await fetch(`/api/search?q=${encodeURIComponent(q)}&offset=${offset}`, { signal }).then((r) => r.json());
+  const d: any = await fetch(
+    `/api/search?q=${encodeURIComponent(q)}&offset=${offset}`,
+    { signal },
+  ).then((r) => r.json());
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hits = (d.results ?? []).filter((r: any) => r.exists).map((r: any) => ({ slug: r.slug, title: r.title }));
+  const hits = (d.results ?? [])
+    .filter((r: any) => r.exists)
+    .map((r: any) => ({ slug: r.slug, title: r.title, summary: r.summary }));
   return { hits, hasMore: d.has_more ?? false };
 }
 
@@ -39,7 +50,13 @@ export function useArticleSuggestions(query: string): ArticleSuggestState {
   const queryRef = useRef("");
 
   useEffect(() => {
-    if (!query.trim()) { setItems([]); setHasMore(false); offsetRef.current = 0; queryRef.current = ""; return; }
+    if (!query.trim()) {
+      setItems([]);
+      setHasMore(false);
+      offsetRef.current = 0;
+      queryRef.current = "";
+      return;
+    }
     queryRef.current = query;
     offsetRef.current = 0;
     setItems([]);
@@ -47,27 +64,39 @@ export function useArticleSuggestions(query: string): ArticleSuggestState {
     const ctrl = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const { hits, hasMore: more } = await fetchArticleSuggestions(query, 0, ctrl.signal);
+        const { hits, hasMore: more } = await fetchArticleSuggestions(
+          query,
+          0,
+          ctrl.signal,
+        );
         if (ctrl.signal.aborted) return;
         setItems(hits);
         setHasMore(more);
         offsetRef.current = hits.length;
-      } catch { /* aborted or network error */ }
+      } catch {
+        /* aborted or network error */
+      }
     }, 180);
-    return () => { clearTimeout(timer); ctrl.abort(); };
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
   }, [query]);
 
   const loadMore = useCallback(async () => {
     if (loading || !hasMore || !queryRef.current.trim()) return;
     setLoading(true);
-    const q = queryRef.current, offset = offsetRef.current;
+    const q = queryRef.current,
+      offset = offsetRef.current;
     try {
       const { hits, hasMore: more } = await fetchArticleSuggestions(q, offset);
       if (queryRef.current !== q) return;
       setItems((prev) => [...prev, ...hits]);
       setHasMore(more);
       offsetRef.current = offset + hits.length;
-    } catch { /* network error */ }
+    } catch {
+      /* network error */
+    }
     setLoading(false);
   }, [loading, hasMore]);
 

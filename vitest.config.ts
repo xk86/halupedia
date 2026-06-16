@@ -1,5 +1,6 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { resolve } from "node:path";
 
 export default defineConfig({
   plugins: [react()],
@@ -7,7 +8,10 @@ export default defineConfig({
   // troika-three-text. Without this, vitest can resolve the ESM build for one
   // importer and the CJS build for another, and three logs "Multiple instances
   // of Three.js being imported" (its internal singletons then disagree).
-  resolve: { dedupe: ["three"] },
+  resolve: {
+    dedupe: ["three"],
+    alias: { "@": resolve(__dirname, "src/client") },
+  },
   test: {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],

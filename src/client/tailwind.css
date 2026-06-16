@@ -1,0 +1,94 @@
+/*
+ * Tailwind v4 entry — utilities only, NO Preflight.
+ *
+ * Preflight (Tailwind's `base` layer reset) is deliberately NOT imported: the
+ * app's own global resets in styles.css (`* { box-sizing }`, html/body
+ * font/bg, the base `a`/`a:hover` underline) are load-bearing, and Preflight
+ * would silently override them. We import only the theme (design-token vars)
+ * and utilities layers.
+ *
+ * The @theme block below maps Tailwind's color/font namespaces onto the
+ * EXISTING CSS custom properties defined in styles.css, so utilities emit the
+ * same `var(--token)` the hand-written rules already use. Color/font fidelity
+ * is therefore automatic, and BOTH dark-mode mechanisms in styles.css
+ * (`@media (prefers-color-scheme: dark)` and `:root[data-theme="dark"]`) keep
+ * working with NO `dark:` variants. styles.css is imported AFTER this file and
+ * remains authoritative during the incremental migration.
+ *
+ * NOTE: geometry (spacing/size/text) is intentionally NOT remapped — Tailwind's
+ * default rem scale differs from the hand-authored values, so per-component
+ * migrations use arbitrary values (e.g. px-[2.5rem]) to guarantee pixel parity.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme {
+  /* Fonts — point Tailwind's font utilities at the project stacks. */
+  --font-serif: var(--serif);
+  --font-mono: var(--mono);
+
+  /* Base palette */
+  --color-parchment: var(--parchment);
+  --color-parchment-deep: var(--parchment-deep);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-fade: var(--ink-fade);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-blockquote-bg: var(--blockquote-bg);
+
+  /* Link / accent washes */
+  --color-link-underline: var(--link-underline);
+  --color-accent-wash-soft: var(--accent-wash-soft);
+  --color-accent-wash: var(--accent-wash);
+  --color-accent-wash-strong: var(--accent-wash-strong);
+  --color-accent-surface-soft: var(--accent-surface-soft);
+
+  /* Rules / borders */
+  --color-rule-dotted: var(--rule-dotted);
+  --color-rule-soft: var(--rule-soft);
+  --color-control-border: var(--control-border);
+  --color-control-border-strong: var(--control-border-strong);
+  --color-panel-border: var(--panel-border);
+  --color-accent-border-soft: var(--accent-border-soft);
+  --color-accent-border: var(--accent-border);
+  --color-accent-border-strong: var(--accent-border-strong);
+  --color-sidebar-accent-border: var(--sidebar-accent-border);
+
+  /* Surfaces */
+  --color-control-surface: var(--control-surface);
+  --color-control-surface-strong: var(--control-surface-strong);
+  --color-control-surface-soft: var(--control-surface-soft);
+  --color-control-surface-focus: var(--control-surface-focus);
+  --color-panel-surface: var(--panel-surface);
+  --color-panel-surface-soft: var(--panel-surface-soft);
+  --color-panel-surface-strong: var(--panel-surface-strong);
+  --color-input-surface: var(--input-surface);
+  --color-input-surface-focus: var(--input-surface-focus);
+  --color-input-surface-strong: var(--input-surface-strong);
+
+  /* Overlays / shadows */
+  --color-overlay-bg: var(--overlay-bg);
+  --color-overlay-dim: var(--overlay-dim);
+  --color-overlay-border: var(--overlay-border);
+  --color-shadow-soft: var(--shadow-soft);
+  --color-shadow-strong: var(--shadow-strong);
+
+  /* Semantic states */
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-alt: var(--danger-alt);
+  --color-danger-text: var(--danger-text);
+  --color-success: var(--success);
+  --color-success-glow: var(--success-glow);
+  --color-success-glow-fade: var(--success-glow-fade);
+  --color-warning-border: var(--warning-border);
+  --color-warning-bg: var(--warning-bg);
+  --color-selection-bg: var(--selection-bg);
+
+  /* Brand */
+  --color-brand-reddit: var(--brand-reddit);
+  --color-brand-discord: var(--brand-discord);
+}

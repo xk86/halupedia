@@ -1,5 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toWikiSegment } from "./wikiPath";
+
+/** Section heading with an optional count badge. */
+function SectionTitle({
+  children,
+  count,
+}: {
+  children: ReactNode;
+  count?: number;
+}) {
+  return (
+    <h2 className="mx-0 mt-0 mb-[0.5rem] flex items-baseline gap-[0.5rem] pb-[0.25rem] font-serif text-[1.2rem] font-medium text-ink-soft [border-bottom:1px_solid_var(--rule-soft)]">
+      {children}
+      {count !== undefined && (
+        <span className="font-mono text-[0.7rem] font-normal tracking-[0.1em] text-ink-fade">
+          {count}
+        </span>
+      )}
+    </h2>
+  );
+}
 
 interface SearchItem {
   slug: string;
@@ -73,9 +100,7 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
   }, [q]);
 
   useEffect(() => {
-    document.title = q
-      ? `Search: ${q} — Halupedia`
-      : "Search — Halupedia";
+    document.title = q ? `Search: ${q} — Halupedia` : "Search — Halupedia";
   }, [q]);
 
   const onSubmit = useCallback(
@@ -85,7 +110,7 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       if (!trimmed) return;
       onSearch(trimmed);
     },
-    [draft, onSearch]
+    [draft, onSearch],
   );
 
   const onLinkClick = useCallback(
@@ -94,7 +119,7 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       e.preventDefault();
       onNavigate(slug);
     },
-    [onNavigate]
+    [onNavigate],
   );
 
   const { existingResults, unwrittenResults } = useMemo(() => {
@@ -109,17 +134,19 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
   const suggestions = data?.suggestions ?? [];
 
   return (
-    <div className="search-page">
-      <header className="search-header">
-        <h1>Search</h1>
-        <p className="search-subtitle">
+    <div className="mt-[0.5rem]">
+      <header>
+        <h1 className="mx-0 mt-0 mb-[0.5rem] pb-[0.4rem] font-serif text-[2rem] font-medium [border-bottom:2px_solid_var(--rule)]">
+          Search
+        </h1>
+        <p className="mx-0 mt-0 mb-[1.25rem] font-serif text-ink-soft italic">
           Existing entries are listed first. The rest are plausible titles the
           encyclopedia hasn't yet committed to paper — click one and it will be
           dreamt up on the spot.
         </p>
       </header>
 
-      <form className="search-form" onSubmit={onSubmit}>
+      <form className="mb-[1.25rem] flex gap-[0.5rem]" onSubmit={onSubmit}>
         <input
           type="search"
           className="search-input"
@@ -139,9 +166,10 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       </form>
 
       {q && (
-        <div className="search-goto">
+        <div className="search-goto mb-[1.2em] rounded-[4px] bg-blockquote-bg px-[0.8em] py-[0.6em] text-[0.95rem] [border:1px_solid_var(--rule)]">
           Go to{" "}
           <a
+            className="font-semibold text-accent no-underline hover:text-accent-hover hover:underline"
             href={`/wiki/${toWikiSegment(q)}`}
             onClick={(e) => onLinkClick(e, toWikiSegment(q))}
           >
@@ -162,7 +190,7 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       {q && data && !loading && (
         <>
           {data.rate_limited && (
-            <div className="search-ratelimit">
+            <div className="mx-0 mt-0 mb-[1.25rem] bg-panel-surface-soft px-[0.9rem] py-[0.7rem] font-serif text-[0.95rem] text-ink-soft italic [border-left:3px_solid_var(--rule)]">
               You've hit the search-suggestion rate limit. Showing only entries
               already in the encyclopedia — no new hallucinations this round.
               Try again later.
@@ -170,32 +198,29 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
           )}
 
           {data.results.length === 0 ? (
-            <p className="search-empty">
+            <p className="my-[1rem] font-serif text-ink-fade italic">
               Nothing in the register, and the encyclopedia declines to invent
               anything new right now.
             </p>
           ) : (
             <div className="search-results">
               {existingResults.length > 0 && (
-                <section className="search-section">
-                  <h2 className="search-section-title">
+                <section>
+                  <SectionTitle count={existingResults.length}>
                     In the encyclopedia
-                    <span className="search-section-count">
-                      {existingResults.length}
-                    </span>
-                  </h2>
+                  </SectionTitle>
                   <ul className="search-list">
                     {existingResults.map((r) => (
                       <li key={r.slug} className="search-item">
                         <a
                           href={`/wiki/${toWikiSegment(r.title)}`}
-                          onClick={(e) => onLinkClick(e, toWikiSegment(r.title))}
+                          onClick={(e) =>
+                            onLinkClick(e, toWikiSegment(r.title))
+                          }
                         >
                           {r.title}
                         </a>
-                        {r.summary && (
-                          <p className="search-item-summary">{r.summary}</p>
-                        )}
+                        {r.summary && <p>{r.summary}</p>}
                       </li>
                     ))}
                   </ul>
@@ -203,25 +228,25 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
               )}
 
               {unwrittenResults.length > 0 && (
-                <section className="search-section">
-                  <h2 className="search-section-title">
+                <section>
+                  <SectionTitle count={unwrittenResults.length}>
                     Not yet written
-                    <span className="search-section-count">
-                      {unwrittenResults.length}
-                    </span>
-                  </h2>
+                  </SectionTitle>
                   <ul className="search-list">
                     {unwrittenResults.map((r) => (
-                      <li
-                        key={r.slug}
-                        className="search-item search-item-unwritten"
-                      >
+                      <li key={r.slug} className="search-item">
                         <a
+                          className="group text-ink-fade italic [border-bottom:1px_dashed_var(--accent-border-soft)] hover:[border-bottom-color:var(--accent-hover)] hover:text-accent-hover"
                           href={`/wiki/${toWikiSegment(r.title)}`}
-                          onClick={(e) => onLinkClick(e, toWikiSegment(r.title))}
+                          onClick={(e) =>
+                            onLinkClick(e, toWikiSegment(r.title))
+                          }
                           title="Not yet written — clicking will hallucinate it"
                         >
-                          <span className="search-unwritten-mark" aria-hidden>
+                          <span
+                            className="mr-[0.35rem] inline-block w-[1rem] text-center text-[0.85em] text-[var(--rule)] not-italic group-hover:text-[var(--accent-hover)]"
+                            aria-hidden
+                          >
                             ✦
                           </span>
                           {r.title}
@@ -237,22 +262,20 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       )}
 
       {suggestions.length > 0 && (
-        <section className="search-section search-suggestions">
-          <h2 className="search-section-title">
+        <section>
+          <SectionTitle>
             {q ? "You might also enjoy" : "Random entries"}
-          </h2>
+          </SectionTitle>
           <ul className="search-list">
             {suggestions.map((s) => (
-              <li key={s.slug} className="search-item search-item-suggestion">
+              <li key={s.slug} className="search-item">
                 <a
                   href={`/wiki/${toWikiSegment(s.title)}`}
                   onClick={(e) => onLinkClick(e, toWikiSegment(s.title))}
                 >
                   {s.title}
                 </a>
-                {s.summary && (
-                  <p className="search-item-summary">{s.summary}</p>
-                )}
+                {s.summary && <p>{s.summary}</p>}
               </li>
             ))}
           </ul>
@@ -260,7 +283,7 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       )}
 
       {!q && !loading && suggestions.length === 0 && (
-        <p className="search-hint">
+        <p className="my-[1rem] font-serif text-ink-fade italic">
           Try a name, a place, a century, an obscure ritual — or anything at
           all.
         </p>

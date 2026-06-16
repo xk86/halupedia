@@ -335,31 +335,6 @@ a:hover {
 
 /* ----------------------- Search results page ------------- */
 
-.search-page {
-  margin-top: 0.5rem;
-}
-
-.search-header h1 {
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 2rem;
-  margin: 0 0 0.5rem;
-  border-bottom: 2px solid var(--rule);
-  padding-bottom: 0.4rem;
-}
-
-.search-subtitle {
-  font-family: var(--serif);
-  font-style: italic;
-  color: var(--ink-soft);
-  margin: 0 0 1.25rem;
-}
-
-.search-form {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.25rem;
-}
 
 .search-input {
   flex: 1;
@@ -401,9 +376,7 @@ a:hover {
   cursor: not-allowed;
 }
 
-.search-hint,
-.search-status,
-.search-empty {
+.search-status {
   font-family: var(--serif);
   font-style: italic;
   color: var(--ink-fade);
@@ -431,16 +404,6 @@ a:hover {
   margin: 1rem 0;
 }
 
-.search-ratelimit {
-  font-family: var(--serif);
-  font-size: 0.95rem;
-  font-style: italic;
-  color: var(--ink-soft);
-  background: var(--panel-surface-soft);
-  border-left: 3px solid var(--rule);
-  padding: 0.7rem 0.9rem;
-  margin: 0 0 1.25rem;
-}
 
 .search-results {
   display: flex;
@@ -448,26 +411,6 @@ a:hover {
   gap: 1.5rem;
 }
 
-.search-section-title {
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 1.2rem;
-  margin: 0 0 0.5rem;
-  color: var(--ink-soft);
-  border-bottom: 1px solid var(--rule-soft);
-  padding-bottom: 0.25rem;
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-
-.search-section-count {
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  font-weight: 400;
-  color: var(--ink-fade);
-  letter-spacing: 0.1em;
-}
 
 .search-list {
   list-style: none;
@@ -489,30 +432,6 @@ a:hover {
   border-bottom: none;
 }
 
-.search-item-unwritten a {
-  font-style: italic;
-  color: var(--ink-fade);
-  border-bottom: 1px dashed var(--accent-border-soft);
-}
-
-.search-item-unwritten a:hover {
-  color: var(--accent-hover);
-  border-bottom-color: var(--accent-hover);
-}
-
-.search-unwritten-mark {
-  display: inline-block;
-  width: 1rem;
-  margin-right: 0.35rem;
-  color: var(--rule);
-  font-style: normal;
-  font-size: 0.85em;
-  text-align: center;
-}
-
-.search-item-unwritten a:hover .search-unwritten-mark {
-  color: var(--accent-hover);
-}
 
 /* ----------------------- Article ------------------------- */
 
@@ -5100,26 +5019,6 @@ button.admin-danger-btn:hover:not(:disabled) {
 }
 
 /* Search go-to link */
-.search-goto {
-  margin-bottom: 1.2em;
-  padding: 0.6em 0.8em;
-  background: var(--blockquote-bg);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  font-size: 0.95rem;
-}
-
-.search-goto a {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.search-goto a:hover {
-  text-decoration: underline;
-  color: var(--accent-hover);
-}
-
 /* Blacklist (excluded references) panel */
 .edit-blacklist-row {
   margin-top: 0.6rem;

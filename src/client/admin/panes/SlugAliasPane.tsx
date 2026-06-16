@@ -1,5 +1,9 @@
 import { MutableRefObject } from "react";
 import { Pane } from "../Pane";
+import {
+  ArticleSearchDropdown,
+  SEARCH_INPUT,
+} from "../../ArticleSearchDropdown";
 
 interface AliasResult {
   slug: string;
@@ -84,103 +88,211 @@ export function SlugAliasPane({
 }: Props) {
   return (
     <Pane id="slug-alias" title="Slug & Alias Management" wide>
-      <p style={{ fontSize: "0.875rem", color: "var(--color-muted, #888)", marginBottom: "1rem" }}>
-        <strong>Aliases</strong> let multiple slug paths resolve to the same article.
-        A <strong>canonical redirect</strong> makes a source slug silently rewrite to a target slug (useful for merging two articles — the displaced article is archived and restorable).
+      <p className="mb-[1rem] text-[0.875rem] text-ink-fade">
+        <strong>Aliases</strong> let multiple slug paths resolve to the same
+        article. A <strong>canonical redirect</strong> makes a source slug
+        silently rewrite to a target slug (useful for merging two articles — the
+        displaced article is archived and restorable).
       </p>
 
-      <h3 className="sb-heading" style={{ marginBottom: "0.5rem" }}>Find Aliases by Slug</h3>
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
-        <input
-          className="search-input"
-          placeholder="Search slug…"
-          value={aliasSearch}
-          onChange={(e) => {
-            onAliasSearchChange(e.target.value);
-            if (aliasSearchTimer.current) clearTimeout(aliasSearchTimer.current);
-            aliasSearchTimer.current = setTimeout(() => onDoAliasSearch(e.target.value), 300);
+      <h3 className="sb-heading mb-[0.5rem]">Find Aliases by Slug</h3>
+      <div className="mb-[0.5rem] flex items-center gap-[0.5rem]">
+        <ArticleSearchDropdown
+          wrapClassName="flex-1"
+          inputType="text"
+          query={aliasSearch}
+          onQueryChange={(v) => {
+            onAliasSearchChange(v);
+            if (aliasSearchTimer.current)
+              clearTimeout(aliasSearchTimer.current);
+            aliasSearchTimer.current = setTimeout(
+              () => onDoAliasSearch(v),
+              300,
+            );
           }}
-          style={{ flex: 1 }}
+          onPick={(s) => {
+            onAliasSearchChange(s.slug);
+            onDoAliasSearch(s.slug);
+          }}
+          placeholder="Search article (slug or /wiki/ link)…"
         />
-        {aliasSearching && <span style={{ alignSelf: "center", fontSize: "0.8rem" }}>Searching…</span>}
+        {aliasSearching && <span className="text-[0.8rem]">Searching…</span>}
       </div>
       {aliasResults.map((r) => (
-        <div key={r.slug} style={{ border: "1px solid var(--color-border, #ddd)", borderRadius: 6, padding: "0.75rem", marginBottom: "0.5rem" }}>
-          <strong>{r.title}</strong> <code style={{ fontSize: "0.8rem" }}>{r.slug}</code>
+        <div
+          key={r.slug}
+          className="mb-[0.5rem] rounded-[6px] p-[0.75rem] [border:1px_solid_var(--rule)]"
+        >
+          <strong>{r.title}</strong>{" "}
+          <code className="text-[0.8rem]">{r.slug}</code>
           {r.aliases.length > 0 && (
-            <ul style={{ marginTop: "0.4rem", paddingLeft: "1.2rem" }}>
+            <ul className="mt-[0.4rem] pl-[1.2rem]">
               {r.aliases.map((a) => (
-                <li key={a.aliasSlug} style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.2rem" }}>
-                  <code style={{ fontSize: "0.8rem" }}>{a.aliasSlug}</code>
-                  <button className="admin-btn" style={{ fontSize: "0.75rem", padding: "0.1rem 0.4rem" }} onClick={() => onRemoveAlias(a.aliasSlug)}>Remove</button>
+                <li
+                  key={a.aliasSlug}
+                  className="mb-[0.2rem] flex items-center gap-[0.5rem]"
+                >
+                  <code className="text-[0.8rem]">{a.aliasSlug}</code>
+                  <button
+                    className="admin-btn px-[0.4rem] py-[0.1rem] text-[0.75rem]"
+                    onClick={() => onRemoveAlias(a.aliasSlug)}
+                  >
+                    Remove
+                  </button>
                 </li>
               ))}
             </ul>
           )}
-          {r.aliases.length === 0 && <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginTop: "0.3rem" }}>No aliases.</p>}
-        </div>
-      ))}
-
-      <h3 className="sb-heading" style={{ marginTop: "1rem", marginBottom: "0.5rem" }}>Add Alias</h3>
-      <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
-        Alias slug → canonical slug. Visiting the alias will serve the canonical article.
-      </p>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        <input className="search-input" placeholder="alias-slug" value={newAliasSlug} onChange={(e) => onNewAliasSlugChange(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-        <span style={{ alignSelf: "center" }}>→</span>
-        <input className="search-input" placeholder="canonical-slug" value={newAliasTarget} onChange={(e) => onNewAliasTargetChange(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-        <button className="admin-btn" onClick={onAddAlias} disabled={!newAliasSlug.trim() || !newAliasTarget.trim()}>Add Alias</button>
-      </div>
-      {aliasMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>{aliasMsg}</p>}
-
-      <h3 className="sb-heading" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>Canonical Slug Redirect</h3>
-      <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
-        All traffic to <em>source slug</em> will silently redirect to <em>canonical slug</em>. If an article exists at the source slug it will be archived (see below). Use this to merge two pages.
-      </p>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        <input className="search-input" placeholder="source-slug (will redirect)" value={redirectSource} onChange={(e) => onRedirectSourceChange(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-        <span style={{ alignSelf: "center" }}>→</span>
-        <input className="search-input" placeholder="canonical-slug (stays)" value={redirectTarget} onChange={(e) => onRedirectTargetChange(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
-        <button className="admin-btn admin-danger-btn" onClick={() => onCreateRedirect(false)} disabled={redirectBusy || !redirectSource.trim() || !redirectTarget.trim()}>Create Redirect</button>
-      </div>
-      {redirectConfirmData && (
-        <div style={{ background: "var(--color-warn-bg, #fff3cd)", border: "1px solid var(--color-warn, #f0ad4e)", borderRadius: 6, padding: "0.75rem", marginBottom: "0.5rem" }}>
-          <p style={{ marginBottom: "0.5rem" }}>{redirectConfirmData.message}</p>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <button className="admin-btn admin-danger-btn" onClick={() => onCreateRedirect(true)} disabled={redirectBusy}>Confirm & Archive</button>
-            <button className="admin-btn" onClick={onClearRedirectConfirm}>Cancel</button>
-          </div>
-        </div>
-      )}
-      {redirectMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.3rem" }}>{redirectMsg}</p>}
-
-      <h3 className="sb-heading" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>
-        Archived Articles
-        <button className="admin-btn" style={{ marginLeft: "0.75rem", fontSize: "0.8rem" }} onClick={onLoadArchived} disabled={archivedLoading}>
-          {archivedLoading ? "Loading…" : "Load / Refresh"}
-        </button>
-      </h3>
-      <p style={{ fontSize: "0.8rem", color: "var(--color-muted, #888)", marginBottom: "0.4rem" }}>
-        Articles displaced by canonical redirects. Restore to bring them back as a live article at their original slug.
-      </p>
-      {archived.length === 0 && !archivedLoading && <p style={{ fontSize: "0.85rem", color: "var(--color-muted, #888)" }}>No archived articles. Click Load to check.</p>}
-      {archived.map((a) => (
-        <div key={a.slug} style={{ display: "flex", gap: "0.75rem", alignItems: "center", padding: "0.5rem 0", borderBottom: "1px solid var(--color-border, #eee)" }}>
-          <div style={{ flex: 1 }}>
-            <strong>{a.title}</strong> <code style={{ fontSize: "0.8rem" }}>{a.slug}</code>
-            <div style={{ fontSize: "0.75rem", color: "var(--color-muted, #888)" }}>{a.reason} — archived {new Date(a.archivedAt).toLocaleString()}</div>
-          </div>
-          {restoreConfirm === a.slug ? (
-            <div style={{ display: "flex", gap: "0.4rem" }}>
-              <button className="admin-btn admin-danger-btn" onClick={() => onRestoreArchived(a.slug, true)}>Confirm Restore</button>
-              <button className="admin-btn" onClick={onClearRestoreConfirm}>Cancel</button>
-            </div>
-          ) : (
-            <button className="admin-btn" onClick={() => onRestoreArchived(a.slug, false)}>Restore</button>
+          {r.aliases.length === 0 && (
+            <p className="mt-[0.3rem] text-[0.8rem] text-ink-fade">
+              No aliases.
+            </p>
           )}
         </div>
       ))}
-      {restoreMsg && <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>{restoreMsg}</p>}
+
+      <h3 className="sb-heading mt-[1rem] mb-[0.5rem]">Add Alias</h3>
+      <p className="mb-[0.4rem] text-[0.8rem] text-ink-fade">
+        Alias slug → canonical slug. Visiting the alias will serve the canonical
+        article.
+      </p>
+      <div className="mb-[0.5rem] flex flex-wrap items-start gap-[0.5rem]">
+        <input
+          className={`${SEARCH_INPUT} min-w-[140px] flex-1`}
+          placeholder="new alias-slug"
+          value={newAliasSlug}
+          onChange={(e) => onNewAliasSlugChange(e.target.value)}
+        />
+        <span className="self-center">→</span>
+        <ArticleSearchDropdown
+          wrapClassName="min-w-[140px] flex-1"
+          inputType="text"
+          query={newAliasTarget}
+          onQueryChange={onNewAliasTargetChange}
+          onPick={(s) => onNewAliasTargetChange(s.slug)}
+          placeholder="canonical article…"
+        />
+        <button
+          className="admin-btn"
+          onClick={onAddAlias}
+          disabled={!newAliasSlug.trim() || !newAliasTarget.trim()}
+        >
+          Add Alias
+        </button>
+      </div>
+      {aliasMsg && <p className="mt-[0.3rem] text-[0.85rem]">{aliasMsg}</p>}
+
+      <h3 className="sb-heading mt-[1.5rem] mb-[0.5rem]">
+        Canonical Slug Redirect
+      </h3>
+      <p className="mb-[0.4rem] text-[0.8rem] text-ink-fade">
+        All traffic to <em>source slug</em> will silently redirect to{" "}
+        <em>canonical slug</em>. If an article exists at the source slug it will
+        be archived (see below). Use this to merge two pages.
+      </p>
+      <div className="mb-[0.5rem] flex flex-wrap items-start gap-[0.5rem]">
+        <ArticleSearchDropdown
+          wrapClassName="min-w-[140px] flex-1"
+          inputType="text"
+          query={redirectSource}
+          onQueryChange={onRedirectSourceChange}
+          onPick={(s) => onRedirectSourceChange(s.slug)}
+          placeholder="source article (will redirect)…"
+        />
+        <span className="self-center">→</span>
+        <ArticleSearchDropdown
+          wrapClassName="min-w-[140px] flex-1"
+          inputType="text"
+          query={redirectTarget}
+          onQueryChange={onRedirectTargetChange}
+          onPick={(s) => onRedirectTargetChange(s.slug)}
+          placeholder="canonical article (stays)…"
+        />
+        <button
+          className="admin-btn admin-danger-btn"
+          onClick={() => onCreateRedirect(false)}
+          disabled={
+            redirectBusy || !redirectSource.trim() || !redirectTarget.trim()
+          }
+        >
+          Create Redirect
+        </button>
+      </div>
+      {redirectConfirmData && (
+        <div className="mb-[0.5rem] rounded-[6px] bg-warning-bg p-[0.75rem] [border:1px_solid_var(--warning-border)]">
+          <p className="mb-[0.5rem]">{redirectConfirmData.message}</p>
+          <div className="flex gap-[0.5rem]">
+            <button
+              className="admin-btn admin-danger-btn"
+              onClick={() => onCreateRedirect(true)}
+              disabled={redirectBusy}
+            >
+              Confirm & Archive
+            </button>
+            <button className="admin-btn" onClick={onClearRedirectConfirm}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {redirectMsg && (
+        <p className="mt-[0.3rem] text-[0.85rem]">{redirectMsg}</p>
+      )}
+
+      <h3 className="sb-heading mt-[1.5rem] mb-[0.5rem]">
+        Archived Articles
+        <button
+          className="admin-btn ml-[0.75rem] text-[0.8rem]"
+          onClick={onLoadArchived}
+          disabled={archivedLoading}
+        >
+          {archivedLoading ? "Loading…" : "Load / Refresh"}
+        </button>
+      </h3>
+      <p className="mb-[0.4rem] text-[0.8rem] text-ink-fade">
+        Articles displaced by canonical redirects. Restore to bring them back as
+        a live article at their original slug.
+      </p>
+      {archived.length === 0 && !archivedLoading && (
+        <p className="text-[0.85rem] text-ink-fade">
+          No archived articles. Click Load to check.
+        </p>
+      )}
+      {archived.map((a) => (
+        <div
+          key={a.slug}
+          className="flex items-center gap-[0.75rem] py-[0.5rem] [border-bottom:1px_solid_var(--rule-soft)]"
+        >
+          <div className="flex-1">
+            <strong>{a.title}</strong>{" "}
+            <code className="text-[0.8rem]">{a.slug}</code>
+            <div className="text-[0.75rem] text-ink-fade">
+              {a.reason} — archived {new Date(a.archivedAt).toLocaleString()}
+            </div>
+          </div>
+          {restoreConfirm === a.slug ? (
+            <div className="flex gap-[0.4rem]">
+              <button
+                className="admin-btn admin-danger-btn"
+                onClick={() => onRestoreArchived(a.slug, true)}
+              >
+                Confirm Restore
+              </button>
+              <button className="admin-btn" onClick={onClearRestoreConfirm}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              className="admin-btn"
+              onClick={() => onRestoreArchived(a.slug, false)}
+            >
+              Restore
+            </button>
+          )}
+        </div>
+      ))}
+      {restoreMsg && <p className="mt-[0.5rem] text-[0.85rem]">{restoreMsg}</p>}
     </Pane>
   );
 }

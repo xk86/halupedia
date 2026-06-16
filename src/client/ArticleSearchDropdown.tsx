@@ -15,8 +15,11 @@ export type { Suggestion };
  * action) wrap this and pass `leading` for the optional sticky first row.
  */
 
-const INPUT =
+/** The shared search-input styling, exported so plain inputs that sit next to a
+ *  search dropdown (e.g. the "new alias slug" field) can match it exactly. */
+export const SEARCH_INPUT =
   "box-border w-full rounded-[2px] bg-input-surface px-[0.55rem] py-[0.35rem] font-serif text-[0.95rem] text-ink outline-none [border:1px_solid_var(--rule)] [transition:border-color_120ms_ease,background_120ms_ease] focus:bg-input-surface-focus focus:[border-color:var(--accent)]";
+const INPUT = SEARCH_INPUT;
 
 const ITEM =
   "block w-full cursor-pointer border-none bg-transparent px-[0.6rem] py-[0.45rem] text-left font-serif text-[0.92rem] text-ink [transition:background_80ms_ease] hover:bg-blockquote-bg";

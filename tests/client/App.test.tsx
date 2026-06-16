@@ -206,7 +206,7 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Admin" });
-    await userEvent.type(screen.getByPlaceholderText("Slug or /wiki/ link for summary"), "https://host/wiki/Test_Article");
+    await userEvent.type(screen.getByPlaceholderText("Search or paste /wiki/ link…"), "https://host/wiki/Test_Article");
     await userEvent.click(screen.getByRole("button", { name: "Regenerate summary" }));
 
     expect(await screen.findByText("Summary regenerated for Test Article.")).toBeInTheDocument();

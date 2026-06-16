@@ -107,6 +107,7 @@ export function ArticleSearchDropdown({
                 onMouseDown={(e) => {
                   e.preventDefault();
                   onPick(s);
+                  setOpen(false);
                 }}
               >
                 {renderPreview ? (

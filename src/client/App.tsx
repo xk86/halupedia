@@ -9,10 +9,14 @@ import { MediaListPage } from "./MediaListPage";
 import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
 import { MarkdownEditor } from "./MarkdownEditor";
-import { useArticleSuggestions } from "./articleSuggest";
+import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
 import { renderInlineHtml } from "./summaryHtml";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
-import { slugify, normalizeCanonicalTitle, wikiSegmentToRequestedTitle } from "../server/slug";
+import {
+  slugify,
+  normalizeCanonicalTitle,
+  wikiSegmentToRequestedTitle,
+} from "../server/slug";
 
 type Route =
   | { kind: "home" }
@@ -112,7 +116,9 @@ const articleFailureMessage =
 
 function initialThemeMode(): ThemeMode {
   try {
-    return window.localStorage.getItem("halupedia-theme") === "dark" ? "dark" : "auto";
+    return window.localStorage.getItem("halupedia-theme") === "dark"
+      ? "dark"
+      : "auto";
   } catch {
     return "auto";
   }
@@ -121,16 +127,23 @@ function initialThemeMode(): ThemeMode {
 function parseRoute(): Route {
   const { pathname, search } = window.location;
   if (pathname === "/") return { kind: "home" };
-  if (pathname === "/Random" || pathname === "/random") return { kind: "random" };
+  if (pathname === "/Random" || pathname === "/random")
+    return { kind: "random" };
   if (pathname === "/all-entries") return { kind: "index" };
   if (pathname === "/admin") return { kind: "admin" };
   if (pathname === "/graph") return { kind: "graph" };
   if (pathname === "/search") {
-    return { kind: "search", query: new URLSearchParams(search).get("q") ?? "" };
+    return {
+      kind: "search",
+      query: new URLSearchParams(search).get("q") ?? "",
+    };
   }
   if (pathname === "/media") return { kind: "media-list" };
   if (pathname.startsWith("/media/")) {
-    return { kind: "media", imageSlug: decodeURIComponent(pathname.slice("/media/".length)) };
+    return {
+      kind: "media",
+      imageSlug: decodeURIComponent(pathname.slice("/media/".length)),
+    };
   }
   if (pathname.startsWith("/wiki/")) {
     // Strip the legacy /history suffix BEFORE toWikiSegment — the segment
@@ -164,10 +177,6 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [headerSearchDraft, setHeaderSearchDraft] = useState("");
-  const [searchSuggestOpen, setSearchSuggestOpen] = useState(false);
-  // Live scroll-paginated article results for the header search dropdown,
-  // sharing the same widget the graph seed/waypoint pickers use.
-  const headerSuggest = useArticleSuggestions(headerSearchDraft);
   const [linkMenu, setLinkMenu] = useState<LinkMenuState | null>(null);
   const [linkMenuBusy, setLinkMenuBusy] = useState(false);
   const [linkMenuError, setLinkMenuError] = useState<string | null>(null);
@@ -175,10 +184,18 @@ export function App() {
   const [editOpen, setEditOpen] = useState(false);
   const [editDraft, setEditDraft] = useState("");
   const [editSectionId, setEditSectionId] = useState("");
-  const [editIncludeRecentPrompts, setEditIncludeRecentPrompts] = useState(false);
+  const [editIncludeRecentPrompts, setEditIncludeRecentPrompts] =
+    useState(false);
   // References panel state
   const [editRefsEnabled, setEditRefsEnabled] = useState(false);
-  const [editRefs, setEditRefs] = useState<Array<{ slug: string; title: string; summaryMarkdown: string; pinned: boolean }>>([]);
+  const [editRefs, setEditRefs] = useState<
+    Array<{
+      slug: string;
+      title: string;
+      summaryMarkdown: string;
+      pinned: boolean;
+    }>
+  >([]);
   const [editInitialRefSlugs, setEditInitialRefSlugs] = useState<string[]>([]);
   const [editAddRefsOpen, setEditAddRefsOpen] = useState(false);
   // Slugs the user has explicitly removed from the reference list. Loaded
@@ -189,11 +206,17 @@ export function App() {
   const [editBlacklistInput, setEditBlacklistInput] = useState("");
   const [editFuzzyQuery, setEditFuzzyQuery] = useState("");
   const [editRagSearchQuery, setEditRagSearchQuery] = useState("");
-  const [editRefResults, setEditRefResults] = useState<Array<{ slug: string; title: string; summaryMarkdown: string }>>([]);
+  const [editRefResults, setEditRefResults] = useState<
+    Array<{ slug: string; title: string; summaryMarkdown: string }>
+  >([]);
   const [editRefSearchBusy, setEditRefSearchBusy] = useState(false);
-  const [editRefSearchError, setEditRefSearchError] = useState<string | null>(null);
+  const [editRefSearchError, setEditRefSearchError] = useState<string | null>(
+    null,
+  );
   const [editRefSearchDone, setEditRefSearchDone] = useState(false);
-  const [editRewriteMode, setEditRewriteMode] = useState<"aggressive" | "subtle">("aggressive");
+  const [editRewriteMode, setEditRewriteMode] = useState<
+    "aggressive" | "subtle"
+  >("aggressive");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   // Title editing
@@ -204,21 +227,28 @@ export function App() {
   const [protectionBusy, setProtectionBusy] = useState(false);
   const [rawEditOpen, setRawEditOpen] = useState(false);
   const [rawEditMarkdown, setRawEditMarkdown] = useState("");
-  const [rawEditPreview, setRawEditPreview] = useState<{ html: string; diagnostics: Array<{ severity: string; message: string }> } | null>(null);
+  const [rawEditPreview, setRawEditPreview] = useState<{
+    html: string;
+    diagnostics: Array<{ severity: string; message: string }>;
+  } | null>(null);
   const [rawEditPreviewBusy, setRawEditPreviewBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [revisions, setRevisions] = useState<ArticleRevision[]>([]);
-  const [selectedRevision, setSelectedRevision] = useState<ArticleRevision | null>(null);
-  const [restoreConfirmRevision, setRestoreConfirmRevision] = useState<ArticleRevision | null>(null);
+  const [selectedRevision, setSelectedRevision] =
+    useState<ArticleRevision | null>(null);
+  const [restoreConfirmRevision, setRestoreConfirmRevision] =
+    useState<ArticleRevision | null>(null);
   const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
   const [revertingId, setRevertingId] = useState<number | null>(null);
   const [refreshBusy, setRefreshBusy] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [copySlugMessage, setCopySlugMessage] = useState<string | null>(null);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => initialThemeMode());
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
+    initialThemeMode(),
+  );
   const articleRef = useRef<HTMLElement | null>(null);
   const editTrayRef = useRef<HTMLElement | null>(null);
   const inFlightSlugRef = useRef<string | null>(null);
@@ -227,8 +257,12 @@ export function App() {
   // The user's literal typed title (e.g. from the search bar), remembered
   // out-of-band for the next page fetch of that slug — sent as a request
   // header rather than a URL param so the address bar stays clean.
-  const pendingRequestedTitleRef = useRef<{ slug: string; title: string } | null>(null);
-  const editIsPartial = editSectionId === "__selection__" || Boolean(editSectionId);
+  const pendingRequestedTitleRef = useRef<{
+    slug: string;
+    title: string;
+  } | null>(null);
+  const editIsPartial =
+    editSectionId === "__selection__" || Boolean(editSectionId);
   const editInitialRefSlugSet = useMemo(
     () => new Set(editInitialRefSlugs),
     [editInitialRefSlugs],
@@ -248,7 +282,8 @@ export function App() {
       delete document.documentElement.dataset.theme;
     }
     try {
-      if (themeMode === "dark") window.localStorage.setItem("halupedia-theme", "dark");
+      if (themeMode === "dark")
+        window.localStorage.setItem("halupedia-theme", "dark");
       else window.localStorage.removeItem("halupedia-theme");
     } catch {
       // Ignore storage failures; the visible theme toggle still works.
@@ -279,14 +314,19 @@ export function App() {
           if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
           const path = String(payload.path ?? "");
           const url = new URL(path, window.location.origin);
-          if (url.origin !== window.location.origin || !url.pathname.startsWith("/wiki/")) {
+          if (
+            url.origin !== window.location.origin ||
+            !url.pathname.startsWith("/wiki/")
+          ) {
             throw new Error("random page endpoint returned an invalid path");
           }
           if (cancelled) return;
           window.history.replaceState({}, "", url.pathname);
           setRoute({
             kind: "article",
-            slug: toWikiSegment(decodeURIComponent(url.pathname.slice("/wiki/".length))),
+            slug: toWikiSegment(
+              decodeURIComponent(url.pathname.slice("/wiki/".length)),
+            ),
           });
         } catch (err: any) {
           if (cancelled) return;
@@ -397,30 +437,41 @@ export function App() {
 
     (async () => {
       try {
-        const apiUrl = route.kind === "disambiguation"
-          ? `/api/disambiguation/${encodeURIComponent(route.slug)}`
-          : `/api/page/${encodeURIComponent(route.slug)}`;
+        const apiUrl =
+          route.kind === "disambiguation"
+            ? `/api/disambiguation/${encodeURIComponent(route.slug)}`
+            : `/api/page/${encodeURIComponent(route.slug)}`;
         const pendingTitle = pendingRequestedTitleRef.current;
         // Placeholder title shown while the article streams in. Prefer the
         // user's literal typed title (it carries punctuation the slug-based
         // URL can't, e.g. the colon in "Pee: A Test") so it appears
         // immediately instead of snapping in only once the article fully
         // renders. Falls back to reconstructing from the URL segment.
-        const matchedPending = pendingTitle && pendingTitle.slug === route.slug ? pendingTitle.title : null;
+        const matchedPending =
+          pendingTitle && pendingTitle.slug === route.slug
+            ? pendingTitle.title
+            : null;
         // Derive the title exactly the way the server will: slug-style URLs
         // (legacy /wiki/some-old-slug links) expand to their word-form title
         // immediately, instead of the raw segment flashing as the title/slug
         // until generation finishes.
-        const placeholderTitle = matchedPending ?? normalizeCanonicalTitle(wikiSegmentToRequestedTitle(route.slug));
+        const placeholderTitle =
+          matchedPending ??
+          normalizeCanonicalTitle(wikiSegmentToRequestedTitle(route.slug));
         // The article's real slug, derived the same way the server derives it.
         const placeholderSlug = slugify(placeholderTitle);
-        const res = pendingTitle && pendingTitle.slug === route.slug
-          // HTTP header values must be ASCII/Latin-1 — titles with emoji or
-          // other non-Latin1 characters (e.g. "Banana 🍌") would make fetch
-          // throw synchronously ("invalid header value") if sent raw. Percent
-          // -encode for transport; the server decodes it back to the literal.
-          ? await fetch(apiUrl, { headers: { "x-requested-title": encodeURIComponent(pendingTitle.title) } })
-          : await fetch(apiUrl);
+        const res =
+          pendingTitle && pendingTitle.slug === route.slug
+            ? // HTTP header values must be ASCII/Latin-1 — titles with emoji or
+              // other non-Latin1 characters (e.g. "Banana 🍌") would make fetch
+              // throw synchronously ("invalid header value") if sent raw. Percent
+              // -encode for transport; the server decodes it back to the literal.
+              await fetch(apiUrl, {
+                headers: {
+                  "x-requested-title": encodeURIComponent(pendingTitle.title),
+                },
+              })
+            : await fetch(apiUrl);
         if (!res.ok) {
           const body: any = await res.json().catch(() => ({}));
           throw new Error(body?.error || `error ${res.status}`);
@@ -431,7 +482,11 @@ export function App() {
           if (cancelled) return;
           setPage(data);
           setLoading(false);
-          if (data.canonicalPath && data.redirectedFrom && window.location.pathname !== data.canonicalPath) {
+          if (
+            data.canonicalPath &&
+            data.redirectedFrom &&
+            window.location.pathname !== data.canonicalPath
+          ) {
             window.history.replaceState({}, "", data.canonicalPath);
           }
           document.title = `${data.article.displayTitle || data.article.title} - Halupedia`;
@@ -447,7 +502,9 @@ export function App() {
           await new Promise((resolve) => window.setTimeout(resolve, 1000));
           if (cancelled) return;
           try {
-            const res = await fetch(`/api/page/${encodeURIComponent(slug)}?wait=0`);
+            const res = await fetch(
+              `/api/page/${encodeURIComponent(slug)}?wait=0`,
+            );
             if (res.status === 202) {
               await pollGeneratedArticle(slug, attempt + 1);
               return;
@@ -457,7 +514,11 @@ export function App() {
             if (cancelled) return;
             setPage(data);
             setLoading(false);
-            if (data.canonicalPath && data.redirectedFrom && window.location.pathname !== data.canonicalPath) {
+            if (
+              data.canonicalPath &&
+              data.redirectedFrom &&
+              window.location.pathname !== data.canonicalPath
+            ) {
               window.history.replaceState({}, "", data.canonicalPath);
             }
             document.title = `${data.article.displayTitle || data.article.title} - Halupedia`;
@@ -466,14 +527,19 @@ export function App() {
             return;
           }
         };
-        const pollPostProcess = async (article: PageData["article"], attempt = 0) => {
+        const pollPostProcess = async (
+          article: PageData["article"],
+          attempt = 0,
+        ) => {
           // Poll for up to ~2 minutes (40 attempts × 3 s) to catch slow postProcess
           // runs that include LLM calls for see-also and link repair.
           if (cancelled || attempt >= 40) return;
           await new Promise((resolve) => window.setTimeout(resolve, 3000));
           if (cancelled) return;
           try {
-            const res = await fetch(`/api/page/${encodeURIComponent(toWikiSegment(article.title))}?wait=0`);
+            const res = await fetch(
+              `/api/page/${encodeURIComponent(toWikiSegment(article.title))}?wait=0`,
+            );
             if (res.status === 202) {
               await pollPostProcess(article, attempt + 1);
               return;
@@ -514,42 +580,50 @@ export function App() {
             newlineIndex = buffer.indexOf("\n");
             if (!line) continue;
             const event = JSON.parse(line) as
-              | { type: "start"; slug: string; cached: boolean; joined?: boolean }
+              | {
+                  type: "start";
+                  slug: string;
+                  cached: boolean;
+                  joined?: boolean;
+                }
               | { type: "status"; message: string }
               | { type: "progress"; html: string; markdown?: string }
               | {
-                type: "done";
-                cached: boolean;
-                redirectedFrom?: string;
-                article: PageData["article"];
-                sections?: ArticleSection[];
-                backlinks: PageData["backlinks"];
-                canonicalPath?: string;
-              }
+                  type: "done";
+                  cached: boolean;
+                  redirectedFrom?: string;
+                  article: PageData["article"];
+                  sections?: ArticleSection[];
+                  backlinks: PageData["backlinks"];
+                  canonicalPath?: string;
+                }
               | { type: "error"; message: string };
             if (cancelled) return;
             if (event.type === "start") {
-              setPage((current) => current ?? {
-                cached: false,
-                article: {
-                  slug: placeholderSlug,
-                  canonicalSlug: placeholderSlug,
-                  title: placeholderTitle,
-                  html: "",
-                  markdown: "",
-                  plain_text: "",
-                  generated_at: Date.now(),
-                },
-                backlinks: { existing: [], unwritten: [] },
-                statusMessage: "Waiting and contemplating...",
-              });
+              setPage(
+                (current) =>
+                  current ?? {
+                    cached: false,
+                    article: {
+                      slug: placeholderSlug,
+                      canonicalSlug: placeholderSlug,
+                      title: placeholderTitle,
+                      html: "",
+                      markdown: "",
+                      plain_text: "",
+                      generated_at: Date.now(),
+                    },
+                    backlinks: { existing: [], unwritten: [] },
+                    statusMessage: "Waiting and contemplating...",
+                  },
+              );
               setLoading(false);
               // Joined streams now receive live progress events — no polling needed.
             } else if (event.type === "status") {
               setPage((current) =>
                 current
                   ? { ...current, statusMessage: event.message }
-                  : current
+                  : current,
               );
             } else if (event.type === "progress") {
               streamedHtml = event.html;
@@ -564,19 +638,22 @@ export function App() {
                   plain_text: "",
                   generated_at: Date.now(),
                 },
-                backlinks: current?.backlinks ?? { existing: [], unwritten: [] },
+                backlinks: current?.backlinks ?? {
+                  existing: [],
+                  unwritten: [],
+                },
               }));
               setPage((current) =>
                 current
                   ? {
-                    ...current,
-                    article: {
-                      ...current.article,
-                      html: streamedHtml,
-                      markdown: event.markdown ?? current.article.markdown,
-                    },
-                  }
-                  : current
+                      ...current,
+                      article: {
+                        ...current.article,
+                        html: streamedHtml,
+                        markdown: event.markdown ?? current.article.markdown,
+                      },
+                    }
+                  : current,
               );
               setLoading(false);
             } else if (event.type === "done") {
@@ -592,7 +669,11 @@ export function App() {
                 backlinks: event.backlinks,
               });
               setLoading(false);
-              if (event.canonicalPath && event.redirectedFrom && window.location.pathname !== event.canonicalPath) {
+              if (
+                event.canonicalPath &&
+                event.redirectedFrom &&
+                window.location.pathname !== event.canonicalPath
+              ) {
                 window.history.replaceState({}, "", event.canonicalPath);
               }
               document.title = `${event.article.displayTitle || event.article.title} - Halupedia`;
@@ -627,22 +708,27 @@ export function App() {
     setRoute({ kind: "home" });
   }, []);
 
-  const navigateToArticle = useCallback((slugOrTitleSegment: string, explicitTitle?: string) => {
-    const clean = articleInputToWikiSegment(slugOrTitleSegment);
-    if (!clean) return;
-    // The URL is title-shaped when the caller has a title. Keep that title
-    // out-of-band too, so punctuation that cannot survive the path still
-    // reaches the server exactly.
-    const title = explicitTitle?.trim();
-    if (title) pendingRequestedTitleRef.current = { slug: clean, title };
-    window.history.pushState({}, "", `/wiki/${clean}`);
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "article", slug: clean });
-  }, []);
+  const navigateToArticle = useCallback(
+    (slugOrTitleSegment: string, explicitTitle?: string) => {
+      const clean = articleInputToWikiSegment(slugOrTitleSegment);
+      if (!clean) return;
+      // The URL is title-shaped when the caller has a title. Keep that title
+      // out-of-band too, so punctuation that cannot survive the path still
+      // reaches the server exactly.
+      const title = explicitTitle?.trim();
+      if (title) pendingRequestedTitleRef.current = { slug: clean, title };
+      window.history.pushState({}, "", `/wiki/${clean}`);
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setRoute({ kind: "article", slug: clean });
+    },
+    [],
+  );
 
   const navigateToSearch = useCallback((query: string) => {
     const trimmed = query.trim();
-    const url = trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search";
+    const url = trimmed
+      ? `/search?q=${encodeURIComponent(trimmed)}`
+      : "/search";
     window.history.pushState({}, "", url);
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
     setHeaderSearchDraft(trimmed);
@@ -696,7 +782,7 @@ export function App() {
   // Refetches the page once and applies it only if the user is still on that slug.
   const handleLiveArticleUpdate = useCallback((updatedSlug: string) => {
     fetch(`/api/page/${encodeURIComponent(updatedSlug)}?wait=0`)
-      .then((res) => res.ok ? res.json() : null)
+      .then((res) => (res.ok ? res.json() : null))
       .then((data: PageData | null) => {
         if (!data) return;
         setPage((latest) => {
@@ -704,7 +790,7 @@ export function App() {
           return data;
         });
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   const interceptArticleLinks = useCallback(
@@ -713,7 +799,14 @@ export function App() {
       if (!target) return;
       const href = target.getAttribute("href");
       if (!href) return;
-      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e as any).button === 1) return;
+      if (
+        e.metaKey ||
+        e.ctrlKey ||
+        e.shiftKey ||
+        e.altKey ||
+        (e as any).button === 1
+      )
+        return;
       // Swallow dead "#" hrefs emitted by the markdown renderer for any
       // non-halu link (server markdown.ts rewrites them to "#"). Without
       // this the browser appends "#" to the URL bar with no navigation.
@@ -729,7 +822,7 @@ export function App() {
         navigateToMedia(decodeURIComponent(href.slice("/media/".length)));
       }
     },
-    [navigateToArticle, navigateToMedia]
+    [navigateToArticle, navigateToMedia],
   );
 
   const clearLinkSelection = useCallback(() => {
@@ -744,11 +837,14 @@ export function App() {
     setLinkMenuBusy(true);
     setLinkMenuError(null);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/add-link`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ selectedText: linkMenu.text }),
-      });
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(page.article.slug)}/add-link`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ selectedText: linkMenu.text }),
+        },
+      );
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
       setPage(payload as PageData);
@@ -771,19 +867,31 @@ export function App() {
   const loadEditRefs = useCallback((slug: string) => {
     fetch(`/api/article/${encodeURIComponent(slug)}/references`)
       .then((r) => r.json())
-      .then((body: { references?: Array<{ slug: string; title: string; summaryMarkdown: string; pinned?: boolean }>; blacklist?: string[] }) => {
-        const seen = new Set<string>();
-        const refs = (body.references ?? []).filter((r) => {
-          if (seen.has(r.slug)) return false;
-          seen.add(r.slug);
-          return true;
-        }).map((r) => ({ ...r, pinned: Boolean(r.pinned) }));
-        setEditRefs(refs);
-        setEditInitialRefSlugs(refs.map((ref) => ref.slug));
-        setEditRefsEnabled(refs.length > 0);
-        setEditBlacklist(body.blacklist ?? []);
-      })
-      .catch(() => { });
+      .then(
+        (body: {
+          references?: Array<{
+            slug: string;
+            title: string;
+            summaryMarkdown: string;
+            pinned?: boolean;
+          }>;
+          blacklist?: string[];
+        }) => {
+          const seen = new Set<string>();
+          const refs = (body.references ?? [])
+            .filter((r) => {
+              if (seen.has(r.slug)) return false;
+              seen.add(r.slug);
+              return true;
+            })
+            .map((r) => ({ ...r, pinned: Boolean(r.pinned) }));
+          setEditRefs(refs);
+          setEditInitialRefSlugs(refs.map((ref) => ref.slug));
+          setEditRefsEnabled(refs.length > 0);
+          setEditBlacklist(body.blacklist ?? []);
+        },
+      )
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -792,90 +900,144 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editOpen, page?.article.slug]);
 
-
   // Search for references: runs both fuzzy and RAG queries against find-references endpoint
-  const searchEditRefs = useCallback(async (mode: "fuzzy" | "rag") => {
-    if (!page?.article.slug || editRefSearchBusy) return;
-    const query = mode === "fuzzy" ? editFuzzyQuery : editRagSearchQuery;
-    if (!query.trim()) return;
-    setEditRefSearchBusy(true);
-    setEditRefSearchError(null);
-    setEditRefSearchDone(false);
-    setEditRefResults([]);
-    try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/find-references`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(mode === "fuzzy"
-          ? { fuzzyTitles: query }
-          : { ragQuery: query }),
-      });
-      const payload = await res.json() as { articles?: Array<{ slug: string; title: string; summaryMarkdown: string }> };
-      if (!res.ok) throw new Error((payload as any)?.error || `error ${res.status}`);
-      const existing = new Set(editRefs.map((r) => r.slug));
-      setEditRefResults((payload.articles ?? []).filter((a) => !existing.has(a.slug)));
-    } catch (err: any) {
-      setEditRefSearchError(err?.message || "Search failed.");
-    } finally {
-      setEditRefSearchBusy(false);
-      setEditRefSearchDone(true);
-    }
-  }, [page?.article.slug, editFuzzyQuery, editRagSearchQuery, editRefSearchBusy, editRefs]);
+  const searchEditRefs = useCallback(
+    async (mode: "fuzzy" | "rag") => {
+      if (!page?.article.slug || editRefSearchBusy) return;
+      const query = mode === "fuzzy" ? editFuzzyQuery : editRagSearchQuery;
+      if (!query.trim()) return;
+      setEditRefSearchBusy(true);
+      setEditRefSearchError(null);
+      setEditRefSearchDone(false);
+      setEditRefResults([]);
+      try {
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(page.article.slug)}/find-references`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(
+              mode === "fuzzy" ? { fuzzyTitles: query } : { ragQuery: query },
+            ),
+          },
+        );
+        const payload = (await res.json()) as {
+          articles?: Array<{
+            slug: string;
+            title: string;
+            summaryMarkdown: string;
+          }>;
+        };
+        if (!res.ok)
+          throw new Error((payload as any)?.error || `error ${res.status}`);
+        const existing = new Set(editRefs.map((r) => r.slug));
+        setEditRefResults(
+          (payload.articles ?? []).filter((a) => !existing.has(a.slug)),
+        );
+      } catch (err: any) {
+        setEditRefSearchError(err?.message || "Search failed.");
+      } finally {
+        setEditRefSearchBusy(false);
+        setEditRefSearchDone(true);
+      }
+    },
+    [
+      page?.article.slug,
+      editFuzzyQuery,
+      editRagSearchQuery,
+      editRefSearchBusy,
+      editRefs,
+    ],
+  );
 
-  const addEditRef = useCallback((ref: { slug: string; title: string; summaryMarkdown: string }) => {
-    setEditRefs((prev) => prev.some((r) => r.slug === ref.slug) ? prev : [...prev, { ...ref, pinned: false }]);
-    setEditRefResults((prev) => prev.filter((r) => r.slug !== ref.slug));
-  }, []);
+  const addEditRef = useCallback(
+    (ref: { slug: string; title: string; summaryMarkdown: string }) => {
+      setEditRefs((prev) =>
+        prev.some((r) => r.slug === ref.slug)
+          ? prev
+          : [...prev, { ...ref, pinned: false }],
+      );
+      setEditRefResults((prev) => prev.filter((r) => r.slug !== ref.slug));
+    },
+    [],
+  );
 
-  const removeEditRef = useCallback((slug: string) => {
-    if (editIsPartial && editInitialRefSlugSet.has(slug)) return;
-    setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
-  }, [editIsPartial, editInitialRefSlugSet]);
+  const removeEditRef = useCallback(
+    (slug: string) => {
+      if (editIsPartial && editInitialRefSlugSet.has(slug)) return;
+      setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
+    },
+    [editIsPartial, editInitialRefSlugSet],
+  );
 
   // Apply a blacklist change immediately and deterministically: a refs-only
   // edit (no LLM call) that persists the blocklist, rebuilds the reference
   // sidecar, and refreshes the rendered References section.
-  const syncBlacklist = useCallback(async (nextBlacklist: string[]) => {
-    if (!page?.article.slug) return;
-    const slug = page.article.slug;
-    setEditBlacklist(nextBlacklist);
-    setEditError(null);
-    try {
-      const res = await fetch(`/api/article/${encodeURIComponent(slug)}/rewrite`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ instructions: "", blacklistSlugs: nextBlacklist }),
+  const syncBlacklist = useCallback(
+    async (nextBlacklist: string[]) => {
+      if (!page?.article.slug) return;
+      const slug = page.article.slug;
+      setEditBlacklist(nextBlacklist);
+      setEditError(null);
+      try {
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(slug)}/rewrite`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              instructions: "",
+              blacklistSlugs: nextBlacklist,
+            }),
+          },
+        );
+        const payload = await res.json().catch(() => null);
+        if (!res.ok)
+          throw new Error((payload as any)?.error || `error ${res.status}`);
+        if (payload) setPage(payload as PageData);
+        loadEditRefs(slug);
+      } catch (err: any) {
+        setEditError(err?.message || "Could not update excluded references.");
+      }
+    },
+    [page?.article.slug, loadEditRefs],
+  );
+
+  const blacklistEditRef = useCallback(
+    (slug: string) => {
+      setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
+      setEditBlacklistOpen(true);
+      if (!editBlacklist.includes(slug))
+        void syncBlacklist([...editBlacklist, slug]);
+    },
+    [editBlacklist, syncBlacklist],
+  );
+
+  const togglePinRef = useCallback(
+    (slug: string) => {
+      if (!page?.article.slug) return;
+      const current = editRefs.find((r) => r.slug === slug);
+      if (!current) return;
+      const newPinned = !current.pinned;
+      setEditRefs((prev) =>
+        prev.map((r) => (r.slug === slug ? { ...r, pinned: newPinned } : r)),
+      );
+      fetch(
+        `/api/article/${encodeURIComponent(page.article.slug)}/pin-reference`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ refSlug: slug, pinned: newPinned }),
+        },
+      ).catch(() => {
+        // Revert on failure
+        setEditRefs((prev) =>
+          prev.map((r) => (r.slug === slug ? { ...r, pinned: !newPinned } : r)),
+        );
       });
-      const payload = await res.json().catch(() => null);
-      if (!res.ok) throw new Error((payload as any)?.error || `error ${res.status}`);
-      if (payload) setPage(payload as PageData);
-      loadEditRefs(slug);
-    } catch (err: any) {
-      setEditError(err?.message || "Could not update excluded references.");
-    }
-  }, [page?.article.slug, loadEditRefs]);
-
-  const blacklistEditRef = useCallback((slug: string) => {
-    setEditRefs((prev) => prev.filter((r) => r.slug !== slug));
-    setEditBlacklistOpen(true);
-    if (!editBlacklist.includes(slug)) void syncBlacklist([...editBlacklist, slug]);
-  }, [editBlacklist, syncBlacklist]);
-
-  const togglePinRef = useCallback((slug: string) => {
-    if (!page?.article.slug) return;
-    const current = editRefs.find((r) => r.slug === slug);
-    if (!current) return;
-    const newPinned = !current.pinned;
-    setEditRefs((prev) => prev.map((r) => r.slug === slug ? { ...r, pinned: newPinned } : r));
-    fetch(`/api/article/${encodeURIComponent(page.article.slug)}/pin-reference`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ refSlug: slug, pinned: newPinned }),
-    }).catch(() => {
-      // Revert on failure
-      setEditRefs((prev) => prev.map((r) => r.slug === slug ? { ...r, pinned: !newPinned } : r));
-    });
-  }, [page?.article.slug, editRefs]);
+    },
+    [page?.article.slug, editRefs],
+  );
 
   const openRawEdit = useCallback(() => {
     if (!page?.article.markdown) return;
@@ -886,18 +1048,31 @@ export function App() {
   }, [page?.article.markdown]);
 
   const previewRawEdit = useCallback(async () => {
-    if (!page?.article.slug || !rawEditMarkdown.trim() || rawEditPreviewBusy) return;
+    if (!page?.article.slug || !rawEditMarkdown.trim() || rawEditPreviewBusy)
+      return;
     setRawEditPreviewBusy(true);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/preview-markdown`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ markdown: rawEditMarkdown }),
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(page.article.slug)}/preview-markdown`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ markdown: rawEditMarkdown }),
+        },
+      );
+      const data = (await res.json()) as {
+        html?: string;
+        diagnostics?: Array<{ severity: string; message: string }>;
+      };
+      setRawEditPreview({
+        html: data.html ?? "",
+        diagnostics: data.diagnostics ?? [],
       });
-      const data = await res.json() as { html?: string; diagnostics?: Array<{ severity: string; message: string }> };
-      setRawEditPreview({ html: data.html ?? "", diagnostics: data.diagnostics ?? [] });
     } catch {
-      setRawEditPreview({ html: "", diagnostics: [{ severity: "error", message: "Preview failed" }] });
+      setRawEditPreview({
+        html: "",
+        diagnostics: [{ severity: "error", message: "Preview failed" }],
+      });
     } finally {
       setRawEditPreviewBusy(false);
     }
@@ -909,28 +1084,39 @@ export function App() {
     setEditBusy(true);
     setEditError(null);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/raw-save`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          markdown: rawEditMarkdown,
-          ...(editRefsEnabled && editRefs.length > 0
-            ? {
-              referenceSlugs: editRefs.map((r) => r.slug),
-              ...(editRefs.some((r) => r.pinned)
-                ? { pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug) }
-                : {}),
-            }
-            : {}),
-        }),
-      });
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(page.article.slug)}/raw-save`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            markdown: rawEditMarkdown,
+            ...(editRefsEnabled && editRefs.length > 0
+              ? {
+                  referenceSlugs: editRefs.map((r) => r.slug),
+                  ...(editRefs.some((r) => r.pinned)
+                    ? {
+                        pinnedSlugs: editRefs
+                          .filter((r) => r.pinned)
+                          .map((r) => r.slug),
+                      }
+                    : {}),
+                }
+              : {}),
+          }),
+        },
+      );
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        throw new Error((payload as { error?: string })?.error || `error ${res.status}`);
+        throw new Error(
+          (payload as { error?: string })?.error || `error ${res.status}`,
+        );
       }
-      const payload = await res.json() as { article?: typeof page.article };
+      const payload = (await res.json()) as { article?: typeof page.article };
       if (payload.article) {
-        setPage((current) => current ? { ...current, article: payload.article! } : current);
+        setPage((current) =>
+          current ? { ...current, article: payload.article! } : current,
+        );
       }
       setRawEditOpen(false);
       setRawEditMarkdown("");
@@ -942,7 +1128,14 @@ export function App() {
       setEditError(err?.message || "Could not save.");
       setEditBusy(false);
     }
-  }, [page, rawEditMarkdown, editBusy, editRefsEnabled, editRefs, loadEditRefs]);
+  }, [
+    page,
+    rawEditMarkdown,
+    editBusy,
+    editRefsEnabled,
+    editRefs,
+    loadEditRefs,
+  ]);
 
   const rewriteArticle = useCallback(async () => {
     if (!page?.article.slug || editBusy) return;
@@ -954,41 +1147,58 @@ export function App() {
     activeOperationRef.current = ac;
     setEditBusy(true);
     setEditError(null);
-    setPage((current) => current ? { ...current, statusMessage: "Rewriting article..." } : current);
+    setPage((current) =>
+      current ? { ...current, statusMessage: "Rewriting article..." } : current,
+    );
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(targetSlug)}/rewrite?stream=1`, {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/x-ndjson" },
-        signal: ac.signal,
-        body: JSON.stringify({
-          instructions: editDraft,
-          ...(editSectionId === "__selection__"
-            ? { selectedText: editSelectedText }
-            : { sectionId: editSectionId || undefined }),
-          ...(editRefsEnabled && (editRefs.length > 0 || editInitialRefSlugs.length > 0)
-            ? {
-              // Sent even when emptied: the panel state is authoritative, so
-              // an empty array means "remove all refs" / "unpin all".
-              referenceSlugs: editRefs.map((r) => r.slug),
-              pinnedSlugs: editRefs.filter((r) => r.pinned).map((r) => r.slug),
-            }
-            : {}),
-          // Always sent: the panel state is authoritative, so an empty array
-          // means "clear all persisted blocks" (it was loaded from the server
-          // when the tray opened).
-          blacklistSlugs: editBlacklist,
-          ...(editIncludeRecentPrompts ? { includeRecentEditHistory: true } : {}),
-          rewriteMode: editRewriteMode,
-        }),
-      });
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(targetSlug)}/rewrite?stream=1`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/x-ndjson",
+          },
+          signal: ac.signal,
+          body: JSON.stringify({
+            instructions: editDraft,
+            ...(editSectionId === "__selection__"
+              ? { selectedText: editSelectedText }
+              : { sectionId: editSectionId || undefined }),
+            ...(editRefsEnabled &&
+            (editRefs.length > 0 || editInitialRefSlugs.length > 0)
+              ? {
+                  // Sent even when emptied: the panel state is authoritative, so
+                  // an empty array means "remove all refs" / "unpin all".
+                  referenceSlugs: editRefs.map((r) => r.slug),
+                  pinnedSlugs: editRefs
+                    .filter((r) => r.pinned)
+                    .map((r) => r.slug),
+                }
+              : {}),
+            // Always sent: the panel state is authoritative, so an empty array
+            // means "clear all persisted blocks" (it was loaded from the server
+            // when the tray opened).
+            blacklistSlugs: editBlacklist,
+            ...(editIncludeRecentPrompts
+              ? { includeRecentEditHistory: true }
+              : {}),
+            rewriteMode: editRewriteMode,
+          }),
+        },
+      );
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         throw new Error(payload?.error || `error ${res.status}`);
       }
       // Server returns plain JSON (not NDJSON) when rewrite was blocked
       // (e.g. article protection active). Detect by content-type and bail cleanly.
-      if (!(res.headers.get("content-type") ?? "").includes("application/x-ndjson")) {
-        const data = await res.json().catch(() => null) as PageData | null;
+      if (
+        !(res.headers.get("content-type") ?? "").includes(
+          "application/x-ndjson",
+        )
+      ) {
+        const data = (await res.json().catch(() => null)) as PageData | null;
         if (data) setPage(data);
         else setPage(previousPage);
         setEditBusy(false);
@@ -1019,22 +1229,24 @@ export function App() {
           if (ac.signal.aborted) break;
           if (event.type === "status") {
             setPage((current) =>
-              current?.article.slug === targetSlug ? { ...current, statusMessage: event.message } : current
+              current?.article.slug === targetSlug
+                ? { ...current, statusMessage: event.message }
+                : current,
             );
           } else if (event.type === "progress") {
             streamedHtml = event.html;
             setPage((current) =>
               current?.article.slug === targetSlug
                 ? {
-                  ...current,
-                  cached: false,
-                  article: {
-                    ...current.article,
-                    html: streamedHtml,
-                    markdown: event.markdown ?? current.article.markdown,
-                  },
-                }
-                : current
+                    ...current,
+                    cached: false,
+                    article: {
+                      ...current.article,
+                      html: streamedHtml,
+                      markdown: event.markdown ?? current.article.markdown,
+                    },
+                  }
+                : current,
             );
           } else if (event.type === "done") {
             doneArticle = event.article;
@@ -1067,14 +1279,24 @@ export function App() {
             await new Promise((r) => window.setTimeout(r, 3000));
             if (ac.signal.aborted) return;
             try {
-              const res = await fetch(`/api/page/${encodeURIComponent(toWikiSegment(pollTitle))}?wait=0`, { signal: ac.signal });
+              const res = await fetch(
+                `/api/page/${encodeURIComponent(toWikiSegment(pollTitle))}?wait=0`,
+                { signal: ac.signal },
+              );
               if (!res.ok) continue;
               const data: PageData = await res.json();
-              if ((data.article.generated_at ?? 0) > (pollGeneratedAt ?? 0) || data.article.markdown !== doneArticle!.markdown) {
-                setPage((current) => current?.article.slug === pollSlug ? data : current);
+              if (
+                (data.article.generated_at ?? 0) > (pollGeneratedAt ?? 0) ||
+                data.article.markdown !== doneArticle!.markdown
+              ) {
+                setPage((current) =>
+                  current?.article.slug === pollSlug ? data : current,
+                );
                 return;
               }
-            } catch { return; }
+            } catch {
+              return;
+            }
           }
         })();
       }
@@ -1104,7 +1326,21 @@ export function App() {
       setEditError(err?.message || "Could not rewrite the article.");
       setEditBusy(false);
     }
-  }, [page, editDraft, editSectionId, editSelectedText, editRefsEnabled, editRefs, editRefsChanged, editInitialRefSlugs, editBlacklist, editIncludeRecentPrompts, editRewriteMode, editBusy, loadEditRefs]);
+  }, [
+    page,
+    editDraft,
+    editSectionId,
+    editSelectedText,
+    editRefsEnabled,
+    editRefs,
+    editRefsChanged,
+    editInitialRefSlugs,
+    editBlacklist,
+    editIncludeRecentPrompts,
+    editRewriteMode,
+    editBusy,
+    loadEditRefs,
+  ]);
 
   const refreshContext = useCallback(async () => {
     if (!page?.article.slug || refreshBusy) return;
@@ -1115,11 +1351,14 @@ export function App() {
     setRefreshBusy(true);
     setRefreshMessage("Refreshing with retrieved context...");
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(targetSlug)}/refresh-context?stream=1`, {
-        method: "POST",
-        headers: { accept: "application/x-ndjson" },
-        signal: ac.signal,
-      });
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(targetSlug)}/refresh-context?stream=1`,
+        {
+          method: "POST",
+          headers: { accept: "application/x-ndjson" },
+          signal: ac.signal,
+        },
+      );
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         throw new Error(payload?.error || `error ${res.status}`);
@@ -1152,15 +1391,15 @@ export function App() {
             setPage((current) =>
               current?.article.slug === targetSlug
                 ? {
-                  ...current,
-                  cached: false,
-                  article: {
-                    ...current.article,
-                    html: event.html,
-                    markdown: event.markdown ?? current.article.markdown,
-                  },
-                }
-                : current
+                    ...current,
+                    cached: false,
+                    article: {
+                      ...current.article,
+                      html: event.html,
+                      markdown: event.markdown ?? current.article.markdown,
+                    },
+                  }
+                : current,
             );
           } else if (event.type === "done") {
             finalPayload = event;
@@ -1183,7 +1422,11 @@ export function App() {
           }
         }
       }
-      setRefreshMessage(finalPayload?.refreshChanged ? "Article refreshed." : "References already up to date.");
+      setRefreshMessage(
+        finalPayload?.refreshChanged
+          ? "Article refreshed."
+          : "References already up to date.",
+      );
       setHistoryOpen(false);
       setRevisions([]);
       setHistoryLoaded(false);
@@ -1202,7 +1445,9 @@ export function App() {
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/history`);
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(page.article.slug)}/history`,
+      );
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (res.status === 404) {
@@ -1230,37 +1475,56 @@ export function App() {
     setRestoreMessage(null);
   }, [page?.article.slug]);
 
-  const revertToRevision = useCallback(async (revisionId: number) => {
-    if (!page?.article.slug || revertingId) return;
-    setRevertingId(revisionId);
-    setHistoryError(null);
-    try {
-      const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/revert`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ revisionId }),
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      setPage(payload as PageData);
-      setRevisions([]);
-      setHistoryLoaded(false);
-      setSelectedRevision(null);
-      setRestoreConfirmRevision(null);
-      setRestoreMessage("Version restored.");
-      setHistoryOpen(false);
-    } catch (err: any) {
-      setHistoryError(err?.message || "Could not revert that revision.");
-    } finally {
-      setRevertingId(null);
-    }
-  }, [page?.article.slug, revertingId]);
+  const revertToRevision = useCallback(
+    async (revisionId: number) => {
+      if (!page?.article.slug || revertingId) return;
+      setRevertingId(revisionId);
+      setHistoryError(null);
+      try {
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(page.article.slug)}/revert`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ revisionId }),
+          },
+        );
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+        setPage(payload as PageData);
+        setRevisions([]);
+        setHistoryLoaded(false);
+        setSelectedRevision(null);
+        setRestoreConfirmRevision(null);
+        setRestoreMessage("Version restored.");
+        setHistoryOpen(false);
+      } catch (err: any) {
+        setHistoryError(err?.message || "Could not revert that revision.");
+      } finally {
+        setRevertingId(null);
+      }
+    },
+    [page?.article.slug, revertingId],
+  );
 
   useEffect(() => {
-    if (historyOpen && page && !historyLoading && !historyLoaded && !historyError) {
+    if (
+      historyOpen &&
+      page &&
+      !historyLoading &&
+      !historyLoaded &&
+      !historyError
+    ) {
       void fetchHistory();
     }
-  }, [historyOpen, page, historyLoading, historyLoaded, historyError, fetchHistory]);
+  }, [
+    historyOpen,
+    page,
+    historyLoading,
+    historyLoaded,
+    historyError,
+    fetchHistory,
+  ]);
 
   useEffect(() => {
     if (route.kind !== "article" || !page || loading) {
@@ -1284,14 +1548,15 @@ export function App() {
         range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
           ? (range.commonAncestorContainer as Element)
           : range.commonAncestorContainer.parentElement;
-      if (!anchorNode || !articleEl.contains(anchorNode) || anchorNode.closest("a")) {
+      if (
+        !anchorNode ||
+        !articleEl.contains(anchorNode) ||
+        anchorNode.closest("a")
+      ) {
         setLinkMenu(null);
         return;
       }
-      const text = selection
-        .toString()
-        .replace(/\s+/g, " ")
-        .trim();
+      const text = selection.toString().replace(/\s+/g, " ").trim();
       if (text.length < 2) {
         setLinkMenu(null);
         return;
@@ -1335,7 +1600,8 @@ export function App() {
     // Re-apply the highlight using the current DOM selection range, if still present
     if (typeof CSS === "undefined" || !CSS.highlights) return;
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed)
+      return;
     try {
       const range = selection.getRangeAt(0);
       // CSS.highlights requires the Highlight constructor to be available
@@ -1353,11 +1619,22 @@ export function App() {
     };
   }, [editOpen, editSelectedText]);
 
-  const articleSlug = route.kind === "article" || route.kind === "disambiguation" ? route.slug : null;
-  const articleDisplayTitle = page?.article.displayTitle || page?.article.title || "";
+  const articleSlug =
+    route.kind === "article" || route.kind === "disambiguation"
+      ? route.slug
+      : null;
+  const articleDisplayTitle =
+    page?.article.displayTitle || page?.article.title || "";
   const articleTitle = page?.article.title ?? "";
-  const hasZeroLinks = page ? countInternalLinks(page.article.markdown) === 0 : false;
-  const historyEmpty = historyOpen && historyLoaded && !historyLoading && !historyError && revisions.length === 0;
+  const hasZeroLinks = page
+    ? countInternalLinks(page.article.markdown) === 0
+    : false;
+  const historyEmpty =
+    historyOpen &&
+    historyLoaded &&
+    !historyLoading &&
+    !historyError &&
+    revisions.length === 0;
 
   const copyArticleSlug = useCallback(async () => {
     if (!page?.article.slug) return;
@@ -1372,7 +1649,9 @@ export function App() {
 
   const mainView = useMemo(() => {
     if (route.kind === "media") {
-      return <MediaPage imageSlug={route.imageSlug} onNavigate={navigateToArticle} />;
+      return (
+        <MediaPage imageSlug={route.imageSlug} onNavigate={navigateToArticle} />
+      );
     }
 
     if (route.kind === "media-list") {
@@ -1388,7 +1667,9 @@ export function App() {
     }
 
     if (route.kind === "admin") {
-      return <Admin onNavigate={navigateToArticle} onNavigateHome={navigateHome} />;
+      return (
+        <Admin onNavigate={navigateToArticle} onNavigateHome={navigateHome} />
+      );
     }
 
     if (route.kind === "graph") {
@@ -1406,7 +1687,13 @@ export function App() {
     }
 
     if (route.kind === "search") {
-      return <SearchResults q={route.query} onNavigate={navigateToArticle} onSearch={navigateToSearch} />;
+      return (
+        <SearchResults
+          q={route.query}
+          onNavigate={navigateToArticle}
+          onSearch={navigateToSearch}
+        />
+      );
     }
 
     if (loading) {
@@ -1426,10 +1713,23 @@ export function App() {
 
     if (route.kind === "disambiguation") {
       return (
-        <article className="article disambiguation-page" onClick={interceptArticleLinks}>
-          <div className="disambiguation-notice">This is a disambiguation page.</div>
-          <h1 dangerouslySetInnerHTML={{ __html: renderInlineHtml(articleDisplayTitle) }} />
-          <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
+        <article
+          className="article disambiguation-page"
+          onClick={interceptArticleLinks}
+        >
+          <div className="disambiguation-notice">
+            This is a disambiguation page.
+          </div>
+          <h1
+            dangerouslySetInnerHTML={{
+              __html: renderInlineHtml(articleDisplayTitle),
+            }}
+          />
+          <div
+            dangerouslySetInnerHTML={{
+              __html: stripLeadingH1(page.article.html),
+            }}
+          />
         </article>
       );
     }
@@ -1438,7 +1738,10 @@ export function App() {
       <>
         {page.redirectedFrom ? (
           <div className="status">
-            <span>Redirected from {page.redirectedFrom.replace(/^\/wiki\//, "").replace(/_/g, " ")}</span>
+            <span>
+              Redirected from{" "}
+              {page.redirectedFrom.replace(/^\/wiki\//, "").replace(/_/g, " ")}
+            </span>
           </div>
         ) : null}
         {!page.cached && (
@@ -1452,36 +1755,55 @@ export function App() {
             This article has no links. Expand it by highlighting text.
           </div>
         ) : null}
-        {(page.referenceStatus?.missing?.length ||
-          page.referenceStatus?.unformatted?.length ||
-          page.referenceStatus?.hasReferencesSection) ? (
+        {page.referenceStatus?.missing?.length ||
+        page.referenceStatus?.unformatted?.length ||
+        page.referenceStatus?.hasReferencesSection ? (
           <div className="linkless-notice">
-            This article seems to cite references that are not listed or not in the current reference format. Run the refresh references button to update it.
+            This article seems to cite references that are not listed or not in
+            the current reference format. Run the refresh references button to
+            update it.
           </div>
         ) : null}
         {refreshMessage ? <div className="status">{refreshMessage}</div> : null}
         {restoreMessage ? <div className="status">{restoreMessage}</div> : null}
         <div className="article-title-row">
-          <h1 dangerouslySetInnerHTML={{ __html: renderInlineHtml(articleDisplayTitle) }} />
+          <h1
+            dangerouslySetInnerHTML={{
+              __html: renderInlineHtml(articleDisplayTitle),
+            }}
+          />
           <div className="article-title-actions">
             <button
               type="button"
               className="article-edit-button"
-              style={{ opacity: page.isProtected ? 1 : 0.35, fontSize: "1.1rem", lineHeight: 1 }}
-              title={page.isProtected ? "Article is locked — click to unlock" : "Lock article against automatic rewrites"}
+              style={{
+                opacity: page.isProtected ? 1 : 0.35,
+                fontSize: "1.1rem",
+                lineHeight: 1,
+              }}
+              title={
+                page.isProtected
+                  ? "Article is locked — click to unlock"
+                  : "Lock article against automatic rewrites"
+              }
               aria-label={page.isProtected ? "Unlock article" : "Lock article"}
               disabled={protectionBusy}
               onClick={async () => {
                 setProtectionBusy(true);
                 try {
-                  const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/protect`, {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ isProtected: !page.isProtected }),
-                  });
+                  const res = await fetch(
+                    `/api/article/${encodeURIComponent(page.article.slug)}/protect`,
+                    {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ isProtected: !page.isProtected }),
+                    },
+                  );
                   if (res.ok) {
-                    const data = await res.json() as { isProtected: boolean };
-                    setPage((cur) => cur ? { ...cur, isProtected: data.isProtected } : cur);
+                    const data = (await res.json()) as { isProtected: boolean };
+                    setPage((cur) =>
+                      cur ? { ...cur, isProtected: data.isProtected } : cur,
+                    );
                   }
                 } finally {
                   setProtectionBusy(false);
@@ -1540,20 +1862,44 @@ export function App() {
             </button>
           </div>
         </div>
-        {copySlugMessage ? <div className="status">{copySlugMessage}</div> : null}
+        {copySlugMessage ? (
+          <div className="status">{copySlugMessage}</div>
+        ) : null}
         {editOpen ? (
-          <section className="edit-tray" aria-label="Edit article" ref={editTrayRef}>
+          <section
+            className="edit-tray"
+            aria-label="Edit article"
+            ref={editTrayRef}
+          >
             {/* Title editing row */}
-            <div className="edit-tray-row" style={{ borderBottom: "1px solid var(--color-border, #ddd)", paddingBottom: "0.5rem", marginBottom: "0.5rem" }}>
+            <div
+              className="edit-tray-row"
+              style={{
+                borderBottom: "1px solid var(--color-border, #ddd)",
+                paddingBottom: "0.5rem",
+                marginBottom: "0.5rem",
+              }}
+            >
               <label style={{ flex: 1 }}>
-                Title <span style={{ fontSize: "0.75rem", color: "var(--color-muted, #888)" }}>(markdown, no links)</span>
+                Title{" "}
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "var(--color-muted, #888)",
+                  }}
+                >
+                  (markdown, no links)
+                </span>
                 <input
                   type="text"
                   className="search-input"
                   style={{ width: "100%", marginTop: "0.25rem" }}
                   placeholder={articleDisplayTitle}
                   value={editTitleDraft}
-                  onChange={(e) => { setEditTitleDraft(e.target.value); setEditTitleError(null); }}
+                  onChange={(e) => {
+                    setEditTitleDraft(e.target.value);
+                    setEditTitleError(null);
+                  }}
                   disabled={editTitleBusy}
                 />
               </label>
@@ -1568,13 +1914,19 @@ export function App() {
                   setEditTitleBusy(true);
                   setEditTitleError(null);
                   try {
-                    const res = await fetch(`/api/article/${encodeURIComponent(page.article.slug)}/update-title`, {
-                      method: "PATCH",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({ title: newTitle }),
-                    });
-                    const data = await res.json() as any;
-                    if (!res.ok) { setEditTitleError(data.error ?? "Failed to update title"); return; }
+                    const res = await fetch(
+                      `/api/article/${encodeURIComponent(page.article.slug)}/update-title`,
+                      {
+                        method: "PATCH",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ title: newTitle }),
+                      },
+                    );
+                    const data = (await res.json()) as any;
+                    if (!res.ok) {
+                      setEditTitleError(data.error ?? "Failed to update title");
+                      return;
+                    }
                     setEditTitleDraft("");
                     // Navigate to the new canonical path so the page re-fetches with the updated title.
                     if (data.canonicalPath) {
@@ -1593,19 +1945,43 @@ export function App() {
                 {editTitleBusy ? "Saving…" : "Save Title"}
               </button>
             </div>
-            {editTitleError && <p style={{ color: "red", fontSize: "0.85rem", marginBottom: "0.5rem" }}>{editTitleError}</p>}
+            {editTitleError && (
+              <p
+                style={{
+                  color: "red",
+                  fontSize: "0.85rem",
+                  marginBottom: "0.5rem",
+                }}
+              >
+                {editTitleError}
+              </p>
+            )}
 
             {/* Headline image panel — owns its own state, lives outside mainView's memo */}
             <HeadlineImagePanel
               articleSlug={page.article.slug}
-              onArticleUpdate={(article) => setPage((cur) => cur ? { ...cur, article: article as typeof cur.article } : cur)}
+              onArticleUpdate={(article) =>
+                setPage((cur) =>
+                  cur
+                    ? { ...cur, article: article as typeof cur.article }
+                    : cur,
+                )
+              }
               onNavigateToMedia={navigateToMedia}
             />
 
             <div className="edit-tray-row">
               <label>
                 Section
-                <select value={editSectionId} onChange={(e) => { setEditSectionId(e.target.value); if (e.target.value !== "__selection__") setEditSelectedText(""); }} disabled={editBusy}>
+                <select
+                  value={editSectionId}
+                  onChange={(e) => {
+                    setEditSectionId(e.target.value);
+                    if (e.target.value !== "__selection__")
+                      setEditSelectedText("");
+                  }}
+                  disabled={editBusy}
+                >
                   <option value="">Entire article</option>
                   {editSelectedText && (
                     <option value="__selection__">*Selected Text*</option>
@@ -1619,12 +1995,25 @@ export function App() {
               </label>
               <label className="edit-modal-mode-toggle">
                 Mode
-                <select value={editRewriteMode} onChange={(e) => setEditRewriteMode(e.target.value as "aggressive" | "subtle")} disabled={editBusy}>
+                <select
+                  value={editRewriteMode}
+                  onChange={(e) =>
+                    setEditRewriteMode(
+                      e.target.value as "aggressive" | "subtle",
+                    )
+                  }
+                  disabled={editBusy}
+                >
                   <option value="aggressive">Aggressive</option>
                   <option value="subtle">Subtle</option>
                 </select>
               </label>
-              <button type="button" className="edit-modal-close" onClick={() => setEditOpen(false)} disabled={editBusy}>
+              <button
+                type="button"
+                className="edit-modal-close"
+                onClick={() => setEditOpen(false)}
+                disabled={editBusy}
+              >
                 Close
               </button>
             </div>
@@ -1638,12 +2027,14 @@ export function App() {
             />
             <button
               type="button"
-              className={`edit-recent-prompts-btn${editIncludeRecentPrompts ? " edit-recent-prompts-btn--active" : ""}`}
+              className={`edit-recent-prompts-btn${editIncludeRecentPrompts ? "edit-recent-prompts-btn--active" : ""}`}
               aria-pressed={editIncludeRecentPrompts}
               onClick={() => setEditIncludeRecentPrompts((enabled) => !enabled)}
               disabled={editBusy}
             >
-              {editIncludeRecentPrompts ? "✓ Using last 2 edit prompts" : "Use last 2 edit prompts"}
+              {editIncludeRecentPrompts
+                ? "✓ Using last 2 edit prompts"
+                : "Use last 2 edit prompts"}
             </button>
             {/* References panel */}
             <div className="edit-refs-row">
@@ -1667,7 +2058,10 @@ export function App() {
                 <button
                   type="button"
                   className="edit-refs-add-btn"
-                  onClick={() => { setEditAddRefsOpen((o) => !o); setEditRefResults([]); }}
+                  onClick={() => {
+                    setEditAddRefsOpen((o) => !o);
+                    setEditRefResults([]);
+                  }}
                   disabled={editBusy}
                   aria-label="Add references"
                   title="Add references"
@@ -1681,18 +2075,77 @@ export function App() {
               <div className="edit-refs-pinned-section">
                 <div className="edit-refs-section-header">
                   <span className="edit-refs-section-label">Pinned</span>
-                  <span className="edit-refs-section-hint">always included · persists between edits</span>
+                  <span className="edit-refs-section-hint">
+                    always included · persists between edits
+                  </span>
                 </div>
                 <div className="edit-refs-tags">
-                  {editRefs.filter((r) => r.pinned).map((ref) => (
-                    <span key={ref.slug} className="edit-ref-tag edit-ref-tag--pinned">
+                  {editRefs
+                    .filter((r) => r.pinned)
+                    .map((ref) => (
+                      <span
+                        key={ref.slug}
+                        className="edit-ref-tag edit-ref-tag--pinned"
+                      >
+                        <button
+                          type="button"
+                          className="edit-ref-tag-pin edit-ref-tag-pin--active"
+                          onClick={() => togglePinRef(ref.slug)}
+                          disabled={editBusy}
+                          aria-label={`Unpin ${ref.title}`}
+                          title="Unpin"
+                        >
+                          📌
+                        </button>
+                        <a
+                          href={`/wiki/${ref.slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="edit-ref-tag-link"
+                        >
+                          {ref.title}
+                        </a>
+                        <button
+                          type="button"
+                          className="edit-ref-tag-blacklist"
+                          onClick={() => blacklistEditRef(ref.slug)}
+                          disabled={editBusy}
+                          aria-label={`Exclude ${ref.title}`}
+                          title="Move to excluded"
+                        >
+                          🚫
+                        </button>
+                        <button
+                          type="button"
+                          className="edit-ref-tag-remove"
+                          onClick={() => removeEditRef(ref.slug)}
+                          disabled={
+                            editBusy ||
+                            (editIsPartial &&
+                              editInitialRefSlugSet.has(ref.slug))
+                          }
+                          aria-label={`Remove ${ref.title}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                </div>
+              </div>
+            )}
+            {editRefsEnabled && editRefs.some((r) => !r.pinned) && (
+              <div className="edit-refs-tags">
+                {editRefs
+                  .filter((r) => !r.pinned)
+                  .map((ref) => (
+                    <span key={ref.slug} className="edit-ref-tag">
                       <button
                         type="button"
-                        className="edit-ref-tag-pin edit-ref-tag-pin--active"
+                        className="edit-ref-tag-pin"
                         onClick={() => togglePinRef(ref.slug)}
                         disabled={editBusy}
-                        aria-label={`Unpin ${ref.title}`}
-                        title="Unpin"
+                        aria-label={`Pin ${ref.title}`}
+                        title="Pin to always include"
                       >
                         📌
                       </button>
@@ -1718,59 +2171,16 @@ export function App() {
                         type="button"
                         className="edit-ref-tag-remove"
                         onClick={() => removeEditRef(ref.slug)}
-                        disabled={editBusy || (editIsPartial && editInitialRefSlugSet.has(ref.slug))}
+                        disabled={
+                          editBusy ||
+                          (editIsPartial && editInitialRefSlugSet.has(ref.slug))
+                        }
                         aria-label={`Remove ${ref.title}`}
                       >
                         ×
                       </button>
                     </span>
                   ))}
-                </div>
-              </div>
-            )}
-            {editRefsEnabled && editRefs.some((r) => !r.pinned) && (
-              <div className="edit-refs-tags">
-                {editRefs.filter((r) => !r.pinned).map((ref) => (
-                  <span key={ref.slug} className="edit-ref-tag">
-                    <button
-                      type="button"
-                      className="edit-ref-tag-pin"
-                      onClick={() => togglePinRef(ref.slug)}
-                      disabled={editBusy}
-                      aria-label={`Pin ${ref.title}`}
-                      title="Pin to always include"
-                    >
-                      📌
-                    </button>
-                    <a
-                      href={`/wiki/${ref.slug}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="edit-ref-tag-link"
-                    >
-                      {ref.title}
-                    </a>
-                    <button
-                      type="button"
-                      className="edit-ref-tag-blacklist"
-                      onClick={() => blacklistEditRef(ref.slug)}
-                      disabled={editBusy}
-                      aria-label={`Exclude ${ref.title}`}
-                      title="Move to excluded"
-                    >
-                      🚫
-                    </button>
-                    <button
-                      type="button"
-                      className="edit-ref-tag-remove"
-                      onClick={() => removeEditRef(ref.slug)}
-                      disabled={editBusy || (editIsPartial && editInitialRefSlugSet.has(ref.slug))}
-                      aria-label={`Remove ${ref.title}`}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
               </div>
             )}
 
@@ -1778,14 +2188,24 @@ export function App() {
               <div className="edit-refs-search-panel">
                 {/* Left: CSV fuzzy title/slug/wiki-path search */}
                 <div className="edit-refs-search-col">
-                  <label className="edit-refs-search-label">Title / slug (CSV)</label>
+                  <label className="edit-refs-search-label">
+                    Title / slug (CSV)
+                  </label>
                   <div className="edit-refs-search-row">
                     <input
                       type="text"
                       className="edit-refs-search-input"
                       value={editFuzzyQuery}
-                      onChange={(e) => { setEditFuzzyQuery(e.target.value); setEditRefSearchDone(false); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchEditRefs("fuzzy"); } }}
+                      onChange={(e) => {
+                        setEditFuzzyQuery(e.target.value);
+                        setEditRefSearchDone(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void searchEditRefs("fuzzy");
+                        }
+                      }}
                       placeholder="Title, slug, or wiki/Path (CSV)"
                       disabled={editBusy || editRefSearchBusy}
                     />
@@ -1793,7 +2213,9 @@ export function App() {
                       type="button"
                       className="edit-refs-search-btn"
                       onClick={() => void searchEditRefs("fuzzy")}
-                      disabled={editBusy || editRefSearchBusy || !editFuzzyQuery.trim()}
+                      disabled={
+                        editBusy || editRefSearchBusy || !editFuzzyQuery.trim()
+                      }
                     >
                       Find
                     </button>
@@ -1801,14 +2223,24 @@ export function App() {
                 </div>
                 {/* Right: freeform RAG / vector search */}
                 <div className="edit-refs-search-col">
-                  <label className="edit-refs-search-label">Freeform search (RAG)</label>
+                  <label className="edit-refs-search-label">
+                    Freeform search (RAG)
+                  </label>
                   <div className="edit-refs-search-row">
                     <input
                       type="text"
                       className="edit-refs-search-input"
                       value={editRagSearchQuery}
-                      onChange={(e) => { setEditRagSearchQuery(e.target.value); setEditRefSearchDone(false); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchEditRefs("rag"); } }}
+                      onChange={(e) => {
+                        setEditRagSearchQuery(e.target.value);
+                        setEditRefSearchDone(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void searchEditRefs("rag");
+                        }
+                      }}
                       placeholder="Describe topic to find related articles..."
                       disabled={editBusy || editRefSearchBusy}
                     />
@@ -1816,7 +2248,11 @@ export function App() {
                       type="button"
                       className="edit-refs-search-btn"
                       onClick={() => void searchEditRefs("rag")}
-                      disabled={editBusy || editRefSearchBusy || !editRagSearchQuery.trim()}
+                      disabled={
+                        editBusy ||
+                        editRefSearchBusy ||
+                        !editRagSearchQuery.trim()
+                      }
                     >
                       Search
                     </button>
@@ -1829,9 +2265,12 @@ export function App() {
                 {editRefSearchBusy && (
                   <p className="edit-refs-search-status">Searching...</p>
                 )}
-                {editRefSearchDone && !editRefSearchBusy && !editRefSearchError && editRefResults.length === 0 && (
-                  <p className="edit-refs-search-status">No results found.</p>
-                )}
+                {editRefSearchDone &&
+                  !editRefSearchBusy &&
+                  !editRefSearchError &&
+                  editRefResults.length === 0 && (
+                    <p className="edit-refs-search-status">No results found.</p>
+                  )}
                 {editRefResults.length > 0 && (
                   <ul className="edit-refs-results">
                     {editRefResults.map((r) => (
@@ -1842,9 +2281,13 @@ export function App() {
                           onClick={() => addEditRef(r)}
                           disabled={editBusy}
                         >
-                          <span className="edit-refs-result-title">{r.title}</span>
+                          <span className="edit-refs-result-title">
+                            {r.title}
+                          </span>
                           {r.summaryMarkdown && (
-                            <span className="edit-refs-result-summary">{r.summaryMarkdown.slice(0, 100)}</span>
+                            <span className="edit-refs-result-summary">
+                              {r.summaryMarkdown.slice(0, 100)}
+                            </span>
                           )}
                         </button>
                       </li>
@@ -1863,7 +2306,12 @@ export function App() {
                 disabled={editBusy}
               >
                 {editBlacklistOpen ? "▾" : "▸"} Excluded references
-                {editBlacklist.length > 0 && <span className="edit-blacklist-count"> ({editBlacklist.length})</span>}
+                {editBlacklist.length > 0 && (
+                  <span className="edit-blacklist-count">
+                    {" "}
+                    ({editBlacklist.length})
+                  </span>
+                )}
               </button>
             </div>
             {editBlacklistOpen && (
@@ -1876,7 +2324,11 @@ export function App() {
                         <button
                           type="button"
                           className="edit-blacklist-tag-remove"
-                          onClick={() => void syncBlacklist(editBlacklist.filter((s) => s !== slug))}
+                          onClick={() =>
+                            void syncBlacklist(
+                              editBlacklist.filter((s) => s !== slug),
+                            )
+                          }
                           disabled={editBusy}
                           aria-label={`Remove ${slug} from exclusions`}
                         >
@@ -1895,7 +2347,10 @@ export function App() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        const s = editBlacklistInput.trim().toLowerCase().replace(/\s+/g, "-");
+                        const s = editBlacklistInput
+                          .trim()
+                          .toLowerCase()
+                          .replace(/\s+/g, "-");
                         if (s && !editBlacklist.includes(s)) {
                           void syncBlacklist([...editBlacklist, s]);
                         }
@@ -1909,17 +2364,42 @@ export function App() {
               </div>
             )}
 
-            {editError ? <div className="edit-modal-error">{editError}</div> : null}
+            {editError ? (
+              <div className="edit-modal-error">{editError}</div>
+            ) : null}
             {page.isProtected && (
-              <div className="edit-modal-error" style={{ background: "transparent", border: "1px solid var(--color-border, #ccc)", color: "var(--color-muted, #888)" }}>
-                🔒 Article is locked — LLM rewrites are blocked. Use <strong>Raw</strong> to edit directly.
+              <div
+                className="edit-modal-error"
+                style={{
+                  background: "transparent",
+                  border: "1px solid var(--color-border, #ccc)",
+                  color: "var(--color-muted, #888)",
+                }}
+              >
+                🔒 Article is locked — LLM rewrites are blocked. Use{" "}
+                <strong>Raw</strong> to edit directly.
               </div>
             )}
             <div className="edit-modal-actions">
-              <button type="button" className="edit-modal-submit" onClick={rewriteArticle} disabled={editBusy || (!editDraft.trim() && !editRefsChanged) || !!page.isProtected}>
+              <button
+                type="button"
+                className="edit-modal-submit"
+                onClick={rewriteArticle}
+                disabled={
+                  editBusy ||
+                  (!editDraft.trim() && !editRefsChanged) ||
+                  !!page.isProtected
+                }
+              >
                 {editBusy ? "Rewriting..." : "Apply edit"}
               </button>
-              <button type="button" className="edit-raw-btn" onClick={openRawEdit} disabled={editBusy} title="Edit raw markdown directly">
+              <button
+                type="button"
+                className="edit-raw-btn"
+                onClick={openRawEdit}
+                disabled={editBusy}
+                title="Edit raw markdown directly"
+              >
                 Raw
               </button>
             </div>
@@ -1930,22 +2410,49 @@ export function App() {
             <div className="raw-edit-header">
               <span className="raw-edit-title">Raw edit</span>
               <div className="raw-edit-header-actions">
-                <button type="button" className="edit-raw-btn" onClick={previewRawEdit} disabled={editBusy || rawEditPreviewBusy || !rawEditMarkdown.trim()}>
+                <button
+                  type="button"
+                  className="edit-raw-btn"
+                  onClick={previewRawEdit}
+                  disabled={
+                    editBusy || rawEditPreviewBusy || !rawEditMarkdown.trim()
+                  }
+                >
                   {rawEditPreviewBusy ? "Rendering…" : "Preview"}
                 </button>
                 {rawEditPreview && (
-                  <button type="button" className="edit-raw-btn" onClick={() => setRawEditPreview(null)}>
+                  <button
+                    type="button"
+                    className="edit-raw-btn"
+                    onClick={() => setRawEditPreview(null)}
+                  >
                     Hide preview
                   </button>
                 )}
-                <button type="button" className="edit-modal-close" onClick={() => { setRawEditOpen(false); setRawEditPreview(null); setEditError(null); }} disabled={editBusy}>Close</button>
+                <button
+                  type="button"
+                  className="edit-modal-close"
+                  onClick={() => {
+                    setRawEditOpen(false);
+                    setRawEditPreview(null);
+                    setEditError(null);
+                  }}
+                  disabled={editBusy}
+                >
+                  Close
+                </button>
               </div>
             </div>
-            <div className={`raw-edit-body${rawEditPreview ? " raw-edit-body--split" : ""}`}>
+            <div
+              className={`raw-edit-body${rawEditPreview ? "raw-edit-body--split" : ""}`}
+            >
               <MarkdownEditor
                 className="raw-edit-mdedit"
                 value={rawEditMarkdown}
-                onChange={(v) => { setRawEditMarkdown(v); setRawEditPreview(null); }}
+                onChange={(v) => {
+                  setRawEditMarkdown(v);
+                  setRawEditPreview(null);
+                }}
                 minRows={4}
                 disabled={editBusy}
               />
@@ -1958,8 +2465,13 @@ export function App() {
                   {rawEditPreview.diagnostics.length > 0 && (
                     <div className="raw-edit-preview-diagnostics">
                       {rawEditPreview.diagnostics.map((d, i) => (
-                        <div key={i} className={`raw-edit-diagnostic raw-edit-diagnostic--${d.severity}`}>
-                          <span className="raw-edit-diagnostic-badge">{d.severity}</span>
+                        <div
+                          key={i}
+                          className={`raw-edit-diagnostic raw-edit-diagnostic--${d.severity}`}
+                        >
+                          <span className="raw-edit-diagnostic-badge">
+                            {d.severity}
+                          </span>
                           {d.message}
                         </div>
                       ))}
@@ -1968,9 +2480,16 @@ export function App() {
                 </div>
               )}
             </div>
-            {editError ? <div className="edit-modal-error">{editError}</div> : null}
+            {editError ? (
+              <div className="edit-modal-error">{editError}</div>
+            ) : null}
             <div className="edit-modal-actions">
-              <button type="button" className="edit-modal-submit" onClick={saveRawEdit} disabled={editBusy || !rawEditMarkdown.trim()}>
+              <button
+                type="button"
+                className="edit-modal-submit"
+                onClick={saveRawEdit}
+                disabled={editBusy || !rawEditMarkdown.trim()}
+              >
                 {editBusy ? "Saving..." : "Save raw"}
               </button>
             </div>
@@ -1994,28 +2513,50 @@ export function App() {
                 Close
               </button>
             </div>
-            {historyError ? <div className="edit-modal-error">{historyError}</div> : null}
-            {historyEmpty ? <p className="history-empty">No edit history yet.</p> : null}
+            {historyError ? (
+              <div className="edit-modal-error">{historyError}</div>
+            ) : null}
+            {historyEmpty ? (
+              <p className="history-empty">No edit history yet.</p>
+            ) : null}
             <ol className="history-list">
               {revisions.map((revision) => (
-                <li key={revision.id} className={selectedRevision?.id === revision.id ? "selected" : undefined}>
+                <li
+                  key={revision.id}
+                  className={
+                    selectedRevision?.id === revision.id
+                      ? "selected"
+                      : undefined
+                  }
+                >
                   <div>
                     <strong>{revision.operation}</strong>
                     <time>{new Date(revision.createdAt).toLocaleString()}</time>
-                    {revision.instructions ? <p>{revision.instructions}</p> : null}
+                    {revision.instructions ? (
+                      <p>{revision.instructions}</p>
+                    ) : null}
                     {revision.summaryMarkdown ? (
                       <div
                         className="history-summary"
-                        dangerouslySetInnerHTML={{ __html: renderInlineHtml(revision.summaryMarkdown) }}
+                        dangerouslySetInnerHTML={{
+                          __html: renderInlineHtml(revision.summaryMarkdown),
+                        }}
                       />
                     ) : null}
                   </div>
-                  <button type="button" onClick={() => {
-                    setSelectedRevision((current) => current?.id === revision.id ? null : revision);
-                    setRestoreConfirmRevision(null);
-                    setRestoreMessage(null);
-                  }}>
-                    {selectedRevision?.id === revision.id ? "Hide revision" : `View revision ${revision.id}`}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedRevision((current) =>
+                        current?.id === revision.id ? null : revision,
+                      );
+                      setRestoreConfirmRevision(null);
+                      setRestoreMessage(null);
+                    }}
+                  >
+                    {selectedRevision?.id === revision.id
+                      ? "Hide revision"
+                      : `View revision ${revision.id}`}
                   </button>
                 </li>
               ))}
@@ -2038,13 +2579,27 @@ export function App() {
                 Restore this version
               </button>
               {restoreConfirmRevision?.id === selectedRevision.id ? (
-                <div className="restore-confirm" role="dialog" aria-label="Confirm restore">
+                <div
+                  className="restore-confirm"
+                  role="dialog"
+                  aria-label="Confirm restore"
+                >
                   <strong>Restore this old revision?</strong>
                   <div>
-                    <button type="button" onClick={() => revertToRevision(selectedRevision.id)} disabled={revertingId !== null}>
-                      {revertingId === selectedRevision.id ? "Restoring..." : "Yes, restore"}
+                    <button
+                      type="button"
+                      onClick={() => revertToRevision(selectedRevision.id)}
+                      disabled={revertingId !== null}
+                    >
+                      {revertingId === selectedRevision.id
+                        ? "Restoring..."
+                        : "Yes, restore"}
                     </button>
-                    <button type="button" onClick={() => setRestoreConfirmRevision(null)} disabled={revertingId !== null}>
+                    <button
+                      type="button"
+                      onClick={() => setRestoreConfirmRevision(null)}
+                      disabled={revertingId !== null}
+                    >
                       No
                     </button>
                   </div>
@@ -2052,12 +2607,24 @@ export function App() {
               ) : null}
             </div>
             <article className="article old-revision-preview">
-              <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(selectedRevision.html) }} />
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: stripLeadingH1(selectedRevision.html),
+                }}
+              />
             </article>
           </>
         ) : (
-          <article ref={articleRef} className="article" onClick={interceptArticleLinks}>
-            <div dangerouslySetInnerHTML={{ __html: stripLeadingH1(page.article.html) }} />
+          <article
+            ref={articleRef}
+            className="article"
+            onClick={interceptArticleLinks}
+          >
+            <div
+              dangerouslySetInnerHTML={{
+                __html: stripLeadingH1(page.article.html),
+              }}
+            />
             {page.statusMessage ? (
               <div className="article-status">
                 <span className="dot" />
@@ -2067,22 +2634,41 @@ export function App() {
           </article>
         )}
         {/* Backlinks — moved to bottom of article column */}
-        {(page.backlinks.existing.length > 0 || page.backlinks.unwritten.length > 0) && (
+        {(page.backlinks.existing.length > 0 ||
+          page.backlinks.unwritten.length > 0) && (
           <section className="article-backlinks" aria-label="Referenced by">
             <h4 className="article-backlinks-heading">
-              Referenced by <span className="article-backlinks-count">({page.backlinks.existing.length + page.backlinks.unwritten.length})</span>
+              Referenced by{" "}
+              <span className="article-backlinks-count">
+                (
+                {page.backlinks.existing.length +
+                  page.backlinks.unwritten.length}
+                )
+              </span>
             </h4>
             <ul className="article-backlinks-list">
               {page.backlinks.existing.map((b) => (
                 <li key={b.slug}>
-                  <a href={`/wiki/${b.title.replace(/\s+/g, "_")}`} onClick={(e) => { e.preventDefault(); navigateToArticle(b.title.replace(/\s+/g, "_")); }}>
+                  <a
+                    href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigateToArticle(b.title.replace(/\s+/g, "_"));
+                    }}
+                  >
                     {b.title}
                   </a>
                 </li>
               ))}
               {page.backlinks.unwritten.map((b) => (
                 <li key={b.slug} className="article-backlinks-unwritten">
-                  <a href={`/wiki/${b.title.replace(/\s+/g, "_")}`} onClick={(e) => { e.preventDefault(); navigateToArticle(b.title.replace(/\s+/g, "_")); }}>
+                  <a
+                    href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigateToArticle(b.title.replace(/\s+/g, "_"));
+                    }}
+                  >
                     {b.title}
                   </a>
                   <span className="article-backlinks-stub"> (unwritten)</span>
@@ -2093,7 +2679,72 @@ export function App() {
         )}
       </>
     );
-  }, [route, loading, error, page, navigateToArticle, navigateToSearch, interceptArticleLinks, refreshContext, refreshBusy, refreshMessage, loadHistory, editOpen, editSectionId, editBusy, editDraft, editError, editIncludeRecentPrompts, rewriteArticle, rawEditOpen, rawEditMarkdown, rawEditPreview, rawEditPreviewBusy, openRawEdit, saveRawEdit, previewRawEdit, editRefsEnabled, editRefs, editRefsToggleLocked, editIsPartial, editInitialRefSlugSet, editAddRefsOpen, editFuzzyQuery, editRagSearchQuery, editRefResults, editRefSearchBusy, editRefSearchError, editRefSearchDone, editRefsChanged, editBlacklist, editBlacklistOpen, editBlacklistInput, searchEditRefs, addEditRef, removeEditRef, blacklistEditRef, syncBlacklist, togglePinRef, historyOpen, historyLoading, historyLoaded, historyError, historyEmpty, revisions, selectedRevision, restoreConfirmRevision, restoreMessage, revertingId, revertToRevision, copyArticleSlug, copySlugMessage, editTitleDraft, editTitleBusy, editTitleError, protectionBusy]);
+  }, [
+    route,
+    loading,
+    error,
+    page,
+    navigateToArticle,
+    navigateToSearch,
+    interceptArticleLinks,
+    refreshContext,
+    refreshBusy,
+    refreshMessage,
+    loadHistory,
+    editOpen,
+    editSectionId,
+    editBusy,
+    editDraft,
+    editError,
+    editIncludeRecentPrompts,
+    rewriteArticle,
+    rawEditOpen,
+    rawEditMarkdown,
+    rawEditPreview,
+    rawEditPreviewBusy,
+    openRawEdit,
+    saveRawEdit,
+    previewRawEdit,
+    editRefsEnabled,
+    editRefs,
+    editRefsToggleLocked,
+    editIsPartial,
+    editInitialRefSlugSet,
+    editAddRefsOpen,
+    editFuzzyQuery,
+    editRagSearchQuery,
+    editRefResults,
+    editRefSearchBusy,
+    editRefSearchError,
+    editRefSearchDone,
+    editRefsChanged,
+    editBlacklist,
+    editBlacklistOpen,
+    editBlacklistInput,
+    searchEditRefs,
+    addEditRef,
+    removeEditRef,
+    blacklistEditRef,
+    syncBlacklist,
+    togglePinRef,
+    historyOpen,
+    historyLoading,
+    historyLoaded,
+    historyError,
+    historyEmpty,
+    revisions,
+    selectedRevision,
+    restoreConfirmRevision,
+    restoreMessage,
+    revertingId,
+    revertToRevision,
+    copyArticleSlug,
+    copySlugMessage,
+    editTitleDraft,
+    editTitleBusy,
+    editTitleError,
+    protectionBusy,
+  ]);
 
   return (
     <div className="site">
@@ -2112,9 +2763,15 @@ export function App() {
         <button
           type="button"
           className="theme-toggle"
-          aria-label={themeMode === "dark" ? "Use automatic theme" : "Use night mode"}
-          title={themeMode === "dark" ? "Use automatic theme" : "Use night mode"}
-          onClick={() => setThemeMode((mode) => (mode === "dark" ? "auto" : "dark"))}
+          aria-label={
+            themeMode === "dark" ? "Use automatic theme" : "Use night mode"
+          }
+          title={
+            themeMode === "dark" ? "Use automatic theme" : "Use night mode"
+          }
+          onClick={() =>
+            setThemeMode((mode) => (mode === "dark" ? "auto" : "dark"))
+          }
         >
           {themeMode === "dark" ? (
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2203,92 +2860,57 @@ export function App() {
               // (e.g. "wiki/Archive_scouts", a full URL). Only treat plain
               // text as a literal title to forward — a path reference already
               // names its target via the slug, with nothing to preserve.
-              const looksLikePathReference = /wiki\//i.test(draft) || /^https?:\/\//i.test(draft) || draft.includes("/");
-              navigateToArticle(headerSearchDraft, looksLikePathReference ? undefined : headerSearchDraft);
+              const looksLikePathReference =
+                /wiki\//i.test(draft) ||
+                /^https?:\/\//i.test(draft) ||
+                draft.includes("/");
+              navigateToArticle(
+                headerSearchDraft,
+                looksLikePathReference ? undefined : headerSearchDraft,
+              );
               setHeaderSearchDraft("");
             }
           }}
         >
-          <div className="header-search-wrap">
-            <input
-              type="search"
-              className="header-search-input"
-              placeholder="Search the register..."
-              value={headerSearchDraft}
-              onChange={(e) => { setHeaderSearchDraft(e.target.value); setSearchSuggestOpen(true); }}
-              onFocus={() => setSearchSuggestOpen(true)}
-              onBlur={() => setTimeout(() => setSearchSuggestOpen(false), 150)}
-            />
-            {searchSuggestOpen && headerSearchDraft.trim() && (
-              <ul className="header-search-suggest">
-                <li>
-                  <button
-                    type="button"
-                    className="header-search-suggest-item"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      // Pass the typed text as the literal title (same as the
-                      // form submit) so punctuation the slug can't carry — the
-                      // colon in "Rat: Eating Test" — shows immediately rather
-                      // than only after the article finishes generating.
-                      navigateToArticle(headerSearchDraft, headerSearchDraft);
-                      setHeaderSearchDraft("");
-                      setSearchSuggestOpen(false);
-                    }}
-                  >
-                    Go to: <strong>{headerSearchDraft.trim()}</strong>
-                  </button>
-                </li>
-                {headerSuggest.items.length > 0 && (
-                  <li
-                    className="header-search-suggest-divider"
-                    onScroll={(e) => {
-                      const el = e.currentTarget;
-                      if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) headerSuggest.loadMore();
-                    }}
-                    style={{ maxHeight: "14rem", overflowY: "auto" }}
-                  >
-                    <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                      {headerSuggest.items.map((s) => (
-                        <li key={s.slug}>
-                          <button
-                            type="button"
-                            className="header-search-suggest-item"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              // Navigate by the article's title — that's what
-                              // builds the canonical /wiki/ URL (same derivation
-                              // as the search-results page). The slug is a DB
-                              // tracking key, not a routing key. Pass the title
-                              // as the literal title too so the server gets the
-                              // exact text (punctuation a slug can't carry).
-                              navigateToArticle(s.title, s.title);
-                              setHeaderSearchDraft("");
-                              setSearchSuggestOpen(false);
-                            }}
-                          >
-                            {s.title}
-                          </button>
-                        </li>
-                      ))}
-                      {headerSuggest.hasMore && (
-                        <li className="header-search-suggest-more">
-                          {headerSuggest.loading ? "Loading…" : "Scroll for more"}
-                        </li>
-                      )}
-                    </ul>
-                  </li>
-                )}
-              </ul>
-            )}
-          </div>
+          <ArticleSearchDropdown
+            wrapClassName="flex-1"
+            query={headerSearchDraft}
+            onQueryChange={setHeaderSearchDraft}
+            placeholder="Search the register..."
+            leading={{
+              // The typed text doubles as a literal title to forward, so
+              // punctuation a slug can't carry — the colon in "Rat: Eating
+              // Test" — shows immediately rather than only after generation.
+              label: (
+                <>
+                  Go to:{" "}
+                  <strong className="font-semibold text-accent">
+                    {headerSearchDraft.trim()}
+                  </strong>
+                </>
+              ),
+              onSelect: () => {
+                navigateToArticle(headerSearchDraft, headerSearchDraft);
+                setHeaderSearchDraft("");
+              },
+            }}
+            onPick={(s) => {
+              // Navigate by title — that builds the canonical /wiki/ URL (same
+              // derivation as the search-results page); the slug is a DB key,
+              // not a routing key. Pass the title as the literal too.
+              navigateToArticle(s.title, s.title);
+              setHeaderSearchDraft("");
+            }}
+          />
           <button type="submit" className="header-search-submit">
             Go
           </button>
         </form>
       </header>
 
-      <section className={`layout${route.kind === "graph" ? " layout--graph" : ""}`}>
+      <section
+        className={`layout${route.kind === "graph" ? "layout--graph" : ""}`}
+      >
         <main className="layout-main">{mainView}</main>
         {route.kind !== "graph" && (
           <Sidebar
@@ -2310,21 +2932,40 @@ export function App() {
           style={{ left: linkMenu.x, top: linkMenu.y }}
           onMouseDown={(e) => e.preventDefault()}
         >
-          <button type="button" className="selection-link-button" onClick={addLinkFromSelection} disabled={linkMenuBusy}>
+          <button
+            type="button"
+            className="selection-link-button"
+            onClick={addLinkFromSelection}
+            disabled={linkMenuBusy}
+          >
             {linkMenuBusy ? "Adding..." : "Add a link here"}
           </button>
-          <button type="button" className="selection-link-button" onClick={openSelectionEdit} disabled={linkMenuBusy}>
+          <button
+            type="button"
+            className="selection-link-button"
+            onClick={openSelectionEdit}
+            disabled={linkMenuBusy}
+          >
             Edit selection
           </button>
-          <button type="button" className="selection-link-dismiss" onClick={clearLinkSelection} disabled={linkMenuBusy}>
+          <button
+            type="button"
+            className="selection-link-dismiss"
+            onClick={clearLinkSelection}
+            disabled={linkMenuBusy}
+          >
             Dismiss
           </button>
         </div>
       ) : null}
 
-      {linkMenuError ? <div className="selection-link-error">{linkMenuError}</div> : null}
+      {linkMenuError ? (
+        <div className="selection-link-error">{linkMenuError}</div>
+      ) : null}
 
-      <footer className="site-footer">Local-first fictional canon engine</footer>
+      <footer className="site-footer">
+        Local-first fictional canon engine
+      </footer>
     </div>
   );
 }

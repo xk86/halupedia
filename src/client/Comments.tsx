@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import clsx from "clsx";
+
+// Bare text-button used for "reply"/"expand"/"load more"; size is composed per
+// use (the action links are 0.72rem, the load-more buttons 0.85rem).
+const LINK_BTN =
+  "cursor-pointer border-none bg-transparent p-0 font-mono uppercase tracking-[0.1em] text-ink-fade hover:text-accent";
+// Comment thread <ol>: reset list chrome; the first item drops its top rule.
+const LIST =
+  "m-0 list-none p-0 [&>li:first-child]:border-t-0 [&>li:first-child]:pt-0";
+// Load-more / expand button row.
+const LOADMORE =
+  "mt-[1.25rem] mb-[0.5rem] flex justify-center pt-[1rem] [border-top:1px_dotted_var(--rule)]";
 
 /* -------------------------------------------------------------------------- */
 /*  Types — kept in sync with src/worker/comments.ts                           */
@@ -68,7 +80,7 @@ function formatAge(ms: number): string {
 
 function mapTree(
   list: Comment[],
-  fn: (c: Comment) => Comment | null
+  fn: (c: Comment) => Comment | null,
 ): Comment[] {
   const out: Comment[] = [];
   for (const c of list) {
@@ -85,7 +97,7 @@ function insertAndSort(
   node: Comment,
   parentId: string,
   child: Comment,
-  sort: SortMode
+  sort: SortMode,
 ): Comment {
   if (node.id === parentId) {
     return { ...node, children: sortChildren([child, ...node.children], sort) };
@@ -110,15 +122,12 @@ function sortChildren(list: Comment[], sort: SortMode): Comment[] {
   const now = Date.now();
   const cmp = (a: Comment, b: Comment) => {
     if (sort === "newest") return b.created_at - a.created_at;
-    if (sort === "top")
-      return b.score - a.score || b.created_at - a.created_at;
+    if (sort === "top") return b.score - a.score || b.created_at - a.created_at;
     // recommended — must match src/worker/comments.ts compareDTO
     const ha =
-      Math.sqrt(a.score) /
-      Math.pow((now - a.created_at) / 3600000 + 2, 0.8);
+      Math.sqrt(a.score) / Math.pow((now - a.created_at) / 3600000 + 2, 0.8);
     const hb =
-      Math.sqrt(b.score) /
-      Math.pow((now - b.created_at) / 3600000 + 2, 0.8);
+      Math.sqrt(b.score) / Math.pow((now - b.created_at) / 3600000 + 2, 0.8);
     return hb - ha || b.created_at - a.created_at;
   };
   return [...list]
@@ -175,7 +184,7 @@ export function Comments({ slug }: Props) {
       try {
         const res = await fetch(
           `/api/comments/${encodeURIComponent(slug)}?offset=0&limit=${PAGE_SIZE}&sort=${sort}`,
-          { signal: ctrl.signal, credentials: "same-origin" }
+          { signal: ctrl.signal, credentials: "same-origin" },
         );
         if (!res.ok) {
           const j: any = await res.json().catch(() => ({}));
@@ -206,7 +215,7 @@ export function Comments({ slug }: Props) {
     try {
       const res = await fetch(
         `/api/comments/${encodeURIComponent(slug)}?offset=${comments.length}&limit=${PAGE_SIZE}&sort=${sort}`,
-        { credentials: "same-origin" }
+        { credentials: "same-origin" },
       );
       if (!res.ok) {
         const j: any = await res.json().catch(() => ({}));
@@ -276,7 +285,7 @@ export function Comments({ slug }: Props) {
         setUser(j.user);
         // Insert the reply in-place; re-sort only the affected subtree.
         setComments((cur) =>
-          cur.map((root) => insertAndSort(root, parentId, j.comment, sort))
+          cur.map((root) => insertAndSort(root, parentId, j.comment, sort)),
         );
         setServerTotal((n) => n + 1);
         setReplyTo(null);
@@ -287,7 +296,7 @@ export function Comments({ slug }: Props) {
         setSubmitting(false);
       }
     },
-    [replyDraft, slug, sort, submitting]
+    [replyDraft, slug, sort, submitting],
   );
 
   /* ----- Toggle vote ----- */
@@ -298,24 +307,21 @@ export function Comments({ slug }: Props) {
         if (c.id !== id) return c;
         const voted = !c.voted;
         return { ...c, voted, score: c.score + (voted ? 1 : -1) };
-      })
+      }),
     );
     try {
-      const res = await fetch(
-        `/api/comments/${encodeURIComponent(id)}/vote`,
-        {
-          method: "POST",
-          credentials: "same-origin",
-        }
-      );
+      const res = await fetch(`/api/comments/${encodeURIComponent(id)}/vote`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
       if (!res.ok) throw new Error(`vote failed`);
       const j: { voted: boolean; score: number; user: CommentUser } =
         await res.json();
       setUser(j.user);
       setComments((cur) =>
         mapTree(cur, (c) =>
-          c.id === id ? { ...c, voted: j.voted, score: j.score } : c
-        )
+          c.id === id ? { ...c, voted: j.voted, score: j.score } : c,
+        ),
       );
     } catch {
       // Roll back on failure.
@@ -324,7 +330,7 @@ export function Comments({ slug }: Props) {
           if (c.id !== id) return c;
           const voted = !c.voted;
           return { ...c, voted, score: c.score + (voted ? 1 : -1) };
-        })
+        }),
       );
     }
   }, []);
@@ -339,21 +345,35 @@ export function Comments({ slug }: Props) {
   }, []);
 
   return (
-    <section className="comments" aria-label="Reader speculations">
-      <header className="comments-header">
-        <h2>Reader speculations</h2>
-        <span className="comments-count">
+    <section
+      className="mt-[3.5rem] pt-[1.5rem] [border-top:2px_solid_var(--rule)]"
+      aria-label="Reader speculations"
+    >
+      <header className="mb-[1rem] flex flex-wrap items-baseline justify-between gap-x-[1rem] gap-y-[0.5rem]">
+        <h2 className="m-0 font-serif text-[1.4rem] font-medium text-ink-soft">
+          Reader speculations
+        </h2>
+        <span className="font-mono text-[0.78rem] tracking-[0.1em] text-ink-fade uppercase">
           {loading
             ? "—"
             : `${serverTotal} entr${serverTotal === 1 ? "y" : "ies"}`}
         </span>
-        <div className="comments-sort" role="tablist" aria-label="Sort comments">
+        <div
+          className="ml-auto inline-flex gap-[0.25rem] font-mono text-[0.75rem]"
+          role="tablist"
+          aria-label="Sort comments"
+        >
           {(Object.keys(SORT_LABELS) as SortMode[]).map((mode) => (
             <button
               key={mode}
               role="tab"
               aria-selected={sort === mode}
-              className={`comments-sort-btn ${sort === mode ? "active" : ""}`}
+              className={clsx(
+                "rounded-[2px] bg-transparent px-[0.55rem] py-[0.15rem] font-[inherit] text-[length:inherit] tracking-[0.05em] uppercase [border:1px_solid_transparent] [transition:color_.15s,border-color_.15s,background_.15s]",
+                sort === mode
+                  ? "cursor-default [border-color:var(--ink-soft)] text-ink"
+                  : "cursor-pointer text-ink-fade hover:[border-color:var(--rule)] hover:text-ink",
+              )}
               onClick={() => setSort(mode)}
               disabled={loading || sort === mode}
             >
@@ -365,14 +385,18 @@ export function Comments({ slug }: Props) {
 
       {/* Identity strip — only shown after a user has been minted. */}
       {user && (
-        <div className="comments-identity">
-          <span className="comments-identity-label">Posting as</span>
-          <span className="comments-identity-name">{user.name}</span>
-          <span className="comments-identity-handle">@{user.username}</span>
+        <div className="mb-[0.8rem] flex flex-wrap items-baseline gap-[0.6rem] bg-blockquote-bg px-[0.8rem] py-[0.55rem] text-[0.92rem] [border-left:3px_solid_var(--accent)]">
+          <span className="font-mono text-[0.72rem] tracking-[0.1em] text-ink-fade uppercase">
+            Posting as
+          </span>
+          <span className="text-ink italic">{user.name}</span>
+          <span className="font-mono text-[0.82rem] text-ink-fade">
+            @{user.username}
+          </span>
         </div>
       )}
       {!user && !loading && (
-        <p className="comments-identity-hint">
+        <p className="m-0 mb-[0.8rem] font-mono text-[0.76rem] text-ink-fade">
           You have no name yet. One will be assigned to you on first comment;
           you cannot choose it.
         </p>
@@ -388,12 +412,18 @@ export function Comments({ slug }: Props) {
         submitLabel="Submit entry"
       />
 
-      {error && <div className="comments-error">{error}</div>}
+      {error && (
+        <div className="mb-[1rem] bg-accent-wash px-[0.8rem] py-[0.6rem] font-mono text-[0.85rem] text-accent [border:1px_solid_var(--accent)]">
+          {error}
+        </div>
+      )}
 
       {loading ? (
-        <p className="comments-status">Consulting the marginalia…</p>
+        <p className="my-[1rem] font-mono text-[0.85rem] text-ink-fade">
+          Consulting the marginalia…
+        </p>
       ) : comments.length === 0 ? (
-        <p className="comments-empty">
+        <p className="my-[1rem] font-mono text-[0.85rem] text-ink-fade">
           No reader has yet commented on this entry.
         </p>
       ) : (
@@ -407,7 +437,7 @@ export function Comments({ slug }: Props) {
             const hiddenCount = comments.length - visible.length;
             return (
               <>
-                <ol className="comments-list">
+                <ol className={LIST}>
                   {visible.map((c) => (
                     <CommentNode
                       key={c.id}
@@ -426,9 +456,9 @@ export function Comments({ slug }: Props) {
                   ))}
                 </ol>
                 {truncated && (
-                  <div className="comments-loadmore comments-expand">
+                  <div className={LOADMORE}>
                     <button
-                      className="comment-link"
+                      className={`${LINK_BTN} text-[0.85rem]`}
                       onClick={() => setExpanded(true)}
                     >
                       Expand ({hiddenCount} more
@@ -439,19 +469,20 @@ export function Comments({ slug }: Props) {
               </>
             );
           })()}
-          {hasMore && (!expanded ? comments.length <= INITIAL_VISIBLE_ROOTS : true) && (
-            <div className="comments-loadmore">
-              <button
-                className="comment-link"
-                onClick={loadMore}
-                disabled={loadingMore}
-              >
-                {loadingMore
-                  ? "Fetching more marginalia…"
-                  : `Load more (${rootsTotal - comments.length} remaining)`}
-              </button>
-            </div>
-          )}
+          {hasMore &&
+            (!expanded ? comments.length <= INITIAL_VISIBLE_ROOTS : true) && (
+              <div className={LOADMORE}>
+                <button
+                  className={`${LINK_BTN} text-[0.85rem]`}
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                >
+                  {loadingMore
+                    ? "Fetching more marginalia…"
+                    : `Load more (${rootsTotal - comments.length} remaining)`}
+                </button>
+              </div>
+            )}
         </>
       )}
     </section>
@@ -499,54 +530,65 @@ function CommentNode({
   const childCount = countTotal(comment.children);
 
   return (
-    <li className="comment" style={{ marginLeft: Math.min(depth, 8) * 14 }}>
-      <div className="comment-row">
+    <li
+      className="mt-0 mb-[0.9rem] pt-[0.55rem] [border-top:1px_dotted_var(--rule-soft)] max-[600px]:ml-0!"
+      style={{ marginLeft: Math.min(depth, 8) * 14 }}
+    >
+      <div className="flex items-start gap-[0.55rem]">
         <button
-          className={`vote ${comment.voted ? "voted" : ""}`}
+          className={clsx(
+            "shrink-0 cursor-pointer border-none bg-transparent px-[0.25rem] py-[0.1rem] leading-none [transition:color_120ms_ease,transform_120ms_ease] hover:[transform:translateY(-1px)] hover:text-accent",
+            comment.voted ? "text-accent" : "text-ink-fade",
+          )}
           onClick={() => toggleVote(comment.id)}
           aria-label={comment.voted ? "Remove upvote" : "Upvote"}
           aria-pressed={comment.voted}
           title={comment.voted ? "Retract upvote" : "Upvote"}
         >
-          <span className="vote-arrow" aria-hidden>▲</span>
+          <span className="inline-block text-[0.95rem]" aria-hidden>
+            ▲
+          </span>
         </button>
 
-        <div className="comment-body">
-          <header className="comment-meta">
+        <div className="min-w-0 flex-1">
+          <header className="mb-[0.25rem] flex flex-wrap items-baseline gap-[0.35rem] font-mono text-[0.74rem] text-ink-fade">
             <button
-              className="comment-collapse"
+              className="cursor-pointer border-none bg-transparent px-[0.15rem] py-0 font-mono text-[0.74rem] text-ink-fade hover:text-accent"
               onClick={() => toggleCollapse(comment.id)}
               aria-expanded={!isCollapsed}
               title={isCollapsed ? "Expand" : "Collapse"}
             >
               [{isCollapsed ? "+" : "–"}]
             </button>
-            <span className="comment-author" title={comment.user.name}>
+            <span
+              className="font-serif text-[0.95rem] text-ink-soft italic"
+              title={comment.user.name}
+            >
               {comment.user.name}
             </span>
-            <span className="comment-handle">@{comment.user.username}</span>
-            <span className="sep">·</span>
-            <span className="comment-score">
+            <span className="text-ink-fade">@{comment.user.username}</span>
+            <span className="opacity-50">·</span>
+            <span className="tracking-[0.04em]">
               {comment.score} point{comment.score === 1 ? "" : "s"}
             </span>
-            <span className="sep">·</span>
-            <span className="comment-age">{formatAge(comment.created_at)}</span>
+            <span className="opacity-50">·</span>
+            <span>{formatAge(comment.created_at)}</span>
             {isCollapsed && childCount > 0 && (
               <>
-                <span className="sep">·</span>
-                <span className="comment-collapsed-count">
-                  ({childCount} hidden)
-                </span>
+                <span className="opacity-50">·</span>
+                <span className="italic">({childCount} hidden)</span>
               </>
             )}
           </header>
 
           {!isCollapsed && (
             <>
-              <div className="comment-text">{renderBody(comment.body)}</div>
-              <footer className="comment-actions">
+              <div className="text-[0.98rem] leading-[1.55] text-ink [&_p]:mx-0 [&_p]:mt-0 [&_p]:mb-[0.55rem] [&_p]:text-left [&_p]:[hyphens:none] [&_p:last-child]:mb-0">
+                {renderBody(comment.body)}
+              </div>
+              <footer className="mt-[0.3rem] flex gap-[0.8rem]">
                 <button
-                  className="comment-link"
+                  className={`${LINK_BTN} text-[0.72rem]`}
                   onClick={() =>
                     setReplyTo(replyTo === comment.id ? null : comment.id)
                   }
@@ -568,7 +610,12 @@ function CommentNode({
               )}
 
               {comment.children.length > 0 && (
-                <ol className="comments-list nested">
+                <ol
+                  className={clsx(
+                    LIST,
+                    "mt-[0.6rem] max-[600px]:pl-[0.6rem] max-[600px]:[border-left:1px_dotted_var(--rule)]",
+                  )}
+                >
                   {comment.children.map((child) => (
                     <CommentNode
                       key={child.id}
@@ -635,9 +682,14 @@ function CommentComposer({
 }: ComposerProps) {
   const remaining = 2000 - value.length;
   return (
-    <div className={`comment-composer ${compact ? "compact" : ""}`}>
+    <div
+      className={clsx(
+        "mx-0",
+        compact ? "mt-[0.6rem] mb-[0.6rem]" : "mt-[0.5rem] mb-[1.5rem]",
+      )}
+    >
       <textarea
-        className="comment-textarea"
+        className="min-h-[4.5rem] w-full resize-y rounded-[2px] bg-control-surface-soft px-[0.8rem] py-[0.65rem] font-serif text-[1rem] leading-[1.5] text-ink [border:1px_solid_var(--rule)] focus:[border-color:var(--accent)] focus:bg-input-surface-strong focus:outline-none"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -645,15 +697,18 @@ function CommentComposer({
         maxLength={2000}
         disabled={submitting}
       />
-      <div className="comment-composer-row">
+      <div className="mt-[0.45rem] flex items-center justify-between gap-[0.75rem]">
         <span
-          className={`comment-counter ${remaining < 0 ? "over" : ""}`}
+          className={clsx(
+            "font-mono text-[0.72rem] tracking-[0.04em]",
+            remaining < 0 ? "text-accent" : "text-ink-fade",
+          )}
           aria-live="polite"
         >
           {remaining} chars left
         </span>
         <button
-          className="comment-submit"
+          className="cursor-pointer rounded-[1px] bg-ink px-[0.95rem] py-[0.45rem] font-mono text-[0.78rem] tracking-[0.1em] text-parchment uppercase [border:1px_solid_var(--ink)] [transition:background_120ms_ease,color_120ms_ease] hover:not-disabled:[border-color:var(--accent)] hover:not-disabled:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
           onClick={onSubmit}
           disabled={submitting || value.trim().length === 0}
         >

@@ -5440,66 +5440,6 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: #fff;
 }
 
-.graph-search-wrap {
-  position: relative;
-}
-
-.graph-search-input {
-  padding: 0.25rem 0.55rem;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: var(--input-surface-strong);
-  color: var(--ink);
-  font-size: 0.82rem;
-  width: 200px;
-}
-
-.graph-suggest {
-  position: absolute;
-  top: calc(100% + 3px);
-  left: 0;
-  z-index: 100;
-  background: var(--parchment);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  list-style: none;
-  margin: 0;
-  padding: 0.25rem 0;
-  min-width: 220px;
-  max-height: 260px;
-  overflow-y: auto;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-}
-
-.graph-suggest li {
-  margin: 0;
-  padding: 0;
-}
-
-.graph-suggest button {
-  width: 100%;
-  text-align: left;
-  padding: 0.35rem 0.75rem;
-  background: transparent;
-  border: none;
-  color: var(--ink);
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.graph-suggest button:hover {
-  background: var(--parchment-deep);
-  color: var(--accent);
-}
-
-.graph-suggest-more {
-  padding: 0.3rem 0.75rem;
-  font-size: 0.72rem;
-  color: var(--ink-fade);
-  font-style: italic;
-  text-align: center;
-}
-
 .graph-stats {
   margin-left: auto;
   font-family: var(--mono);

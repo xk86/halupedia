@@ -4,12 +4,22 @@ import pagerank from "graphology-metrics/centrality/pagerank";
 import betweenness from "graphology-metrics/centrality/betweenness";
 import closeness from "graphology-metrics/centrality/closeness";
 import eigenvector from "graphology-metrics/centrality/eigenvector";
-import { degreeCentrality, inDegreeCentrality, outDegreeCentrality } from "graphology-metrics/centrality/degree";
+import {
+  degreeCentrality,
+  inDegreeCentrality,
+  outDegreeCentrality,
+} from "graphology-metrics/centrality/degree";
 import hits from "graphology-metrics/centrality/hits";
 import { eccentricity } from "graphology-metrics/node";
 import { density } from "graphology-metrics/graph";
-import { singleSourceLength, bidirectional as unweightedPath } from "graphology-shortest-path/unweighted";
-import { connectedComponents, largestConnectedComponent } from "graphology-components";
+import {
+  singleSourceLength,
+  bidirectional as unweightedPath,
+} from "graphology-shortest-path/unweighted";
+import {
+  connectedComponents,
+  largestConnectedComponent,
+} from "graphology-components";
 import louvain from "graphology-communities-louvain";
 import * as THREE from "three";
 import { DragControls } from "three/examples/jsm/controls/DragControls.js";
@@ -23,7 +33,8 @@ import {
   type NodeLabel,
 } from "./graphLabels";
 import { toWikiSegment } from "./wikiPath";
-import { type Suggestion, fetchArticleSuggestions, useArticleSuggestions } from "./articleSuggest";
+import { type Suggestion } from "./articleSuggest";
+import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
 
 // ── Node-drag button dispatch ────────────────────────────────────────────────
 // 3d-force-graph builds a THREE DragControls over the node meshes but never
@@ -62,7 +73,11 @@ import { type Suggestion, fetchArticleSuggestions, useArticleSuggestions } from 
           get: () => gated,
           set: (handler: (event: PointerEvent) => void) => {
             gated = (event: PointerEvent) => {
-              if (event.pointerType !== "touch" && (event.button !== 0 || event.shiftKey)) return;
+              if (
+                event.pointerType !== "touch" &&
+                (event.button !== 0 || event.shiftKey)
+              )
+                return;
               handler(event);
             };
           },
@@ -72,9 +87,19 @@ import { type Suggestion, fetchArticleSuggestions, useArticleSuggestions } from 
   });
 }
 
-interface RawNode { slug: string; title: string; exists: boolean; }
-interface RawLink { source: string; target: string; }
-interface GraphData { nodes: RawNode[]; links: RawLink[]; }
+interface RawNode {
+  slug: string;
+  title: string;
+  exists: boolean;
+}
+interface RawLink {
+  source: string;
+  target: string;
+}
+interface GraphData {
+  nodes: RawNode[];
+  links: RawLink[];
+}
 
 interface FgNode {
   id: string;
@@ -97,52 +122,85 @@ type NeighborhoodMode = "refs" | "backlinks" | "both";
 type PathDir = "directed" | "undirected" | "either";
 type DegreeMode = "in" | "out" | "both";
 type Metric =
-  | "pagerank" | "betweenness" | "closeness" | "eigenvector"
-  | "degree" | "inDegree" | "outDegree"
-  | "hitsAuthority" | "hitsHub"
-  | "eccentricity" | "distanceFromSeed";
+  | "pagerank"
+  | "betweenness"
+  | "closeness"
+  | "eigenvector"
+  | "degree"
+  | "inDegree"
+  | "outDegree"
+  | "hitsAuthority"
+  | "hitsHub"
+  | "eccentricity"
+  | "distanceFromSeed";
 
 const METRICS: { value: Metric; label: string; needsSeeds?: true }[] = [
-  { value: "pagerank",         label: "PageRank" },
-  { value: "betweenness",      label: "Betweenness" },
-  { value: "closeness",        label: "Closeness" },
-  { value: "eigenvector",      label: "Eigenvector" },
-  { value: "degree",           label: "Degree" },
-  { value: "inDegree",         label: "In-degree" },
-  { value: "outDegree",        label: "Out-degree" },
-  { value: "hitsAuthority",    label: "HITS authority" },
-  { value: "hitsHub",          label: "HITS hub" },
-  { value: "eccentricity",     label: "Eccentricity" },
+  { value: "pagerank", label: "PageRank" },
+  { value: "betweenness", label: "Betweenness" },
+  { value: "closeness", label: "Closeness" },
+  { value: "eigenvector", label: "Eigenvector" },
+  { value: "degree", label: "Degree" },
+  { value: "inDegree", label: "In-degree" },
+  { value: "outDegree", label: "Out-degree" },
+  { value: "hitsAuthority", label: "HITS authority" },
+  { value: "hitsHub", label: "HITS hub" },
+  { value: "eccentricity", label: "Eccentricity" },
   { value: "distanceFromSeed", label: "Seed distance", needsSeeds: true },
 ];
 
-interface Seed { slug: string; title: string; }
+interface Seed {
+  slug: string;
+  title: string;
+}
 
-function computeMetric(g: Graph, metric: Metric, seeds?: Seed[]): Record<string, number> {
-  const zero = () => { const z: Record<string, number> = {}; for (const n of g.nodes()) z[n] = 0; return z; };
+function computeMetric(
+  g: Graph,
+  metric: Metric,
+  seeds?: Seed[],
+): Record<string, number> {
+  const zero = () => {
+    const z: Record<string, number> = {};
+    for (const n of g.nodes()) z[n] = 0;
+    return z;
+  };
   try {
     switch (metric) {
-      case "pagerank":    return pagerank(g, { getEdgeWeight: null });
-      case "betweenness": return betweenness(g);
-      case "closeness":   return closeness(g);
-      case "eigenvector": return eigenvector(g);
-      case "degree":      return degreeCentrality(g);
-      case "inDegree":    return inDegreeCentrality(g);
-      case "outDegree":   return outDegreeCentrality(g);
-      case "hitsAuthority": return hits(g).authorities;
-      case "hitsHub":       return hits(g).hubs;
+      case "pagerank":
+        return pagerank(g, { getEdgeWeight: null });
+      case "betweenness":
+        return betweenness(g);
+      case "closeness":
+        return closeness(g);
+      case "eigenvector":
+        return eigenvector(g);
+      case "degree":
+        return degreeCentrality(g);
+      case "inDegree":
+        return inDegreeCentrality(g);
+      case "outDegree":
+        return outDegreeCentrality(g);
+      case "hitsAuthority":
+        return hits(g).authorities;
+      case "hitsHub":
+        return hits(g).hubs;
       case "eccentricity": {
         const result: Record<string, number> = {};
-        for (const n of g.nodes()) { try { result[n] = eccentricity(g, n); } catch { result[n] = 0; } }
+        for (const n of g.nodes()) {
+          try {
+            result[n] = eccentricity(g, n);
+          } catch {
+            result[n] = 0;
+          }
+        }
         return result;
       }
       case "distanceFromSeed": {
-        const validSeeds = (seeds ?? []).filter(s => g.hasNode(s.slug));
+        const validSeeds = (seeds ?? []).filter((s) => g.hasNode(s.slug));
         if (!validSeeds.length) return computeMetric(g, "pagerank");
-        const distMaps = validSeeds.map(s => singleSourceLength(g, s.slug));
+        const distMaps = validSeeds.map((s) => singleSourceLength(g, s.slug));
         const result: Record<string, number> = {};
         for (const n of g.nodes()) {
-          const minDist = Math.min(...distMaps.map(dm => dm[n] ?? Infinity));
+          const minDist = Math.min(...distMaps.map((dm) => dm[n] ?? Infinity));
           // invert so closer = higher score; unreachable = 0
           result[n] = isFinite(minDist) ? 1 / (minDist + 1) : 0;
         }
@@ -171,7 +229,10 @@ function bfsUndirected(g: Graph, a: string, b: string): string[] | null {
       if (nb === b) {
         const path = [b];
         let c = b;
-        while (c !== a) { c = prev.get(c)!; path.push(c); }
+        while (c !== a) {
+          c = prev.get(c)!;
+          path.push(c);
+        }
         return path.reverse();
       }
       queue.push(nb);
@@ -189,11 +250,15 @@ function bfsUndirected(g: Graph, a: string, b: string): string[] | null {
  *  - "either": try directed first, fall back to undirected
  */
 export function computePathNodes(
-  g: Graph, waypoints: { slug: string }[], dir: PathDir,
+  g: Graph,
+  waypoints: { slug: string }[],
+  dir: PathDir,
 ): { nodes: string[]; edgeSet: Set<string> } {
   const nodes: string[] = [];
   const edgeSet = new Set<string>();
-  const push = (slug: string) => { if (nodes[nodes.length - 1] !== slug) nodes.push(slug); };
+  const push = (slug: string) => {
+    if (nodes[nodes.length - 1] !== slug) nodes.push(slug);
+  };
 
   // A directed route along the arrows. Try the natural waypoint order first,
   // then the reverse — so the route still follows real edge directions even if
@@ -206,14 +271,17 @@ export function computePathNodes(
   };
 
   for (let i = 0; i + 1 < waypoints.length; i++) {
-    const a = waypoints[i].slug, b = waypoints[i + 1].slug;
+    const a = waypoints[i].slug,
+      b = waypoints[i + 1].slug;
     if (!g.hasNode(a) || !g.hasNode(b)) continue;
     let seg: string[] | null = null;
     try {
       if (dir === "directed") seg = directedSeg(a, b);
       else if (dir === "undirected") seg = bfsUndirected(g, a, b);
       else seg = directedSeg(a, b) ?? bfsUndirected(g, a, b);
-    } catch { seg = null; }
+    } catch {
+      seg = null;
+    }
     if (!seg) continue;
     for (const s of seg) push(s);
     for (let k = 0; k + 1 < seg.length; k++) {
@@ -230,7 +298,10 @@ export function slugToTitle(slug: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : slug;
 }
 
-export interface PathRoute { nodes: string[]; edgeSet: Set<string>; }
+export interface PathRoute {
+  nodes: string[];
+  edgeSet: Set<string>;
+}
 
 /** Edge keys (both orientations) for an ordered node walk. */
 function edgeSetOf(nodes: string[]): Set<string> {
@@ -248,9 +319,16 @@ function edgeSetOf(nodes: string[]): Set<string> {
  * by non-decreasing length. Bounded by an expansion cap so a far/missing
  * target can't hang the UI.
  */
-export function kShortestPaths(g: Graph, a: string, b: string, k: number, dir: PathDir): string[][] {
+export function kShortestPaths(
+  g: Graph,
+  a: string,
+  b: string,
+  k: number,
+  dir: PathDir,
+): string[][] {
   if (!g.hasNode(a) || !g.hasNode(b) || k < 1) return [];
-  const neighborsOf = (n: string) => (dir === "directed" ? g.outNeighbors(n) : g.neighbors(n));
+  const neighborsOf = (n: string) =>
+    dir === "directed" ? g.outNeighbors(n) : g.neighbors(n);
   const results: string[][] = [];
   const queue: string[][] = [[a]];
   let expansions = 0;
@@ -258,7 +336,10 @@ export function kShortestPaths(g: Graph, a: string, b: string, k: number, dir: P
   while (queue.length && results.length < k && expansions < CAP) {
     const path = queue.shift()!;
     const last = path[path.length - 1];
-    if (last === b) { results.push(path); continue; }
+    if (last === b) {
+      results.push(path);
+      continue;
+    }
     expansions++;
     for (const nb of neighborsOf(last)) {
       if (path.includes(nb)) continue; // loopless
@@ -275,75 +356,69 @@ export function kShortestPaths(g: Graph, a: string, b: string, k: number, dir: P
  * through the consecutive shortest paths.
  */
 export function computePaths(
-  g: Graph, waypoints: { slug: string }[], dir: PathDir, maxPaths: number,
+  g: Graph,
+  waypoints: { slug: string }[],
+  dir: PathDir,
+  maxPaths: number,
 ): PathRoute[] {
   if (waypoints.length < 2) return [];
   if (waypoints.length === 2) {
-    const a = waypoints[0].slug, b = waypoints[1].slug;
+    const a = waypoints[0].slug,
+      b = waypoints[1].slug;
     let raw = kShortestPaths(g, a, b, maxPaths, dir);
     if (dir === "directed") {
       // Also include routes that follow the arrows the other way (waypoints
       // listed against the link flow), then keep the shortest overall.
-      const rev = kShortestPaths(g, b, a, maxPaths, dir).map((p) => [...p].reverse());
+      const rev = kShortestPaths(g, b, a, maxPaths, dir).map((p) =>
+        [...p].reverse(),
+      );
       const seen = new Set(raw.map((p) => p.join(">")));
-      for (const p of rev) { const key = p.join(">"); if (!seen.has(key)) { seen.add(key); raw.push(p); } }
+      for (const p of rev) {
+        const key = p.join(">");
+        if (!seen.has(key)) {
+          seen.add(key);
+          raw.push(p);
+        }
+      }
       raw.sort((x, y) => x.length - y.length);
       raw = raw.slice(0, maxPaths);
     }
     return raw.map((nodes) => ({ nodes, edgeSet: edgeSetOf(nodes) }));
   }
   const stitched = computePathNodes(g, waypoints, dir);
-  return stitched.nodes.length ? [{ nodes: stitched.nodes, edgeSet: stitched.edgeSet }] : [];
+  return stitched.nodes.length
+    ? [{ nodes: stitched.nodes, edgeSet: stitched.edgeSet }]
+    : [];
 }
 
 // ── Reusable article picker ────────────────────────────────────────────────
 //
-// A self-contained search box with a scroll-paginated suggestion dropdown,
-// reusing the existing .graph-search-wrap / .graph-suggest styling. Used for
-// each path-mode waypoint slot.
+// Thin stateful wrapper around the shared <ArticleSearchDropdown> for each
+// path-mode waypoint slot: holds the query and clears it after a pick.
 
-function ArticlePicker({ onPick, placeholder, autoFocus }: {
+function ArticlePicker({
+  onPick,
+  placeholder,
+  autoFocus,
+}: {
   onPick: (s: Suggestion) => void;
   placeholder: string;
   autoFocus?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const { items, hasMore, loading, loadMore } = useArticleSuggestions(query);
-
   return (
-    <div className="graph-search-wrap">
-      <input
-        type="text"
-        className="graph-search-input"
-        placeholder={placeholder}
-        value={query}
-        autoFocus={autoFocus}
-        onChange={(e) => setQuery(e.target.value)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-      />
-      {open && items.length > 0 && (
-        <ul
-          className="graph-suggest"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) loadMore();
-          }}
-        >
-          {items.map((s) => (
-            <li key={s.slug}>
-              <button type="button" onMouseDown={() => { onPick(s); setQuery(""); setOpen(false); }}>
-                {s.title}
-              </button>
-            </li>
-          ))}
-          {hasMore && (
-            <li className="graph-suggest-more">{loading ? "Loading…" : "Scroll for more"}</li>
-          )}
-        </ul>
-      )}
-    </div>
+    <ArticleSearchDropdown
+      wrapClassName="w-[200px]"
+      inputType="text"
+      query={query}
+      onQueryChange={setQuery}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      onPick={(s) => {
+        onPick(s);
+        setQuery("");
+      }}
+    />
   );
 }
 
@@ -351,42 +426,42 @@ function ArticlePicker({ onPick, placeholder, autoFocus }: {
 
 interface RenderSettings {
   // Nodes
-  nodeResolution: number;   // sphere segments: 4–32
-  nodeRelSize: number;      // base sphere volume per val unit: 1–12
-  nodeOpacity: number;      // 0.1–1.0
+  nodeResolution: number; // sphere segments: 4–32
+  nodeRelSize: number; // base sphere volume per val unit: 1–12
+  nodeOpacity: number; // 0.1–1.0
   // Links
-  linkOpacity: number;      // 0.01–0.6
-  linkWidth: number;        // 0.1–4.0
-  arrowLength: number;      // 0–10
-  linkCurvature: number;    // 0–0.8
-  particles: number;        // 0–8
-  particleSpeed: number;    // 0.001–0.02
-  particleWidth: number;    // 0.5–6
+  linkOpacity: number; // 0.01–0.6
+  linkWidth: number; // 0.1–4.0
+  arrowLength: number; // 0–10
+  linkCurvature: number; // 0–0.8
+  particles: number; // 0–8
+  particleSpeed: number; // 0.001–0.02
+  particleWidth: number; // 0.5–6
   // Physics
-  chargeStrength: number;   // -20 to -1200 (repulsion)
-  linkDistance: number;     // 5–400
-  alphaDecay: number;       // 0.001–0.06
-  velocityDecay: number;    // 0.1–0.99
+  chargeStrength: number; // -20 to -1200 (repulsion)
+  linkDistance: number; // 5–400
+  alphaDecay: number; // 0.001–0.06
+  velocityDecay: number; // 0.1–0.99
   // Appearance
   bgColor: string;
   alwaysShowLabels: boolean; // show node-name labels above all nodes, not just on hover
   shadedOpacity: number; // how visible shaded (non-highlighted) nodes, links, and labels are: 0–1; 0 fades them out (labels hidden entirely)
-  labelSize: number;        // size multiplier for always-on node-name labels: 0.5–5
+  labelSize: number; // size multiplier for always-on node-name labels: 0.5–5
   dynamicLabelSize: boolean; // scale each label by the node's link count
   labelSizeInfluence: number; // how strongly the count affects label size: 0–1
   labelDegreeMode: DegreeMode; // which links to count for sizing: in / out / both
   directionalParticles: boolean;
   // Path trace
-  maxPaths: number;          // how many shortest routes to race between 2 waypoints: 1–10
-  particleGlow: boolean;     // wrap the travelling particle in a soft glow halo
-  traceSpeed: number;        // base traversal speed, nodes/sec: 0.4–5
-  traceAccel: number;        // ease-in-out intensity (0 = constant speed): 0–1
-  traceLoopDelay: number;    // seconds to wait after all routes finish before looping: 0–5
-  traceLightness: number;    // OKLCH L for the trace colors: 0.4–0.95
-  traceChroma: number;       // OKLCH C (vividness) for the trace colors: 0.02–0.37
-  traceStartHue: number;     // hue (deg) at each route's start node: 0–360
-  traceEndHue: number;       // hue (deg) at each route's end node: 0–360
-  traceHueSpread: number;    // how far apart overlapping routes' hues fan out (deg), tapered to 0 at endpoints: 0–120
+  maxPaths: number; // how many shortest routes to race between 2 waypoints: 1–10
+  particleGlow: boolean; // wrap the travelling particle in a soft glow halo
+  traceSpeed: number; // base traversal speed, nodes/sec: 0.4–5
+  traceAccel: number; // ease-in-out intensity (0 = constant speed): 0–1
+  traceLoopDelay: number; // seconds to wait after all routes finish before looping: 0–5
+  traceLightness: number; // OKLCH L for the trace colors: 0.4–0.95
+  traceChroma: number; // OKLCH C (vividness) for the trace colors: 0.02–0.37
+  traceStartHue: number; // hue (deg) at each route's start node: 0–360
+  traceEndHue: number; // hue (deg) at each route's end node: 0–360
+  traceHueSpread: number; // how far apart overlapping routes' hues fan out (deg), tapered to 0 at endpoints: 0–120
   pathLinkBrightness: number; // how bright the (untraced) path edges are: 0–1
 }
 
@@ -436,9 +511,21 @@ const BG_PRESETS = [
 // ── Community colours ────────────────────────────────────────────────────────
 
 const COMMUNITY_COLORS = [
-  "#e63946", "#457b9d", "#2a9d8f", "#e9c46a", "#f4a261",
-  "#8338ec", "#06d6a0", "#ef476f", "#118ab2", "#ffd166",
-  "#6a4c93", "#1982c4", "#8ac926", "#ff595e", "#ffca3a",
+  "#e63946",
+  "#457b9d",
+  "#2a9d8f",
+  "#e9c46a",
+  "#f4a261",
+  "#8338ec",
+  "#06d6a0",
+  "#ef476f",
+  "#118ab2",
+  "#ffd166",
+  "#6a4c93",
+  "#1982c4",
+  "#8ac926",
+  "#ff595e",
+  "#ffca3a",
 ];
 
 // Neutral color reserved for singleton communities (id -1). Louvain gives
@@ -470,14 +557,17 @@ function linearToSrgb(c: number): number {
 /** OKLCH (L 0–1, C chroma, H degrees) → "#rrggbb" (clamped to sRGB gamut). */
 export function oklch(L: number, C: number, H: number): string {
   const h = (H * Math.PI) / 180;
-  const a = C * Math.cos(h), b = C * Math.sin(h);
+  const a = C * Math.cos(h),
+    b = C * Math.sin(h);
   const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
   const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
-  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ ** 3,
+    m = m_ ** 3,
+    s = s_ ** 3;
   const lr = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
   const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-  const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  const lb = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
   const to2 = (v: number) => {
     const n = Math.round(Math.min(1, Math.max(0, linearToSrgb(v))) * 255);
     return n.toString(16).padStart(2, "0");
@@ -496,15 +586,19 @@ function hexToOklch(hex: string): { L: number; C: number; H: number } | null {
   const l_ = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
   const m_ = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
   const s_ = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-  const L = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
-  const a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_;
-  const bb = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_;
+  const L = 0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_;
+  const a = 1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_;
+  const bb = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_;
   return { L, C: Math.hypot(a, bb), H: (Math.atan2(bb, a) * 180) / Math.PI };
 }
 
 function parseHexRgb(hex: string): { r: number; g: number; b: number } | null {
   let h = hex.trim().replace(/^#/, "");
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length === 3)
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
   if (h.length !== 6) return null;
   const n = parseInt(h, 16);
   if (Number.isNaN(n)) return null;
@@ -518,7 +612,8 @@ function parseHexRgb(hex: string): { r: number; g: number; b: number } | null {
  * — matching how the labels fade to the same opacity.
  */
 export function blendHex(hex: string, toward: string, keep: number): string {
-  const a = parseHexRgb(hex), b = parseHexRgb(toward);
+  const a = parseHexRgb(hex),
+    b = parseHexRgb(toward);
   if (!a || !b) return hex;
   const t = Math.max(0, Math.min(1, keep));
   const mix = (x: number, y: number) => Math.round(x * t + y * (1 - t));
@@ -561,16 +656,20 @@ export function dim(hex: string, amount = 0.78): string {
  * they spread symmetrically around the primary gradient.
  */
 export function traceHue(
-  rank: number, len: number, x: number,
-  startHue: number, endHue: number, spread: number,
+  rank: number,
+  len: number,
+  x: number,
+  startHue: number,
+  endHue: number,
+  spread: number,
 ): number {
   if (len <= 1) return startHue;
   const u = x / (len - 1);
   const base = startHue + (endHue - startHue) * u;
   if (rank <= 0 || spread === 0) return base;
-  const taper = Math.sin(Math.PI * u);                 // 0 at u=0 and u=1
+  const taper = Math.sin(Math.PI * u); // 0 at u=0 and u=1
   const sign = rank % 2 === 1 ? 1 : -1;
-  const step = Math.ceil(rank / 2);                    // 1,1,2,2,3,3 … → ±1,∓1,±2 …
+  const step = Math.ceil(rank / 2); // 1,1,2,2,3,3 … → ±1,∓1,±2 …
   return base + sign * step * spread * taper;
 }
 
@@ -584,11 +683,21 @@ export function traceHue(
  * The result is clamped into a sane lightness range.
  */
 export function trailNodeLightness(
-  passes: number, total: number, dimL: number, fullL: number,
-  pulse: number, pulseL: number, finale: boolean, finaleL: number,
+  passes: number,
+  total: number,
+  dimL: number,
+  fullL: number,
+  pulse: number,
+  pulseL: number,
+  finale: boolean,
+  finaleL: number,
 ): number {
   const accum = total > 0 ? Math.min(1, Math.max(0, passes / total)) : 0;
-  const L = dimL + (fullL - dimL) * accum + Math.max(0, pulse) * pulseL + (finale ? finaleL : 0);
+  const L =
+    dimL +
+    (fullL - dimL) * accum +
+    Math.max(0, pulse) * pulseL +
+    (finale ? finaleL : 0);
   return Math.min(0.99, Math.max(0, L));
 }
 
@@ -623,7 +732,13 @@ export function summarizeCommunities(
     groupOfNode.set(n.id, key);
     let group = groups.get(key);
     if (!group) {
-      group = { id: key, color: communityColor(key), members: [], linksIn: 0, linksOut: 0 };
+      group = {
+        id: key,
+        color: communityColor(key),
+        members: [],
+        linksIn: 0,
+        linksOut: 0,
+      };
       groups.set(key, group);
     }
     group.members.push({ id: n.id, title: n.title });
@@ -631,18 +746,27 @@ export function summarizeCommunities(
   // The renderer mutates link endpoints from id strings into node objects —
   // accept either form.
   const endpointId = (e: unknown): string =>
-    typeof e === "object" && e !== null ? String((e as { id?: string }).id ?? "") : String(e ?? "");
+    typeof e === "object" && e !== null
+      ? String((e as { id?: string }).id ?? "")
+      : String(e ?? "");
   for (const link of links) {
     const sourceGroup = groupOfNode.get(endpointId(link.source));
     const targetGroup = groupOfNode.get(endpointId(link.target));
-    if (sourceGroup === undefined || targetGroup === undefined || sourceGroup === targetGroup) continue;
+    if (
+      sourceGroup === undefined ||
+      targetGroup === undefined ||
+      sourceGroup === targetGroup
+    )
+      continue;
     groups.get(sourceGroup)!.linksOut += 1;
     groups.get(targetGroup)!.linksIn += 1;
   }
   for (const group of groups.values()) {
     group.members.sort((a, b) => a.title.localeCompare(b.title));
   }
-  return [...groups.values()].sort((a, b) => b.members.length - a.members.length);
+  return [...groups.values()].sort(
+    (a, b) => b.members.length - a.members.length,
+  );
 }
 
 /**
@@ -651,7 +775,10 @@ export function summarizeCommunities(
  * `visible: false` so the renderer can skip them entirely — the key cost saver
  * while the layout is actively rearranging hundreds of sprites.
  */
-export function labelDrawState(faded: boolean, shadedOpacity: number): { opacity: number; visible: boolean } {
+export function labelDrawState(
+  faded: boolean,
+  shadedOpacity: number,
+): { opacity: number; visible: boolean } {
   const opacity = faded ? shadedOpacity : 1;
   return { opacity, visible: opacity > 0.01 };
 }
@@ -721,7 +848,13 @@ export function isMobileDevice(): boolean {
 // ── Knob helpers ─────────────────────────────────────────────────────────────
 
 function Knob({
-  label, value, min, max, step, format, onChange,
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
 }: {
   label: string;
   value: number;
@@ -777,38 +910,57 @@ function loadPrefs(): Partial<SavedPrefs> {
 function savePrefs(prefs: SavedPrefs): void {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  } catch { /* storage unavailable — ignore */ }
+  } catch {
+    /* storage unavailable — ignore */
+  }
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }) {
+export function GraphView({
+  onNavigate,
+}: {
+  onNavigate: (slug: string) => void;
+}) {
   const [rawData, setRawData] = useState<GraphData | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [filterMode, setFilterMode] = useState<FilterMode>(() => loadPrefs().filterMode ?? "top");
+  const [filterMode, setFilterMode] = useState<FilterMode>(
+    () => loadPrefs().filterMode ?? "top",
+  );
   const [topN, setTopN] = useState(() => loadPrefs().topN ?? 60);
-  const [neighborMode, setNeighborMode] = useState<NeighborhoodMode>(() => loadPrefs().neighborMode ?? "both");
+  const [neighborMode, setNeighborMode] = useState<NeighborhoodMode>(
+    () => loadPrefs().neighborMode ?? "both",
+  );
   const [searchQuery, setSearchQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [suggestHasMore, setSuggestHasMore] = useState(false);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const suggestOffsetRef = useRef(0);
-  const suggestQueryRef = useRef("");
   const [seeds, setSeeds] = useState<Seed[]>([]);
   const [showHalu, setShowHalu] = useState(() => loadPrefs().showHalu ?? false);
-  const [metric, setMetric] = useState<Metric>(() => loadPrefs().metric ?? "pagerank");
-  const [colorMode, setColorMode] = useState<ColorMode>(() => loadPrefs().colorMode ?? "community");
-  const [largestComponentOnly, setLargestComponentOnly] = useState(() => loadPrefs().largestComponentOnly ?? false);
-  const [shadingEnabled, setShadingEnabled] = useState(() => loadPrefs().shadingEnabled ?? false);
-  const [highlightSet, setHighlightSet] = useState<Set<string>>(() => new Set());
-  const [pathDir, setPathDir] = useState<PathDir>(() => loadPrefs().pathDir ?? "either");
+  const [metric, setMetric] = useState<Metric>(
+    () => loadPrefs().metric ?? "pagerank",
+  );
+  const [colorMode, setColorMode] = useState<ColorMode>(
+    () => loadPrefs().colorMode ?? "community",
+  );
+  const [largestComponentOnly, setLargestComponentOnly] = useState(
+    () => loadPrefs().largestComponentOnly ?? false,
+  );
+  const [shadingEnabled, setShadingEnabled] = useState(
+    () => loadPrefs().shadingEnabled ?? false,
+  );
+  const [highlightSet, setHighlightSet] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [pathDir, setPathDir] = useState<PathDir>(
+    () => loadPrefs().pathDir ?? "either",
+  );
   const [pathMode, setPathMode] = useState(false);
   const [waypoints, setWaypoints] = useState<Seed[]>([]);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
-  const [settings, setSettings] = useState<RenderSettings>(() => ({ ...DEFAULT_SETTINGS, ...loadPrefs().settings }));
+  const [settings, setSettings] = useState<RenderSettings>(() => ({
+    ...DEFAULT_SETTINGS,
+    ...loadPrefs().settings,
+  }));
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fgRef = useRef<any>(null);
@@ -828,9 +980,13 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   // Live trace params so the animation loop reads speed/accel/colors without
   // restarting (smooth while dragging sliders); `dirty` forces a trail recolor.
   const traceParamsRef = useRef({
-    speed: settings.traceSpeed, accel: settings.traceAccel, loopDelay: settings.traceLoopDelay,
-    L: settings.traceLightness, C: settings.traceChroma,
-    startHue: settings.traceStartHue, endHue: settings.traceEndHue,
+    speed: settings.traceSpeed,
+    accel: settings.traceAccel,
+    loopDelay: settings.traceLoopDelay,
+    L: settings.traceLightness,
+    C: settings.traceChroma,
+    startHue: settings.traceStartHue,
+    endHue: settings.traceEndHue,
     hueSpread: settings.traceHueSpread,
     dirty: false,
   });
@@ -839,23 +995,29 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   const labelBaseColorRef = useRef(new Map<string, string>());
 
   // Wrapper that reads from refs for use in accessors.
-  const computeNodeColorFromRefs = useCallback((nodeId: string, nodeObj: FgNode | null): string => {
-    return computeNodeDisplayColor(
-      nodeId,
-      nodeObj,
-      pathModeRef.current,
-      traceNodeColorRef.current,
-      highlightSetRef.current,
-      shadingEnabledRef.current,
-      colorModeRef.current,
-      bgColorRef.current,
-      shadedOpacityRef.current,
-    );
-  }, []);
+  const computeNodeColorFromRefs = useCallback(
+    (nodeId: string, nodeObj: FgNode | null): string => {
+      return computeNodeDisplayColor(
+        nodeId,
+        nodeObj,
+        pathModeRef.current,
+        traceNodeColorRef.current,
+        highlightSetRef.current,
+        shadingEnabledRef.current,
+        colorModeRef.current,
+        bgColorRef.current,
+        shadedOpacityRef.current,
+      );
+    },
+    [],
+  );
 
-  const set = useCallback(<K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
-    setSettings((s) => ({ ...s, [key]: value }));
-  }, []);
+  const set = useCallback(
+    <K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
+      setSettings((s) => ({ ...s, [key]: value }));
+    },
+    [],
+  );
 
   // Fade the floating name labels of shaded (non-whitelisted) nodes so the text
   // recedes with the node. Reads the live shading refs; called whenever the
@@ -878,17 +1040,48 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   }, []);
 
   // Keep refs current so accessors always read fresh values without triggering re-renders
-  useEffect(() => { seedsRef.current = seeds; }, [seeds]);
-  useEffect(() => { colorModeRef.current = colorMode; }, [colorMode]);
+  useEffect(() => {
+    seedsRef.current = seeds;
+  }, [seeds]);
+  useEffect(() => {
+    colorModeRef.current = colorMode;
+  }, [colorMode]);
 
   // Persist preferences whenever any user-controlled value changes (seeds are transient, not saved)
   useEffect(() => {
-    savePrefs({ settings, showHalu, topN, filterMode, neighborMode, metric, colorMode, largestComponentOnly, shadingEnabled, pathDir });
-  }, [settings, showHalu, topN, filterMode, neighborMode, metric, colorMode, largestComponentOnly, shadingEnabled, pathDir]);
+    savePrefs({
+      settings,
+      showHalu,
+      topN,
+      filterMode,
+      neighborMode,
+      metric,
+      colorMode,
+      largestComponentOnly,
+      shadingEnabled,
+      pathDir,
+    });
+  }, [
+    settings,
+    showHalu,
+    topN,
+    filterMode,
+    neighborMode,
+    metric,
+    colorMode,
+    largestComponentOnly,
+    shadingEnabled,
+    pathDir,
+  ]);
 
   // ── Graphology: build directed graph + stats ────────────────────────────────
 
-  type NodeStat = { score: number; scoreNorm: number; community: number; componentId: number };
+  type NodeStat = {
+    score: number;
+    scoreNorm: number;
+    community: number;
+    componentId: number;
+  };
   type GraphStat = { density: number; componentCount: number };
 
   const { gInstance, nodeStats, graphStats } = useMemo(() => {
@@ -901,10 +1094,15 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     const g = new Graph({ type: "directed", multi: false });
     for (const n of rawData.nodes) {
-      if (!g.hasNode(n.slug)) g.addNode(n.slug, { title: n.title, exists: n.exists });
+      if (!g.hasNode(n.slug))
+        g.addNode(n.slug, { title: n.title, exists: n.exists });
     }
     for (const l of rawData.links) {
-      if (g.hasNode(l.source) && g.hasNode(l.target) && !g.hasEdge(l.source, l.target)) {
+      if (
+        g.hasNode(l.source) &&
+        g.hasNode(l.target) &&
+        !g.hasEdge(l.source, l.target)
+      ) {
         g.addEdge(l.source, l.target);
       }
     }
@@ -915,7 +1113,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const safeMax = maxScore > 0 ? maxScore : 1;
 
     let communities: Record<string, number> = {};
-    try { communities = louvain(g); } catch { /* needs edges */ }
+    try {
+      communities = louvain(g);
+    } catch {
+      /* needs edges */
+    }
     // Collapse all single-member communities onto the reserved -1 id so they
     // render in one neutral color instead of cycling the palette.
     const communitySizes = new Map<number, number>();
@@ -933,11 +1135,19 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     try {
       const comps = connectedComponents(g);
       componentCount = comps.length;
-      comps.forEach((comp, idx) => comp.forEach(n => nodeComponentId.set(n, idx)));
-    } catch { /* ignore */ }
+      comps.forEach((comp, idx) =>
+        comp.forEach((n) => nodeComponentId.set(n, idx)),
+      );
+    } catch {
+      /* ignore */
+    }
 
     let graphDensity = 0;
-    try { graphDensity = density(g); } catch { /* ignore */ }
+    try {
+      graphDensity = density(g);
+    } catch {
+      /* ignore */
+    }
 
     const stats = new Map<string, NodeStat>();
     for (const slug of g.nodes()) {
@@ -950,7 +1160,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       });
     }
 
-    return { gInstance: g, nodeStats: stats, graphStats: { density: graphDensity, componentCount } };
+    return {
+      gInstance: g,
+      nodeStats: stats,
+      graphStats: { density: graphDensity, componentCount },
+    };
   }, [rawData, metric, seeds]);
 
   // ── Shortest paths between all seed pairs ────────────────────────────────────
@@ -960,12 +1174,19 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const edgeSet = new Set<string>();
     for (let i = 0; i < seeds.length; i++) {
       for (let j = i + 1; j < seeds.length; j++) {
-        if (!gInstance.hasNode(seeds[i].slug) || !gInstance.hasNode(seeds[j].slug)) continue;
+        if (
+          !gInstance.hasNode(seeds[i].slug) ||
+          !gInstance.hasNode(seeds[j].slug)
+        )
+          continue;
         try {
           const path = unweightedPath(gInstance, seeds[i].slug, seeds[j].slug);
           if (!path) continue;
-          for (let k = 0; k < path.length - 1; k++) edgeSet.add(`${path[k]}>${path[k + 1]}`);
-        } catch { /* unreachable pair */ }
+          for (let k = 0; k < path.length - 1; k++)
+            edgeSet.add(`${path[k]}>${path[k + 1]}`);
+        } catch {
+          /* unreachable pair */
+        }
       }
     }
     return edgeSet;
@@ -993,13 +1214,20 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   // ── Filtered subgraph for the renderer ─────────────────────────────────────
 
   const fgData = useMemo(() => {
-    if (!gInstance) return { nodes: [] as FgNode[], links: [] as { source: string; target: string }[] };
+    if (!gInstance)
+      return {
+        nodes: [] as FgNode[],
+        links: [] as { source: string; target: string }[],
+      };
 
     let slugSet: Set<string>;
 
     if (filterMode === "top") {
       const sorted = [...gInstance.nodes()]
-        .sort((a, b) => (nodeStats.get(b)?.score ?? 0) - (nodeStats.get(a)?.score ?? 0))
+        .sort(
+          (a, b) =>
+            (nodeStats.get(b)?.score ?? 0) - (nodeStats.get(a)?.score ?? 0),
+        )
         .slice(0, topN);
       slugSet = new Set(sorted);
     } else {
@@ -1016,7 +1244,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       }
       if (slugSet.size === 0) {
         [...gInstance.nodes()]
-          .sort((a, b) => (nodeStats.get(b)?.score ?? 0) - (nodeStats.get(a)?.score ?? 0))
+          .sort(
+            (a, b) =>
+              (nodeStats.get(b)?.score ?? 0) - (nodeStats.get(a)?.score ?? 0),
+          )
           .slice(0, 20)
           .forEach((s) => slugSet.add(s));
       }
@@ -1025,33 +1256,39 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     if (largestComponentOnly) {
       try {
         const largest = new Set(largestConnectedComponent(gInstance));
-        slugSet = new Set([...slugSet].filter(s => largest.has(s)));
-      } catch { /* ignore */ }
+        slugSet = new Set([...slugSet].filter((s) => largest.has(s)));
+      } catch {
+        /* ignore */
+      }
     }
 
     // Always include the path waypoints + intermediate route nodes so the trace
     // has something to draw, even if they fall outside the top-N / neighbor
     // filter — and the waypoints themselves even when no route connects them.
     if (pathMode) {
-      for (const w of waypoints) if (gInstance.hasNode(w.slug)) slugSet.add(w.slug);
-      for (const slug of pathUnion.nodes) if (gInstance.hasNode(slug)) slugSet.add(slug);
+      for (const w of waypoints)
+        if (gInstance.hasNode(w.slug)) slugSet.add(w.slug);
+      for (const slug of pathUnion.nodes)
+        if (gInstance.hasNode(slug)) slugSet.add(slug);
     }
 
     const allNodes: FgNode[] = [...slugSet].map((slug) => {
-      const exists = (gInstance.getNodeAttribute(slug, "exists") as boolean) ?? false;
-      const rawTitle = (gInstance.getNodeAttribute(slug, "title") as string) || slug;
+      const exists =
+        (gInstance.getNodeAttribute(slug, "exists") as boolean) ?? false;
+      const rawTitle =
+        (gInstance.getNodeAttribute(slug, "title") as string) || slug;
       return {
-      id: slug,
-      title: exists ? rawTitle : slugToTitle(rawTitle),
-      exists,
-      score: nodeStats.get(slug)?.score ?? 0,
-      scoreNorm: nodeStats.get(slug)?.scoreNorm ?? 0,
-      community: nodeStats.get(slug)?.community ?? 0,
-      componentId: nodeStats.get(slug)?.componentId ?? 0,
-      inDegree: gInstance.inDegree(slug),
-      outDegree: gInstance.outDegree(slug),
-      visibleInDegree: 0,
-      visibleOutDegree: 0,
+        id: slug,
+        title: exists ? rawTitle : slugToTitle(rawTitle),
+        exists,
+        score: nodeStats.get(slug)?.score ?? 0,
+        scoreNorm: nodeStats.get(slug)?.scoreNorm ?? 0,
+        community: nodeStats.get(slug)?.community ?? 0,
+        componentId: nodeStats.get(slug)?.componentId ?? 0,
+        inDegree: gInstance.inDegree(slug),
+        outDegree: gInstance.outDegree(slug),
+        visibleInDegree: 0,
+        visibleOutDegree: 0,
       };
     });
 
@@ -1068,7 +1305,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         const inG = gInstance.hasNode(w.slug);
         nodes.push({
           id: w.slug,
-          title: inG ? (gInstance.getNodeAttribute(w.slug, "title") as string) || w.title : w.title,
+          title: inG
+            ? (gInstance.getNodeAttribute(w.slug, "title") as string) || w.title
+            : w.title,
           exists: true,
           score: nodeStats.get(w.slug)?.score ?? 0,
           scoreNorm: nodeStats.get(w.slug)?.scoreNorm ?? 0,
@@ -1101,7 +1340,19 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     }
 
     return { nodes, links, haluCount };
-  }, [gInstance, nodeStats, filterMode, topN, seeds, neighborMode, showHalu, largestComponentOnly, pathMode, pathUnion, waypoints]);
+  }, [
+    gInstance,
+    nodeStats,
+    filterMode,
+    topN,
+    seeds,
+    neighborMode,
+    showHalu,
+    largestComponentOnly,
+    pathMode,
+    pathUnion,
+    waypoints,
+  ]);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -1111,48 +1362,6 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       .then((d) => setRawData(d as GraphData))
       .catch(() => setLoadError(true));
   }, []);
-
-  // Debounced article search — resets on query change
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSuggestions([]);
-      setSuggestHasMore(false);
-      suggestOffsetRef.current = 0;
-      suggestQueryRef.current = "";
-      return;
-    }
-    suggestQueryRef.current = searchQuery;
-    suggestOffsetRef.current = 0;
-    setSuggestions([]);
-    setSuggestHasMore(false);
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const { hits, hasMore } = await fetchArticleSuggestions(searchQuery, 0, ctrl.signal);
-        if (ctrl.signal.aborted) return;
-        setSuggestions(hits);
-        setSuggestHasMore(hasMore);
-        suggestOffsetRef.current = hits.length;
-      } catch { /* aborted or network error */ }
-    }, 180);
-    return () => { clearTimeout(timer); ctrl.abort(); };
-  }, [searchQuery]);
-
-  const loadMoreSuggestions = useCallback(async () => {
-    if (suggestLoading || !suggestHasMore || !suggestQueryRef.current.trim()) return;
-    setSuggestLoading(true);
-    const q = suggestQueryRef.current;
-    const offset = suggestOffsetRef.current;
-    try {
-      const { hits, hasMore } = await fetchArticleSuggestions(q, offset);
-      if (suggestQueryRef.current !== q) return; // query changed while loading
-      setSuggestions((prev) => [...prev, ...hits]);
-      setSuggestHasMore(hasMore);
-      suggestOffsetRef.current = offset + hits.length;
-    } catch { /* network error */ }
-    setSuggestLoading(false);
-  }, [suggestLoading, suggestHasMore]);
 
   // ── 3d-force-graph: initialize once ────────────────────────────────────────
 
@@ -1167,9 +1376,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       const fg = (ForceGraph3D as any)({ controlType: "orbit" })(el);
       fgRef.current = fg;
 
-      fg
-        .nodeId("id")
-        .nodeLabel((n: FgNode) => `${n.title}\n↑ ${n.visibleInDegree} in  ↓ ${n.visibleOutDegree} out`)
+      fg.nodeId("id")
+        .nodeLabel(
+          (n: FgNode) =>
+            `${n.title}\n↑ ${n.visibleInDegree} in  ↓ ${n.visibleOutDegree} out`,
+        )
         .nodeVal((n: FgNode) => Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6))
         .onNodeClick((n: FgNode, event?: MouseEvent) => {
           // Shaded (non-highlighted) nodes are visually receded — don't let
@@ -1201,7 +1412,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       destroyed = true;
       disposeLabels(labelSpritesRef.current);
       if (fgRef.current) {
-        try { fgRef.current._destructor?.(); } catch { /* ignore */ }
+        try {
+          fgRef.current._destructor?.();
+        } catch {
+          /* ignore */
+        }
         fgRef.current = null;
       }
     };
@@ -1218,7 +1433,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     // Cap the framebuffer's pixel ratio: 3x phone screens triple-account every
     // canvas pixel and are the main reason big graphs crash mobile Safari.
     const dprCap = isMobileDevice() && fgData.nodes.length > 1000 ? 1.5 : 2;
-    fgRef.current.renderer?.()?.setPixelRatio?.(Math.min(window.devicePixelRatio || 1, dprCap));
+    fgRef.current
+      .renderer?.()
+      ?.setPixelRatio?.(Math.min(window.devicePixelRatio || 1, dprCap));
     fgRef.current.graphData({
       nodes: fgData.nodes.map((n) => ({ ...n })),
       links: fgData.links.map((l) => ({ ...l })),
@@ -1231,8 +1448,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     if (!fgRef.current || !initialized) return;
     const fg = fgRef.current;
 
-    fg
-      .nodeResolution(settings.nodeResolution)
+    fg.nodeResolution(settings.nodeResolution)
       .nodeRelSize(settings.nodeRelSize)
       .nodeOpacity(settings.nodeOpacity)
       .linkOpacity(settings.linkOpacity)
@@ -1242,17 +1458,19 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       .linkDirectionalParticles(settings.particles)
       .linkDirectionalParticleSpeed(settings.particleSpeed)
       .linkDirectionalParticleWidth(settings.particleWidth)
-      .linkDirectionalParticleColor((l: { source: FgNode | string; target: FgNode | string }) => {
-        if (!settings.directionalParticles) return "#ffffff";
-        const src = typeof l.source === "object" ? l.source.id : l.source;
-        const tgt = typeof l.target === "object" ? l.target.id : l.target;
-        const currentSeeds = seedsRef.current;
-        // Seed-relative: into a seed = green, out of a seed = red
-        if (currentSeeds.some((s) => s.slug === tgt)) return "#3ddc84";
-        if (currentSeeds.some((s) => s.slug === src)) return "#ff4d4d";
-        // No seed match: particle is traveling in the forward direction = green ("in")
-        return "#3ddc84";
-      })
+      .linkDirectionalParticleColor(
+        (l: { source: FgNode | string; target: FgNode | string }) => {
+          if (!settings.directionalParticles) return "#ffffff";
+          const src = typeof l.source === "object" ? l.source.id : l.source;
+          const tgt = typeof l.target === "object" ? l.target.id : l.target;
+          const currentSeeds = seedsRef.current;
+          // Seed-relative: into a seed = green, out of a seed = red
+          if (currentSeeds.some((s) => s.slug === tgt)) return "#3ddc84";
+          if (currentSeeds.some((s) => s.slug === src)) return "#ff4d4d";
+          // No seed match: particle is traveling in the forward direction = green ("in")
+          return "#3ddc84";
+        },
+      )
       .backgroundColor(settings.bgColor)
       .d3AlphaDecay(settings.alphaDecay)
       .d3VelocityDecay(settings.velocityDecay);
@@ -1264,46 +1482,61 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     if (settings.alwaysShowLabels) {
       disposeLabels(labelSpritesRef.current);
       labelBaseColorRef.current.clear();
-      fg
-        .nodeThreeObjectExtend(true)
-        .nodeThreeObject((n: FgNode) => {
-          // Reuse the existing sprite if we already built one for this node.
-          // `refresh()` re-invokes this accessor on its own frame; rebuilding
-          // here would reset the sprite to its base community color and fight
-          // the live trace tint (a visible community↔trace strobe). The cache
-          // is cleared above whenever settings actually change, so size/opacity
-          // still rebuild then.
-          const cached = labelSpritesRef.current.get(n.id);
-          if (cached) return cached;
-          const color = n.exists
-            ? (colorModeRef.current === "component" ? communityColor(n.componentId) : communityColor(n.community))
-            : "#999999";
-          const nodeRadius = Math.cbrt(Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6)) * settings.nodeRelSize;
-          // Scale the label off the node's own radius so it stays legible
-          // relative to the node regardless of the "Base size" setting —
-          // "Label size" is a multiplier on top of that baseline.
-          // "Size by link count" scales each label by how many links the node
-          // has (in / out / both, per the dropdown), with an influence knob.
-          // log keeps very high-degree hubs from dwarfing everything.
-          const degCount = settings.labelDegreeMode === "in" ? n.visibleInDegree
-            : settings.labelDegreeMode === "out" ? n.visibleOutDegree
-            : n.visibleInDegree + n.visibleOutDegree;
-          const prominence = settings.dynamicLabelSize ? 1 + settings.labelSizeInfluence * Math.log2(1 + degCount) : 1;
-          const worldHeight = Math.max(2, nodeRadius) * 0.7 * settings.labelSize * prominence;
-          const sprite = makeNodeLabel(n.title, color, worldHeight, {
-            in: n.visibleInDegree,
-            out: n.visibleOutDegree,
-          });
-          sprite.position.set(0, nodeRadius + labelWorldHeight(sprite) / 2 + 1, 0);
-          const hl = highlightSetRef.current;
-          const faded = shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id);
-          const { opacity, visible } = labelDrawState(faded, shadedOpacityRef.current);
-          setLabelOpacity(sprite, opacity);
-          sprite.visible = visible;
-          labelSpritesRef.current.set(n.id, sprite);
-          labelBaseColorRef.current.set(n.id, color);
-          return sprite;
+      fg.nodeThreeObjectExtend(true).nodeThreeObject((n: FgNode) => {
+        // Reuse the existing sprite if we already built one for this node.
+        // `refresh()` re-invokes this accessor on its own frame; rebuilding
+        // here would reset the sprite to its base community color and fight
+        // the live trace tint (a visible community↔trace strobe). The cache
+        // is cleared above whenever settings actually change, so size/opacity
+        // still rebuild then.
+        const cached = labelSpritesRef.current.get(n.id);
+        if (cached) return cached;
+        const color = n.exists
+          ? colorModeRef.current === "component"
+            ? communityColor(n.componentId)
+            : communityColor(n.community)
+          : "#999999";
+        const nodeRadius =
+          Math.cbrt(Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6)) *
+          settings.nodeRelSize;
+        // Scale the label off the node's own radius so it stays legible
+        // relative to the node regardless of the "Base size" setting —
+        // "Label size" is a multiplier on top of that baseline.
+        // "Size by link count" scales each label by how many links the node
+        // has (in / out / both, per the dropdown), with an influence knob.
+        // log keeps very high-degree hubs from dwarfing everything.
+        const degCount =
+          settings.labelDegreeMode === "in"
+            ? n.visibleInDegree
+            : settings.labelDegreeMode === "out"
+              ? n.visibleOutDegree
+              : n.visibleInDegree + n.visibleOutDegree;
+        const prominence = settings.dynamicLabelSize
+          ? 1 + settings.labelSizeInfluence * Math.log2(1 + degCount)
+          : 1;
+        const worldHeight =
+          Math.max(2, nodeRadius) * 0.7 * settings.labelSize * prominence;
+        const sprite = makeNodeLabel(n.title, color, worldHeight, {
+          in: n.visibleInDegree,
+          out: n.visibleOutDegree,
         });
+        sprite.position.set(
+          0,
+          nodeRadius + labelWorldHeight(sprite) / 2 + 1,
+          0,
+        );
+        const hl = highlightSetRef.current;
+        const faded = shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id);
+        const { opacity, visible } = labelDrawState(
+          faded,
+          shadedOpacityRef.current,
+        );
+        setLabelOpacity(sprite, opacity);
+        sprite.visible = visible;
+        labelSpritesRef.current.set(n.id, sprite);
+        labelBaseColorRef.current.set(n.id, color);
+        return sprite;
+      });
     } else {
       disposeLabels(labelSpritesRef.current);
       fg.nodeThreeObjectExtend(false).nodeThreeObject(null);
@@ -1345,8 +1578,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     for (const o of fg.graphData().nodes as FgNode[]) {
       const sprite = labelSpritesRef.current.get(o.id);
       if (!sprite) continue;
-      const color = !o.exists ? "#999999"
-        : colorMode === "component" ? communityColor(o.componentId) : communityColor(o.community);
+      const color = !o.exists
+        ? "#999999"
+        : colorMode === "component"
+          ? communityColor(o.componentId)
+          : communityColor(o.community);
       labelBaseColorRef.current.set(o.id, color);
       if (!pathModeRef.current) setLabelColor(sprite, color);
     }
@@ -1370,13 +1606,24 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           // Route edges not yet reached are brightened by the "Path edges"
           // slider so the route stays visible without stealing focus.
           if (pathEdgesRef.current.has(key)) {
-            const v = Math.round((0.25 + 0.75 * pathLinkBrightnessRef.current) * 255);
+            const v = Math.round(
+              (0.25 + 0.75 * pathLinkBrightnessRef.current) * 255,
+            );
             return `rgb(${v},${v},${v})`;
           }
         }
         const base = pathEdgeSetRef.current.has(key) ? "#ffd700" : "#ffffff";
         const hl = highlightSetRef.current;
-        if (shadingEnabledRef.current && hl.size > 0 && !(hl.has(src) && hl.has(tgt))) return blendHex(desaturate(base, 0.7), bgColorRef.current, shadedOpacityRef.current);
+        if (
+          shadingEnabledRef.current &&
+          hl.size > 0 &&
+          !(hl.has(src) && hl.has(tgt))
+        )
+          return blendHex(
+            desaturate(base, 0.7),
+            bgColorRef.current,
+            shadedOpacityRef.current,
+          );
         return base;
       })
       .refresh();
@@ -1391,25 +1638,49 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     bgColorRef.current = settings.bgColor;
     applyLabelFade();
     if (fgRef.current && initialized) fgRef.current.refresh();
-  }, [highlightSet, shadingEnabled, settings.shadedOpacity, settings.bgColor, initialized, applyLabelFade]);
+  }, [
+    highlightSet,
+    shadingEnabled,
+    settings.shadedOpacity,
+    settings.bgColor,
+    initialized,
+    applyLabelFade,
+  ]);
 
   // Keep the live trace params current; flag the trail for a recolor so color
   // tweaks show immediately (not only after the next node crossing).
   useEffect(() => {
     traceParamsRef.current = {
-      speed: settings.traceSpeed, accel: settings.traceAccel, loopDelay: settings.traceLoopDelay,
-      L: settings.traceLightness, C: settings.traceChroma,
-      startHue: settings.traceStartHue, endHue: settings.traceEndHue,
+      speed: settings.traceSpeed,
+      accel: settings.traceAccel,
+      loopDelay: settings.traceLoopDelay,
+      L: settings.traceLightness,
+      C: settings.traceChroma,
+      startHue: settings.traceStartHue,
+      endHue: settings.traceEndHue,
       hueSpread: settings.traceHueSpread,
       dirty: true,
     };
     pathLinkBrightnessRef.current = settings.pathLinkBrightness;
     if (fgRef.current && initialized) fgRef.current.refresh();
-  }, [settings.traceSpeed, settings.traceAccel, settings.traceLoopDelay, settings.traceLightness, settings.traceChroma, settings.traceStartHue, settings.traceEndHue, settings.traceHueSpread, settings.pathLinkBrightness, initialized]);
+  }, [
+    settings.traceSpeed,
+    settings.traceAccel,
+    settings.traceLoopDelay,
+    settings.traceLightness,
+    settings.traceChroma,
+    settings.traceStartHue,
+    settings.traceEndHue,
+    settings.traceHueSpread,
+    settings.pathLinkBrightness,
+    initialized,
+  ]);
 
   // Entering path mode turns shading on (so the path stands out) and makes the
   // path nodes the highlight whitelist; leaving it clears the whitelist.
-  useEffect(() => { pathModeRef.current = pathMode; }, [pathMode]);
+  useEffect(() => {
+    pathModeRef.current = pathMode;
+  }, [pathMode]);
   useEffect(() => {
     pathEdgesRef.current = pathUnion.edges;
     if (pathMode) {
@@ -1449,29 +1720,41 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     const pathNodeIds = new Set<string>();
     for (const p of paths) for (const n of p.nodes) pathNodeIds.add(n);
     // Animation feel constants (all OKLCH, clamped to stay in gamut):
-    const EDGE_L_BOOST = 0.16;   // how much brighter an edge pulses as the trace crosses it
-    const TAU = 0.18;            // settle time-constant (s) for the brightness pulses
-    const NODE_L_DIM = 0.40;     // lightness of a path node before any front has crossed it
-    const NODE_PULSE_L = 0.12;   // subtle flash the instant a front first crosses a node
-    const FINALE_L = 0.18;       // big flare held over the loop delay once the trace finishes
-    const REFRESH_CAP_MS = 8;    // ≈120fps ceiling on recolor refreshes while pulses settle
+    const EDGE_L_BOOST = 0.16; // how much brighter an edge pulses as the trace crosses it
+    const TAU = 0.18; // settle time-constant (s) for the brightness pulses
+    const NODE_L_DIM = 0.4; // lightness of a path node before any front has crossed it
+    const NODE_PULSE_L = 0.12; // subtle flash the instant a front first crosses a node
+    const FINALE_L = 0.18; // big flare held over the loop delay once the trace finishes
+    const REFRESH_CAP_MS = 8; // ≈120fps ceiling on recolor refreshes while pulses settle
     // Color for a node/edge on a route. Hue follows the start→end gradient with
     // the tapered per-rank fan (overlapping routes stay tellable-apart, endpoints
     // exact). `lBoost` brightens (a transient pulse); `fill` 0→1 scales chroma so
     // an edge *saturates* as the trace flows along it, then keeps its color when
     // calm. `x` is the node index or fractional progress; len the route length.
-    const traceColor = (rank: number, len: number, x: number, lBoost = 0, fill = 1) => {
+    const traceColor = (
+      rank: number,
+      len: number,
+      x: number,
+      lBoost = 0,
+      fill = 1,
+    ) => {
       const p = traceParamsRef.current;
       const L = Math.min(0.99, p.L + lBoost);
       const f = Math.max(0, Math.min(1, fill));
       const C = p.C * (0.25 + 0.75 * f); // keep a little color even at fill 0, full color at 1
-      return oklch(L, C, traceHue(rank, len, x, p.startHue, p.endHue, p.hueSpread));
+      return oklch(
+        L,
+        C,
+        traceHue(rank, len, x, p.startHue, p.endHue, p.hueSpread),
+      );
     };
     // Ease-in-out applied to the whole traversal: accel 0 → constant speed,
     // higher → the particle accelerates out of the start and eases into the end.
     const easeAccel = (x: number, accel: number) => {
       const pe = 1 + accel * 3;
-      return x < 0.5 ? 0.5 * Math.pow(2 * x, pe) : 1 - 0.5 * Math.pow(2 * (1 - x), pe);
+      return x < 0.5
+        ? 0.5 * Math.pow(2 * x, pe)
+        : 1 - 0.5 * Math.pow(2 * (1 - x), pe);
     };
 
     // Live position lookup — node objects are mutated in place by the layout.
@@ -1482,7 +1765,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
     const scene = fg.scene();
     const meshes: THREE.Object3D[] = [];
-    const cores: { mesh: THREE.Mesh; glow?: THREE.Mesh; rank: number; len: number }[] = [];
+    const cores: {
+      mesh: THREE.Mesh;
+      glow?: THREE.Mesh;
+      rank: number;
+      len: number;
+    }[] = [];
     const baseRadius = Math.max(2, settings.nodeRelSize * 0.9); // smaller than a node
     // All particles share one unit-sphere geometry, sized via mesh.scale —
     // per-route SphereGeometry allocations add up fast with many routes.
@@ -1492,8 +1780,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       const rankScale = Math.max(0.45, 1 - rank * 0.13);
       const r = baseRadius * rankScale;
       const coreMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(), transparent: true, opacity: 0.7 * rankScale,
-        blending: THREE.AdditiveBlending, depthWrite: false,
+        color: new THREE.Color(),
+        transparent: true,
+        opacity: 0.7 * rankScale,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
       });
       const core = new THREE.Mesh(sphereGeometry, coreMat);
       core.scale.setScalar(r);
@@ -1502,8 +1793,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       let glow: THREE.Mesh | undefined;
       if (settings.particleGlow) {
         const glowMat = new THREE.MeshBasicMaterial({
-          color: new THREE.Color(), transparent: true, opacity: 0.16 * rankScale,
-          blending: THREE.AdditiveBlending, depthWrite: false,
+          color: new THREE.Color(),
+          transparent: true,
+          opacity: 0.16 * rankScale,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
         });
         glow = new THREE.Mesh(sphereGeometry, glowMat);
         glow.scale.setScalar(r * 2.6);
@@ -1530,7 +1824,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
     // brightness, so a node on a single route is full once that route crosses it,
     // while a node where several routes converge ramps up as each one arrives.
     const nodeTotals = new Map<string, number>();
-    for (const p of paths) for (const id of p.nodes) nodeTotals.set(id, (nodeTotals.get(id) ?? 0) + 1);
+    for (const p of paths)
+      for (const id of p.nodes)
+        nodeTotals.set(id, (nodeTotals.get(id) ?? 0) + 1);
 
     const tick = (ts: number) => {
       if (!start) start = ts;
@@ -1538,22 +1834,33 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       const dt = lastTs ? Math.min(0.1, (ts - lastTs) / 1000) : 0;
       lastTs = ts;
       const activeDur = Math.max(0.1, (maxLen - 1) / prm.speed); // time to walk the longest route
-      const total = activeDur + prm.loopDelay;                   // + delay, then loop
+      const total = activeDur + prm.loopDelay; // + delay, then loop
       const tc = ((ts - start) / 1000) % total;
       const phase = Math.min(1, tc / activeDur);
       let anyCrossed = false;
       // Once the longest route has finished we're in the loop-delay tail — hold a
       // big finale flare on the whole trail for that remaining time, then reset.
       const finaleActive = prm.loopDelay > 0 && tc >= activeDur;
-      if (finaleActive !== prevFinale) { prevFinale = finaleActive; anyCrossed = true; }
+      if (finaleActive !== prevFinale) {
+        prevFinale = finaleActive;
+        anyCrossed = true;
+      }
       // distance travelled (in nodes) along the longest route; shorter routes
       // reach their end sooner — that staggered finish is the distance ranking.
       const d = easeAccel(phase, prm.accel) * (maxLen - 1);
 
       // Settle the pulses toward calm (exponential decay); drop the tiny tails.
       const decay = Math.exp(-dt / TAU);
-      for (const [k, v] of edgeHeat) { const nv = v * decay; if (nv < 0.01) edgeHeat.delete(k); else edgeHeat.set(k, nv); }
-      for (const [k, v] of nodePulse) { const nv = v * decay; if (nv < 0.01) nodePulse.delete(k); else nodePulse.set(k, nv); }
+      for (const [k, v] of edgeHeat) {
+        const nv = v * decay;
+        if (nv < 0.01) edgeHeat.delete(k);
+        else edgeHeat.set(k, nv);
+      }
+      for (const [k, v] of nodePulse) {
+        const nv = v * decay;
+        if (nv < 0.01) nodePulse.delete(k);
+        else nodePulse.set(k, nv);
+      }
 
       cores.forEach((c, idx) => {
         const nodes = paths[idx].nodes;
@@ -1570,7 +1877,18 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           c.mesh.position.set(x, y, z);
           c.glow?.position.set(x, y, z);
         }
-        const col = oklch(prm.L, prm.C, traceHue(c.rank, c.len, progress, prm.startHue, prm.endHue, prm.hueSpread));
+        const col = oklch(
+          prm.L,
+          prm.C,
+          traceHue(
+            c.rank,
+            c.len,
+            progress,
+            prm.startHue,
+            prm.endHue,
+            prm.hueSpread,
+          ),
+        );
         (c.mesh.material as THREE.MeshBasicMaterial).color.set(col);
         if (c.glow) (c.glow.material as THREE.MeshBasicMaterial).color.set(col);
         // The edge the particle is on heats up as it travels along it (frac), so
@@ -1593,7 +1911,11 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       // refresh up to ~120fps while anything is still settling — and stop
       // entirely once calm (idle loop-delay costs nothing on big graphs).
       const animating = edgeHeat.size > 0 || nodePulse.size > 0;
-      if (anyCrossed || prm.dirty || (animating && ts - lastRefreshTs >= REFRESH_CAP_MS)) {
+      if (
+        anyCrossed ||
+        prm.dirty ||
+        (animating && ts - lastRefreshTs >= REFRESH_CAP_MS)
+      ) {
         prm.dirty = false;
         lastRefreshTs = ts;
         nodeMap.clear();
@@ -1602,7 +1924,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         // first (lowest-rank) route's hue for it — so a node's color is its
         // trace hue and its brightness grows with the traffic flowing through it.
         const passes = new Map<string, number>();
-        const hueOf = new Map<string, { rank: number; len: number; k: number }>();
+        const hueOf = new Map<
+          string,
+          { rank: number; len: number; k: number }
+        >();
         cores.forEach((c, idx) => {
           const nodes = paths[idx].nodes;
           const seg = lastSegs[idx];
@@ -1623,7 +1948,13 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           if (seg >= 0 && seg + 1 < nodes.length) {
             const fill = Math.min(nodes.length - 1, d) - seg; // 0→1 across this segment
             const heat = edgeHeat.get(`${nodes[seg]}>${nodes[seg + 1]}`) ?? 0;
-            const col = traceColor(c.rank, c.len, seg + 1, heat * EDGE_L_BOOST, fill);
+            const col = traceColor(
+              c.rank,
+              c.len,
+              seg + 1,
+              heat * EDGE_L_BOOST,
+              fill,
+            );
             edgeMap.set(`${nodes[seg]}>${nodes[seg + 1]}`, col);
             edgeMap.set(`${nodes[seg + 1]}>${nodes[seg]}`, col);
           }
@@ -1633,8 +1964,31 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
         // flash when first hit, and the big finale flare held over the loop delay.
         for (const [id, count] of passes) {
           const src = hueOf.get(id)!;
-          const L = trailNodeLightness(count, nodeTotals.get(id) ?? 1, NODE_L_DIM, prm.L, nodePulse.get(id) ?? 0, NODE_PULSE_L, finaleActive, FINALE_L);
-          nodeMap.set(id, oklch(L, prm.C, traceHue(src.rank, src.len, src.k, prm.startHue, prm.endHue, prm.hueSpread)));
+          const L = trailNodeLightness(
+            count,
+            nodeTotals.get(id) ?? 1,
+            NODE_L_DIM,
+            prm.L,
+            nodePulse.get(id) ?? 0,
+            NODE_PULSE_L,
+            finaleActive,
+            FINALE_L,
+          );
+          nodeMap.set(
+            id,
+            oklch(
+              L,
+              prm.C,
+              traceHue(
+                src.rank,
+                src.len,
+                src.k,
+                prm.startHue,
+                prm.endHue,
+                prm.hueSpread,
+              ),
+            ),
+          );
         }
         fg.refresh();
         // Tint each route's node labels to exactly the node's current color,
@@ -1698,7 +2052,14 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
       sphereGeometry.dispose();
       if (fgRef.current && initialized) fgRef.current.refresh();
     };
-  }, [pathMode, paths, initialized, fgData, settings.nodeRelSize, settings.particleGlow]);
+  }, [
+    pathMode,
+    paths,
+    initialized,
+    fgData,
+    settings.nodeRelSize,
+    settings.particleGlow,
+  ]);
 
   // ── Resize observer ─────────────────────────────────────────────────────────
 
@@ -1718,10 +2079,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
   // ── Seed management ─────────────────────────────────────────────────────────
 
   const addSeed = useCallback((s: Suggestion) => {
-    setSeeds((prev) => prev.some((x) => x.slug === s.slug) ? prev : [...prev, { slug: s.slug, title: s.title }]);
+    setSeeds((prev) =>
+      prev.some((x) => x.slug === s.slug)
+        ? prev
+        : [...prev, { slug: s.slug, title: s.title }],
+    );
     setSearchQuery("");
-    setSuggestions([]);
-    setSuggestOpen(false);
     setFilterMode("search");
   }, []);
 
@@ -1731,12 +2094,23 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   // Path waypoints: append in order. In find-article mode, also fold the pick
   // into the seed list so it shows up as a seed chip and joins that subgraph.
-  const addWaypoint = useCallback((s: Suggestion) => {
-    setWaypoints((prev) => prev.some((w) => w.slug === s.slug) ? prev : [...prev, { slug: s.slug, title: s.title }]);
-    if (filterMode === "search") {
-      setSeeds((prev) => prev.some((x) => x.slug === s.slug) ? prev : [...prev, { slug: s.slug, title: s.title }]);
-    }
-  }, [filterMode]);
+  const addWaypoint = useCallback(
+    (s: Suggestion) => {
+      setWaypoints((prev) =>
+        prev.some((w) => w.slug === s.slug)
+          ? prev
+          : [...prev, { slug: s.slug, title: s.title }],
+      );
+      if (filterMode === "search") {
+        setSeeds((prev) =>
+          prev.some((x) => x.slug === s.slug)
+            ? prev
+            : [...prev, { slug: s.slug, title: s.title }],
+        );
+      }
+    },
+    [filterMode],
+  );
 
   const removeWaypoint = useCallback((slug: string) => {
     setWaypoints((prev) => prev.filter((w) => w.slug !== slug));
@@ -1756,20 +2130,29 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
   return (
     <div className="graph-view">
-
       {/* ── Top control bar ── */}
       <div className="graph-controls">
         <div className="graph-filter-tabs">
-          <button className={filterMode === "top" ? "active" : ""} onClick={() => setFilterMode("top")}>
+          <button
+            className={filterMode === "top" ? "active" : ""}
+            onClick={() => setFilterMode("top")}
+          >
             Top articles
           </button>
-          <button className={filterMode === "search" ? "active" : ""} onClick={() => setFilterMode("search")}>
+          <button
+            className={filterMode === "search" ? "active" : ""}
+            onClick={() => setFilterMode("search")}
+          >
             Find article
           </button>
         </div>
 
         <label className="graph-path-toggle">
-          <input type="checkbox" checked={pathMode} onChange={(e) => setPathMode(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={pathMode}
+            onChange={(e) => setPathMode(e.target.checked)}
+          />
           <span>Path</span>
         </label>
 
@@ -1780,20 +2163,38 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 <span key={w.slug} className="graph-seed-chip">
                   <span className="graph-path-index">{i + 1}</span>
                   {w.title}
-                  <button type="button" aria-label={`Remove ${w.title}`} onClick={() => removeWaypoint(w.slug)}>×</button>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${w.title}`}
+                    onClick={() => removeWaypoint(w.slug)}
+                  >
+                    ×
+                  </button>
                 </span>
               ))}
               {/* trailing empty box: picking here spawns the next slot */}
               <ArticlePicker
                 key={waypoints.length}
-                placeholder={waypoints.length === 0 ? "Path: pick first article…" : "next article…"}
+                placeholder={
+                  waypoints.length === 0
+                    ? "Path: pick first article…"
+                    : "next article…"
+                }
                 onPick={addWaypoint}
               />
             </div>
             <div className="graph-neighbor-tabs">
               {(["directed", "undirected", "either"] as PathDir[]).map((d) => (
-                <button key={d} className={pathDir === d ? "active" : ""} onClick={() => setPathDir(d)}>
-                  {d === "directed" ? "Directed" : d === "undirected" ? "Undirected" : "Either"}
+                <button
+                  key={d}
+                  className={pathDir === d ? "active" : ""}
+                  onClick={() => setPathDir(d)}
+                >
+                  {d === "directed"
+                    ? "Directed"
+                    : d === "undirected"
+                      ? "Undirected"
+                      : "Either"}
                 </button>
               ))}
             </div>
@@ -1816,7 +2217,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           title="Node size and Top-N ranking metric"
         >
           {METRICS.map((m) => (
-            <option key={m.value} value={m.value}>{m.label}{m.needsSeeds ? " *" : ""}</option>
+            <option key={m.value} value={m.value}>
+              {m.label}
+              {m.needsSeeds ? " *" : ""}
+            </option>
           ))}
         </select>
 
@@ -1832,11 +2236,21 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
         {filterMode === "top" && (
           <div className="graph-top-control">
-            <label>Top <strong>{topN}</strong> by {METRICS.find((m) => m.value === metric)?.label}</label>
-            <input type="range" min={10}
-              max={Math.max(10, rawData?.nodes.filter((n) => n.exists).length ?? 10)}
-              step={10} value={topN}
-              onChange={(e) => setTopN(Number(e.target.value))} />
+            <label>
+              Top <strong>{topN}</strong> by{" "}
+              {METRICS.find((m) => m.value === metric)?.label}
+            </label>
+            <input
+              type="range"
+              min={10}
+              max={Math.max(
+                10,
+                rawData?.nodes.filter((n) => n.exists).length ?? 10,
+              )}
+              step={10}
+              value={topN}
+              onChange={(e) => setTopN(Number(e.target.value))}
+            />
           </div>
         )}
 
@@ -1847,77 +2261,99 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 {seeds.map((s) => (
                   <span key={s.slug} className="graph-seed-chip">
                     {s.title}
-                    <button type="button" aria-label={`Remove ${s.title}`} onClick={() => removeSeed(s.slug)}>×</button>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${s.title}`}
+                      onClick={() => removeSeed(s.slug)}
+                    >
+                      ×
+                    </button>
                   </span>
                 ))}
               </div>
             )}
-            <div className="graph-search-wrap">
-              <input type="text" className="graph-search-input"
-                placeholder="Search articles to seed graph..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => setSuggestOpen(true)}
-                onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
-              />
-              {suggestOpen && suggestions.length > 0 && (
-                <ul
-                  className="graph-suggest"
-                  onScroll={(e) => {
-                    const el = e.currentTarget;
-                    if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) {
-                      loadMoreSuggestions();
-                    }
-                  }}
-                >
-                  {suggestions.map((s) => (
-                    <li key={s.slug}>
-                      <button type="button" onMouseDown={() => addSeed(s)}>{s.title}</button>
-                    </li>
-                  ))}
-                  {suggestHasMore && (
-                    <li className="graph-suggest-more">
-                      {suggestLoading ? "Loading…" : "Scroll for more"}
-                    </li>
-                  )}
-                </ul>
-              )}
-            </div>
+            <ArticleSearchDropdown
+              wrapClassName="w-[200px]"
+              inputType="text"
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              placeholder="Search articles to seed graph..."
+              onPick={addSeed}
+            />
             <div className="graph-neighbor-tabs">
-              {(["refs", "backlinks", "both"] as NeighborhoodMode[]).map((m) => (
-                <button key={m} className={neighborMode === m ? "active" : ""} onClick={() => setNeighborMode(m)}>
-                  {m === "refs" ? "Refs" : m === "backlinks" ? "Backlinks" : "Both"}
-                </button>
-              ))}
+              {(["refs", "backlinks", "both"] as NeighborhoodMode[]).map(
+                (m) => (
+                  <button
+                    key={m}
+                    className={neighborMode === m ? "active" : ""}
+                    onClick={() => setNeighborMode(m)}
+                  >
+                    {m === "refs"
+                      ? "Refs"
+                      : m === "backlinks"
+                        ? "Backlinks"
+                        : "Both"}
+                  </button>
+                ),
+              )}
             </div>
           </div>
         )}
 
         <div className="graph-stats">
-          {loadError && <span className="graph-error-inline">Failed to load graph data.</span>}
+          {loadError && (
+            <span className="graph-error-inline">
+              Failed to load graph data.
+            </span>
+          )}
           {!loadError && gInstance && (
             <span>
               {nodeCount} nodes
-              {!showHalu && haluCount > 0 && <span className="graph-halu-hidden"> ({haluCount} halu hidden)</span>}
-              {" · "}{edgeCount} edges · {totalArticles} total
-              {" · "}{graphStats.componentCount} components
-              {" · "}density {graphStats.density < 0.001 ? graphStats.density.toExponential(1) : graphStats.density.toFixed(4)}
-              {pathEdgeSet.size > 0 && <span className="graph-path-info"> · {pathEdgeSet.size} path edges</span>}
+              {!showHalu && haluCount > 0 && (
+                <span className="graph-halu-hidden">
+                  {" "}
+                  ({haluCount} halu hidden)
+                </span>
+              )}
+              {" · "}
+              {edgeCount} edges · {totalArticles} total
+              {" · "}
+              {graphStats.componentCount} components
+              {" · "}density{" "}
+              {graphStats.density < 0.001
+                ? graphStats.density.toExponential(1)
+                : graphStats.density.toFixed(4)}
+              {pathEdgeSet.size > 0 && (
+                <span className="graph-path-info">
+                  {" "}
+                  · {pathEdgeSet.size} path edges
+                </span>
+              )}
               {pathMode && paths.length > 0 && (
                 <span className="graph-path-info">
-                  {" · "}{paths.length} route{paths.length > 1 ? "s" : ""} ({paths.map((p) => p.nodes.length - 1).join(", ")} hops)
+                  {" · "}
+                  {paths.length} route{paths.length > 1 ? "s" : ""} (
+                  {paths.map((p) => p.nodes.length - 1).join(", ")} hops)
                 </span>
               )}
               {pathMode && waypoints.length >= 2 && paths.length === 0 && (
                 <span className="graph-path-info">
-                  {" · "}no {pathDir === "directed" ? "directed " : ""}route{pathDir === "directed" ? " (try Undirected)" : ""}
+                  {" · "}no {pathDir === "directed" ? "directed " : ""}route
+                  {pathDir === "directed" ? " (try Undirected)" : ""}
                 </span>
               )}
-              {pathMode && gInstance && waypoints.some((w) => !gInstance.hasNode(w.slug)) && (
-                <span className="graph-error-inline">
-                  {" · "}{waypoints.filter((w) => !gInstance.hasNode(w.slug)).map((w) => w.title).join(", ")} not in link graph
-                </span>
-              )}
+              {pathMode &&
+                gInstance &&
+                waypoints.some((w) => !gInstance.hasNode(w.slug)) && (
+                  <span className="graph-error-inline">
+                    {" · "}
+                    {waypoints
+                      .filter((w) => !gInstance.hasNode(w.slug))
+                      .map((w) => w.title)
+                      .join(", ")}{" "}
+                    not in link graph
+                  </span>
+                )}
             </span>
           )}
           {!loadError && !gInstance && <span>Loading graph…</span>}
@@ -1925,7 +2361,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
         <button
           type="button"
-          className={`graph-settings-btn${largestComponentOnly ? " active" : ""}`}
+          className={`graph-settings-btn${largestComponentOnly ? "active" : ""}`}
           onClick={() => setLargestComponentOnly((v) => !v)}
         >
           {largestComponentOnly ? "All components" : "Largest only"}
@@ -1933,16 +2369,15 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
         <button
           type="button"
-          className={`graph-settings-btn${showHalu ? " active" : ""}`}
+          className={`graph-settings-btn${showHalu ? "active" : ""}`}
           onClick={() => setShowHalu((v) => !v)}
         >
           {showHalu ? "Hide halu" : "Show halu"}
         </button>
 
-
         <button
           type="button"
-          className={`graph-settings-btn${legendOpen ? " active" : ""}`}
+          className={`graph-settings-btn${legendOpen ? "active" : ""}`}
           onClick={() => setLegendOpen((o) => !o)}
         >
           ▦ {colorMode === "component" ? "Components" : "Communities"}
@@ -1950,7 +2385,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
         <button
           type="button"
-          className={`graph-settings-btn${settingsOpen ? " active" : ""}`}
+          className={`graph-settings-btn${settingsOpen ? "active" : ""}`}
           onClick={() => setSettingsOpen((o) => !o)}
         >
           ⚙ Render
@@ -1963,7 +2398,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
           <div className="graph-legend-panel">
             <div className="graph-legend-heading">
               {colorMode === "component" ? "Components" : "Communities"}
-              <span className="graph-legend-count">{communityGroups.length}</span>
+              <span className="graph-legend-count">
+                {communityGroups.length}
+              </span>
             </div>
             {communityGroups.length === 0 ? (
               <p className="graph-legend-empty">No nodes visible.</p>
@@ -1972,7 +2409,10 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                 {communityGroups.map((group) => (
                   <li key={group.id} className="graph-legend-group">
                     <div className="graph-legend-group-header">
-                      <span className="graph-legend-swatch" style={{ background: group.color }} />
+                      <span
+                        className="graph-legend-swatch"
+                        style={{ background: group.color }}
+                      />
                       <span className="graph-legend-group-label">
                         {group.id < 0
                           ? "Singletons"
@@ -1984,7 +2424,9 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                       >
                         ↓{group.linksIn} ↑{group.linksOut}
                       </span>
-                      <span className="graph-legend-group-count">{group.members.length}</span>
+                      <span className="graph-legend-group-count">
+                        {group.members.length}
+                      </span>
                     </div>
                     <ul className="graph-legend-members">
                       {group.members.map((m) => (
@@ -1992,8 +2434,12 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                           <button
                             type="button"
                             onClick={() => onNavigate(toWikiSegment(m.title))}
-                            onMouseEnter={() => { if (!pathMode) setHighlightSet(new Set([m.id])); }}
-                            onMouseLeave={() => { if (!pathMode) setHighlightSet(new Set()); }}
+                            onMouseEnter={() => {
+                              if (!pathMode) setHighlightSet(new Set([m.id]));
+                            }}
+                            onMouseLeave={() => {
+                              if (!pathMode) setHighlightSet(new Set());
+                            }}
                           >
                             {m.title}
                           </button>
@@ -2011,7 +2457,6 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
         {settingsOpen && (
           <div className="grs-panel">
-
             <div className="grs-section">
               <div className="grs-section-label">Nodes</div>
               <label className="grs-toggle">
@@ -2021,18 +2466,47 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                   onChange={(e) => setShadingEnabled(e.target.checked)}
                 />
                 <span>Shading</span>
-                <span className="grs-toggle-hint">dim nodes outside the highlight set (hover / path waypoints)</span>
+                <span className="grs-toggle-hint">
+                  dim nodes outside the highlight set (hover / path waypoints)
+                </span>
               </label>
               {shadingEnabled && (
-                <Knob label="Shaded opacity" value={settings.shadedOpacity} min={0} max={1} step={0.05}
-                  format={(v) => v.toFixed(2)} onChange={(v) => set("shadedOpacity", v)} />
+                <Knob
+                  label="Shaded opacity"
+                  value={settings.shadedOpacity}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  format={(v) => v.toFixed(2)}
+                  onChange={(v) => set("shadedOpacity", v)}
+                />
               )}
-              <Knob label="Resolution" value={settings.nodeResolution} min={4} max={32} step={2}
-                onChange={(v) => set("nodeResolution", v)} />
-              <Knob label="Base size" value={settings.nodeRelSize} min={1} max={12} step={0.5}
-                format={(v) => v.toFixed(1)} onChange={(v) => set("nodeRelSize", v)} />
-              <Knob label="Opacity" value={settings.nodeOpacity} min={0.1} max={1} step={0.05}
-                format={(v) => v.toFixed(2)} onChange={(v) => set("nodeOpacity", v)} />
+              <Knob
+                label="Resolution"
+                value={settings.nodeResolution}
+                min={4}
+                max={32}
+                step={2}
+                onChange={(v) => set("nodeResolution", v)}
+              />
+              <Knob
+                label="Base size"
+                value={settings.nodeRelSize}
+                min={1}
+                max={12}
+                step={0.5}
+                format={(v) => v.toFixed(1)}
+                onChange={(v) => set("nodeRelSize", v)}
+              />
+              <Knob
+                label="Opacity"
+                value={settings.nodeOpacity}
+                min={0.1}
+                max={1}
+                step={0.05}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => set("nodeOpacity", v)}
+              />
               <label className="grs-toggle">
                 <input
                   type="checkbox"
@@ -2040,11 +2514,20 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                   onChange={(e) => set("alwaysShowLabels", e.target.checked)}
                 />
                 <span>Always show names</span>
-                <span className="grs-toggle-hint">show node labels above all nodes, not just on hover</span>
+                <span className="grs-toggle-hint">
+                  show node labels above all nodes, not just on hover
+                </span>
               </label>
               {settings.alwaysShowLabels && (
-                <Knob label="Label size" value={settings.labelSize} min={0.5} max={15} step={0.25}
-                  format={(v) => v.toFixed(1)} onChange={(v) => set("labelSize", v)} />
+                <Knob
+                  label="Label size"
+                  value={settings.labelSize}
+                  min={0.5}
+                  max={15}
+                  step={0.25}
+                  format={(v) => v.toFixed(1)}
+                  onChange={(v) => set("labelSize", v)}
+                />
               )}
               {settings.alwaysShowLabels && (
                 <label className="grs-toggle">
@@ -2054,19 +2537,30 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                     onChange={(e) => set("dynamicLabelSize", e.target.checked)}
                   />
                   <span>Size by link count</span>
-                  <span className="grs-toggle-hint">scale each label by how many links the node has</span>
+                  <span className="grs-toggle-hint">
+                    scale each label by how many links the node has
+                  </span>
                 </label>
               )}
               {settings.alwaysShowLabels && settings.dynamicLabelSize && (
                 <>
-                  <Knob label="Count influence" value={settings.labelSizeInfluence} min={0} max={1} step={0.05}
-                    format={(v) => v.toFixed(2)} onChange={(v) => set("labelSizeInfluence", v)} />
+                  <Knob
+                    label="Count influence"
+                    value={settings.labelSizeInfluence}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    format={(v) => v.toFixed(2)}
+                    onChange={(v) => set("labelSizeInfluence", v)}
+                  />
                   <label className="grs-knob">
                     <span className="grs-knob-label">Count</span>
                     <select
                       className="graph-metric-select"
                       value={settings.labelDegreeMode}
-                      onChange={(e) => set("labelDegreeMode", e.target.value as DegreeMode)}
+                      onChange={(e) =>
+                        set("labelDegreeMode", e.target.value as DegreeMode)
+                      }
                     >
                       <option value="in">In links</option>
                       <option value="out">Out links</option>
@@ -2079,55 +2573,176 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
 
             <div className="grs-section">
               <div className="grs-section-label">Links</div>
-              <Knob label="Opacity" value={settings.linkOpacity} min={0.01} max={0.6} step={0.01}
-                format={(v) => v.toFixed(2)} onChange={(v) => set("linkOpacity", v)} />
-              <Knob label="Width" value={settings.linkWidth} min={0.1} max={4} step={0.1}
-                format={(v) => v.toFixed(1)} onChange={(v) => set("linkWidth", v)} />
-              <Knob label="Arrow size" value={settings.arrowLength} min={0} max={10} step={0.5}
-                format={(v) => v.toFixed(1)} onChange={(v) => set("arrowLength", v)} />
-              <Knob label="Curvature" value={settings.linkCurvature} min={0} max={0.8} step={0.05}
-                format={(v) => v.toFixed(2)} onChange={(v) => set("linkCurvature", v)} />
-              <Knob label="Particles" value={settings.particles} min={0} max={8} step={1}
-                onChange={(v) => set("particles", v)} />
-              <Knob label="Particle speed" value={settings.particleSpeed} min={0.001} max={0.02} step={0.001}
-                format={(v) => v.toFixed(3)} onChange={(v) => set("particleSpeed", v)} />
-              <Knob label="Particle size" value={settings.particleWidth} min={0.5} max={6} step={0.5}
-                format={(v) => v.toFixed(1)} onChange={(v) => set("particleWidth", v)} />
+              <Knob
+                label="Opacity"
+                value={settings.linkOpacity}
+                min={0.01}
+                max={0.6}
+                step={0.01}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => set("linkOpacity", v)}
+              />
+              <Knob
+                label="Width"
+                value={settings.linkWidth}
+                min={0.1}
+                max={4}
+                step={0.1}
+                format={(v) => v.toFixed(1)}
+                onChange={(v) => set("linkWidth", v)}
+              />
+              <Knob
+                label="Arrow size"
+                value={settings.arrowLength}
+                min={0}
+                max={10}
+                step={0.5}
+                format={(v) => v.toFixed(1)}
+                onChange={(v) => set("arrowLength", v)}
+              />
+              <Knob
+                label="Curvature"
+                value={settings.linkCurvature}
+                min={0}
+                max={0.8}
+                step={0.05}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => set("linkCurvature", v)}
+              />
+              <Knob
+                label="Particles"
+                value={settings.particles}
+                min={0}
+                max={8}
+                step={1}
+                onChange={(v) => set("particles", v)}
+              />
+              <Knob
+                label="Particle speed"
+                value={settings.particleSpeed}
+                min={0.001}
+                max={0.02}
+                step={0.001}
+                format={(v) => v.toFixed(3)}
+                onChange={(v) => set("particleSpeed", v)}
+              />
+              <Knob
+                label="Particle size"
+                value={settings.particleWidth}
+                min={0.5}
+                max={6}
+                step={0.5}
+                format={(v) => v.toFixed(1)}
+                onChange={(v) => set("particleWidth", v)}
+              />
               <label className="grs-toggle">
                 <input
                   type="checkbox"
                   checked={settings.directionalParticles}
-                  onChange={(e) => set("directionalParticles", e.target.checked)}
+                  onChange={(e) =>
+                    set("directionalParticles", e.target.checked)
+                  }
                 />
                 <span>Color by direction</span>
-                <span className="grs-toggle-hint">green=in red=out (needs seeds + particles)</span>
+                <span className="grs-toggle-hint">
+                  green=in red=out (needs seeds + particles)
+                </span>
               </label>
             </div>
 
             <div className="grs-section">
               <div className="grs-section-label">Path trace</div>
-              <Knob label="Max routes" value={settings.maxPaths} min={1} max={10} step={1}
-                onChange={(v) => set("maxPaths", v)} />
-              <Knob label="Speed" value={settings.traceSpeed} min={0.4} max={5} step={0.1}
-                format={(v) => v.toFixed(1)} onChange={(v) => set("traceSpeed", v)} />
-              <Knob label="Acceleration" value={settings.traceAccel} min={0} max={1} step={0.05}
-                format={(v) => v.toFixed(2)} onChange={(v) => set("traceAccel", v)} />
-              <Knob label="Loop delay" value={settings.traceLoopDelay} min={0} max={5} step={0.1}
-                format={(v) => `${v.toFixed(1)}s`} onChange={(v) => set("traceLoopDelay", v)} />
-              <Knob label="Color lightness" value={settings.traceLightness} min={0.4} max={0.95} step={0.01}
-                format={(v) => v.toFixed(2)} onChange={(v) => set("traceLightness", v)} />
-              <Knob label="Color vividness" value={settings.traceChroma} min={0.02} max={0.37} step={0.01}
-                format={(v) => v.toFixed(2)} onChange={(v) => set("traceChroma", v)} />
+              <Knob
+                label="Max routes"
+                value={settings.maxPaths}
+                min={1}
+                max={10}
+                step={1}
+                onChange={(v) => set("maxPaths", v)}
+              />
+              <Knob
+                label="Speed"
+                value={settings.traceSpeed}
+                min={0.4}
+                max={5}
+                step={0.1}
+                format={(v) => v.toFixed(1)}
+                onChange={(v) => set("traceSpeed", v)}
+              />
+              <Knob
+                label="Acceleration"
+                value={settings.traceAccel}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => set("traceAccel", v)}
+              />
+              <Knob
+                label="Loop delay"
+                value={settings.traceLoopDelay}
+                min={0}
+                max={5}
+                step={0.1}
+                format={(v) => `${v.toFixed(1)}s`}
+                onChange={(v) => set("traceLoopDelay", v)}
+              />
+              <Knob
+                label="Color lightness"
+                value={settings.traceLightness}
+                min={0.4}
+                max={0.95}
+                step={0.01}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => set("traceLightness", v)}
+              />
+              <Knob
+                label="Color vividness"
+                value={settings.traceChroma}
+                min={0.02}
+                max={0.37}
+                step={0.01}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => set("traceChroma", v)}
+              />
               <div className="grs-knob-row">
-                <Knob label="Start hue" value={settings.traceStartHue} min={0} max={360} step={5}
-                  format={(v) => `${v}°`} onChange={(v) => set("traceStartHue", v)} />
-                <Knob label="End hue" value={settings.traceEndHue} min={0} max={360} step={5}
-                  format={(v) => `${v}°`} onChange={(v) => set("traceEndHue", v)} />
+                <Knob
+                  label="Start hue"
+                  value={settings.traceStartHue}
+                  min={0}
+                  max={360}
+                  step={5}
+                  format={(v) => `${v}°`}
+                  onChange={(v) => set("traceStartHue", v)}
+                />
+                <Knob
+                  label="End hue"
+                  value={settings.traceEndHue}
+                  min={0}
+                  max={360}
+                  step={5}
+                  format={(v) => `${v}°`}
+                  onChange={(v) => set("traceEndHue", v)}
+                />
               </div>
-              <Knob label="Hue spread" value={settings.traceHueSpread} min={0} max={120} step={2}
-                format={(v) => `${v}°`} onChange={(v) => set("traceHueSpread", v)} />
-              <Knob label="Path edges" value={settings.pathLinkBrightness} min={0} max={1} step={0.05}
-                format={(v) => v.toFixed(2)} onChange={(v) => set("pathLinkBrightness", v)} />
+              <Knob
+                label="Hue spread"
+                value={settings.traceHueSpread}
+                min={0}
+                max={120}
+                step={2}
+                format={(v) => `${v}°`}
+                onChange={(v) => set("traceHueSpread", v)}
+              />
+              <Knob
+                label="Path edges"
+                value={settings.pathLinkBrightness}
+                min={0}
+                max={1}
+                step={0.05}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => set("pathLinkBrightness", v)}
+              />
               <label className="grs-toggle">
                 <input
                   type="checkbox"
@@ -2135,20 +2750,48 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                   onChange={(e) => set("particleGlow", e.target.checked)}
                 />
                 <span>Particle glow</span>
-                <span className="grs-toggle-hint">soft halo around the travelling particle (between 2 waypoints)</span>
+                <span className="grs-toggle-hint">
+                  soft halo around the travelling particle (between 2 waypoints)
+                </span>
               </label>
             </div>
 
             <div className="grs-section">
               <div className="grs-section-label">Physics</div>
-              <Knob label="Repulsion" value={settings.chargeStrength} min={-1200} max={-20} step={20}
-                onChange={(v) => set("chargeStrength", v)} />
-              <Knob label="Link distance" value={settings.linkDistance} min={5} max={400} step={5}
-                onChange={(v) => set("linkDistance", v)} />
-              <Knob label="Alpha decay" value={settings.alphaDecay} min={0.001} max={0.06} step={0.001}
-                format={(v) => v.toFixed(3)} onChange={(v) => set("alphaDecay", v)} />
-              <Knob label="Velocity decay" value={settings.velocityDecay} min={0.1} max={0.99} step={0.01}
-                format={(v) => v.toFixed(2)} onChange={(v) => set("velocityDecay", v)} />
+              <Knob
+                label="Repulsion"
+                value={settings.chargeStrength}
+                min={-1200}
+                max={-20}
+                step={20}
+                onChange={(v) => set("chargeStrength", v)}
+              />
+              <Knob
+                label="Link distance"
+                value={settings.linkDistance}
+                min={5}
+                max={400}
+                step={5}
+                onChange={(v) => set("linkDistance", v)}
+              />
+              <Knob
+                label="Alpha decay"
+                value={settings.alphaDecay}
+                min={0.001}
+                max={0.06}
+                step={0.001}
+                format={(v) => v.toFixed(3)}
+                onChange={(v) => set("alphaDecay", v)}
+              />
+              <Knob
+                label="Velocity decay"
+                value={settings.velocityDecay}
+                min={0.1}
+                max={0.99}
+                step={0.01}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => set("velocityDecay", v)}
+              />
             </div>
 
             <div className="grs-section">
@@ -2158,7 +2801,7 @@ export function GraphView({ onNavigate }: { onNavigate: (slug: string) => void }
                   <button
                     key={p.value}
                     type="button"
-                    className={`grs-bg-swatch${settings.bgColor === p.value ? " active" : ""}`}
+                    className={`grs-bg-swatch${settings.bgColor === p.value ? "active" : ""}`}
                     style={{ background: p.value }}
                     title={p.label}
                     onClick={() => set("bgColor", p.value)}

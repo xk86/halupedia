@@ -22,7 +22,11 @@ interface Props {
   onNavigateToMedia: (imageSlug: string) => void;
 }
 
-export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToMedia }: Props) {
+export function HeadlineImagePanel({
+  articleSlug,
+  onArticleUpdate,
+  onNavigateToMedia,
+}: Props) {
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,7 +34,9 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
 
   // Search-existing state
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<MediaSearchResult[] | null>(null);
+  const [searchResults, setSearchResults] = useState<
+    MediaSearchResult[] | null
+  >(null);
   const [searching, setSearching] = useState(false);
 
   const loadedSlugRef = useRef<string | null>(null);
@@ -46,44 +52,60 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
 
     fetch(`/api/article/${encodeURIComponent(articleSlug)}/image`)
       .then((r) => r.json())
-      .then((body: { image: { id: string; description: string; articleCaption?: string; width: number; height: number } | null }) => {
-        if (body.image) {
-          setImageInfo({
-            mediaId: body.image.id,
-            caption: body.image.articleCaption ?? body.image.description,
-            description: body.image.description,
-            width: body.image.width,
-            height: body.image.height,
-          });
-        }
-      })
+      .then(
+        (body: {
+          image: {
+            id: string;
+            description: string;
+            articleCaption?: string;
+            width: number;
+            height: number;
+          } | null;
+        }) => {
+          if (body.image) {
+            setImageInfo({
+              mediaId: body.image.id,
+              caption: body.image.articleCaption ?? body.image.description,
+              description: body.image.description,
+              width: body.image.width,
+              height: body.image.height,
+            });
+          }
+        },
+      )
       .catch(() => {});
   }, [articleSlug]);
 
-  const applyResult = useCallback((payload: any) => {
-    setImageInfo({
-      mediaId: payload.mediaId,
-      caption: payload.caption ?? "",
-      description: payload.description ?? "",
-      width: payload.width,
-      height: payload.height,
-    });
-    if (payload.article) onArticleUpdate(payload.article);
-    setSearchResults(null);
-    setSearchQuery("");
-  }, [onArticleUpdate]);
+  const applyResult = useCallback(
+    (payload: any) => {
+      setImageInfo({
+        mediaId: payload.mediaId,
+        caption: payload.caption ?? "",
+        description: payload.description ?? "",
+        width: payload.width,
+        height: payload.height,
+      });
+      if (payload.article) onArticleUpdate(payload.article);
+      setSearchResults(null);
+      setSearchQuery("");
+    },
+    [onArticleUpdate],
+  );
 
   const uploadUrl = useCallback(async () => {
     if (!urlDraft.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/image`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: urlDraft.trim() }),
-      });
-      const payload = await res.json().catch(() => ({})) as any;
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(articleSlug)}/image`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: urlDraft.trim() }),
+        },
+      );
+      const payload = (await res.json().catch(() => ({}))) as any;
       if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
       applyResult(payload);
       setUrlDraft("");
@@ -94,33 +116,41 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
     }
   }, [articleSlug, urlDraft, busy, applyResult]);
 
-  const uploadFile = useCallback(async (file: File) => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const form = new FormData();
-      form.append("image", file);
-      const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/image/upload`, {
-        method: "POST",
-        body: form,
-      });
-      const payload = await res.json().catch(() => ({})) as any;
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      applyResult(payload);
-    } catch (err: any) {
-      setError(err?.message || "Upload failed.");
-    } finally {
-      setBusy(false);
-    }
-  }, [articleSlug, busy, applyResult]);
+  const uploadFile = useCallback(
+    async (file: File) => {
+      if (busy) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const form = new FormData();
+        form.append("image", file);
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(articleSlug)}/image/upload`,
+          {
+            method: "POST",
+            body: form,
+          },
+        );
+        const payload = (await res.json().catch(() => ({}))) as any;
+        if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+        applyResult(payload);
+      } catch (err: any) {
+        setError(err?.message || "Upload failed.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [articleSlug, busy, applyResult],
+  );
 
   const searchExisting = useCallback(async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      const res = await fetch(`/api/media?q=${encodeURIComponent(searchQuery.trim())}`);
-      const data = await res.json() as { media?: MediaSearchResult[] };
+      const res = await fetch(
+        `/api/media?q=${encodeURIComponent(searchQuery.trim())}`,
+      );
+      const data = (await res.json()) as { media?: MediaSearchResult[] };
       setSearchResults(data.media ?? []);
     } catch {
       setSearchResults([]);
@@ -129,80 +159,112 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
     }
   }, [searchQuery]);
 
-  const attachExisting = useCallback(async (mediaId: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/image`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mediaId }),
-      });
-      const payload = await res.json().catch(() => ({})) as any;
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      applyResult(payload);
-    } catch (err: any) {
-      setError(err?.message || "Could not attach image.");
-    } finally {
-      setBusy(false);
-    }
-  }, [articleSlug, applyResult]);
+  const attachExisting = useCallback(
+    async (mediaId: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(articleSlug)}/image`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ mediaId }),
+          },
+        );
+        const payload = (await res.json().catch(() => ({}))) as any;
+        if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+        applyResult(payload);
+      } catch (err: any) {
+        setError(err?.message || "Could not attach image.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [articleSlug, applyResult],
+  );
 
   const remove = useCallback(async () => {
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/image`, { method: "DELETE" });
-      const payload = await res.json().catch(() => ({})) as any;
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(articleSlug)}/image`,
+        { method: "DELETE" },
+      );
+      const payload = (await res.json().catch(() => ({}))) as any;
       if (!res.ok) return;
       setImageInfo(null);
       if (payload.article) onArticleUpdate(payload.article);
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
   }, [articleSlug, onArticleUpdate]);
 
   return (
-    <div className="edit-image-panel">
-      <div className="edit-image-panel-header">
-        <span className="edit-image-panel-label">Headline image</span>
+    <div className="mb-[0.75rem] grid w-full min-w-0 rounded-[4px] bg-panel-surface px-[0.65rem] py-[0.5rem] [border:1px_solid_var(--panel-border)]">
+      <div className="mb-[0.4rem] flex items-center justify-between">
+        <span className="text-[0.82rem] font-semibold tracking-[0.02em] text-ink-soft">
+          Headline image
+        </span>
         {imageInfo && (
-          <button type="button" className="edit-image-remove-btn" onClick={remove}>
+          <button
+            type="button"
+            className="cursor-pointer rounded-[3px] bg-transparent px-[0.4rem] py-[0.1rem] font-serif text-[0.75rem] text-danger [border:1px_solid_var(--danger)] hover:bg-danger hover:text-danger-text"
+            onClick={remove}
+          >
             Remove
           </button>
         )}
       </div>
 
       {imageInfo ? (
-        <div className="edit-image-current">
+        <div className="flex items-start gap-[0.6rem]">
           <a
             href={`/media/${encodeURIComponent(imageInfo.mediaId)}`}
-            onClick={(e) => { e.preventDefault(); onNavigateToMedia(imageInfo.mediaId); }}
-            className="edit-image-thumb-link"
+            onClick={(e) => {
+              e.preventDefault();
+              onNavigateToMedia(imageInfo.mediaId);
+            }}
+            className="block shrink-0 border-none hover:bg-transparent"
           >
             <img
               src={`/api/media/${encodeURIComponent(imageInfo.mediaId)}`}
               alt={imageInfo.caption || imageInfo.description}
-              className="edit-image-thumb"
+              className="block h-auto max-h-[72px] max-w-[96px] rounded-[2px] object-cover [border:1px_solid_var(--rule)]"
             />
           </a>
-          <div className="edit-image-info">
-            <code className="edit-image-id">{imageInfo.mediaId}</code>
-            {imageInfo.caption && <p className="edit-image-caption">{imageInfo.caption}</p>}
+          <div className="min-w-0">
+            <code className="block overflow-hidden font-mono text-[0.75rem] text-ellipsis whitespace-nowrap text-ink-fade">
+              {imageInfo.mediaId}
+            </code>
+            {imageInfo.caption && (
+              <p className="mx-0 mt-[0.2rem] mb-0 text-[0.82rem] text-ink-soft">
+                {imageInfo.caption}
+              </p>
+            )}
           </div>
         </div>
       ) : (
-        <div className="edit-image-upload">
-          {/* Search existing */}
-          <div className="edit-image-search-row">
+        <div className="grid max-w-full min-w-0 grid-cols-[minmax(0,1fr)_max-content_max-content] gap-[0.5rem] overflow-hidden max-[600px]:w-full max-[600px]:grid-cols-[minmax(0,1fr)_max-content]">
+          {/* Search existing — `contents` so its children join the panel grid. */}
+          <div className="contents">
             <input
               type="search"
-              className="search-input edit-image-search-input"
+              className="search-input col-start-1 row-start-1 w-full min-w-0 px-[0.5rem] py-[0.3rem] text-[0.85rem]"
               placeholder="Search existing images…"
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setSearchResults(null); }}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setSearchResults(null);
+              }}
               disabled={busy}
-              onKeyDown={(e) => { if (e.key === "Enter" && searchQuery.trim()) void searchExisting(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && searchQuery.trim())
+                  void searchExisting();
+              }}
             />
             <button
               type="button"
-              className="edit-modal-close"
+              className="edit-modal-close col-[2/4] row-start-1 max-w-full whitespace-nowrap max-[600px]:col-[2] max-[600px]:w-auto"
               onClick={searchExisting}
               disabled={busy || searching || !searchQuery.trim()}
             >
@@ -212,22 +274,30 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
 
           {/* Search results */}
           {searchResults !== null && (
-            <div className="edit-image-search-results">
+            <div className="col-[1/-1] rounded-[3px] bg-[var(--surface-accent,var(--panel-surface))] p-[0.4rem] [border:1px_solid_var(--rule-soft)]">
               {searchResults.length === 0 ? (
-                <p className="edit-image-search-empty">No existing images match. Upload one below.</p>
+                <p className="m-0 text-[0.8rem] text-ink-soft">
+                  No existing images match. Upload one below.
+                </p>
               ) : (
-                <div className="edit-image-search-grid">
+                <div className="flex flex-wrap gap-[0.4rem]">
                   {searchResults.map((r) => (
                     <button
                       key={r.id}
                       type="button"
-                      className="edit-image-search-card"
+                      className="flex max-w-[80px] cursor-pointer flex-col items-center gap-[0.2rem] rounded-[4px] bg-transparent p-[0.2rem] [border:2px_solid_transparent] [transition:border-color_100ms] hover:[border-color:var(--accent)]"
                       onClick={() => void attachExisting(r.id)}
                       disabled={busy}
                       title={r.description}
                     >
-                      <img src={`/api/media/${encodeURIComponent(r.id)}`} alt={r.description} />
-                      <span className="edit-image-search-card-id">{r.id}</span>
+                      <img
+                        className="h-[52px] w-[72px] rounded-[2px] object-cover"
+                        src={`/api/media/${encodeURIComponent(r.id)}`}
+                        alt={r.description}
+                      />
+                      <span className="max-w-[72px] overflow-hidden text-[0.6rem] text-ellipsis whitespace-nowrap text-ink-soft">
+                        {r.id}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -235,16 +305,21 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
             </div>
           )}
 
-          {/* URL / file upload */}
-          <div className="edit-image-upload-row">
+          {/* URL / file upload — `contents` so its children join the panel grid. */}
+          <div className="contents">
             <input
               type="url"
-              className="search-input edit-image-url-input"
+              className="search-input col-start-1 row-start-2 w-full min-w-0 px-[0.5rem] py-[0.3rem] text-[0.85rem] max-[600px]:col-[1/-1]"
               placeholder="Paste image URL or image…"
               value={urlDraft}
-              onChange={(e) => { setUrlDraft(e.target.value); setError(null); }}
+              onChange={(e) => {
+                setUrlDraft(e.target.value);
+                setError(null);
+              }}
               disabled={busy}
-              onKeyDown={(e) => { if (e.key === "Enter" && urlDraft.trim()) void uploadUrl(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && urlDraft.trim()) void uploadUrl();
+              }}
               onPaste={(e) => {
                 const items = e.clipboardData?.items;
                 if (!items) return;
@@ -260,21 +335,27 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
             />
             <button
               type="button"
-              className="edit-modal-close"
+              className="edit-modal-close col-[3] row-start-2 max-w-full whitespace-nowrap max-[600px]:col-[2] max-[600px]:row-start-3 max-[600px]:w-auto"
               onClick={uploadUrl}
               disabled={busy || !urlDraft.trim()}
             >
               {busy ? "Fetching…" : "Attach"}
             </button>
-            <label className="edit-image-file-label" title="Upload from disk">
+            <label
+              className="col-[2] row-start-2 inline-flex min-w-[2rem] cursor-pointer items-center justify-center rounded-[3px] bg-control-surface px-[0.5rem] py-[0.28rem] text-[0.95rem] leading-none text-ink-soft [border:1px_solid_var(--control-border)] [transition:background_100ms] hover:bg-control-surface-strong max-[600px]:col-[1] max-[600px]:row-start-3 max-[600px]:w-full"
+              title="Upload from disk"
+            >
               <input
                 type="file"
                 accept="image/*"
-                className="edit-image-file-input"
+                className="hidden"
                 disabled={busy}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) { e.target.value = ""; void uploadFile(file); }
+                  if (file) {
+                    e.target.value = "";
+                    void uploadFile(file);
+                  }
                 }}
               />
               {busy ? "…" : "↑"}
@@ -283,7 +364,11 @@ export function HeadlineImagePanel({ articleSlug, onArticleUpdate, onNavigateToM
         </div>
       )}
 
-      {error && <p className="edit-modal-error" style={{ marginTop: "0.25rem" }}>{error}</p>}
+      {error && (
+        <p className="edit-modal-error" style={{ marginTop: "0.25rem" }}>
+          {error}
+        </p>
+      )}
     </div>
   );
 }

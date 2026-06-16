@@ -3699,6 +3699,31 @@ export async function createApp(options: CreateAppOptions = {}) {
       exists: Boolean(item.existsFlag),
     }));
 
+    // Treat the query as a possible direct target: a raw slug or a pasted
+    // /wiki/ link (or full URL) should resolve to its article — following
+    // aliases — and surface as the top exact hit, even when fuzzy text search
+    // wouldn't rank it first. Only on the first page, and de-duplicated.
+    if (offset === 0) {
+      const directSlug = articleLookupSlugFromInput(q);
+      const direct = directSlug ? getArticleByLookup(db, directSlug) : null;
+      if (direct) {
+        const canonical = getCanonicalSlugForTarget(db, direct.slug);
+        if (!results.some((r) => r.slug === canonical)) {
+          results.unshift({
+            slug: canonical,
+            title:
+              direct.title === direct.slug
+                ? slugToTitle(direct.slug)
+                : direct.title,
+            summary:
+              direct.summaryMarkdown?.trim() ||
+              summaryMarkdownFromArticle(direct.markdown),
+            exists: true,
+          });
+        }
+      }
+    }
+
     const resultSlugs = results.map((r) => r.slug);
     const random = offset === 0
       ? getRandomSuggestions(db, 5, resultSlugs).map((r) => ({

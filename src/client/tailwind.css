@@ -19,9 +19,23 @@
  * default rem scale differs from the hand-authored values, so per-component
  * migrations use arbitrary values (e.g. px-[2.5rem]) to guarantee pixel parity.
  */
-@layer theme, base, components, utilities;
+/*
+ * Cascade order (lowest priority first). Layered CSS is always beaten by any
+ * later-declared layer, regardless of selector specificity — so a single
+ * utility class wins over even a two-class legacy rule. This is what lets the
+ * incremental migration work: as a component moves to utilities, those
+ * utilities reliably override the legacy `styles.css` rules they replace.
+ *
+ *   katex   — third-party math CSS (no app rules compete with .katex selectors)
+ *   legacy  — the hand-written styles.css; authoritative until migrated
+ *   theme   — Tailwind design tokens (the @theme map below)
+ *   utilities — Tailwind utility classes (must win over legacy)
+ */
+@layer katex, legacy, theme, base, components, utilities;
+@import "katex/dist/katex.min.css" layer(katex);
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
+@import "./styles.css" layer(legacy);
 
 @theme {
   /* Fonts — point Tailwind's font utilities at the project stacks. */

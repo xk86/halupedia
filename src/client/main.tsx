@@ -1,9 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import "katex/dist/katex.min.css";
+// tailwind.css owns the full CSS cascade: it @imports katex, the legacy
+// styles.css, and Tailwind's theme/utilities into explicitly ordered layers.
 import "./tailwind.css";
-import "./styles.css";
 
 const root = createRoot(document.getElementById("root")!);
 root.render(

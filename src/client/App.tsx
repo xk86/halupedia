@@ -35,15 +35,7 @@ interface BacklinkItem {
   createdAt: number;
 }
 
-interface InfoboxRow { label: string; value: string; }
-interface InfoboxGroup { label: string; rows: InfoboxRow[]; }
-interface InfoboxData {
-  title: string;
-  subtitle?: string;
-  image_ordinal?: number;
-  groups: InfoboxGroup[];
-}
-interface HeadlineMedia { mediaId: string; caption: string; description: string; }
+import type { InfoboxData, HeadlineMedia } from "@/types";
 
 interface PageData {
   cached: boolean;

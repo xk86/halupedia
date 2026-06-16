@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-
-interface InfoboxRow { label: string; value: string; }
-interface InfoboxGroup { label: string; rows: InfoboxRow[]; }
-interface InfoboxData {
-  title: string;
-  subtitle?: string;
-  groups: InfoboxGroup[];
-}
-interface HeadlineMedia { mediaId: string; caption: string; description: string; }
+import type { InfoboxData, HeadlineMedia } from "@/types";
 
 interface SidebarRevision {
   id: number;

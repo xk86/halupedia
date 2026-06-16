@@ -1669,13 +1669,6 @@ button.admin-danger-btn:hover:not(:disabled) {
   font-style: italic;
 }
 
-/* Custom highlight for persisting the selection mark while the edit tray is open */
-::highlight(halu-selection) {
-  background-color: var(--accent, #c9a227);
-  color: inherit;
-  opacity: 0.35;
-}
-
 .homepage-timer-row {
   display: flex;
   align-items: center;

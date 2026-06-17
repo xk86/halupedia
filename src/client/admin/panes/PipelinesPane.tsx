@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
+import { AdminButton } from "../AdminButton";
 import { toWikiSegment } from "../../wikiPath";
 
 const RUNS_PER_PAGE = 10;
@@ -8,13 +9,14 @@ const RUNS_PER_PAGE = 10;
 const md = new MarkdownIt({ html: false, linkify: false });
 const defaultTraceLinkOpen =
   md.renderer.rules.link_open ??
-  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+  ((tokens, idx, options, _env, self) =>
+    self.renderToken(tokens, idx, options));
 
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   const hrefIndex = token.attrIndex("href");
   const titleIndex = token.attrIndex("title");
-  const href = hrefIndex >= 0 ? token.attrs?.[hrefIndex]?.[1] ?? "" : "";
+  const href = hrefIndex >= 0 ? (token.attrs?.[hrefIndex]?.[1] ?? "") : "";
   const internalHref = traceInternalHrefToWiki(href);
   if (internalHref) {
     token.attrSet("href", internalHref);
@@ -26,7 +28,8 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
 function traceInternalHrefToWiki(href: string): string | null {
   if (href.startsWith("/wiki/")) return href;
   if (!href.startsWith("ref:") && !href.startsWith("halu:")) return null;
-  const rawTarget = href.slice(href.indexOf(":") + 1).split(/["' \t\r\n]/)[0] ?? "";
+  const rawTarget =
+    href.slice(href.indexOf(":") + 1).split(/["' \t\r\n]/)[0] ?? "";
   const slug = rawTarget.trim().toLowerCase();
   if (!slug || !/^[a-z0-9-]+$/.test(slug)) return null;
   return `/wiki/${toWikiSegment(slugToTraceTitle(slug))}`;
@@ -147,10 +150,21 @@ interface Props {
   onNavigateHome?: () => void;
 }
 
-export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, error, onRefresh, onNavigate, onNavigateHome }: Props) {
+export function PipelinesPane({
+  workflows,
+  runs,
+  activeRuns = [],
+  traceEnabled,
+  error,
+  onRefresh,
+  onNavigate,
+  onNavigateHome,
+}: Props) {
   // Workflow diagrams are collapsed by default — the run history is the focus.
   // Track which are *expanded* so newly-loaded workflows start collapsed.
-  const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(new Set());
+  const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(
+    new Set(),
+  );
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const [runNodes, setRunNodes] = useState<Record<string, NodeSpan[]>>({});
   const [loadingRun, setLoadingRun] = useState<string | null>(null);
@@ -164,10 +178,16 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
   useEffect(() => {
     if (page > pageCount - 1) setPage(pageCount - 1);
   }, [page, pageCount]);
-  const activeRows = activeRuns.map((a) => ({ kind: "active" as const, item: a }));
+  const activeRows = activeRuns.map((a) => ({
+    kind: "active" as const,
+    item: a,
+  }));
   const runRows = runs.map((r) => ({ kind: "run" as const, item: r }));
   const allRows = [...activeRows, ...runRows];
-  const pageRows = allRows.slice(page * RUNS_PER_PAGE, page * RUNS_PER_PAGE + RUNS_PER_PAGE);
+  const pageRows = allRows.slice(
+    page * RUNS_PER_PAGE,
+    page * RUNS_PER_PAGE + RUNS_PER_PAGE,
+  );
 
   function navigateTo(e: MouseEvent, segment: string) {
     e.preventDefault();
@@ -176,7 +196,8 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
   }
 
   const allExpanded =
-    workflows.length > 0 && workflows.every((w) => expandedWorkflows.has(w.name));
+    workflows.length > 0 &&
+    workflows.every((w) => expandedWorkflows.has(w.name));
 
   function toggleWorkflow(name: string) {
     setExpandedWorkflows((prev) => {
@@ -201,9 +222,11 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
     if (runNodes[runId]) return;
     setLoadingRun(runId);
     try {
-      const res = await fetch(`/api/admin/pipeline/runs/${encodeURIComponent(runId)}`);
+      const res = await fetch(
+        `/api/admin/pipeline/runs/${encodeURIComponent(runId)}`,
+      );
       if (res.ok) {
-        const data = await res.json() as { nodes: NodeSpan[] };
+        const data = (await res.json()) as { nodes: NodeSpan[] };
         setRunNodes((prev) => ({ ...prev, [runId]: data.nodes }));
       }
     } finally {
@@ -216,11 +239,7 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
       id="pipelines"
       title="Pipelines"
       wide
-      actions={
-        <button className="admin-btn" type="button" onClick={onRefresh}>
-          Refresh
-        </button>
-      }
+      actions={<AdminButton onClick={onRefresh}>Refresh</AdminButton>}
     >
       {error ? <p className="search-error">{error}</p> : null}
 
@@ -252,14 +271,33 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
                   if (row.kind === "active") {
                     const a = row.item;
                     return (
-                      <tr key={`active:${a.slug}`} className="admin-pipeline-run-row admin-pipeline-run-row--active">
-                        <td className="admin-pipeline-run-time" title={fmtFullTimestamp(a.startedAt)}>
+                      <tr
+                        key={`active:${a.slug}`}
+                        className="admin-pipeline-run-row admin-pipeline-run-row--active"
+                      >
+                        <td
+                          className="admin-pipeline-run-time"
+                          title={fmtFullTimestamp(a.startedAt)}
+                        >
                           {fmtTimestamp(a.startedAt)}
                         </td>
                         <td>{a.workflow ?? "—"}</td>
-                        <td><SlugCell slug={a.slug} segment={toWikiSegment(a.title || a.slug)} onNavigate={navigateTo} onNavigateHome={onNavigateHome} /></td>
-                        <td className="admin-pipeline-run-inprogress">in progress</td>
-                        <td>{a.phase && a.phase !== "starting" ? a.phase.replace(/^[^.]+\./, "") : "…"}</td>
+                        <td>
+                          <SlugCell
+                            slug={a.slug}
+                            segment={toWikiSegment(a.title || a.slug)}
+                            onNavigate={navigateTo}
+                            onNavigateHome={onNavigateHome}
+                          />
+                        </td>
+                        <td className="admin-pipeline-run-inprogress">
+                          in progress
+                        </td>
+                        <td>
+                          {a.phase && a.phase !== "starting"
+                            ? a.phase.replace(/^[^.]+\./, "")
+                            : "…"}
+                        </td>
                         <td>—</td>
                       </tr>
                     );
@@ -268,20 +306,40 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
                   return (
                     <Fragment key={run.run_id}>
                       <tr
-                        className={`admin-pipeline-run-row${expandedRun === run.run_id ? " admin-pipeline-run-row--expanded" : ""}`}
+                        className={`admin-pipeline-run-row${expandedRun === run.run_id ? "admin-pipeline-run-row--expanded" : ""}`}
                         onClick={() => void toggleRun(run.run_id)}
-                        title={run.error_message ?? "Click to see node breakdown"}
+                        title={
+                          run.error_message ?? "Click to see node breakdown"
+                        }
                       >
-                        <td className="admin-pipeline-run-time" title={fmtFullTimestamp(run.started_at)}>
+                        <td
+                          className="admin-pipeline-run-time"
+                          title={fmtFullTimestamp(run.started_at)}
+                        >
                           {fmtTimestamp(run.started_at)}
                         </td>
                         <td>{run.workflow}</td>
                         <td>
-                          {run.slug
-                            ? <SlugCell slug={run.slug} segment={toWikiSegment(run.slug)} onNavigate={navigateTo} onNavigateHome={onNavigateHome} />
-                            : ""}
+                          {run.slug ? (
+                            <SlugCell
+                              slug={run.slug}
+                              segment={toWikiSegment(run.slug)}
+                              onNavigate={navigateTo}
+                              onNavigateHome={onNavigateHome}
+                            />
+                          ) : (
+                            ""
+                          )}
                         </td>
-                        <td className={run.status === "error" ? "admin-pipeline-run-error" : ""}>{run.status}</td>
+                        <td
+                          className={
+                            run.status === "error"
+                              ? "admin-pipeline-run-error"
+                              : ""
+                          }
+                        >
+                          {run.status}
+                        </td>
                         <td>{run.nodes_executed}</td>
                         <td>{run.duration_ms} ms</td>
                       </tr>
@@ -289,7 +347,9 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
                         <tr className="admin-pipeline-run-detail-row">
                           <td colSpan={6}>
                             {loadingRun === run.run_id ? (
-                              <span className="admin-pipeline-run-loading">Loading…</span>
+                              <span className="admin-pipeline-run-loading">
+                                Loading…
+                              </span>
                             ) : runNodes[run.run_id] ? (
                               <NodeBreakdown
                                 nodes={runNodes[run.run_id]}
@@ -308,41 +368,42 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
           </div>
           {pageCount > 1 && (
             <div className="admin-pipeline-runs-pager">
-              <button
-                type="button"
-                className="admin-btn admin-btn--small"
+              <AdminButton
+                size="small"
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={page === 0}
               >
                 ← Prev
-              </button>
-              <span className="all-entries-count">Page {page + 1} of {pageCount}</span>
-              <button
-                type="button"
-                className="admin-btn admin-btn--small"
+              </AdminButton>
+              <span className="all-entries-count">
+                Page {page + 1} of {pageCount}
+              </span>
+              <AdminButton
+                size="small"
                 onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
                 disabled={page >= pageCount - 1}
               >
                 Next →
-              </button>
+              </AdminButton>
             </div>
           )}
         </>
       ) : (
         <p className="sb-copy">
-          {traceEnabled ? "No recorded pipeline runs." : "Pipeline trace storage is disabled."}
+          {traceEnabled
+            ? "No recorded pipeline runs."
+            : "Pipeline trace storage is disabled."}
         </p>
       )}
 
-      <div className="admin-section-title-row" style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}>
+      <div
+        className="admin-section-title-row"
+        style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}
+      >
         <h4 className="sb-heading">Workflows</h4>
-        <button
-          type="button"
-          className="admin-btn admin-btn--small"
-          onClick={toggleAllWorkflows}
-        >
+        <AdminButton size="small" onClick={toggleAllWorkflows}>
           {allExpanded ? "Collapse all" : "Expand all"}
-        </button>
+        </AdminButton>
       </div>
 
       <div className="admin-pipeline-grid">
@@ -357,21 +418,28 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
                 aria-expanded={!collapsed}
               >
                 <span>{workflow.name}</span>
-                <span className="admin-pipeline-toggle-icon">{collapsed ? "▸" : "▾"}</span>
+                <span className="admin-pipeline-toggle-icon">
+                  {collapsed ? "▸" : "▾"}
+                </span>
               </button>
               {!collapsed && (
                 <>
-                  <div className="admin-pipeline-summary">{workflow.summary}</div>
+                  <div className="admin-pipeline-summary">
+                    {workflow.summary}
+                  </div>
                   <div className="admin-pipeline-flow">
                     {segmentNodes(workflow.nodes).map((seg, si, all) => {
                       const isLast = si === all.length - 1;
                       if (seg.type === "linear") {
                         return (
-                          <span key={si} className={`admin-pipeline-segment${isLast ? "" : " admin-pipeline-segment--arrow"}`}>
+                          <span
+                            key={si}
+                            className={`admin-pipeline-segment${isLast ? "" : "admin-pipeline-segment--arrow"}`}
+                          >
                             {seg.nodes.map((node, ni) => (
                               <span
                                 key={node.name}
-                                className={`admin-pipeline-node admin-pipeline-node--${node.kind}${ni < seg.nodes.length - 1 ? " admin-pipeline-node--arrow" : ""}`}
+                                className={`admin-pipeline-node admin-pipeline-node--${node.kind}${ni < seg.nodes.length - 1 ? "admin-pipeline-node--arrow" : ""}`}
                                 title={node.description ?? node.name}
                               >
                                 {node.name}
@@ -382,14 +450,25 @@ export function PipelinesPane({ workflows, runs, activeRuns = [], traceEnabled, 
                       }
                       const branchEntries = [...seg.branches.entries()];
                       return (
-                        <span key={si} className={`admin-pipeline-branch${isLast ? "" : " admin-pipeline-segment--arrow"}`}>
+                        <span
+                          key={si}
+                          className={`admin-pipeline-branch${isLast ? "" : "admin-pipeline-segment--arrow"}`}
+                        >
                           {branchEntries.map(([label, nodes]) => (
-                            <span key={label} className="admin-pipeline-branch-row">
-                              <span className="admin-pipeline-branch-label" title={label}>{label}</span>
+                            <span
+                              key={label}
+                              className="admin-pipeline-branch-row"
+                            >
+                              <span
+                                className="admin-pipeline-branch-label"
+                                title={label}
+                              >
+                                {label}
+                              </span>
                               {nodes.map((node, ni) => (
                                 <span
                                   key={node.name}
-                                  className={`admin-pipeline-node admin-pipeline-node--${node.kind}${ni < nodes.length - 1 ? " admin-pipeline-node--arrow" : ""}`}
+                                  className={`admin-pipeline-node admin-pipeline-node--${node.kind}${ni < nodes.length - 1 ? "admin-pipeline-node--arrow" : ""}`}
                                   title={node.description ?? node.name}
                                 >
                                   {node.name}
@@ -473,7 +552,15 @@ function fmtFullTimestamp(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
-function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; totalMs: number; runStartedAt?: number }) {
+function NodeBreakdown({
+  nodes,
+  totalMs,
+  runStartedAt,
+}: {
+  nodes: NodeSpan[];
+  totalMs: number;
+  runStartedAt?: number;
+}) {
   const maxMs = Math.max(...nodes.map((n) => n.duration_ms), 1);
   const [openPanels, setOpenPanels] = useState<Set<string>>(new Set());
   function togglePanel(key: string) {
@@ -489,8 +576,15 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
       {nodes.map((node, i) => {
         const pct = Math.round((node.duration_ms / Math.max(totalMs, 1)) * 100);
         const barPct = Math.round((node.duration_ms / maxMs) * 100);
-        const hasMetadata = Boolean(node.llm_role || node.llm_model || node.llm_config_key);
-        const hasPrompt = Boolean(node.prompt_text || node.cot_text || node.response_text || hasMetadata);
+        const hasMetadata = Boolean(
+          node.llm_role || node.llm_model || node.llm_config_key,
+        );
+        const hasPrompt = Boolean(
+          node.prompt_text ||
+          node.cot_text ||
+          node.response_text ||
+          hasMetadata,
+        );
         const ragDetail = getRagTraceDetail(node);
         const hasRag = Boolean(ragDetail);
         const promptKey = `${i}:prompt`;
@@ -499,10 +593,17 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
         const ragOpen = openPanels.has(ragKey);
         return (
           <Fragment key={i}>
-            <div className={`admin-pipeline-node-row admin-pipeline-node-row--${node.node_kind ?? "unknown"}`}>
-              <span className="admin-pipeline-node-name" title={node.error_message ?? node.node_name}>
+            <div
+              className={`admin-pipeline-node-row admin-pipeline-node-row--${node.node_kind ?? "unknown"}`}
+            >
+              <span
+                className="admin-pipeline-node-name"
+                title={node.error_message ?? node.node_name}
+              >
                 {node.node_name}
-                {node.status === "error" && <span className="admin-pipeline-node-err"> ✕</span>}
+                {node.status === "error" && (
+                  <span className="admin-pipeline-node-err"> ✕</span>
+                )}
               </span>
               {node.started_at ? (
                 <span
@@ -522,20 +623,25 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
                   style={{ width: `${barPct}%` }}
                 />
               </span>
-              <span className="admin-pipeline-node-ms">{node.duration_ms} ms</span>
+              <span className="admin-pipeline-node-ms">
+                {node.duration_ms} ms
+              </span>
               <span className="admin-pipeline-node-pct">{pct}%</span>
               {node.prompt_chars != null ? (
                 hasPrompt ? (
                   <button
                     type="button"
-                    className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${promptOpen ? " admin-pipeline-node-ctx--open" : ""}`}
+                    className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${promptOpen ? "admin-pipeline-node-ctx--open" : ""}`}
                     title="Show prompt, chain-of-thought, and output"
                     onClick={() => togglePanel(promptKey)}
                   >
                     {fmtK(node.prompt_chars)}c {promptOpen ? "▾" : "▸"}
                   </button>
                 ) : (
-                  <span className="admin-pipeline-node-ctx" title="prompt chars (system + user)">
+                  <span
+                    className="admin-pipeline-node-ctx"
+                    title="prompt chars (system + user)"
+                  >
                     {fmtK(node.prompt_chars)}c
                   </span>
                 )
@@ -545,7 +651,7 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
               {hasRag ? (
                 <button
                   type="button"
-                  className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${ragOpen ? " admin-pipeline-node-ctx--open" : ""}`}
+                  className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${ragOpen ? "admin-pipeline-node-ctx--open" : ""}`}
                   title="Show retrieved RAG context and selected source segments"
                   onClick={() => togglePanel(ragKey)}
                 >
@@ -558,12 +664,22 @@ function NodeBreakdown({ nodes, totalMs, runStartedAt }: { nodes: NodeSpan[]; to
             {promptOpen && hasPrompt && (
               <div className="admin-prompt-detail">
                 {hasMetadata && <LlmMetadata node={node} />}
-                {node.prompt_text && <PromptTraceSections text={node.prompt_text} />}
+                {node.prompt_text && (
+                  <PromptTraceSections text={node.prompt_text} />
+                )}
                 {node.cot_text && (
-                  <PromptSection label="Chain of thought" text={node.cot_text} variant="cot" />
+                  <PromptSection
+                    label="Chain of thought"
+                    text={node.cot_text}
+                    variant="cot"
+                  />
                 )}
                 {node.response_text && (
-                  <PromptSection label="Output" text={node.response_text} variant="output" />
+                  <PromptSection
+                    label="Output"
+                    text={node.response_text}
+                    variant="output"
+                  />
                 )}
               </div>
             )}
@@ -622,9 +738,13 @@ function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
     asRecord(patch?.renderedPrompt) ??
     asRecord(diffAfter(diff, "renderedPrompt"));
   const vars = asRecord(rendered?.variables);
-  const promptSections = isLlm ? extractPromptRagSections(node.prompt_text ?? "") : {};
-  const promptContext = cleanTraceText(vars?.rag_context) ?? promptSections.ragContext;
-  const relatedTitlesPrompt = cleanTraceText(vars?.related_titles) ?? promptSections.relatedTitles;
+  const promptSections = isLlm
+    ? extractPromptRagSections(node.prompt_text ?? "")
+    : {};
+  const promptContext =
+    cleanTraceText(vars?.rag_context) ?? promptSections.ragContext;
+  const relatedTitlesPrompt =
+    cleanTraceText(vars?.related_titles) ?? promptSections.relatedTitles;
   const promptRefs =
     cleanTraceText(vars?.references_prompt_text) ??
     cleanTraceText(vars?.ref_links) ??
@@ -640,13 +760,16 @@ function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
     return null;
   }
 
-  const promptRefCount = countPromptRefs([promptContext, relatedTitlesPrompt, promptRefs].filter(Boolean).join("\n"));
+  const promptRefCount = countPromptRefs(
+    [promptContext, relatedTitlesPrompt, promptRefs].filter(Boolean).join("\n"),
+  );
 
   return {
     promptContext,
     relatedTitlesPrompt,
     promptRefs,
-    displayCount: retrieved?.sources.length || references.length || promptRefCount,
+    displayCount:
+      retrieved?.sources.length || references.length || promptRefCount,
     promptRefCount,
     sources: retrieved?.sources ?? [],
     references,
@@ -661,11 +784,28 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
     .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
   const rows = [
     ["Sources", detail.sources.length ? String(detail.sources.length) : null],
-    ["References", detail.references.length ? String(detail.references.length) : null],
-    ["Related titles", detail.ragTitles.length ? String(detail.ragTitles.length) : null],
-    ["Backlinks", detail.backlinks.length ? String(detail.backlinks.length) : null],
-    ["Prompt refs", detail.promptRefCount ? String(detail.promptRefCount) : null],
-    ["Prompt context", detail.promptContext ? `${detail.promptContext.length.toLocaleString()} chars` : null],
+    [
+      "References",
+      detail.references.length ? String(detail.references.length) : null,
+    ],
+    [
+      "Related titles",
+      detail.ragTitles.length ? String(detail.ragTitles.length) : null,
+    ],
+    [
+      "Backlinks",
+      detail.backlinks.length ? String(detail.backlinks.length) : null,
+    ],
+    [
+      "Prompt refs",
+      detail.promptRefCount ? String(detail.promptRefCount) : null,
+    ],
+    [
+      "Prompt context",
+      detail.promptContext
+        ? `${detail.promptContext.length.toLocaleString()} chars`
+        : null,
+    ],
     [
       "Score range",
       scoreValues.length
@@ -685,24 +825,41 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
         ))}
       </dl>
       {detail.promptContext && (
-        <PromptSection label="RAG context in prompt" text={detail.promptContext} />
+        <PromptSection
+          label="RAG context in prompt"
+          text={detail.promptContext}
+        />
       )}
       {detail.sources.length > 0 && (
-        <PromptSection label="Retrieved source segments" text={formatRagSources(detail.sources)} />
+        <PromptSection
+          label="Retrieved source segments"
+          text={formatRagSources(detail.sources)}
+        />
       )}
       {detail.references.length > 0 && (
-        <PromptSection label="Reference list after step" text={formatReferences(detail.references)} />
+        <PromptSection
+          label="Reference list after step"
+          text={formatReferences(detail.references)}
+        />
       )}
       {detail.relatedTitlesPrompt && (
-        <PromptSection label="Related titles in prompt" text={detail.relatedTitlesPrompt} />
+        <PromptSection
+          label="Related titles in prompt"
+          text={detail.relatedTitlesPrompt}
+        />
       )}
       {detail.promptRefs && (
-        <PromptSection label="Reference context in prompt" text={detail.promptRefs} />
+        <PromptSection
+          label="Reference context in prompt"
+          text={detail.promptRefs}
+        />
       )}
       {detail.backlinks.length > 0 && (
         <PromptSection
           label="Backlinks"
-          text={detail.backlinks.map((b) => `- ${b.title} (${b.slug})`).join("\n")}
+          text={detail.backlinks
+            .map((b) => `- ${b.title} (${b.slug})`)
+            .join("\n")}
         />
       )}
     </div>
@@ -715,7 +872,9 @@ function formatRagSources(sources: RagSourceTrace[]): string {
       const meta = [
         `slug: ${s.slug}`,
         typeof s.score === "number" ? `score: ${s.score.toFixed(3)}` : null,
-      ].filter(Boolean).join(" · ");
+      ]
+        .filter(Boolean)
+        .join(" · ");
       return `## ${i + 1}. ${s.title}\n${meta}\n\n${s.content}`;
     })
     .join("\n\n---\n\n");
@@ -730,31 +889,46 @@ function formatReferences(references: ReferenceTrace[]): string {
         r.kind ? `kind: ${r.kind}` : null,
         r.pinned ? "pinned" : null,
         typeof r.score === "number" ? `score: ${r.score.toFixed(3)}` : null,
-      ].filter(Boolean).join(" · ");
+      ]
+        .filter(Boolean)
+        .join(" · ");
       return `## ${i + 1}. ${r.title}\n${meta}\n\n${r.content}`;
     })
     .join("\n\n---\n\n");
 }
 
-function normalizeRetrievedContext(value: unknown): { sources: RagSourceTrace[]; ragTitles: string[]; backlinks: Array<{ slug: string; title: string }> } | null {
+function normalizeRetrievedContext(
+  value: unknown,
+): {
+  sources: RagSourceTrace[];
+  ragTitles: string[];
+  backlinks: Array<{ slug: string; title: string }>;
+} | null {
   const obj = asRecord(value);
   if (!obj) return null;
   const sources = Array.isArray(obj.sourceArticles)
-    ? obj.sourceArticles.map(normalizeRagSource).filter((s): s is RagSourceTrace => Boolean(s))
+    ? obj.sourceArticles
+        .map(normalizeRagSource)
+        .filter((s): s is RagSourceTrace => Boolean(s))
     : [];
   const ragTitles = Array.isArray(obj.ragTitles)
     ? obj.ragTitles.filter((t): t is string => typeof t === "string")
     : [];
   const backlinks = Array.isArray(obj.backlinks)
-    ? obj.backlinks.map(normalizeBacklink).filter((b): b is { slug: string; title: string } => Boolean(b))
+    ? obj.backlinks
+        .map(normalizeBacklink)
+        .filter((b): b is { slug: string; title: string } => Boolean(b))
     : [];
-  if (sources.length === 0 && ragTitles.length === 0 && backlinks.length === 0) return null;
+  if (sources.length === 0 && ragTitles.length === 0 && backlinks.length === 0)
+    return null;
   return { sources, ragTitles, backlinks };
 }
 
 function normalizeReferences(value: unknown): ReferenceTrace[] | null {
   if (!Array.isArray(value)) return null;
-  const refs = value.map(normalizeReference).filter((r): r is ReferenceTrace => Boolean(r));
+  const refs = value
+    .map(normalizeReference)
+    .filter((r): r is ReferenceTrace => Boolean(r));
   return refs;
 }
 
@@ -783,7 +957,9 @@ function PromptTraceSections({ text }: { text: string }) {
   );
 }
 
-function splitPromptTrace(text: string): { system: string; user: string } | null {
+function splitPromptTrace(
+  text: string,
+): { system: string; user: string } | null {
   const match = text.match(/^### System\n([\s\S]*?)\n\n### User\n([\s\S]*)$/);
   if (!match) return null;
   return { system: match[1].trim(), user: match[2].trim() };
@@ -801,9 +977,11 @@ function extractPromptRagSections(promptText: string): {
       /^Suggested related existing topics\b.*:/im,
       /^Output\b/im,
     ]),
-    relatedTitles: extractLabeledBlock(user, /^Suggested related existing topics\b.*:/im, [
-      /^Output\b/im,
-    ]),
+    relatedTitles: extractLabeledBlock(
+      user,
+      /^Suggested related existing topics\b.*:/im,
+      [/^Output\b/im],
+    ),
     promptRefs:
       extractLabeledBlock(user, /^References\s+[—–-].*$/im, [
         /^Retrieved context\b.*:/im,
@@ -818,7 +996,11 @@ function extractPromptRagSections(promptText: string): {
   };
 }
 
-function extractLabeledBlock(text: string, startPattern: RegExp, endPatterns: RegExp[]): string | undefined {
+function extractLabeledBlock(
+  text: string,
+  startPattern: RegExp,
+  endPatterns: RegExp[],
+): string | undefined {
   const start = startPattern.exec(text);
   if (!start || start.index == null) return undefined;
   const bodyStart = start.index + start[0].length;
@@ -838,7 +1020,10 @@ function countPromptRefs(text: string): number {
     if (slug) refs.add(slug);
   }
   if (refs.size > 0) return refs.size;
-  const nonEmptyLines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const nonEmptyLines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   return nonEmptyLines.length;
 }
 
@@ -853,7 +1038,9 @@ function normalizeRagSource(value: unknown): RagSourceTrace | null {
   return { slug, title, content, score };
 }
 
-function normalizeBacklink(value: unknown): { slug: string; title: string } | null {
+function normalizeBacklink(
+  value: unknown,
+): { slug: string; title: string } | null {
   const obj = asRecord(value);
   if (!obj) return null;
   const slug = typeof obj.slug === "string" ? obj.slug : "";
@@ -876,7 +1063,7 @@ function cleanTraceText(value: unknown): string | undefined {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -887,7 +1074,9 @@ function boolText(value: number | boolean | null | undefined): string | null {
 
 function LlmMetadata({ node }: { node: NodeSpan }) {
   const role =
-    node.llm_resolved_role && node.llm_role && node.llm_resolved_role !== node.llm_role
+    node.llm_resolved_role &&
+    node.llm_role &&
+    node.llm_resolved_role !== node.llm_role
       ? `${node.llm_role} -> ${node.llm_resolved_role}`
       : node.llm_role;
   const rows = [
@@ -896,15 +1085,24 @@ function LlmMetadata({ node }: { node: NodeSpan }) {
     ["Model", node.llm_model],
     ["Host", node.llm_host],
     ["Base URL", node.llm_base_url],
-    ["Temperature", node.llm_temperature == null ? null : String(node.llm_temperature)],
-    ["Max tokens", node.llm_max_tokens == null ? null : String(node.llm_max_tokens)],
+    [
+      "Temperature",
+      node.llm_temperature == null ? null : String(node.llm_temperature),
+    ],
+    [
+      "Max tokens",
+      node.llm_max_tokens == null ? null : String(node.llm_max_tokens),
+    ],
     ["Top K", node.llm_top_k == null ? null : String(node.llm_top_k)],
     ["Top P", node.llm_top_p == null ? null : String(node.llm_top_p)],
     ["Min P", node.llm_min_p == null ? null : String(node.llm_min_p)],
     ["TTFT", node.llm_ttft_ms == null ? null : `${node.llm_ttft_ms} ms`],
     ["Thinking", boolText(node.llm_thinking)],
     ["JSON mode", boolText(node.llm_json_mode)],
-    ["Images", node.llm_image_count == null ? null : String(node.llm_image_count)],
+    [
+      "Images",
+      node.llm_image_count == null ? null : String(node.llm_image_count),
+    ],
   ].filter((row): row is [string, string] => Boolean(row[1]));
 
   if (rows.length === 0) return null;
@@ -920,15 +1118,36 @@ function LlmMetadata({ node }: { node: NodeSpan }) {
   );
 }
 
-function PromptSection({ label, text, variant }: { label: string; text: string; variant?: "cot" | "output" }) {
-  const copy = () => { void navigator.clipboard?.writeText(text).catch(() => {}); };
+function PromptSection({
+  label,
+  text,
+  variant,
+}: {
+  label: string;
+  text: string;
+  variant?: "cot" | "output";
+}) {
+  const copy = () => {
+    void navigator.clipboard?.writeText(text).catch(() => {});
+  };
   const html = md.render(text);
   return (
-    <section className={`admin-prompt-section${variant ? ` admin-prompt-section--${variant}` : ""}`}>
+    <section
+      className={`admin-prompt-section${variant ? ` admin-prompt-section--${variant}` : ""}`}
+    >
       <header className="admin-prompt-section-head">
         <span className="admin-prompt-section-label">{label}</span>
-        <span className="admin-prompt-section-meta">{text.length.toLocaleString()} chars</span>
-        <button type="button" className="admin-prompt-section-copy" onClick={copy} title="Copy to clipboard">Copy</button>
+        <span className="admin-prompt-section-meta">
+          {text.length.toLocaleString()} chars
+        </span>
+        <button
+          type="button"
+          className="admin-prompt-section-copy"
+          onClick={copy}
+          title="Copy to clipboard"
+        >
+          Copy
+        </button>
       </header>
       <div
         className="admin-prompt-section-body"

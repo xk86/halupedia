@@ -1,5 +1,6 @@
 import { MutableRefObject } from "react";
 import { Pane } from "../Pane";
+import { AdminButton } from "../AdminButton";
 import {
   ArticleSearchDropdown,
   SEARCH_INPUT,
@@ -133,12 +134,12 @@ export function SlugAliasPane({
                   className="mb-[0.2rem] flex items-center gap-[0.5rem]"
                 >
                   <code className="text-[0.8rem]">{a.aliasSlug}</code>
-                  <button
-                    className="admin-btn px-[0.4rem] py-[0.1rem] text-[0.75rem]"
+                  <AdminButton
+                    size="small"
                     onClick={() => onRemoveAlias(a.aliasSlug)}
                   >
                     Remove
-                  </button>
+                  </AdminButton>
                 </li>
               ))}
             </ul>
@@ -172,13 +173,12 @@ export function SlugAliasPane({
           onPick={(s) => onNewAliasTargetChange(s.slug)}
           placeholder="canonical article…"
         />
-        <button
-          className="admin-btn"
+        <AdminButton
           onClick={onAddAlias}
           disabled={!newAliasSlug.trim() || !newAliasTarget.trim()}
         >
           Add Alias
-        </button>
+        </AdminButton>
       </div>
       {aliasMsg && <p className="mt-[0.3rem] text-[0.85rem]">{aliasMsg}</p>}
 
@@ -208,30 +208,28 @@ export function SlugAliasPane({
           onPick={(s) => onRedirectTargetChange(s.slug)}
           placeholder="canonical article (stays)…"
         />
-        <button
-          className="admin-btn admin-danger-btn"
+        <AdminButton
+          variant="danger"
           onClick={() => onCreateRedirect(false)}
           disabled={
             redirectBusy || !redirectSource.trim() || !redirectTarget.trim()
           }
         >
           Create Redirect
-        </button>
+        </AdminButton>
       </div>
       {redirectConfirmData && (
         <div className="mb-[0.5rem] rounded-[6px] bg-warning-bg p-[0.75rem] [border:1px_solid_var(--warning-border)]">
           <p className="mb-[0.5rem]">{redirectConfirmData.message}</p>
           <div className="flex gap-[0.5rem]">
-            <button
-              className="admin-btn admin-danger-btn"
+            <AdminButton
+              variant="danger"
               onClick={() => onCreateRedirect(true)}
               disabled={redirectBusy}
             >
               Confirm & Archive
-            </button>
-            <button className="admin-btn" onClick={onClearRedirectConfirm}>
-              Cancel
-            </button>
+            </AdminButton>
+            <AdminButton onClick={onClearRedirectConfirm}>Cancel</AdminButton>
           </div>
         </div>
       )}
@@ -241,13 +239,13 @@ export function SlugAliasPane({
 
       <h3 className="sb-heading mt-[1.5rem] mb-[0.5rem]">
         Archived Articles
-        <button
-          className="admin-btn ml-[0.75rem] text-[0.8rem]"
+        <AdminButton
+          className="ml-[0.75rem]"
           onClick={onLoadArchived}
           disabled={archivedLoading}
         >
           {archivedLoading ? "Loading…" : "Load / Refresh"}
-        </button>
+        </AdminButton>
       </h3>
       <p className="mb-[0.4rem] text-[0.8rem] text-ink-fade">
         Articles displaced by canonical redirects. Restore to bring them back as
@@ -272,23 +270,18 @@ export function SlugAliasPane({
           </div>
           {restoreConfirm === a.slug ? (
             <div className="flex gap-[0.4rem]">
-              <button
-                className="admin-btn admin-danger-btn"
+              <AdminButton
+                variant="danger"
                 onClick={() => onRestoreArchived(a.slug, true)}
               >
                 Confirm Restore
-              </button>
-              <button className="admin-btn" onClick={onClearRestoreConfirm}>
-                Cancel
-              </button>
+              </AdminButton>
+              <AdminButton onClick={onClearRestoreConfirm}>Cancel</AdminButton>
             </div>
           ) : (
-            <button
-              className="admin-btn"
-              onClick={() => onRestoreArchived(a.slug, false)}
-            >
+            <AdminButton onClick={() => onRestoreArchived(a.slug, false)}>
               Restore
-            </button>
+            </AdminButton>
           )}
         </div>
       ))}

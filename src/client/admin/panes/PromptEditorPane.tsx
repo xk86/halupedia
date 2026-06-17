@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownEditor } from "../../MarkdownEditor";
 import { Pane } from "../Pane";
+import { AdminButton } from "../AdminButton";
 
 interface PromptMeta {
   key: string;
@@ -34,7 +35,10 @@ interface PromptRevision {
 export function PromptEditorPane() {
   const [promptList, setPromptList] = useState<PromptList | null>(null);
   const [listError, setListError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<{ scope: "runnable" | "shared"; key: string } | null>(null);
+  const [selected, setSelected] = useState<{
+    scope: "runnable" | "shared";
+    key: string;
+  } | null>(null);
   const [content, setContent] = useState<PromptContent | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,7 +57,8 @@ export function PromptEditorPane() {
 
   const isDirty =
     baselineRef.current !== null &&
-    (system !== baselineRef.current.system || user !== baselineRef.current.user);
+    (system !== baselineRef.current.system ||
+      user !== baselineRef.current.user);
 
   const loadList = useCallback(async () => {
     setListError(null);
@@ -66,7 +71,9 @@ export function PromptEditorPane() {
     }
   }, []);
 
-  useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => {
+    loadList();
+  }, [loadList]);
 
   const loadRevisions = useCallback(async (scope: string, key: string) => {
     try {
@@ -79,39 +86,49 @@ export function PromptEditorPane() {
     }
   }, []);
 
-  const loadContent = useCallback(async (scope: "runnable" | "shared", key: string) => {
-    setLoading(true);
-    setLoadError(null);
-    setSaveMsg(null);
-    setSaveError(null);
-    setPreviewingId(null);
-    setRevertError(null);
-    setRevisions([]);
-    try {
-      const res = await fetch(`/api/admin/prompt/${scope}/${key}`);
-      if (!res.ok) throw new Error(`error ${res.status}`);
-      const data: PromptContent = await res.json();
-      setContent(data);
-      setSystem(data.system);
-      setUser(data.user);
-      baselineRef.current = { system: data.system, user: data.user };
-    } catch (err: any) {
-      setLoadError(err?.message ?? "failed to load prompt");
-      setContent(null);
-    } finally {
-      setLoading(false);
-    }
-    loadRevisions(scope, key);
-  }, [loadRevisions]);
+  const loadContent = useCallback(
+    async (scope: "runnable" | "shared", key: string) => {
+      setLoading(true);
+      setLoadError(null);
+      setSaveMsg(null);
+      setSaveError(null);
+      setPreviewingId(null);
+      setRevertError(null);
+      setRevisions([]);
+      try {
+        const res = await fetch(`/api/admin/prompt/${scope}/${key}`);
+        if (!res.ok) throw new Error(`error ${res.status}`);
+        const data: PromptContent = await res.json();
+        setContent(data);
+        setSystem(data.system);
+        setUser(data.user);
+        baselineRef.current = { system: data.system, user: data.user };
+      } catch (err: any) {
+        setLoadError(err?.message ?? "failed to load prompt");
+        setContent(null);
+      } finally {
+        setLoading(false);
+      }
+      loadRevisions(scope, key);
+    },
+    [loadRevisions],
+  );
 
-  const handleSelect = useCallback((value: string) => {
-    if (!value) { setSelected(null); setContent(null); return; }
-    const [scope, ...rest] = value.split(":");
-    const key = rest.join(":");
-    if (scope !== "runnable" && scope !== "shared") return;
-    setSelected({ scope, key });
-    loadContent(scope, key);
-  }, [loadContent]);
+  const handleSelect = useCallback(
+    (value: string) => {
+      if (!value) {
+        setSelected(null);
+        setContent(null);
+        return;
+      }
+      const [scope, ...rest] = value.split(":");
+      const key = rest.join(":");
+      if (scope !== "runnable" && scope !== "shared") return;
+      setSelected({ scope, key });
+      loadContent(scope, key);
+    },
+    [loadContent],
+  );
 
   const handleSave = useCallback(async () => {
     if (!selected) return;
@@ -119,13 +136,19 @@ export function PromptEditorPane() {
     setSaveMsg(null);
     setSaveError(null);
     try {
-      const res = await fetch(`/api/admin/prompt/${selected.scope}/${selected.key}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ system, user }),
-      });
+      const res = await fetch(
+        `/api/admin/prompt/${selected.scope}/${selected.key}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ system, user }),
+        },
+      );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setSaveError(data?.error ?? `error ${res.status}`); return; }
+      if (!res.ok) {
+        setSaveError(data?.error ?? `error ${res.status}`);
+        return;
+      }
       setSaveMsg("Saved — runtime reloaded.");
       baselineRef.current = { system, user };
       setPreviewingId(null);
@@ -152,55 +175,76 @@ export function PromptEditorPane() {
     loadContent(selected.scope, selected.key);
   }, [selected, loadContent]);
 
-  const handlePreview = useCallback(async (id: number) => {
-    if (!selected) return;
-    try {
-      const res = await fetch(`/api/admin/prompt/${selected.scope}/${selected.key}/revisions/${id}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setSystem(data.system);
-      setUser(data.user);
-      setPreviewingId(id);
-      setSaveMsg(null);
-      setSaveError(null);
-    } catch {
-      // ignore
-    }
-  }, [selected]);
-
-  const handleRevert = useCallback(async (id: number) => {
-    if (!selected) return;
-    setRevertingId(id);
-    setRevertError(null);
-    try {
-      const res = await fetch(`/api/admin/prompt/${selected.scope}/${selected.key}/revisions/${id}/revert`, {
-        method: "POST",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setRevertError(data?.error ?? `error ${res.status}`); return; }
-      setSaveMsg("Reverted — runtime reloaded.");
-      setPreviewingId(null);
-      if (data.prompt) {
-        const p: PromptContent = data.prompt;
-        setContent(p);
-        setSystem(p.system);
-        setUser(p.user);
-        baselineRef.current = { system: p.system, user: p.user };
+  const handlePreview = useCallback(
+    async (id: number) => {
+      if (!selected) return;
+      try {
+        const res = await fetch(
+          `/api/admin/prompt/${selected.scope}/${selected.key}/revisions/${id}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        setSystem(data.system);
+        setUser(data.user);
+        setPreviewingId(id);
+        setSaveMsg(null);
+        setSaveError(null);
+      } catch {
+        // ignore
       }
-      loadRevisions(selected.scope, selected.key);
-    } catch (err: any) {
-      setRevertError(err?.message ?? "revert failed");
-    } finally {
-      setRevertingId(null);
-    }
-  }, [selected, loadRevisions]);
+    },
+    [selected],
+  );
 
-  const allPrompts: Array<{ scope: "runnable" | "shared"; key: string }> = promptList
-    ? [
-        ...promptList.runnable.map((p) => ({ scope: "runnable" as const, key: p.key })),
-        ...promptList.shared.map((p) => ({ scope: "shared" as const, key: p.key })),
-      ]
-    : [];
+  const handleRevert = useCallback(
+    async (id: number) => {
+      if (!selected) return;
+      setRevertingId(id);
+      setRevertError(null);
+      try {
+        const res = await fetch(
+          `/api/admin/prompt/${selected.scope}/${selected.key}/revisions/${id}/revert`,
+          {
+            method: "POST",
+          },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setRevertError(data?.error ?? `error ${res.status}`);
+          return;
+        }
+        setSaveMsg("Reverted — runtime reloaded.");
+        setPreviewingId(null);
+        if (data.prompt) {
+          const p: PromptContent = data.prompt;
+          setContent(p);
+          setSystem(p.system);
+          setUser(p.user);
+          baselineRef.current = { system: p.system, user: p.user };
+        }
+        loadRevisions(selected.scope, selected.key);
+      } catch (err: any) {
+        setRevertError(err?.message ?? "revert failed");
+      } finally {
+        setRevertingId(null);
+      }
+    },
+    [selected, loadRevisions],
+  );
+
+  const allPrompts: Array<{ scope: "runnable" | "shared"; key: string }> =
+    promptList
+      ? [
+          ...promptList.runnable.map((p) => ({
+            scope: "runnable" as const,
+            key: p.key,
+          })),
+          ...promptList.shared.map((p) => ({
+            scope: "shared" as const,
+            key: p.key,
+          })),
+        ]
+      : [];
   void allPrompts;
 
   return (
@@ -219,22 +263,26 @@ export function PromptEditorPane() {
             {promptList && promptList.runnable.length > 0 && (
               <optgroup label="Runnable">
                 {promptList.runnable.map((p) => (
-                  <option key={p.key} value={`runnable:${p.key}`}>{p.key}</option>
+                  <option key={p.key} value={`runnable:${p.key}`}>
+                    {p.key}
+                  </option>
                 ))}
               </optgroup>
             )}
             {promptList && promptList.shared.length > 0 && (
               <optgroup label="Shared">
                 {promptList.shared.map((p) => (
-                  <option key={p.key} value={`shared:${p.key}`}>{p.key}</option>
+                  <option key={p.key} value={`shared:${p.key}`}>
+                    {p.key}
+                  </option>
                 ))}
               </optgroup>
             )}
           </select>
           {selected && (
-            <button className="admin-btn" type="button" onClick={handleReload} disabled={loading}>
+            <AdminButton onClick={handleReload} disabled={loading}>
               Reload
-            </button>
+            </AdminButton>
           )}
         </div>
 
@@ -244,18 +292,29 @@ export function PromptEditorPane() {
         {content && !loading && (
           <>
             <div className="admin-prompt-meta">
-              <span>file: <code>{content.path}</code></span>
+              <span>
+                file: <code>{content.path}</code>
+              </span>
               {content.model !== undefined && (
-                <span> • model: {content.model} • thinking: {content.thinking ? "on" : "off"}{content.json ? " • json: on" : ""}</span>
+                <span>
+                  {" "}
+                  • model: {content.model} • thinking:{" "}
+                  {content.thinking ? "on" : "off"}
+                  {content.json ? " • json: on" : ""}
+                </span>
               )}
               {content.model !== undefined && (
-                <span className="admin-prompt-meta-hint"> — edit model/thinking in Prompt Models pane</span>
+                <span className="admin-prompt-meta-hint">
+                  {" "}
+                  — edit model/thinking in Prompt Models pane
+                </span>
               )}
             </div>
 
             {content.hasModes && (
               <div className="admin-prompt-modes-warn">
-                This file has a <code>modes</code> table. It will be preserved on save but is not shown here.
+                This file has a <code>modes</code> table. It will be preserved
+                on save but is not shown here.
               </div>
             )}
 
@@ -264,7 +323,11 @@ export function PromptEditorPane() {
               <MarkdownEditor
                 className="admin-prompt-mdedit"
                 value={system}
-                onChange={(v) => { setSystem(v); setSaveMsg(null); setPreviewingId(null); }}
+                onChange={(v) => {
+                  setSystem(v);
+                  setSaveMsg(null);
+                  setPreviewingId(null);
+                }}
                 minRows={10}
               />
             </label>
@@ -274,7 +337,11 @@ export function PromptEditorPane() {
               <MarkdownEditor
                 className="admin-prompt-mdedit"
                 value={user}
-                onChange={(v) => { setUser(v); setSaveMsg(null); setPreviewingId(null); }}
+                onChange={(v) => {
+                  setUser(v);
+                  setSaveMsg(null);
+                  setPreviewingId(null);
+                }}
                 minRows={6}
               />
             </label>
@@ -288,19 +355,22 @@ export function PromptEditorPane() {
               >
                 {saving ? "Saving…" : "Save"}
               </button>
-              <button
-                className="admin-btn"
-                type="button"
-                onClick={handleReset}
-                disabled={!isDirty}
-              >
+              <AdminButton onClick={handleReset} disabled={!isDirty}>
                 Reset
-              </button>
-              {isDirty && <span className="admin-prompt-dirty">
-                {previewingId !== null ? `previewing revision #${previewingId} — save to apply` : "unsaved changes"}
-              </span>}
+              </AdminButton>
+              {isDirty && (
+                <span className="admin-prompt-dirty">
+                  {previewingId !== null
+                    ? `previewing revision #${previewingId} — save to apply`
+                    : "unsaved changes"}
+                </span>
+              )}
               {saveMsg && <span className="admin-prompt-saved">{saveMsg}</span>}
-              {saveError && <span className="search-error admin-prompt-save-error">{saveError}</span>}
+              {saveError && (
+                <span className="search-error admin-prompt-save-error">
+                  {saveError}
+                </span>
+              )}
             </div>
 
             {revisions.length > 0 && (
@@ -319,30 +389,32 @@ export function PromptEditorPane() {
                         <span className="admin-prompt-history-time">
                           {new Date(rev.createdAt).toLocaleString()}
                         </span>
-                        <span className={`admin-prompt-history-badge admin-prompt-history-badge--${rev.source}`}>
+                        <span
+                          className={`admin-prompt-history-badge admin-prompt-history-badge--${rev.source}`}
+                        >
                           {rev.source}
                         </span>
-                        <button
-                          className="admin-btn"
-                          type="button"
+                        <AdminButton
                           onClick={() => handlePreview(rev.id)}
                           disabled={previewingId === rev.id}
                         >
                           {previewingId === rev.id ? "Previewing" : "Preview"}
-                        </button>
-                        <button
-                          className="admin-btn"
-                          type="button"
+                        </AdminButton>
+                        <AdminButton
                           onClick={() => handleRevert(rev.id)}
                           disabled={revertingId === rev.id}
                         >
                           {revertingId === rev.id ? "Reverting…" : "Revert"}
-                        </button>
+                        </AdminButton>
                       </li>
                     ))}
                   </ul>
                 )}
-                {revertError && <p className="search-error" style={{ marginTop: "0.4rem" }}>{revertError}</p>}
+                {revertError && (
+                  <p className="search-error" style={{ marginTop: "0.4rem" }}>
+                    {revertError}
+                  </p>
+                )}
               </div>
             )}
           </>

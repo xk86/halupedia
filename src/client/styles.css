@@ -705,45 +705,6 @@ a:hover {
   cursor: pointer;
 }
 
-.admin-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.28rem 0.65rem;
-  font-size: 0.8rem;
-  font-family: var(--mono);
-  background: var(--control-surface);
-  border: 1px solid var(--control-border);
-  border-radius: 3px;
-  cursor: pointer;
-  color: var(--ink);
-}
-
-.admin-btn:hover:not(:disabled) {
-  background: var(--control-surface-strong);
-}
-
-.admin-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.admin-btn--small {
-  padding: 0.15rem 0.45rem;
-  font-size: 0.72rem;
-}
-
-button.admin-danger-btn {
-  background: var(--danger-alt);
-  border-color: var(--danger-alt);
-  color: var(--danger-text);
-}
-
-button.admin-danger-btn:hover:not(:disabled) {
-  background: var(--danger-hover);
-  border-color: var(--danger-hover);
-}
-
 .old-revision-preview {
   padding-top: 0.4rem;
   border-top: 1px solid var(--rule);

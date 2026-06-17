@@ -7,11 +7,15 @@ import { cn } from "@/lib/utils";
 // utilities below are paired with an explicit `border-border` (our --rule)
 // instead of falling back to currentColor.
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  containerClassName,
+  ...props
+}: React.ComponentProps<"table"> & { containerClassName?: string }) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      className={cn("relative w-full overflow-x-auto", containerClassName)}
     >
       <table
         data-slot="table"

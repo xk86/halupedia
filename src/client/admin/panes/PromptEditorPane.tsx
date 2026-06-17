@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownEditor } from "../../MarkdownEditor";
 import { Pane } from "../Pane";
 import { AdminButton } from "../AdminButton";
+import { StatusBadge } from "../StatusBadge";
 
 interface PromptMeta {
   key: string;
@@ -389,11 +390,9 @@ export function PromptEditorPane() {
                         <span className="admin-prompt-history-time">
                           {new Date(rev.createdAt).toLocaleString()}
                         </span>
-                        <span
-                          className={`admin-prompt-history-badge admin-prompt-history-badge--${rev.source}`}
-                        >
+                        <StatusBadge variant={rev.source}>
                           {rev.source}
-                        </span>
+                        </StatusBadge>
                         <AdminButton
                           onClick={() => handlePreview(rev.id)}
                           disabled={previewingId === rev.id}

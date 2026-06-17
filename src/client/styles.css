@@ -5544,25 +5544,6 @@ a:hover {
   font: 0.8rem var(--mono);
 }
 
-.admin-prompt-history-badge {
-  font-size: 0.72rem;
-  padding: 0.1em 0.45em;
-  border-radius: 3px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.admin-prompt-history-badge--save {
-  background: var(--color-info-bg, #dbeafe);
-  color: var(--color-info, #1d4ed8);
-}
-
-.admin-prompt-history-badge--revert {
-  background: var(--color-warn-bg, #fff3cd);
-  color: var(--color-warn-text, #92400e);
-}
-
 /* ── Media file history ──────────────────────────────────────────────────── */
 
 .media-history {

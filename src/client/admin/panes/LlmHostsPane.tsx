@@ -64,6 +64,7 @@ interface ImageGenerationInfo {
     model: string;
     size: string;
     quality: string;
+    outputFormat: string;
     timeoutMs: number;
   };
   ollama: {
@@ -202,6 +203,7 @@ function ImageGenerationCard({
   const [openaiModel, setOpenaiModel] = useState(info.openai.model);
   const [openaiSize, setOpenaiSize] = useState(info.openai.size);
   const [openaiQuality, setOpenaiQuality] = useState(info.openai.quality);
+  const [openaiOutputFormat, setOpenaiOutputFormat] = useState(info.openai.outputFormat);
   const [openaiTimeout, setOpenaiTimeout] = useState(String(info.openai.timeoutMs));
   const [ollamaBaseUrl, setOllamaBaseUrl] = useState(info.ollama.baseUrl);
   const [ollamaModel, setOllamaModel] = useState(info.ollama.model);
@@ -240,6 +242,14 @@ function ImageGenerationCard({
           <label>model<input value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)} /></label>
           <label>size<input value={openaiSize} onChange={(e) => setOpenaiSize(e.target.value)} /></label>
           <label>quality<input value={openaiQuality} onChange={(e) => setOpenaiQuality(e.target.value)} /></label>
+          <label>
+            output_format
+            <select className="admin-model-select" value={openaiOutputFormat} onChange={(e) => setOpenaiOutputFormat(e.target.value)}>
+              <option value="jpeg">jpeg</option>
+              <option value="png">png</option>
+              <option value="webp">webp</option>
+            </select>
+          </label>
           <label>timeout_ms<input type="number" value={openaiTimeout} onChange={(e) => setOpenaiTimeout(e.target.value)} /></label>
         </div>
       ) : (
@@ -271,6 +281,7 @@ function ImageGenerationCard({
               model: openaiModel,
               size: openaiSize,
               quality: openaiQuality,
+              outputFormat: openaiOutputFormat,
               timeoutMs: Number(openaiTimeout) || info.openai.timeoutMs,
             },
             ollama: {

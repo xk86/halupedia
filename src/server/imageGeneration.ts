@@ -44,6 +44,18 @@ function mimeFromDataUrl(value: string | undefined): string {
   return match?.[1] ?? "image/png";
 }
 
+function mimeFromOpenAIOutputFormat(format: string | undefined): string {
+  switch (format?.toLowerCase()) {
+    case "jpeg":
+    case "jpg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    default:
+      return "image/png";
+  }
+}
+
 function parseOllamaGenerateResponse(text: string): { image?: string } {
   const trimmed = text.trim();
   if (!trimmed) return {};
@@ -86,6 +98,7 @@ async function generateWithOpenAI(
       n: 1,
       size: openai.size,
       quality: openai.quality,
+      output_format: openai.output_format,
     }),
   });
   if (!response.ok) {
@@ -98,7 +111,7 @@ async function generateWithOpenAI(
   const first = json.data?.[0];
   if (!first) throw new Error("OpenAI image generation returned no images");
   let bytes: Buffer;
-  let mime = "image/png";
+  let mime = mimeFromOpenAIOutputFormat(openai.output_format);
   if (first.b64_json) {
     bytes = decodeBase64Image(first.b64_json, "OpenAI image generation");
   } else if (first.url) {

@@ -3297,6 +3297,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           model: runtime.app.images.generation.openai.model,
           size: runtime.app.images.generation.openai.size,
           quality: runtime.app.images.generation.openai.quality,
+          outputFormat: runtime.app.images.generation.openai.output_format,
           timeoutMs: runtime.app.images.generation.openai.timeout_ms,
         },
         ollama: {
@@ -3428,6 +3429,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         model?: unknown;
         size?: unknown;
         quality?: unknown;
+        outputFormat?: unknown;
         timeoutMs?: unknown;
       };
       ollama?: {
@@ -3475,6 +3477,14 @@ export async function createApp(options: CreateAppOptions = {}) {
           }
           if (typeof body.openai.quality === "string") {
             next = setTomlTableValue(next, "images.generation.openai", "quality", body.openai.quality);
+          }
+          if (typeof body.openai.outputFormat === "string") {
+            next = setTomlTableValue(
+              next,
+              "images.generation.openai",
+              "output_format",
+              body.openai.outputFormat,
+            );
           }
           if (typeof body.openai.timeoutMs === "number") {
             next = setTomlTableValue(next, "images.generation.openai", "timeout_ms", body.openai.timeoutMs);

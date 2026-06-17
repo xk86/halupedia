@@ -97,15 +97,16 @@ backend = "openai" # openai | ollama
 base_url = "https://api.openai.com/v1"
 api_key = ""
 model = "gpt-image-2"
-size = "1024x1024"
-quality = "auto"
+size = "1088x624"
+quality = "low"
+output_format = "jpeg"
 timeout_ms = 120000
 
 [images.generation.ollama]
 base_url = "http://127.0.0.1:11434"
 model = "x/z-image-turbo"
-width = 1024
-height = 576
+width = 1088
+height = 624
 steps = 20
 timeout_ms = 120000
 

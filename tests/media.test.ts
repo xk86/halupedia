@@ -148,8 +148,9 @@ const enabledOpenAiImageGeneration: Partial<ImageGenerationConfig> = {
     base_url: "https://api.openai.test/v1",
     api_key: "test-key",
     model: "gpt-image-2",
-    size: "1024x1024",
-    quality: "auto",
+    size: "1088x624",
+    quality: "low",
+    output_format: "jpeg",
     timeout_ms: 1000,
   },
 };
@@ -423,8 +424,10 @@ describe("article image generation", () => {
     assert.equal(capturedUrl, "https://api.openai.test/v1/images/generations");
     assert.equal(capturedBody.model, "gpt-image-2");
     assert.equal(capturedBody.prompt, "draw aspirin");
+    assert.equal(capturedBody.output_format, "jpeg");
+    assert.equal(capturedBody.size, "1088x624");
     assert.equal(result.backend, "openai");
-    assert.equal(result.mime, "image/png");
+    assert.equal(result.mime, "image/jpeg");
     assert.equal(result.revisedPrompt, "revised");
     assert.deepEqual(result.bytes, TINY_PNG);
   });

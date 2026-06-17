@@ -1,5 +1,12 @@
 import { Pane } from "../Pane";
-import { AdminTable } from "../AdminTable";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface PromptModelAssociation {
   key: string;
@@ -24,21 +31,21 @@ export function PromptModelsPane({ associations, savingKey, onUpdate }: Props) {
       wide
     >
       {associations.length ? (
-        <AdminTable>
-          <thead>
-            <tr>
-              <th>Prompt</th>
-              <th>Role</th>
-              <th>Model</th>
-              <th>Thinking</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Prompt</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Model</TableHead>
+              <TableHead>Thinking</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {associations.map((item) => (
-              <tr key={item.key}>
-                <td>{item.key}</td>
-                <td>
+              <TableRow key={item.key}>
+                <TableCell className="font-mono">{item.key}</TableCell>
+                <TableCell>
                   <select
                     className="admin-model-select"
                     value={item.model}
@@ -54,9 +61,9 @@ export function PromptModelsPane({ associations, savingKey, onUpdate }: Props) {
                     <option value="heavy">heavy</option>
                     <option value="light">light</option>
                   </select>
-                </td>
-                <td title={item.baseUrl}>{item.modelName}</td>
-                <td>
+                </TableCell>
+                <TableCell title={item.baseUrl}>{item.modelName}</TableCell>
+                <TableCell>
                   <label className="admin-thinking-toggle">
                     <input
                       type="checkbox"
@@ -68,12 +75,14 @@ export function PromptModelsPane({ associations, savingKey, onUpdate }: Props) {
                     />
                     {item.thinking ? "on" : "off"}
                   </label>
-                </td>
-                <td>{savingKey === item.key ? "saving" : "saved"}</td>
-              </tr>
+                </TableCell>
+                <TableCell className="font-mono">
+                  {savingKey === item.key ? "saving" : "saved"}
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </AdminTable>
+          </TableBody>
+        </Table>
       ) : (
         <p className="sb-copy">No prompt model configuration found.</p>
       )}

@@ -1001,10 +1001,12 @@ describe("http", () => {
     const body = await (await s.go("/api/admin/article-image-prompts")).json() as any;
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "default"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "conceptual"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "1990s_cgi"));
     assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;
     assert.ok(promptList.runnable.some((prompt: any) => prompt.key === "article_image"));
+    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "1990s_cgi"), false);
     assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
   });
 

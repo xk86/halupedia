@@ -35,7 +35,20 @@
 @import "katex/dist/katex.min.css" layer(katex);
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
+/* Radix enter/exit animation utilities (animate-in, data-[state]:…) that
+ * shadcn components reference. v4 successor to tailwindcss-animate. */
+@import "tw-animate-css";
 @import "./styles.css" layer(legacy);
+
+/*
+ * shadcn/ui base radius. The design is intentionally sharp (buttons/cards use
+ * 2–3px, not shadcn's default 0.625rem), so the derived radius scale below is
+ * tuned down to keep parity. Declared on :root (not @theme) per shadcn; the
+ * --radius-* scale that utilities read lives in the @theme block below.
+ */
+:root {
+  --radius: 3px;
+}
 
 @theme {
   /* Fonts — point Tailwind's font utilities at the project stacks. */
@@ -105,4 +118,46 @@
   /* Brand */
   --color-brand-reddit: var(--brand-reddit);
   --color-brand-discord: var(--brand-discord);
+}
+
+/*
+ * ── shadcn/ui token bridge ──────────────────────────────────────────────
+ * shadcn components reference a fixed set of semantic utility names
+ * (bg-background, bg-primary, border-input, ring-ring, …). We alias those onto
+ * the EXISTING parchment vars so shadcn renders in our palette with no second
+ * token system — and, because those vars already flip under
+ * `prefers-color-scheme` / `[data-theme="dark"]`, shadcn picks up dark mode for
+ * free (its `dark:` variants are unused here).
+ *
+ * DELIBERATELY OMITTED: shadcn's `accent` / `accent-foreground` (its muted
+ * hover surface). Our `--color-accent` is the BRAND RED, so bridging it would
+ * paint every shadcn ghost/outline hover red. Components that use `bg-accent` /
+ * `text-accent-foreground` are instead lightly rethemed to our tokens on add
+ * (the house "retheme to tokens" rule) — e.g. bg-control-surface-strong.
+ */
+@theme {
+  --color-background: var(--parchment);
+  --color-foreground: var(--ink);
+  --color-card: var(--panel-surface);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--parchment);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--parchment);
+  --color-secondary: var(--control-surface);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--control-surface-soft);
+  --color-muted-foreground: var(--ink-fade);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--danger-text);
+  --color-border: var(--rule);
+  --color-input: var(--control-border);
+  --color-ring: var(--accent);
+
+  /* Derived radius scale shadcn utilities read (rounded-sm/md/lg/xl). Floored
+   * at the sharp end so the smaller steps don't go negative. */
+  --radius-sm: max(0px, calc(var(--radius) - 2px));
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
 }

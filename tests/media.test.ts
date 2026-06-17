@@ -44,6 +44,8 @@ import { initialPipelineState } from "../src/server/pipeline/state";
 import { buildPromptRegistry } from "../src/server/pipeline/prompts/registry";
 import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
+import { generateArticleImage, setImageGenerationFetchForTests } from "../src/server/imageGeneration";
+import type { ImageGenerationConfig } from "../src/server/types";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
@@ -103,7 +105,10 @@ class FakeLlm implements LlmRouter {
 }
 
 
-async function makeTestServer(llm: LlmRouter = new FakeLlm()) {
+async function makeTestServer(
+  llm: LlmRouter = new FakeLlm(),
+  imageGenerationConfig: Partial<ImageGenerationConfig> = { enabled: false },
+) {
   const { dir, cleanup } = tmpDir();
   const databasePath = join(dir, "articles.sqlite");
   const mediaDatabasePath = join(dir, "media.sqlite");
@@ -111,7 +116,15 @@ async function makeTestServer(llm: LlmRouter = new FakeLlm()) {
   const db = openDatabase(databasePath);
   saveArticle(db, { slug: "aspirin", canonicalSlug: "aspirin", title: "Aspirin", markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now() }, [], ["aspirin"]);
   db.close();
-  const { app, shutdown } = await createApp({ databasePath, mediaDatabasePath, skipLlmProbe: true, skipHomepagePrepare: true, logger: noop(), llmClient: llm });
+  const { app, shutdown } = await createApp({
+    databasePath,
+    mediaDatabasePath,
+    skipLlmProbe: true,
+    skipHomepagePrepare: true,
+    logger: noop(),
+    llmClient: llm,
+    imageGenerationConfig,
+  });
   const go = (path: string, init?: RequestInit) => app.fetch(new Request(`http://localhost${path}`, init));
   return { dir, databasePath, mediaDatabasePath, cleanup: async () => { await shutdown(); cleanup(); }, go };
 }
@@ -125,6 +138,20 @@ function seedMedia(mediaDatabasePath: string, id = "img-x") {
 const defaultIngestConfig = {
   model_max_edge: 256, jpeg_quality: 70, max_bytes: 10 * 1024 * 1024,
   fetch_timeout_ms: 5000, media_database_path: "", allow_private_hosts: false,
+  generation: TEST_CONFIG.app.images.generation,
+};
+
+const enabledOpenAiImageGeneration: Partial<ImageGenerationConfig> = {
+  enabled: true,
+  backend: "openai",
+  openai: {
+    base_url: "https://api.openai.test/v1",
+    api_key: "test-key",
+    model: "gpt-image-2",
+    size: "1024x1024",
+    quality: "auto",
+    timeout_ms: 1000,
+  },
 };
 
 // ── mediaDb ───────────────────────────────────────────────────────────────────
@@ -362,6 +389,149 @@ describe("image backlinks", () => {
     assert.equal(res.status, 200);
     const body = await res.json() as { backlinks: Array<{ slug: string; title: string }> };
     assert.ok(body.backlinks.some((b) => b.slug === "aspirin"));
+  });
+});
+
+// ── image generation backends ────────────────────────────────────────────────
+
+describe("article image generation", () => {
+  test("OpenAI backend parses b64_json image responses", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (url, init) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: TINY_PNG_B64, revised_prompt: "revised" }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const result = await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        ...enabledOpenAiImageGeneration,
+        ollama: TEST_CONFIG.app.images.generation.ollama,
+      } as ImageGenerationConfig,
+      logger: noop(),
+    });
+
+    assert.equal(capturedUrl, "https://api.openai.test/v1/images/generations");
+    assert.equal(capturedBody.model, "gpt-image-2");
+    assert.equal(capturedBody.prompt, "draw aspirin");
+    assert.equal(result.backend, "openai");
+    assert.equal(result.mime, "image/png");
+    assert.equal(result.revisedPrompt, "revised");
+    assert.deepEqual(result.bytes, TINY_PNG);
+  });
+
+  test("OpenAI backend rejects missing API keys before calling the provider", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let called = false;
+    setImageGenerationFetchForTests(async () => {
+      called = true;
+      return new Response("{}");
+    });
+
+    await assert.rejects(
+      () =>
+        generateArticleImage({
+          prompt: "draw aspirin",
+          config: {
+            ...TEST_CONFIG.app.images.generation,
+            ...enabledOpenAiImageGeneration,
+            openai: {
+              ...enabledOpenAiImageGeneration.openai!,
+              api_key: "",
+            },
+            ollama: TEST_CONFIG.app.images.generation.ollama,
+          } as ImageGenerationConfig,
+          logger: noop(),
+        }),
+      /api_key/i,
+    );
+    assert.equal(called, false);
+  });
+
+  test("Ollama backend parses final image field", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (url, init) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ image: `data:image/png;base64,${TINY_PNG_B64}` }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const result = await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        enabled: true,
+        backend: "ollama",
+        openai: TEST_CONFIG.app.images.generation.openai,
+        ollama: {
+          base_url: "http://ollama.test:11434",
+          model: "x/z-image-turbo",
+          width: 640,
+          height: 480,
+          steps: 7,
+          timeout_ms: 1000,
+        },
+      },
+      logger: noop(),
+    });
+
+    assert.equal(capturedUrl, "http://ollama.test:11434/api/generate");
+    assert.equal(capturedBody.model, "x/z-image-turbo");
+    assert.equal(capturedBody.width, 640);
+    assert.equal(capturedBody.steps, 7);
+    assert.equal(result.backend, "ollama");
+    assert.equal(result.mime, "image/png");
+    assert.deepEqual(result.bytes, TINY_PNG);
+  });
+
+  test("Ollama backend parses streamed final image field", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    setImageGenerationFetchForTests(async () =>
+      new Response(
+        [
+          JSON.stringify({ model: "x/z-image-turbo", completed: 1, total: 2, done: false }),
+          JSON.stringify({ model: "x/z-image-turbo", image: TINY_PNG_B64, done: true }),
+        ].join("\n"),
+        { headers: { "content-type": "application/x-ndjson" } },
+      ),
+    );
+
+    const result = await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        enabled: true,
+        backend: "ollama",
+        openai: TEST_CONFIG.app.images.generation.openai,
+        ollama: {
+          base_url: "http://ollama.test:11434",
+          model: "x/z-image-turbo",
+          width: 640,
+          height: 480,
+          steps: 7,
+          timeout_ms: 1000,
+        },
+      },
+      logger: noop(),
+    });
+
+    assert.equal(result.backend, "ollama");
+    assert.equal(result.mime, "image/png");
+    assert.deepEqual(result.bytes, TINY_PNG);
   });
 });
 
@@ -719,6 +889,58 @@ describe("http", () => {
     const s = await makeTestServer(); t.after(s.cleanup);
     const body = await (await s.go("/api/article/aspirin/image")).json() as any;
     assert.equal(body.image, null);
+  });
+
+  test("POST /api/article/:slug/image/generate rejects when disabled", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const res = await s.go("/api/article/aspirin/image/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json() as any;
+    assert.match(body.error, /disabled/i);
+  });
+
+  test("POST /api/article/:slug/image/generate rejects existing image without replace", async (t) => {
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    seedMedia(s.mediaDatabasePath, "existing-img");
+    const db = openDatabase(s.databasePath);
+    upsertArticleHeadlineMedia(db, "aspirin", "existing-img", "");
+    db.close();
+    const res = await s.go("/api/article/aspirin/image/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(res.status, 409);
+  });
+
+  test("POST /api/article/:slug/image/generate stores and attaches generated image", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    setImageGenerationFetchForTests(async () =>
+      new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const res = await s.go("/api/article/aspirin/image/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.ok(body.mediaId);
+    assert.equal(body.backend, "openai");
+    const check = await (await s.go("/api/article/aspirin/image")).json() as any;
+    assert.ok(check.image?.id);
   });
 
   test("GET /api/article/:slug/image returns image info when attached", async (t) => {

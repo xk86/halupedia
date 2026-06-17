@@ -79,6 +79,8 @@ export const WorkflowInputSchema = z.object({
   // Image caption-specific ─────────────────────────────────────────────────
   /** Media DB id of the image to caption. */
   imageId: z.string().optional(),
+  /** Whether article.image_generate may replace an existing headline image. */
+  imageReplace: z.boolean().optional(),
 
   // Random-page-specific ─────────────────────────────────────────────────────
   /** Existing articles offered to the model as inspiration for a random pick. */
@@ -270,6 +272,20 @@ export const PipelineStateSchema = z.object({
       description: z.string(),
       /** Per-article short caption generated from description + article context. */
       articleCaption: z.string().optional(),
+    })
+    .optional(),
+
+  // Image generation ───────────────────────────────────────────────────────
+  /** Generated headline image attachment result for article.image_generate. */
+  imageGenerationResult: z
+    .object({
+      mediaId: z.string(),
+      isNew: z.boolean(),
+      width: z.number(),
+      height: z.number(),
+      backend: z.string(),
+      model: z.string(),
+      revisedPrompt: z.string().optional(),
     })
     .optional(),
 

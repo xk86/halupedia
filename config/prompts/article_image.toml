@@ -1,0 +1,97 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one high-end conceptual editorial photo-illustration for a Halupedia
+subject. The image should feel like a surreal, psychedelic, magazine-style 16:9
+hero image from a culture, science, politics, or long-form encyclopedia feature
+in a weird alternate universe.
+
+Core look:
+- Conceptual editorial photography blended with psychedelic 1990s CGI
+  photo-illustration, abstract news-magazine hero art, neon color-gel lighting,
+  glitch/data collage, surreal stock-photo editorial art, polished double
+  exposure, and glossy retro ray-traced abstraction.
+- Results should feel expensive, intentional, and suitable for the top of a
+  long-form article, not a meme, poster, cartoon, or literal collage.
+- Use rich pearlescent neon saturation: magenta, cyan, orange, yellow, red,
+  green, electric blue, lavender, peach, mint, and sky-blue gradients.
+- Include glossy translucent jelly forms, ray-traced glass blobs, liquid
+  ribbons, pearlescent plastic, wavy optical stripe projections, moire patterns,
+  airbrushed gradients, synthetic sky colors, primitive 3D shapes, floating
+  capsules, spheres, liquid prisms, chromatic aberration, bloom, subtle
+  scanlines, and soft film grain.
+
+Composition:
+- Make the image feel like a major magazine or fancy news-site hero graphic.
+- Use a horizontal 16:9 crop with strong subject hierarchy and plausible
+  headline negative space.
+- Use strong center or rule-of-thirds placement. Do not clutter the whole frame
+  evenly.
+- Keep the main subject readable and art-directed. Use overlays and abstraction
+  to frame the subject, not bury it.
+- Favor dramatic lighting, strong hierarchy, thumbnail legibility, and
+  wide-banner storytelling over vertical poster staging.
+- Use 1990s CGI elements as spatial atmosphere, symbolic structures, projected
+  patterns, glossy materials, and framing devices rather than random decoration.
+- For data, science, map, code, chromosome, scan, microscopy, chart, satellite,
+  or technical references, treat them as symbolic texture: ghosted overlays,
+  vertical bands, reflections, background panels, distorted shadows,
+  semi-transparent projections, or refracted details inside translucent
+  Bryce-like glass forms. Keep enough of the source idea recognizable, but never
+  paste it as a flat rectangle.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Infer visual motifs, environments, relationships, symbols, tone, materials,
+  colors, wardrobe, architecture, props, maps, archival fragments, interfaces,
+  emotional atmosphere, and implied conflicts from that context.
+- Use Halupedia-specific visual cues over generic sci-fi, fantasy, politics, or
+  technology imagery.
+- If multiple interpretations are plausible, choose the most cinematic
+  article-banner interpretation consistent with the supplied context.
+
+Avoid:
+- Literal side-by-side collages, meme captions, fake headlines, fake logos,
+  fake news branding, text artifacts, extra fingers, malformed hands, melted
+  faces, plastic AI skin, generic cyberpunk city backgrounds unless requested,
+  cartoon/anime/comic styling unless requested, gore, excessive horror, flat
+  Photoshop-filter looks, and database-generic imagery that ignores available
+  context.
+- Images that are primarily pages, books, documents, websites, posters,
+  newspapers, title cards, signage, captions, readable labels, or fake text.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a high-end conceptual editorial photo-illustration of the main subject,
+informed by the Halupedia context above. Transform the background and lighting
+with psychedelic neon color gels, glossy 1990s Bryce-style translucent glass
+forms, floating gel blobs, liquid ribbons, pearlescent gradients, moire stripe
+projections, glitch/data overlays, double exposure, chromatic aberration, film
+grain, and saturated magazine color. Keep the subject sharp and readable while
+the surroundings become surreal, abstract, symbolic, and retro-CGI.
+
+16:9 horizontal hero image, polished news-magazine aesthetic. No text, logos,
+captions, readable labels, pages, books, documents, posters, screenshots, or
+fake typography.
+"""

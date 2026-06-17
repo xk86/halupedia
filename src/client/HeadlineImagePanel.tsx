@@ -30,6 +30,7 @@ export function HeadlineImagePanel({
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Search-existing state
@@ -47,6 +48,7 @@ export function HeadlineImagePanel({
     setImageInfo(null);
     setUrlDraft("");
     setError(null);
+    setGenerating(false);
     setSearchQuery("");
     setSearchResults(null);
 
@@ -142,6 +144,31 @@ export function HeadlineImagePanel({
     },
     [articleSlug, busy, applyResult],
   );
+
+  const generateImage = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(articleSlug)}/image/generate`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      );
+      const payload = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      applyResult(payload);
+    } catch (err: any) {
+      setError(err?.message || "Image generation failed.");
+    } finally {
+      setGenerating(false);
+      setBusy(false);
+    }
+  }, [articleSlug, busy, applyResult]);
 
   const searchExisting = useCallback(async () => {
     if (!searchQuery.trim()) return;
@@ -361,6 +388,15 @@ export function HeadlineImagePanel({
               {busy ? "…" : "↑"}
             </label>
           </div>
+
+          <button
+            type="button"
+            className="edit-modal-close col-[1/-1] row-start-3 max-w-max whitespace-nowrap max-[600px]:row-start-4"
+            onClick={generateImage}
+            disabled={busy}
+          >
+            {generating ? "Generating…" : "Generate"}
+          </button>
         </div>
       )}
 

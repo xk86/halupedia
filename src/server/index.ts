@@ -82,6 +82,7 @@ import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescript
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
+import { generateArticleImage } from "./imageGeneration";
 import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
 import { renderInfoboxHtml } from "./articleRender";
 import {
@@ -89,6 +90,7 @@ import {
   findReferencedArticlesInEditText,
 } from "./editReferences";
 import { OpenAICompatRouter, fetchHostModels, type LlmRouter } from "./llm";
+import type { ImageGenerationConfig } from "./types";
 import { addTomlTable, setTomlTableValue } from "./tomlEdit";
 import { createConsoleLogger, type Logger } from "./logger";
 import { MaintenanceScheduler } from "./maintenance";
@@ -194,6 +196,7 @@ import {
 import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
 import { regenerateSummaryWorkflow } from "./pipeline/workflows/utilities";
 import { randomPageWorkflow } from "./pipeline/workflows/randomPage";
+import { articleImageGenerationWorkflow } from "./pipeline/workflows/articleImageGeneration";
 import type { PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
 
@@ -244,6 +247,7 @@ export interface CreateAppOptions {
   skipHomepagePrepare?: boolean;
   logger?: Logger;
   llmClient?: LlmRouter;
+  imageGenerationConfig?: Partial<ImageGenerationConfig>;
 }
 
 
@@ -757,6 +761,30 @@ async function generateLinkSuggestion(
 export async function createApp(options: CreateAppOptions = {}) {
   const logger = options.logger ?? createConsoleLogger();
   let runtime = loadConfig();
+  const applyImageGenerationConfig = (base: ReturnType<typeof loadConfig>) => {
+    if (!options.imageGenerationConfig) return base;
+    return {
+      ...base,
+      app: {
+        ...base.app,
+        images: {
+          ...base.app.images,
+          generation: {
+            ...base.app.images.generation,
+            ...options.imageGenerationConfig,
+            openai: {
+              ...base.app.images.generation.openai,
+              ...options.imageGenerationConfig.openai,
+            },
+            ollama: {
+              ...base.app.images.generation.ollama,
+              ...options.imageGenerationConfig.ollama,
+            },
+          },
+        },
+      },
+    };
+  };
   if (options.databasePath) {
     runtime = {
       ...runtime,
@@ -769,6 +797,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       },
     };
   }
+  runtime = applyImageGenerationConfig(runtime);
   const db = openDatabase(runtime.app.storage.database_path);
   const mediaDb = openMediaDatabase(options.mediaDatabasePath ?? runtime.app.images.media_database_path);
   const indexResponseCache = makeVersionedCache(db);
@@ -933,10 +962,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     const id = Math.random().toString(36).slice(2, 8);
     inFlightGenerations.add(promise);
     logger.debug("generation.tracked", { id, in_flight: inFlightGenerations.size });
-    promise.finally(() => {
+    void promise.finally(() => {
       inFlightGenerations.delete(promise);
       logger.debug("generation.settled", { id, in_flight: inFlightGenerations.size });
-    });
+    }).catch(() => {});
     return promise;
   }
 
@@ -1107,9 +1136,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       if (gen) gen.phase = nodeName;
     };
     const register = (p: Promise<unknown>) => {
-      p.finally(() => {
+      void p.finally(() => {
         if (activeOperations.get(slug) === op) activeOperations.delete(slug);
-      });
+      }).catch(() => {});
     };
     return { onNode, register };
   }
@@ -1201,6 +1230,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           },
         }
       : nextRuntime;
+    runtime = applyImageGenerationConfig(runtime);
     if (!options.llmClient) {
       llm = new OpenAICompatRouter(runtime.llm, logger);
     }
@@ -1562,6 +1592,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
       runtime,
       onSidecarUpdate: notifySidecar,
+      generateArticleImageAttachment: generateAndAttachArticleImage,
       ...overrides,
     };
   }
@@ -1632,8 +1663,45 @@ export async function createApp(options: CreateAppOptions = {}) {
     }).catch(() => {});
     ppOp.register(ppPromise);
     trackGeneration(ppPromise);
+    queueAutoArticleImageAfterPostProcess(canonicalSlug, ppPromise);
 
     return article;
+  }
+
+  function queueAutoArticleImageAfterPostProcess(articleSlug: string, postProcessPromise: Promise<unknown>) {
+    const autoImageConfigured =
+      runtime.app.images.generation.enabled &&
+      runtime.app.images.generation.auto_generate_for_new_articles;
+    logger.info("article_image.auto_check", {
+      slug: articleSlug,
+      enabled: runtime.app.images.generation.enabled,
+      auto_generate_for_new_articles: runtime.app.images.generation.auto_generate_for_new_articles,
+      backend: runtime.app.images.generation.backend,
+      configured: autoImageConfigured,
+      has_headline_image: Boolean(getArticleHeadlineMedia(db, articleSlug)),
+    });
+    if (!autoImageConfigured) return;
+
+    const imagePromise = postProcessPromise.then(async () => {
+      if (getArticleHeadlineMedia(db, articleSlug)) {
+        logger.info("article_image.auto_skipped_existing", { slug: articleSlug });
+        return;
+      }
+      const title = getArticleByLookup(db, articleSlug)?.title ?? articleSlug;
+      const imageOp = trackActiveOperation(articleSlug, title, "article.image_generate");
+      const workflowPromise = runArticleImageGenerationWorkflow(articleSlug, false, title, imageOp.onNode);
+      imageOp.register(workflowPromise);
+      logger.info("article_image.auto_queued", { slug: articleSlug });
+      try {
+        await workflowPromise;
+      } catch (err) {
+        logger.warn("article_image.auto_failed", {
+          slug: articleSlug,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+    trackGeneration(imagePromise);
   }
 
   app.get("/api/health", (c) =>
@@ -3062,6 +3130,14 @@ export async function createApp(options: CreateAppOptions = {}) {
       promptConfigPath: "config/prompts",
       ragMode: runtime.app.rag.mode,
       modelConfigs,
+      imageGeneration: {
+        enabled: runtime.app.images.generation.enabled,
+        autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
+        backend: runtime.app.images.generation.backend,
+        openaiModel: runtime.app.images.generation.openai.model,
+        ollamaModel: runtime.app.images.generation.ollama.model,
+        ollamaBaseUrl: runtime.app.images.generation.ollama.base_url,
+      },
       promptModelAssociations: Object.keys(runtime.prompts.prompts)
         .sort()
         .map((key) => {
@@ -3147,6 +3223,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     const src = existsSync(path) ? readFileSync(path, "utf8") : "";
     writeFileSync(path, mutate(src));
   };
+  const editAppToml = (mutate: (src: string) => string) => {
+    const path = resolve(process.cwd(), "config", "app.toml");
+    const examplePath = resolve(process.cwd(), "config", "app.toml.example");
+    const src = existsSync(path)
+      ? readFileSync(path, "utf8")
+      : existsSync(examplePath)
+        ? readFileSync(examplePath, "utf8")
+        : "";
+    writeFileSync(path, mutate(src));
+  };
   const liveRouter = () => (llm instanceof OpenAICompatRouter ? llm : null);
 
   app.get("/api/admin/llm", (c) => {
@@ -3198,7 +3284,31 @@ export async function createApp(options: CreateAppOptions = {}) {
         candidates: liveRouter()?.candidatesFor("embeddings") ?? [],
       },
     };
-    return c.json({ hosts, roles });
+    return c.json({
+      hosts,
+      roles,
+      imageGeneration: {
+        enabled: runtime.app.images.generation.enabled,
+        autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
+        backend: runtime.app.images.generation.backend,
+        openai: {
+          baseUrl: runtime.app.images.generation.openai.base_url,
+          apiKey: runtime.app.images.generation.openai.api_key ? MASKED_API_KEY : "",
+          model: runtime.app.images.generation.openai.model,
+          size: runtime.app.images.generation.openai.size,
+          quality: runtime.app.images.generation.openai.quality,
+          timeoutMs: runtime.app.images.generation.openai.timeout_ms,
+        },
+        ollama: {
+          baseUrl: runtime.app.images.generation.ollama.base_url,
+          model: runtime.app.images.generation.ollama.model,
+          width: runtime.app.images.generation.ollama.width,
+          height: runtime.app.images.generation.ollama.height,
+          steps: runtime.app.images.generation.ollama.steps,
+          timeoutMs: runtime.app.images.generation.ollama.timeout_ms,
+        },
+      },
+    });
   });
 
   app.get("/api/admin/llm/host/:id/models", async (c) => {
@@ -3302,6 +3412,98 @@ export async function createApp(options: CreateAppOptions = {}) {
       );
       await reloadRuntime();
       return c.json({ ok: true, id });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    }
+  });
+
+  app.put("/api/admin/images/generation", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      enabled?: unknown;
+      autoGenerateForNewArticles?: unknown;
+      backend?: unknown;
+      openai?: {
+        baseUrl?: unknown;
+        apiKey?: unknown;
+        model?: unknown;
+        size?: unknown;
+        quality?: unknown;
+        timeoutMs?: unknown;
+      };
+      ollama?: {
+        baseUrl?: unknown;
+        model?: unknown;
+        width?: unknown;
+        height?: unknown;
+        steps?: unknown;
+        timeoutMs?: unknown;
+      };
+    };
+    try {
+      editAppToml((src) => {
+        let next = src;
+        if (typeof body.enabled === "boolean") {
+          next = setTomlTableValue(next, "images.generation", "enabled", body.enabled);
+        }
+        if (typeof body.autoGenerateForNewArticles === "boolean") {
+          next = setTomlTableValue(
+            next,
+            "images.generation",
+            "auto_generate_for_new_articles",
+            body.autoGenerateForNewArticles,
+          );
+        }
+        if (body.backend === "openai" || body.backend === "ollama") {
+          next = setTomlTableValue(next, "images.generation", "backend", body.backend);
+        }
+        if (body.openai && typeof body.openai === "object") {
+          if (typeof body.openai.baseUrl === "string") {
+            next = setTomlTableValue(next, "images.generation.openai", "base_url", body.openai.baseUrl);
+          }
+          if (
+            typeof body.openai.apiKey === "string" &&
+            body.openai.apiKey.length > 0 &&
+            body.openai.apiKey !== MASKED_API_KEY
+          ) {
+            next = setTomlTableValue(next, "images.generation.openai", "api_key", body.openai.apiKey);
+          }
+          if (typeof body.openai.model === "string") {
+            next = setTomlTableValue(next, "images.generation.openai", "model", body.openai.model);
+          }
+          if (typeof body.openai.size === "string") {
+            next = setTomlTableValue(next, "images.generation.openai", "size", body.openai.size);
+          }
+          if (typeof body.openai.quality === "string") {
+            next = setTomlTableValue(next, "images.generation.openai", "quality", body.openai.quality);
+          }
+          if (typeof body.openai.timeoutMs === "number") {
+            next = setTomlTableValue(next, "images.generation.openai", "timeout_ms", body.openai.timeoutMs);
+          }
+        }
+        if (body.ollama && typeof body.ollama === "object") {
+          if (typeof body.ollama.baseUrl === "string") {
+            next = setTomlTableValue(next, "images.generation.ollama", "base_url", body.ollama.baseUrl);
+          }
+          if (typeof body.ollama.model === "string") {
+            next = setTomlTableValue(next, "images.generation.ollama", "model", body.ollama.model);
+          }
+          if (typeof body.ollama.width === "number") {
+            next = setTomlTableValue(next, "images.generation.ollama", "width", body.ollama.width);
+          }
+          if (typeof body.ollama.height === "number") {
+            next = setTomlTableValue(next, "images.generation.ollama", "height", body.ollama.height);
+          }
+          if (typeof body.ollama.steps === "number") {
+            next = setTomlTableValue(next, "images.generation.ollama", "steps", body.ollama.steps);
+          }
+          if (typeof body.ollama.timeoutMs === "number") {
+            next = setTomlTableValue(next, "images.generation.ollama", "timeout_ms", body.ollama.timeoutMs);
+          }
+        }
+        return next;
+      });
+      await reloadRuntime();
+      return c.json({ ok: true });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
@@ -4201,6 +4403,150 @@ export async function createApp(options: CreateAppOptions = {}) {
     return { mediaId, isNew, width, height };
   }
 
+  async function generateAndAttachArticleImage(articleSlug: string, replace = false) {
+    const generationConfig = runtime.app.images.generation;
+    if (!generationConfig.enabled) {
+      throw new Error("image generation is disabled");
+    }
+    const article = getArticleByLookup(db, articleSlug);
+    if (!article) {
+      throw new Error("article not found");
+    }
+    if (!replace && getArticleHeadlineMedia(db, article.slug)) {
+      throw new Error("article already has a headline image");
+    }
+
+    const infobox = getArticleInfobox(db, article.slug);
+    const sidebarContext = infobox
+      ? [
+          infobox.title,
+          infobox.subtitle ?? "",
+          ...infobox.groups.flatMap((group) => [
+            group.label,
+            ...group.rows.flatMap((row) => [row.label, row.value]),
+          ]),
+        ]
+          .filter(Boolean)
+          .join("\n")
+          .slice(0, 2000)
+      : "";
+    const articleBody = stripTopLevelSections(article.markdown, ["References", "See also"]);
+    const rendered = buildPromptRegistry(runtime.prompts).render("article_image", {
+      requested_title: article.title,
+      summary: article.summaryMarkdown || summaryMarkdownFromArticle(article.markdown),
+      article_excerpt: articleBody.slice(0, 3500),
+      sidebar_context: sidebarContext,
+      related_context: formatImageRelatedContext(article.slug),
+    });
+    const generated = await generateArticleImage({
+      prompt: [rendered.system.trim(), rendered.user.trim()].filter(Boolean).join("\n\n"),
+      config: generationConfig,
+      logger,
+    });
+    const result = await ingestImageFromBuffer(generated.bytes, generated.mime, {
+      mediaDb,
+      config: runtime.app.images,
+      logger,
+      sourceLabel: `${generated.backend}:${generated.model}`,
+    });
+    const attached = attachAndCaption(article.slug, result.mediaId, result.isNew, result.width, result.height);
+    const response = buildArticleResponseFor(article.slug);
+    if (response) {
+      notifySidecar(article.slug, { type: "article", article: response });
+    }
+    logger.info("article_image.attached", {
+      slug: article.slug,
+      mediaId: attached.mediaId,
+      backend: generated.backend,
+      model: generated.model,
+    });
+    return {
+      ...attached,
+      backend: generated.backend,
+      model: generated.model,
+      revisedPrompt: generated.revisedPrompt,
+    };
+  }
+
+  async function runArticleImageGenerationWorkflow(
+    articleSlug: string,
+    replace: boolean,
+    requestedTitle: string,
+    onNode?: (nodeName: string, nodeKind: string) => void,
+  ) {
+    const result = await runWorkflow(articleImageGenerationWorkflow, {
+      input: {
+        requestId: randomUUID(),
+        workflow: "article.image_generate",
+        slug: articleSlug,
+        requestedTitle,
+        imageReplace: replace,
+      },
+      deps: buildPipelineDeps(),
+      recorder: getTraceRecorder(runtime.app.pipeline.trace),
+      logger,
+      onNode,
+    });
+    if (result.status === "error") {
+      throw result.error ?? new Error("article image generation failed");
+    }
+    const generated = result.state.imageGenerationResult;
+    if (!generated) {
+      throw new Error("article image generation produced no result");
+    }
+    return generated;
+  }
+
+  function formatImageRelatedContext(articleSlug: string): string {
+    const backlinks = listBacklinks(db, articleSlug).existing.slice(0, 10);
+    const outgoing = db
+      .prepare(
+        `SELECT l.target_slug AS slug,
+                COALESCE(a.title, l.visible_label, l.target_slug) AS title,
+                l.visible_label AS visibleLabel,
+                l.hidden_hint AS hiddenHint,
+                COALESCE(a.summary_markdown, '') AS summaryMarkdown
+         FROM article_links l
+         LEFT JOIN articles a ON a.slug = l.target_slug
+         WHERE l.source_slug = ?
+         ORDER BY l.created_at DESC, l.target_slug ASC
+         LIMIT 12`,
+      )
+      .all(articleSlug) as unknown as Array<{
+        slug: string;
+        title: string;
+        visibleLabel: string;
+        hiddenHint: string;
+        summaryMarkdown: string;
+      }>;
+    const lines: string[] = [];
+    for (const row of outgoing) {
+      lines.push(
+        [
+          `Outgoing link: ${row.title} (${row.slug})`,
+          row.visibleLabel ? `label: ${row.visibleLabel}` : "",
+          row.hiddenHint ? `hint: ${row.hiddenHint}` : "",
+          row.summaryMarkdown ? `summary: ${row.summaryMarkdown}` : "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
+      );
+    }
+    for (const row of backlinks) {
+      lines.push(
+        [
+          `Backlink: ${row.title} (${row.slug})`,
+          row.visibleLabel ? `label: ${row.visibleLabel}` : "",
+          row.hiddenHint ? `hint: ${row.hiddenHint}` : "",
+          row.summaryMarkdown ? `summary: ${row.summaryMarkdown}` : "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
+      );
+    }
+    return lines.join("\n").slice(0, 5000);
+  }
+
   app.post("/api/article/:slug/image", async (c) => {
     const slug = slugify(decodeURIComponent(c.req.param("slug")));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
@@ -4229,6 +4575,34 @@ export async function createApp(options: CreateAppOptions = {}) {
     const response = buildArticleResponseFor(slug);
     if (!response) return c.json({ error: "article not found" }, 404);
     return c.json({ ...attached, article: response });
+  });
+
+  app.post("/api/article/:slug/image/generate", async (c) => {
+    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    if (!runtime.app.images.generation.enabled) {
+      return c.json({ error: "image generation is disabled" }, 400);
+    }
+    const body = await c.req.json().catch(() => ({})) as { replace?: boolean };
+    try {
+      const article = getArticleByLookup(db, slug);
+      const imageOp = trackActiveOperation(slug, article?.title ?? slug, "article.image_generate");
+      const imagePromise = runArticleImageGenerationWorkflow(
+        slug,
+        body.replace === true,
+        article?.title ?? slug,
+        imageOp.onNode,
+      );
+      imageOp.register(imagePromise);
+      const generated = await trackGeneration(imagePromise);
+      const response = buildArticleResponseFor(slug);
+      if (!response) return c.json({ error: "article not found" }, 404);
+      return c.json({ ...generated, article: response });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = /not found/i.test(message) ? 404 : /already has/i.test(message) ? 409 : 400;
+      return c.json({ error: message }, status as 400 | 404 | 409);
+    }
   });
 
   app.post("/api/article/:slug/image/upload", async (c) => {

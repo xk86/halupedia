@@ -17,6 +17,7 @@ import {
 } from "./workflows/deterministicArticleSave";
 import { homepageRefreshWorkflow } from "./workflows/homepageRefresh";
 import { captionImageWorkflow } from "./workflows/captionImage";
+import { articleImageGenerationWorkflow } from "./workflows/articleImageGeneration";
 import { regenerateSummaryWorkflow } from "./workflows/utilities";
 import { randomPageWorkflow } from "./workflows/randomPage";
 
@@ -28,6 +29,7 @@ export const ALL_WORKFLOWS: WorkflowDefinition<PipelineDeps>[] = [
   addLinkArticleWorkflow,
   homepageRefreshWorkflow,
   postProcessWorkflow,
+  articleImageGenerationWorkflow,
   captionImageWorkflow,
   regenerateSummaryWorkflow,
   randomPageWorkflow,

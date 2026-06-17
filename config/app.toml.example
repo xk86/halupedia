@@ -80,6 +80,35 @@ database_path = "data/halupedia-traces.sqlite"
 level = "normal"
 retention_days = 14
 
+[images]
+model_max_edge = 256
+jpeg_quality = 70
+max_bytes = 15728640
+fetch_timeout_ms = 10000
+media_database_path = "data/halupedia-media.sqlite"
+allow_private_hosts = false
+
+[images.generation]
+enabled = false
+auto_generate_for_new_articles = false
+backend = "openai" # openai | ollama
+
+[images.generation.openai]
+base_url = "https://api.openai.com/v1"
+api_key = ""
+model = "gpt-image-2"
+size = "1024x1024"
+quality = "auto"
+timeout_ms = 120000
+
+[images.generation.ollama]
+base_url = "http://127.0.0.1:11434"
+model = "x/z-image-turbo"
+width = 1024
+height = 576
+steps = 20
+timeout_ms = 120000
+
 [tests]
 database_path = "halupedia-testing.sqlite"
 llm_base_url = "http://127.0.0.1:11434/v1"

@@ -34,7 +34,10 @@ export function renderEntryTitleHtml(title: string): string {
 export function plainEntryTitle(title: string): string {
   const html = renderEntryTitleHtml(title);
   if (typeof document === "undefined") {
-    return html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    return html
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
   const el = document.createElement("span");
   el.innerHTML = html;
@@ -42,7 +45,9 @@ export function plainEntryTitle(title: string): string {
 }
 
 export function entryTitleSortKey(title: string): string {
-  return plainEntryTitle(title).replace(/^the\s+/i, "").trim();
+  return plainEntryTitle(title)
+    .replace(/^the\s+/i, "")
+    .trim();
 }
 
 export function entryTitleWikiPath(title: string): string {
@@ -63,8 +68,15 @@ function compareEntries(a: IndexItem, b: IndexItem): number {
   const aKey = entryTitleSortKey(a.title);
   const bKey = entryTitleSortKey(b.title);
   return (
-    aKey.localeCompare(bKey, undefined, { sensitivity: "base", numeric: true }) ||
-    plainEntryTitle(a.title).localeCompare(plainEntryTitle(b.title), undefined, { sensitivity: "base", numeric: true }) ||
+    aKey.localeCompare(bKey, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    }) ||
+    plainEntryTitle(a.title).localeCompare(
+      plainEntryTitle(b.title),
+      undefined,
+      { sensitivity: "base", numeric: true },
+    ) ||
     a.slug.localeCompare(b.slug, undefined, { sensitivity: "base" })
   );
 }
@@ -80,7 +92,7 @@ function groupByLetter(items: IndexItem[]): Map<string, IndexItem[]> {
   return new Map(
     [...out.entries()].sort(([a], [b]) => {
       return a.localeCompare(b);
-    })
+    }),
   );
 }
 
@@ -122,16 +134,14 @@ export function AllEntries({ onNavigate }: Props) {
     const q = filter.trim().toLowerCase();
     const base = [...items].sort(compareEntries);
     if (!q) return base;
-    return base.filter(
-      (it) => {
-        const plainTitle = plainEntryTitle(it.title).toLowerCase();
-        return (
-          it.title.toLowerCase().includes(q) ||
-          plainTitle.includes(q) ||
-          it.slug.toLowerCase().includes(q)
-        );
-      }
-    );
+    return base.filter((it) => {
+      const plainTitle = plainEntryTitle(it.title).toLowerCase();
+      return (
+        it.title.toLowerCase().includes(q) ||
+        plainTitle.includes(q) ||
+        it.slug.toLowerCase().includes(q)
+      );
+    });
   }, [items, filter]);
 
   const grouped = useMemo(() => groupByLetter(filtered), [filtered]);
@@ -142,19 +152,21 @@ export function AllEntries({ onNavigate }: Props) {
       e.preventDefault();
       onNavigate(entryTitleWikiSegment(title), plainEntryTitle(title));
     },
-    [onNavigate]
+    [onNavigate],
   );
 
   return (
-    <div className="all-entries">
-      <header className="all-entries-header">
-        <h1>All entries</h1>
-        <p className="all-entries-subtitle">
-          Every page that has ever been hallucinated, in alphabetical order.
-          New entries are dreamt on demand and join this register the moment
-          they are written.
+    <div className="max-w-[67dvw] font-serif text-ink">
+      <header className="mb-[1.4rem] pb-[0.75rem] [border-bottom:2px_solid_var(--rule)]">
+        <h1 className="mx-0 mt-0 mb-[0.4rem] font-serif text-[2.2rem] font-medium tracking-[-0.005em]">
+          All entries
+        </h1>
+        <p className="m-0 text-[0.98rem] leading-[1.5] text-ink-soft italic">
+          Every page that has ever been hallucinated, in alphabetical order. New
+          entries are dreamt on demand and join this register the moment they
+          are written.
         </p>
-        <p className="all-entries-total">
+        <p className="mx-0 mt-[0.6rem] mb-0 font-mono text-[0.78rem] tracking-[0.12em] text-accent uppercase">
           {total === null
             ? "Counting the volumes\u2026"
             : `${total.toLocaleString()} ${
@@ -163,46 +175,60 @@ export function AllEntries({ onNavigate }: Props) {
         </p>
       </header>
 
-      <div className="all-entries-toolbar">
+      <div className="mb-[1.5rem] flex flex-wrap items-center gap-[1rem]">
         <input
           type="search"
-          className="all-entries-search"
+          className="min-w-[12rem] flex-1 rounded-[2px] bg-control-surface-soft px-[0.8rem] py-[0.55rem] font-serif text-[1rem] text-ink [border:1px_solid_var(--rule)] focus:[border-color:var(--accent)] focus:bg-input-surface-strong focus:outline-none"
           placeholder="Filter by title or slug…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           autoFocus
         />
-        <span className="all-entries-count">
+        <span className="font-mono text-[0.78rem] tracking-[0.1em] text-ink-fade uppercase">
           {loading
             ? "\u2014"
             : filter
-            ? `${filtered.length} matching`
-            : `${filtered.length}${complete ? "" : "+"} loaded`}
+              ? `${filtered.length} matching`
+              : `${filtered.length}${complete ? "" : "+"} loaded`}
         </span>
       </div>
 
-      {error && <div className="all-entries-error">{error}</div>}
+      {error && (
+        <div className="mb-[1rem] bg-accent-wash px-[0.8rem] py-[0.6rem] font-mono text-[0.85rem] text-accent [border:1px_solid_var(--accent)]">
+          {error}
+        </div>
+      )}
 
       {loading ? (
-        <p className="all-entries-status">Compiling the register…</p>
+        <p className="my-[1.5rem] font-mono text-[0.85rem] text-ink-fade">
+          Compiling the register…
+        </p>
       ) : filtered.length === 0 ? (
-        <p className="all-entries-empty">
+        <p className="my-[1.5rem] font-mono text-[0.85rem] text-ink-fade">
           {filter
             ? "No entries match that query."
             : "No entries have been hallucinated yet."}
         </p>
       ) : (
-        <div className="all-entries-groups">
+        <div className="flex flex-col gap-[1.6rem]">
           {[...grouped.entries()].map(([letter, list]) => (
-            <section key={letter} className="all-entries-group">
-              <h2 className="all-entries-letter">{letter}</h2>
-              <ul className="all-entries-list">
+            <section key={letter} className="[break-inside:avoid]">
+              <h2 className="mx-0 mt-0 mb-[0.5rem] pb-[0.2rem] font-serif text-[1.6rem] font-medium tracking-[0.02em] text-accent [border-bottom:1px_solid_var(--rule-soft)]">
+                {letter}
+              </h2>
+              <ul className="m-0 list-none columns-3 [column-gap:2rem] p-0">
                 {list.map((it) => (
-                  <li key={it.slug}>
+                  <li
+                    key={it.slug}
+                    className="mx-0 mt-0 mb-[0.25rem] [break-inside:avoid] text-[0.98rem] leading-[1.4] [overflow-wrap:break-word]"
+                  >
                     <a
+                      className="pb-[1px] [border-bottom:1px_dotted_var(--accent-border-soft)] hover:[border-bottom:1px_solid_var(--accent-hover)]"
                       href={entryTitleWikiPath(it.title)}
                       onClick={(e) => onLinkClick(e, it.title)}
-                      dangerouslySetInnerHTML={{ __html: renderEntryTitleHtml(it.title) }}
+                      dangerouslySetInnerHTML={{
+                        __html: renderEntryTitleHtml(it.title),
+                      }}
                     />
                   </li>
                 ))}
@@ -212,7 +238,7 @@ export function AllEntries({ onNavigate }: Props) {
         </div>
       )}
       {!complete && !loading ? (
-        <p className="all-entries-status">
+        <p className="my-[1.5rem] font-mono text-[0.85rem] text-ink-fade">
           Showing the first {items.length.toLocaleString()} entries.
         </p>
       ) : null}

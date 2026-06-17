@@ -8,6 +8,8 @@ import { PromptEditorPane } from "./admin/panes/PromptEditorPane";
 import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
 import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
 import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
+import { AdminButton } from "./admin/AdminButton";
+import { COUNT_LABEL, TOOLBAR } from "./admin/ui";
 
 interface AdminOverview {
   articleCount: number;
@@ -86,16 +88,26 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
   const [summarySlug, setSummarySlug] = useState("");
   const [regeneratingSummary, setRegeneratingSummary] = useState(false);
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
-  const [generationQueue, setGenerationQueue] = useState<GenerationQueueItem[]>([]);
+  const [generationQueue, setGenerationQueue] = useState<GenerationQueueItem[]>(
+    [],
+  );
   const [savingPromptKey, setSavingPromptKey] = useState<string | null>(null);
-  const [pipelineWorkflows, setPipelineWorkflows] = useState<PipelineWorkflowSummary[]>([]);
+  const [pipelineWorkflows, setPipelineWorkflows] = useState<
+    PipelineWorkflowSummary[]
+  >([]);
   const [pipelineRuns, setPipelineRuns] = useState<PipelineRunSummary[]>([]);
   const [pipelineTraceEnabled, setPipelineTraceEnabled] = useState(false);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // Slug alias management
   const [aliasSearch, setAliasSearch] = useState("");
-  const [aliasResults, setAliasResults] = useState<Array<{ slug: string; title: string; aliases: Array<{ aliasSlug: string; articleSlug: string }> }>>([]);
+  const [aliasResults, setAliasResults] = useState<
+    Array<{
+      slug: string;
+      title: string;
+      aliases: Array<{ aliasSlug: string; articleSlug: string }>;
+    }>
+  >([]);
   const [aliasSearching, setAliasSearching] = useState(false);
   const [newAliasSlug, setNewAliasSlug] = useState("");
   const [newAliasTarget, setNewAliasTarget] = useState("");
@@ -105,11 +117,16 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
   const [redirectSource, setRedirectSource] = useState("");
   const [redirectTarget, setRedirectTarget] = useState("");
   const [redirectMsg, setRedirectMsg] = useState<string | null>(null);
-  const [redirectConfirmData, setRedirectConfirmData] = useState<{ displacedTitle: string; message: string } | null>(null);
+  const [redirectConfirmData, setRedirectConfirmData] = useState<{
+    displacedTitle: string;
+    message: string;
+  } | null>(null);
   const [redirectBusy, setRedirectBusy] = useState(false);
 
   // Archived articles
-  const [archived, setArchived] = useState<Array<{ slug: string; title: string; archivedAt: number; reason: string }>>([]);
+  const [archived, setArchived] = useState<
+    Array<{ slug: string; title: string; archivedAt: number; reason: string }>
+  >([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
   const [restoreConfirm, setRestoreConfirm] = useState<string | null>(null);
@@ -147,7 +164,8 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         fetch("/api/admin/pipeline/workflows"),
         fetch("/api/admin/pipeline/runs?limit=100"),
       ]);
-      if (!workflowsRes.ok) throw new Error(`workflows error ${workflowsRes.status}`);
+      if (!workflowsRes.ok)
+        throw new Error(`workflows error ${workflowsRes.status}`);
       if (!runsRes.ok) throw new Error(`runs error ${runsRes.status}`);
       const workflowsPayload = await workflowsRes.json();
       const runsPayload = await runsRes.json();
@@ -189,7 +207,9 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
     setResettingFeatured(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/reset-featured-article", { method: "POST" });
+      const res = await fetch("/api/admin/reset-featured-article", {
+        method: "POST",
+      });
       if (!res.ok) throw new Error(`error ${res.status}`);
     } catch (err: any) {
       setError(err?.message || "failed to reset featured article");
@@ -234,7 +254,9 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
       setSummarySlug("");
-      setSummaryResult(`Summary regenerated for ${payload.article?.title ?? payload.slug}.`);
+      setSummaryResult(
+        `Summary regenerated for ${payload.article?.title ?? payload.slug}.`,
+      );
       await loadOverview();
     } catch (err: any) {
       setError(err?.message || "failed to regenerate summary");
@@ -243,34 +265,38 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
     }
   }, [summarySlug, loadOverview]);
 
-  const updatePromptModel = useCallback(async (
-    key: string,
-    model: "heavy" | "light",
-    thinking: boolean,
-  ) => {
-    setSavingPromptKey(key);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/prompt-model", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key, model, thinking }),
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      await loadOverview();
-    } catch (err: any) {
-      setError(err?.message || "failed to update prompt model");
-    } finally {
-      setSavingPromptKey(null);
-    }
-  }, [loadOverview]);
+  const updatePromptModel = useCallback(
+    async (key: string, model: "heavy" | "light", thinking: boolean) => {
+      setSavingPromptKey(key);
+      setError(null);
+      try {
+        const res = await fetch("/api/admin/prompt-model", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key, model, thinking }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+        await loadOverview();
+      } catch (err: any) {
+        setError(err?.message || "failed to update prompt model");
+      } finally {
+        setSavingPromptKey(null);
+      }
+    },
+    [loadOverview],
+  );
 
   const doAliasSearch = useCallback(async (q: string) => {
-    if (!q.trim()) { setAliasResults([]); return; }
+    if (!q.trim()) {
+      setAliasResults([]);
+      return;
+    }
     setAliasSearching(true);
     try {
-      const res = await fetch(`/api/admin/slug-search?q=${encodeURIComponent(q)}`);
+      const res = await fetch(
+        `/api/admin/slug-search?q=${encodeURIComponent(q)}`,
+      );
       const data = await res.json();
       setAliasResults(data.results ?? []);
     } finally {
@@ -299,76 +325,129 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
       body: JSON.stringify({ aliasSlug, articleSlug }),
     });
     const data = await res.json();
-    if (!res.ok) { setAliasMsg(`Error: ${data.error}`); return; }
+    if (!res.ok) {
+      setAliasMsg(`Error: ${data.error}`);
+      return;
+    }
     setAliasMsg(`Added alias ${aliasSlug} → ${articleSlug}`);
-    setNewAliasSlug(""); setNewAliasTarget("");
+    setNewAliasSlug("");
+    setNewAliasTarget("");
     void doAliasSearch(aliasSearch);
   }, [newAliasSlug, newAliasTarget, aliasSearch, doAliasSearch]);
 
-  const removeAlias = useCallback(async (aliasSlug: string) => {
-    await fetch(`/api/admin/slug-aliases/${encodeURIComponent(aliasSlug)}`, { method: "DELETE" });
-    void doAliasSearch(aliasSearch);
-  }, [aliasSearch, doAliasSearch]);
-
-  const createRedirect = useCallback(async (confirm = false) => {
-    setRedirectBusy(true); setRedirectMsg(null);
-    try {
-      const res = await fetch("/api/admin/slug-redirect", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sourceSlug: redirectSource, canonicalSlug: redirectTarget, confirm }),
+  const removeAlias = useCallback(
+    async (aliasSlug: string) => {
+      await fetch(`/api/admin/slug-aliases/${encodeURIComponent(aliasSlug)}`, {
+        method: "DELETE",
       });
+      void doAliasSearch(aliasSearch);
+    },
+    [aliasSearch, doAliasSearch],
+  );
+
+  const createRedirect = useCallback(
+    async (confirm = false) => {
+      setRedirectBusy(true);
+      setRedirectMsg(null);
+      try {
+        const res = await fetch("/api/admin/slug-redirect", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sourceSlug: redirectSource,
+            canonicalSlug: redirectTarget,
+            confirm,
+          }),
+        });
+        const data = await res.json();
+        if (data.requiresConfirm) {
+          setRedirectConfirmData({
+            displacedTitle: data.displacedTitle,
+            message: data.message,
+          });
+          return;
+        }
+        if (!res.ok) {
+          setRedirectMsg(`Error: ${data.error}`);
+          return;
+        }
+        setRedirectMsg(
+          `Redirect created: ${data.sourceSlug} → ${data.canonicalSlug}${data.archived ? ` (archived ${data.archived})` : ""}`,
+        );
+        setRedirectSource("");
+        setRedirectTarget("");
+        setRedirectConfirmData(null);
+        void loadArchived();
+      } finally {
+        setRedirectBusy(false);
+      }
+    },
+    [redirectSource, redirectTarget, loadArchived],
+  );
+
+  const restoreArchived = useCallback(
+    async (slug: string, confirm = false) => {
+      const res = await fetch(
+        `/api/admin/archived/${encodeURIComponent(slug)}/restore`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ confirm }),
+        },
+      );
       const data = await res.json();
       if (data.requiresConfirm) {
-        setRedirectConfirmData({ displacedTitle: data.displacedTitle, message: data.message });
+        setRestoreConfirm(slug);
         return;
       }
-      if (!res.ok) { setRedirectMsg(`Error: ${data.error}`); return; }
-      setRedirectMsg(`Redirect created: ${data.sourceSlug} → ${data.canonicalSlug}${data.archived ? ` (archived ${data.archived})` : ""}`);
-      setRedirectSource(""); setRedirectTarget(""); setRedirectConfirmData(null);
+      if (!res.ok) {
+        setRestoreMsg(`Error: ${data.error}`);
+        return;
+      }
+      setRestoreMsg(`Restored ${slug}`);
+      setRestoreConfirm(null);
       void loadArchived();
-    } finally {
-      setRedirectBusy(false);
-    }
-  }, [redirectSource, redirectTarget, loadArchived]);
+    },
+    [loadArchived],
+  );
 
-  const restoreArchived = useCallback(async (slug: string, confirm = false) => {
-    const res = await fetch(`/api/admin/archived/${encodeURIComponent(slug)}/restore`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ confirm }),
-    });
-    const data = await res.json();
-    if (data.requiresConfirm) { setRestoreConfirm(slug); return; }
-    if (!res.ok) { setRestoreMsg(`Error: ${data.error}`); return; }
-    setRestoreMsg(`Restored ${slug}`); setRestoreConfirm(null);
-    void loadArchived();
-  }, [loadArchived]);
-
-  if (loading) return <p className="search-status">Loading admin overview...</p>;
+  if (loading)
+    return <p className="search-status">Loading admin overview...</p>;
   if (error) return <div className="search-error">{error}</div>;
   if (!overview) return null;
 
   return (
-    <div className="all-entries">
-      <header className="all-entries-header">
-        <h1>Admin</h1>
-        <p className="all-entries-subtitle">
-          Database, entry, link, server, and prompt surgery surface for local tweaking and reloads.
+    <div className="max-w-[67dvw] font-serif text-ink">
+      <header className="mb-[1.4rem] pb-[0.75rem] [border-bottom:2px_solid_var(--rule)]">
+        <h1 className="mx-0 mt-0 mb-[0.4rem] font-serif text-[2.2rem] font-medium tracking-[-0.005em] max-[600px]:text-[1.7rem]">
+          Admin
+        </h1>
+        <p className="m-0 text-[0.98rem] leading-[1.5] text-ink-soft italic">
+          Database, entry, link, server, and prompt surgery surface for local
+          tweaking and reloads.
         </p>
-        <p className="all-entries-total">
-          {overview.articleCount} articles • {overview.linkCount} links • {overview.aliasCount} aliases
+        <p className="mx-0 mt-[0.6rem] mb-0 font-mono text-[0.78rem] tracking-[0.12em] text-accent uppercase">
+          {overview.articleCount} articles • {overview.linkCount} links •{" "}
+          {overview.aliasCount} aliases
         </p>
       </header>
 
-      <div className="all-entries-toolbar">
-        <button className="all-entries-more-btn" onClick={reloadRuntime} disabled={reloading}>
+      <div className={TOOLBAR}>
+        <AdminButton
+          variant="primary"
+          onClick={reloadRuntime}
+          disabled={reloading}
+        >
           {reloading ? "Reloading..." : "Reload config and prompts"}
-        </button>
-        <button className="all-entries-more-btn" onClick={resetFeaturedArticle} disabled={resettingFeatured}>
+        </AdminButton>
+        <AdminButton
+          variant="primary"
+          onClick={resetFeaturedArticle}
+          disabled={resettingFeatured}
+        >
           {resettingFeatured ? "Resetting..." : "Reset featured article"}
-        </button>
-        <span className="all-entries-count">Model: {overview.model}</span>
+        </AdminButton>
+        <span className={COUNT_LABEL}>Model: {overview.model}</span>
       </div>
 
       <div className="admin-grid">
@@ -376,7 +455,10 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
           workflows={pipelineWorkflows}
           runs={pipelineRuns}
           activeRuns={generationQueue
-            .filter((item) => item.state !== "queued" && typeof item.startedAt === "number")
+            .filter(
+              (item) =>
+                item.state !== "queued" && typeof item.startedAt === "number",
+            )
             .map((item) => ({
               slug: item.slug,
               title: item.title,
@@ -391,10 +473,7 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
           onNavigateHome={onNavigateHome}
         />
 
-        <GenerationQueuePane
-          items={generationQueue}
-          onNavigate={onNavigate}
-        />
+        <GenerationQueuePane items={generationQueue} onNavigate={onNavigate} />
 
         <RuntimePane
           databasePath={overview.databasePath}

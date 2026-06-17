@@ -3,6 +3,7 @@ import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
 import { AdminButton } from "../AdminButton";
 import { AdminTable } from "../AdminTable";
+import { COUNT_LABEL } from "../ui";
 import { toWikiSegment } from "../../wikiPath";
 
 const RUNS_PER_PAGE = 10;
@@ -248,7 +249,7 @@ export function PipelinesPane({
           collapsed reference material. In-progress articles lead the list. */}
       <div className="admin-section-title-row admin-pipeline-runs-heading">
         <h4 className="sb-heading">Recent Runs</h4>
-        <span className="all-entries-count">
+        <span className={COUNT_LABEL}>
           {activeRuns.length > 0 && `${activeRuns.length} active · `}
           {traceEnabled ? `${runs.length} recorded` : "trace off"}
         </span>
@@ -372,7 +373,7 @@ export function PipelinesPane({
               >
                 ← Prev
               </AdminButton>
-              <span className="all-entries-count">
+              <span className={COUNT_LABEL}>
                 Page {page + 1} of {pageCount}
               </span>
               <AdminButton

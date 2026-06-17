@@ -348,14 +348,13 @@ export function PromptEditorPane() {
             </label>
 
             <div className="admin-prompt-actions">
-              <button
-                className="all-entries-more-btn"
-                type="button"
+              <AdminButton
+                variant="primary"
                 onClick={handleSave}
                 disabled={saving || !isDirty}
               >
                 {saving ? "Saving…" : "Save"}
-              </button>
+              </AdminButton>
               <AdminButton onClick={handleReset} disabled={!isDirty}>
                 Reset
               </AdminButton>

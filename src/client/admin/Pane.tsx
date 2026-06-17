@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useState } from "react";
+import { COUNT_LABEL } from "./ui";
 
 interface Props {
   id: string;
@@ -62,9 +63,7 @@ export function Pane({
             ▾
           </span>
           <h3 className="sb-heading m-0! text-[0.85rem]!">{title}</h3>
-          {count !== undefined && (
-            <span className="all-entries-count">{count}</span>
-          )}
+          {count !== undefined && <span className={COUNT_LABEL}>{count}</span>}
         </div>
         {actions && (
           <div

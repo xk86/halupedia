@@ -158,7 +158,7 @@ export function AllEntries({ onNavigate }: Props) {
   return (
     <div className="max-w-[67dvw] font-serif text-ink">
       <header className="mb-[1.4rem] pb-[0.75rem] [border-bottom:2px_solid_var(--rule)]">
-        <h1 className="mx-0 mt-0 mb-[0.4rem] font-serif text-[2.2rem] font-medium tracking-[-0.005em]">
+        <h1 className="mx-0 mt-0 mb-[0.4rem] font-serif text-[2.2rem] font-medium tracking-[-0.005em] max-[600px]:text-[1.7rem]">
           All entries
         </h1>
         <p className="m-0 text-[0.98rem] leading-[1.5] text-ink-soft italic">
@@ -216,7 +216,7 @@ export function AllEntries({ onNavigate }: Props) {
               <h2 className="mx-0 mt-0 mb-[0.5rem] pb-[0.2rem] font-serif text-[1.6rem] font-medium tracking-[0.02em] text-accent [border-bottom:1px_solid_var(--rule-soft)]">
                 {letter}
               </h2>
-              <ul className="m-0 list-none columns-3 [column-gap:2rem] p-0">
+              <ul className="m-0 list-none columns-3 [column-gap:2rem] p-0 max-[600px]:columns-1">
                 {list.map((it) => (
                   <li
                     key={it.slug}

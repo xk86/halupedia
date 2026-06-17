@@ -1,4 +1,6 @@
 import { Pane } from "../Pane";
+import { AdminButton } from "../AdminButton";
+import { TOOLBAR } from "../ui";
 import { ArticleSearchDropdown } from "../../ArticleSearchDropdown";
 
 interface Props {
@@ -26,7 +28,7 @@ export function EntrySurgeryPane({
 }: Props) {
   return (
     <Pane id="entry-surgery" title="Entry Surgery">
-      <div className="all-entries-toolbar">
+      <div className={TOOLBAR}>
         <ArticleSearchDropdown
           wrapClassName="flex-1"
           inputType="text"
@@ -35,15 +37,15 @@ export function EntrySurgeryPane({
           onPick={(s) => onDeleteSlugChange(s.slug)}
           placeholder="Search or enter slug to delete…"
         />
-        <button
-          className="all-entries-more-btn"
+        <AdminButton
+          variant="primary"
           onClick={onDeleteArticle}
           disabled={deleting || !deleteSlug.trim()}
         >
           {deleting ? "Deleting..." : "Delete article"}
-        </button>
+        </AdminButton>
       </div>
-      <div className="all-entries-toolbar admin-action-row">
+      <div className={`${TOOLBAR} admin-action-row`}>
         <ArticleSearchDropdown
           wrapClassName="flex-1"
           inputType="text"
@@ -52,13 +54,13 @@ export function EntrySurgeryPane({
           onPick={(s) => onSummarySlugChange(s.slug)}
           placeholder="Search or paste /wiki/ link…"
         />
-        <button
-          className="all-entries-more-btn"
+        <AdminButton
+          variant="primary"
           onClick={onRegenerateSummary}
           disabled={regeneratingSummary || !summarySlug.trim()}
         >
           {regeneratingSummary ? "Regenerating..." : "Regenerate summary"}
-        </button>
+        </AdminButton>
       </div>
       {summaryResult ? (
         <p className="admin-result-headline">{summaryResult}</p>

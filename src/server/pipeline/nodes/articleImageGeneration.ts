@@ -17,6 +17,7 @@ export const generateArticleImageAttachmentNode = defineNode({
     const result = await deps.generateArticleImageAttachment(
       input.slug,
       input.imageReplace === true,
+      input.imagePromptKey,
     );
     return { imageGenerationResult: result };
   },

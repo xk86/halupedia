@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { parse } from "smol-toml";
 
@@ -34,9 +34,21 @@ export interface PromptFileContent extends PromptFileMeta {
   path: string;
 }
 
+export interface ArticleImagePresetContent {
+  key: string;
+  label: string;
+  system: string;
+  user: string;
+  path: string;
+  model?: "heavy" | "light";
+  thinking?: boolean;
+  json?: boolean;
+}
+
 const ROOT = process.cwd();
 const PROMPT_DIR = resolve(ROOT, "config", "prompts");
 const SHARED_DIR = resolve(PROMPT_DIR, "shared");
+const ARTICLE_IMAGE_PRESET_DIR = resolve(PROMPT_DIR, "article_image_presets");
 
 function promptDir(scope: "runnable" | "shared"): string {
   return scope === "shared" ? SHARED_DIR : PROMPT_DIR;
@@ -111,5 +123,113 @@ export function writePromptFile(
   const nextUser = replaceTomlTripleQuoted(source, "user", user);
   if (nextUser === null) return { error: 'user text must not contain """' };
   writeFileSync(path, nextUser);
+  return null;
+}
+
+function readTomlPromptContent(path: string, key: string, displayPath: string): Omit<ArticleImagePresetContent, "label"> {
+  const raw = parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  return {
+    key,
+    system: typeof raw.system === "string" ? raw.system : "",
+    user: typeof raw.user === "string" ? raw.user : "",
+    model: raw.model === "light" ? "light" : raw.model === "heavy" ? "heavy" : undefined,
+    thinking: typeof raw.thinking === "boolean" ? raw.thinking : undefined,
+    json: typeof raw.json === "boolean" ? raw.json : undefined,
+    path: displayPath,
+  };
+}
+
+export function listArticleImagePresetFiles(): ArticleImagePresetContent[] {
+  if (!existsSync(ARTICLE_IMAGE_PRESET_DIR)) return [];
+  return readdirSync(ARTICLE_IMAGE_PRESET_DIR)
+    .filter((f) => f.endsWith(".toml"))
+    .sort()
+    .map((file) => {
+      const key = basename(file, ".toml");
+      const path = resolve(ARTICLE_IMAGE_PRESET_DIR, file);
+      return {
+        ...readTomlPromptContent(path, key, `config/prompts/article_image_presets/${key}.toml`),
+        label: key,
+      };
+    });
+}
+
+export function readArticleImagePresetFile(key: string): ArticleImagePresetContent | null {
+  if (!safeKey(key) || key === "default") return null;
+  const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
+  if (!existsSync(path)) return null;
+  return {
+    ...readTomlPromptContent(path, key, `config/prompts/article_image_presets/${key}.toml`),
+    label: key,
+  };
+}
+
+function writeTomlPromptFile(
+  path: string,
+  system: string,
+  user: string,
+  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean } = {},
+): void {
+  const source = [
+    `model = "${options.model ?? "light"}"`,
+    `thinking = ${options.thinking === true ? "true" : "false"}`,
+    `json = ${options.json === true ? "true" : "false"}`,
+    "",
+    `system = """`,
+    system,
+    `"""`,
+    "",
+    `user = """`,
+    user,
+    `"""`,
+    "",
+  ].join("\n");
+  writeFileSync(path, source);
+}
+
+export function createArticleImagePresetFile(
+  key: string,
+  system: string,
+  user: string,
+  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean } = {},
+): { error: string } | ArticleImagePresetContent {
+  if (!safeKey(key)) return { error: "invalid key" };
+  if (key === "default") return { error: "default preset is reserved" };
+  if (system.includes('"""') || user.includes('"""')) {
+    return { error: 'prompt text must not contain """' };
+  }
+  mkdirSync(ARTICLE_IMAGE_PRESET_DIR, { recursive: true });
+  const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
+  if (existsSync(path)) return { error: "preset already exists" };
+  writeTomlPromptFile(path, system, user, options);
+  const created = readArticleImagePresetFile(key);
+  return created ?? { error: "prompt was created but could not be read" };
+}
+
+export function writeArticleImagePresetFile(
+  key: string,
+  system: string,
+  user: string,
+): { error: string } | null {
+  if (!safeKey(key)) return { error: "invalid key" };
+  if (key === "default") return { error: "default preset is edited through article_image" };
+  const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
+  if (!existsSync(path)) return { error: "preset not found" };
+  let source = readFileSync(path, "utf8");
+  const nextSystem = replaceTomlTripleQuoted(source, "system", system);
+  if (nextSystem === null) return { error: 'system text must not contain """' };
+  source = nextSystem;
+  const nextUser = replaceTomlTripleQuoted(source, "user", user);
+  if (nextUser === null) return { error: 'user text must not contain """' };
+  writeFileSync(path, nextUser);
+  return null;
+}
+
+export function deleteArticleImagePresetFile(key: string): { error: string } | null {
+  if (!safeKey(key)) return { error: "invalid key" };
+  if (key === "default") return { error: "default preset cannot be deleted" };
+  const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
+  if (!existsSync(path)) return { error: "preset not found" };
+  unlinkSync(path);
   return null;
 }

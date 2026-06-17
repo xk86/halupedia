@@ -18,7 +18,7 @@
 
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -133,6 +133,22 @@ function seedMedia(mediaDatabasePath: string, id = "img-x") {
   const db = openMediaDatabase(mediaDatabasePath);
   insertMedia(db, { ...baseMediaRecord(id), sha256: id.padEnd(64, "x") });
   db.close();
+}
+
+function seedArticle(databasePath: string, slug = "image-test-article") {
+  const db = openDatabase(databasePath);
+  const md = "# Image Test Article\n\nA neutral test article.";
+  saveArticle(db, {
+    slug,
+    canonicalSlug: slug,
+    title: "Image Test Article",
+    markdown: md,
+    html: renderMarkdown(md),
+    plain_text: markdownToPlainText(md),
+    generated_at: Date.now(),
+  }, [], [slug]);
+  db.close();
+  return slug;
 }
 
 const defaultIngestConfig = {
@@ -978,6 +994,81 @@ describe("http", () => {
     assert.equal(body.backend, "openai");
     const check = await (await s.go("/api/article/aspirin/image")).json() as any;
     assert.ok(check.image?.id);
+  });
+
+  test("GET /api/admin/article-image-prompts lists image prompt variants", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const body = await (await s.go("/api/admin/article-image-prompts")).json() as any;
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "default"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "conceptual"));
+    assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
+
+    const promptList = await (await s.go("/api/admin/prompts")).json() as any;
+    assert.ok(promptList.runnable.some((prompt: any) => prompt.key === "article_image"));
+    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
+  });
+
+  test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {
+    const suffix = randomUUID().replace(/-/g, "_");
+    const key = `test_${suffix}`;
+    const promptPath = join(process.cwd(), "config", "prompts", "article_image_presets", `${key}.toml`);
+    t.after(() => {
+      if (existsSync(promptPath)) unlinkSync(promptPath);
+    });
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const createRes = await s.go("/api/admin/article-image-prompts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: `test ${suffix}`, copyFrom: "default" }),
+    });
+    assert.equal(createRes.status, 200);
+    const created = await createRes.json() as any;
+    assert.equal(created.prompt.key, key);
+    assert.equal(existsSync(promptPath), true);
+
+    const deleteRes = await s.go(`/api/admin/article-image-prompts/${key}`, { method: "DELETE" });
+    assert.equal(deleteRes.status, 200);
+    assert.equal(existsSync(promptPath), false);
+  });
+
+  test("POST /api/article/:slug/image/generate uses selected image preset key", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedPrompt = "";
+    setImageGenerationFetchForTests(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      capturedPrompt = body.prompt ?? "";
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "conceptual" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    await res.json();
+    assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
+  });
+
+  test("POST /api/article/:slug/image/generate rejects non-image prompt key", async (t) => {
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ promptKey: "article" }),
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json() as any;
+    assert.match(body.error, /unknown image preset/i);
   });
 
   test("GET /api/article/:slug/image returns image info when attached", async (t) => {

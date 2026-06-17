@@ -58,6 +58,7 @@ export interface PipelineDeps {
   generateArticleImageAttachment?: (
     slug: string,
     replace?: boolean,
+    presetKey?: string,
   ) => Promise<{
     mediaId: string;
     isNew: boolean;

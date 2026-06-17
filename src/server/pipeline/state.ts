@@ -81,6 +81,8 @@ export const WorkflowInputSchema = z.object({
   imageId: z.string().optional(),
   /** Whether article.image_generate may replace an existing headline image. */
   imageReplace: z.boolean().optional(),
+  /** Article-image preset key used for article.image_generate. */
+  imagePromptKey: z.string().optional(),
 
   // Random-page-specific ─────────────────────────────────────────────────────
   /** Existing articles offered to the model as inspiration for a random pick. */

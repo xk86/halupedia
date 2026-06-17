@@ -1,0 +1,103 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one high-end conceptual editorial photo-illustration for a Halupedia
+subject. Blend the default Halupedia headline-image approach with polished
+surreal magazine hero art, psychedelic editorial photography, and restrained
+1990s CGI influence.
+
+Halupedia is fictional. People, organizations, events, cultures, places, and
+relationships in the supplied context should be treated as fictional-world
+subjects, not real public figures or real-world claims.
+
+Core look:
+- Premium long-form editorial hero image, horizontal 16:9, headline-ready.
+- Conceptual editorial photography with surreal retro-CGI treatment: glossy
+  translucent glass or gel forms, liquid ribbons, floating capsules, spheres,
+  primitive 3D shapes, pearlescent plastic, synthetic sky colors, ray-traced
+  highlights, airbrushed gradients, and wavy optical stripe projections.
+- Saturated but controlled color: magenta, cyan, orange, yellow, red, green,
+  electric blue, lavender, peach, mint, and sky-blue gradients.
+- Use dramatic color-gel lighting, chromatic aberration, soft film grain, subtle
+  scanline texture, moire-like stripe fields, double exposure, glitch or data
+  overlays, blur, bloom, and liquified color fields where they support the
+  subject.
+- Keep the main subject readable, sharp, and visually dominant. Abstraction
+  should frame and interpret the subject, not bury it.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Infer visual motifs, environments, relationships, symbols, tone, materials,
+  colors, wardrobe, architecture, props, maps, archival fragments, interfaces,
+  emotional atmosphere, and implied conflicts from that context.
+- Translate Halupedia-specific symbols, locations, artifacts, maps, materials,
+  emotional tone, and relationships into glossy retro-CGI shapes, translucent
+  props, abstract terrains, floating spheres, optical stripe fields, and
+  editorial lighting when appropriate.
+- If multiple interpretations are plausible, choose the most cinematic
+  article-banner interpretation that remains consistent with the context.
+
+Composition:
+- Make the image feel like a major magazine or high-end news-site hero graphic.
+- Leave plausible headline negative space.
+- Use strong center or rule-of-thirds placement with clear subject hierarchy.
+- Do not clutter the frame evenly. Use overlays and CGI forms as spatial
+  atmosphere, symbolic structures, projected patterns, reflections, or framing
+  devices.
+- For data, science, map, code, chromosome, scan, microscopy, chart, satellite,
+  or technical references, treat them as symbolic texture: ghosted overlays,
+  vertical bands, reflections, background panels, distorted shadows,
+  semi-transparent projections, or refracted details inside translucent glass
+  forms. Do not paste them as flat rectangles or make an infographic.
+
+Avoid:
+- Literal side-by-side collages, meme captions, fake headlines, fake logos,
+  fake news branding, text artifacts, extra fingers, malformed hands, melted
+  faces, plastic AI skin, generic cyberpunk city backgrounds unless requested,
+  cartoon/anime/comic styling unless requested, gore, excessive horror, flat
+  Photoshop-filter looks, and database-generic imagery that ignores available
+  context.
+- Images that are primarily pages, books, documents, websites, posters,
+  newspapers, title cards, signage, captions, readable labels, or fake text.
+- Retro styling so heavy that the image loses premium editorial polish.
+- Overt nudity, explicit sexual content, fetishized framing, erotic posing,
+  sexualized minors, sexual violence, or anything that makes the image feel
+  pornographic instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a high-end conceptual editorial photo-illustration of the main subject,
+informed by the Halupedia context above. Keep the subject sharp, readable, and
+grounded in the article's world while the surroundings become surreal,
+symbolic, psychedelic, and subtly retro-CGI.
+
+Blend documentary/editorial realism with neon color gels, glossy 1990s-style
+translucent glass forms, floating gel shapes, liquid ribbons, pearlescent
+gradients, moire-like stripe projections, glitch/data overlays, double exposure,
+chromatic aberration, film grain, and saturated magazine color.
+
+16:9 horizontal hero image, polished long-form editorial aesthetic. No text,
+logos, captions, readable labels, pages, books, posters, screenshots, fake
+typography, infographic panels, overt nudity, or explicit sexual content.
+"""

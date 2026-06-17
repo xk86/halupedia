@@ -12,7 +12,16 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { loadConfig } from "./config";
-import { listPromptFiles, readPromptFile, writePromptFile } from "./promptEditor";
+import {
+  createArticleImagePresetFile,
+  deleteArticleImagePresetFile,
+  listArticleImagePresetFiles,
+  listPromptFiles,
+  readArticleImagePresetFile,
+  readPromptFile,
+  writeArticleImagePresetFile,
+  writePromptFile,
+} from "./promptEditor";
 import {
   deleteArticleBySlug,
   listImageBacklinks,
@@ -526,6 +535,56 @@ function updateRunnablePromptConfig(
   next = replaceTopLevelTomlValue(next, "model", `"${model}"`);
   next = replaceTopLevelTomlValue(next, "thinking", thinking ? "true" : "false");
   writeFileSync(promptPath, next);
+}
+
+function articleImagePresetKeyFromName(name: string): string {
+  const key = name
+    .trim()
+    .toLowerCase()
+    .replace(/^article_image_?/, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+  if (!key) {
+    throw new Error("preset name must include at least one letter or number");
+  }
+  if (key === "default") {
+    throw new Error("default preset is reserved");
+  }
+  return key;
+}
+
+function normalizeArticleImagePresetKey(value: string | undefined): string {
+  const key = (value ?? "").trim();
+  if (!key || key === "default" || key === "article_image") return "default";
+  const normalized = key.replace(/^article_image_/, "");
+  if (!/^[a-z0-9_]+$/i.test(normalized)) {
+    throw new Error("invalid image preset key");
+  }
+  return normalized;
+}
+
+function listArticleImagePromptOptions() {
+  return [
+    { key: "default", label: "default" },
+    ...listArticleImagePresetFiles().map((preset) => ({ key: preset.key, label: preset.label })),
+  ];
+}
+
+function readArticleImagePromptSelection(key: string) {
+  const presetKey = normalizeArticleImagePresetKey(key);
+  if (presetKey === "default") {
+    const meta = readPromptFile("runnable", "article_image");
+    if (!meta) throw new Error("article_image prompt not found");
+    return {
+      ...meta,
+      key: "default",
+      label: "default",
+    };
+  }
+  const preset = readArticleImagePresetFile(presetKey);
+  if (!preset) throw new Error(`unknown image preset: ${presetKey}`);
+  return preset;
 }
 
 function formatRecentEditHistoryForPrompt(
@@ -1689,7 +1748,13 @@ export async function createApp(options: CreateAppOptions = {}) {
       }
       const title = getArticleByLookup(db, articleSlug)?.title ?? articleSlug;
       const imageOp = trackActiveOperation(articleSlug, title, "article.image_generate");
-      const workflowPromise = runArticleImageGenerationWorkflow(articleSlug, false, title, imageOp.onNode);
+      const workflowPromise = runArticleImageGenerationWorkflow(
+        articleSlug,
+        false,
+        "default",
+        title,
+        imageOp.onNode,
+      );
       imageOp.register(workflowPromise);
       logger.info("article_image.auto_queued", { slug: articleSlug });
       try {
@@ -3736,6 +3801,100 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json(listPromptFiles());
   });
 
+  app.get("/api/admin/article-image-prompts", (c) => {
+    return c.json({ prompts: listArticleImagePromptOptions() });
+  });
+
+  app.get("/api/admin/article-image-prompts/:key", (c) => {
+    const key = c.req.param("key");
+    try {
+      const prompt = readArticleImagePromptSelection(key);
+      if (prompt.key === "default") {
+        const current = getPromptCurrent(db, "runnable", "article_image");
+        return c.json({ ...prompt, ...(current ?? {}) });
+      }
+      return c.json(prompt);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    }
+  });
+
+  app.post("/api/admin/article-image-prompts", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { name?: unknown; copyFrom?: unknown };
+    if (typeof body.name !== "string") {
+      return c.json({ error: "name is required" }, 400);
+    }
+    let key: string;
+    try {
+      key = articleImagePresetKeyFromName(body.name);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+
+    const copyFrom = typeof body.copyFrom === "string" && body.copyFrom.trim()
+      ? body.copyFrom.trim()
+      : "default";
+    let source: ReturnType<typeof readArticleImagePromptSelection>;
+    try {
+      source = readArticleImagePromptSelection(copyFrom);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+    if (source.key === "default") {
+      const current = getPromptCurrent(db, "runnable", "article_image");
+      if (current) source = { ...source, ...current };
+    }
+    const created = createArticleImagePresetFile(key, source.system, source.user, {
+      model: source.model,
+      thinking: source.thinking,
+      json: source.json,
+    });
+    if ("error" in created) return c.json(created, /exists/i.test(created.error) ? 409 : 400);
+    await reloadRuntime();
+    return c.json({
+      ok: true,
+      prompt: { ...created, system: source.system, user: source.user },
+      prompts: listArticleImagePromptOptions(),
+    });
+  });
+
+  app.put("/api/admin/article-image-prompts/:key", async (c) => {
+    let key: string;
+    try {
+      key = normalizeArticleImagePresetKey(c.req.param("key"));
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+    if (key === "default") {
+      return c.json({ error: "default preset is edited through article_image" }, 400);
+    }
+    const body = await c.req.json().catch(() => ({})) as { system?: unknown; user?: unknown };
+    if (typeof body.system !== "string" || typeof body.user !== "string") {
+      return c.json({ error: "system and user must be strings" }, 400);
+    }
+    const err = writeArticleImagePresetFile(key, body.system, body.user);
+    if (err) return c.json(err, /not found/i.test(err.error) ? 404 : 400);
+    await reloadRuntime();
+    const prompt = readArticleImagePresetFile(key);
+    return c.json({ ok: true, prompt: prompt ? { ...prompt, system: body.system, user: body.user } : null });
+  });
+
+  app.delete("/api/admin/article-image-prompts/:key", async (c) => {
+    let key: string;
+    try {
+      key = normalizeArticleImagePresetKey(c.req.param("key"));
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+    if (key === "default") {
+      return c.json({ error: "the default image prompt cannot be deleted" }, 400);
+    }
+    const err = deleteArticleImagePresetFile(key);
+    if (err) return c.json(err, /not found/i.test(err.error) ? 404 : 400);
+    await reloadRuntime();
+    return c.json({ ok: true, prompts: listArticleImagePromptOptions() });
+  });
+
   app.get("/api/admin/prompt/:scope/:key", (c) => {
     const scope = c.req.param("scope");
     if (scope !== "runnable" && scope !== "shared") {
@@ -4423,11 +4582,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     return { mediaId, isNew, width, height };
   }
 
-  async function generateAndAttachArticleImage(articleSlug: string, replace = false) {
+  async function generateAndAttachArticleImage(articleSlug: string, replace = false, presetKey = "default") {
     const generationConfig = runtime.app.images.generation;
     if (!generationConfig.enabled) {
       throw new Error("image generation is disabled");
     }
+    const imagePreset = readArticleImagePromptSelection(presetKey);
     const article = getArticleByLookup(db, articleSlug);
     if (!article) {
       throw new Error("article not found");
@@ -4451,7 +4611,22 @@ export async function createApp(options: CreateAppOptions = {}) {
           .slice(0, 2000)
       : "";
     const articleBody = stripTopLevelSections(article.markdown, ["References", "See also"]);
-    const rendered = buildPromptRegistry(runtime.prompts).render("article_image", {
+    const imagePromptConfig = imagePreset.key === "default"
+      ? runtime.prompts
+      : {
+          ...runtime.prompts,
+          prompts: {
+            ...runtime.prompts.prompts,
+            article_image: {
+              system: imagePreset.system,
+              user: imagePreset.user,
+              model: imagePreset.model,
+              thinking: imagePreset.thinking,
+              json: imagePreset.json,
+            },
+          },
+        };
+    const rendered = buildPromptRegistry(imagePromptConfig).render("article_image", {
       requested_title: article.title,
       summary: article.summaryMarkdown || summaryMarkdownFromArticle(article.markdown),
       article_excerpt: articleBody.slice(0, 3500),
@@ -4477,6 +4652,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     logger.info("article_image.attached", {
       slug: article.slug,
       mediaId: attached.mediaId,
+      presetKey: imagePreset.key,
       backend: generated.backend,
       model: generated.model,
     });
@@ -4491,6 +4667,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   async function runArticleImageGenerationWorkflow(
     articleSlug: string,
     replace: boolean,
+    presetKey: string,
     requestedTitle: string,
     onNode?: (nodeName: string, nodeKind: string) => void,
   ) {
@@ -4501,6 +4678,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         slug: articleSlug,
         requestedTitle,
         imageReplace: replace,
+        imagePromptKey: presetKey,
       },
       deps: buildPipelineDeps(),
       recorder: getTraceRecorder(runtime.app.pipeline.trace),
@@ -4603,13 +4781,22 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!runtime.app.images.generation.enabled) {
       return c.json({ error: "image generation is disabled" }, 400);
     }
-    const body = await c.req.json().catch(() => ({})) as { replace?: boolean };
+    const body = await c.req.json().catch(() => ({})) as { replace?: boolean; promptKey?: string; presetKey?: string };
+    let presetKey: string;
+    try {
+      presetKey = normalizeArticleImagePresetKey(
+        typeof body.presetKey === "string" ? body.presetKey : body.promptKey,
+      );
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
     try {
       const article = getArticleByLookup(db, slug);
       const imageOp = trackActiveOperation(slug, article?.title ?? slug, "article.image_generate");
       const imagePromise = runArticleImageGenerationWorkflow(
         slug,
         body.replace === true,
+        presetKey,
         article?.title ?? slug,
         imageOp.onNode,
       );

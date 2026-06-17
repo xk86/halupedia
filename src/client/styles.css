@@ -4267,12 +4267,6 @@ a:hover {
   margin-top: 0.6rem;
 }
 
-/* The run history is the primary admin view: let it use the full pane width
-   without a horizontal scrollbar, and let columns size to content. */
-.admin-pipeline-runs-wrap {
-  overflow-x: visible;
-}
-
 .admin-pipeline-runs-table {
   min-width: 0;
   table-layout: auto;
@@ -4552,45 +4546,6 @@ a:hover {
   line-height: 1.4;
   font-style: italic;
   opacity: 0.8;
-}
-
-.admin-model-table-wrap {
-  margin-top: 0.85rem;
-  overflow-x: auto;
-  border-top: 1px solid var(--rule);
-}
-
-.admin-model-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 620px;
-}
-
-.admin-model-table th,
-.admin-model-table td {
-  padding: 0.62rem 0.75rem 0.62rem 0;
-  border-bottom: 1px solid var(--rule);
-  text-align: left;
-  vertical-align: top;
-}
-
-.admin-model-table th {
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-fade);
-}
-
-.admin-model-table td {
-  color: var(--ink);
-  font-size: 0.92rem;
-}
-
-.admin-model-table td:nth-child(1),
-.admin-model-table td:nth-child(5) {
-  font-family: var(--mono);
-  font-size: 0.78rem;
 }
 
 .admin-model-select {

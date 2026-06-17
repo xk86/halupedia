@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
 import { AdminButton } from "../AdminButton";
+import { AdminTable } from "../AdminTable";
 import { toWikiSegment } from "../../wikiPath";
 
 const RUNS_PER_PAGE = 10;
@@ -254,118 +255,114 @@ export function PipelinesPane({
       </div>
       {totalRows ? (
         <>
-          <div className="admin-model-table-wrap admin-pipeline-runs-wrap">
-            <table className="admin-model-table admin-pipeline-runs-table">
-              <thead>
-                <tr>
-                  <th>Started</th>
-                  <th>Workflow</th>
-                  <th>Slug</th>
-                  <th>Status</th>
-                  <th>Nodes</th>
-                  <th>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.map((row) => {
-                  if (row.kind === "active") {
-                    const a = row.item;
-                    return (
-                      <tr
-                        key={`active:${a.slug}`}
-                        className="admin-pipeline-run-row admin-pipeline-run-row--active"
+          <AdminTable overflowVisible className="admin-pipeline-runs-table">
+            <thead>
+              <tr>
+                <th>Started</th>
+                <th>Workflow</th>
+                <th>Slug</th>
+                <th>Status</th>
+                <th>Nodes</th>
+                <th>Duration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((row) => {
+                if (row.kind === "active") {
+                  const a = row.item;
+                  return (
+                    <tr
+                      key={`active:${a.slug}`}
+                      className="admin-pipeline-run-row admin-pipeline-run-row--active"
+                    >
+                      <td
+                        className="admin-pipeline-run-time"
+                        title={fmtFullTimestamp(a.startedAt)}
                       >
-                        <td
-                          className="admin-pipeline-run-time"
-                          title={fmtFullTimestamp(a.startedAt)}
-                        >
-                          {fmtTimestamp(a.startedAt)}
-                        </td>
-                        <td>{a.workflow ?? "—"}</td>
-                        <td>
+                        {fmtTimestamp(a.startedAt)}
+                      </td>
+                      <td>{a.workflow ?? "—"}</td>
+                      <td>
+                        <SlugCell
+                          slug={a.slug}
+                          segment={toWikiSegment(a.title || a.slug)}
+                          onNavigate={navigateTo}
+                          onNavigateHome={onNavigateHome}
+                        />
+                      </td>
+                      <td className="admin-pipeline-run-inprogress">
+                        in progress
+                      </td>
+                      <td>
+                        {a.phase && a.phase !== "starting"
+                          ? a.phase.replace(/^[^.]+\./, "")
+                          : "…"}
+                      </td>
+                      <td>—</td>
+                    </tr>
+                  );
+                }
+                const run = row.item;
+                return (
+                  <Fragment key={run.run_id}>
+                    <tr
+                      className={`admin-pipeline-run-row${expandedRun === run.run_id ? "admin-pipeline-run-row--expanded" : ""}`}
+                      onClick={() => void toggleRun(run.run_id)}
+                      title={run.error_message ?? "Click to see node breakdown"}
+                    >
+                      <td
+                        className="admin-pipeline-run-time"
+                        title={fmtFullTimestamp(run.started_at)}
+                      >
+                        {fmtTimestamp(run.started_at)}
+                      </td>
+                      <td>{run.workflow}</td>
+                      <td>
+                        {run.slug ? (
                           <SlugCell
-                            slug={a.slug}
-                            segment={toWikiSegment(a.title || a.slug)}
+                            slug={run.slug}
+                            segment={toWikiSegment(run.slug)}
                             onNavigate={navigateTo}
                             onNavigateHome={onNavigateHome}
                           />
-                        </td>
-                        <td className="admin-pipeline-run-inprogress">
-                          in progress
-                        </td>
-                        <td>
-                          {a.phase && a.phase !== "starting"
-                            ? a.phase.replace(/^[^.]+\./, "")
-                            : "…"}
-                        </td>
-                        <td>—</td>
-                      </tr>
-                    );
-                  }
-                  const run = row.item;
-                  return (
-                    <Fragment key={run.run_id}>
-                      <tr
-                        className={`admin-pipeline-run-row${expandedRun === run.run_id ? "admin-pipeline-run-row--expanded" : ""}`}
-                        onClick={() => void toggleRun(run.run_id)}
-                        title={
-                          run.error_message ?? "Click to see node breakdown"
+                        ) : (
+                          ""
+                        )}
+                      </td>
+                      <td
+                        className={
+                          run.status === "error"
+                            ? "admin-pipeline-run-error"
+                            : ""
                         }
                       >
-                        <td
-                          className="admin-pipeline-run-time"
-                          title={fmtFullTimestamp(run.started_at)}
-                        >
-                          {fmtTimestamp(run.started_at)}
-                        </td>
-                        <td>{run.workflow}</td>
-                        <td>
-                          {run.slug ? (
-                            <SlugCell
-                              slug={run.slug}
-                              segment={toWikiSegment(run.slug)}
-                              onNavigate={navigateTo}
-                              onNavigateHome={onNavigateHome}
+                        {run.status}
+                      </td>
+                      <td>{run.nodes_executed}</td>
+                      <td>{run.duration_ms} ms</td>
+                    </tr>
+                    {expandedRun === run.run_id && (
+                      <tr className="admin-pipeline-run-detail-row">
+                        <td colSpan={6}>
+                          {loadingRun === run.run_id ? (
+                            <span className="admin-pipeline-run-loading">
+                              Loading…
+                            </span>
+                          ) : runNodes[run.run_id] ? (
+                            <NodeBreakdown
+                              nodes={runNodes[run.run_id]}
+                              totalMs={run.duration_ms}
+                              runStartedAt={run.started_at}
                             />
-                          ) : (
-                            ""
-                          )}
+                          ) : null}
                         </td>
-                        <td
-                          className={
-                            run.status === "error"
-                              ? "admin-pipeline-run-error"
-                              : ""
-                          }
-                        >
-                          {run.status}
-                        </td>
-                        <td>{run.nodes_executed}</td>
-                        <td>{run.duration_ms} ms</td>
                       </tr>
-                      {expandedRun === run.run_id && (
-                        <tr className="admin-pipeline-run-detail-row">
-                          <td colSpan={6}>
-                            {loadingRun === run.run_id ? (
-                              <span className="admin-pipeline-run-loading">
-                                Loading…
-                              </span>
-                            ) : runNodes[run.run_id] ? (
-                              <NodeBreakdown
-                                nodes={runNodes[run.run_id]}
-                                totalMs={run.duration_ms}
-                                runStartedAt={run.started_at}
-                              />
-                            ) : null}
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </AdminTable>
           {pageCount > 1 && (
             <div className="admin-pipeline-runs-pager">
               <AdminButton
@@ -897,9 +894,7 @@ function formatReferences(references: ReferenceTrace[]): string {
     .join("\n\n---\n\n");
 }
 
-function normalizeRetrievedContext(
-  value: unknown,
-): {
+function normalizeRetrievedContext(value: unknown): {
   sources: RagSourceTrace[];
   ragTitles: string[];
   backlinks: Array<{ slug: string; title: string }>;

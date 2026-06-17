@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pane } from "../Pane";
-import { AdminButton } from "../AdminButton";
+import { Button } from "@/components/ui/button";
 
 interface HostInfo {
   id: string;
@@ -253,8 +253,8 @@ function HostCard({
           />
         </label>
       </div>
-      <AdminButton
-        variant="primary"
+      <Button
+        variant="default"
         disabled={saving}
         onClick={() =>
           onSave({
@@ -270,7 +270,7 @@ function HostCard({
         }
       >
         {saving ? "Saving…" : "Save host"}
-      </AdminButton>
+      </Button>
     </div>
   );
 }
@@ -399,8 +399,8 @@ function AddHostForm({
           />
         </label>
       </div>
-      <AdminButton
-        variant="primary"
+      <Button
+        variant="default"
         disabled={saving || !valid}
         onClick={() =>
           onAdd({
@@ -413,7 +413,7 @@ function AddHostForm({
         }
       >
         {saving ? "Adding…" : "Add host"}
-      </AdminButton>
+      </Button>
     </div>
   );
 }
@@ -622,8 +622,8 @@ function RoleCard({
           : "(none — no host serves this model)"}
       </p>
 
-      <AdminButton
-        variant="primary"
+      <Button
+        variant="default"
         disabled={saving}
         onClick={() => {
           const num = (s: string) => (s.trim() === "" ? undefined : Number(s));
@@ -643,7 +643,7 @@ function RoleCard({
         }}
       >
         {saving ? "Saving…" : "Save role"}
-      </AdminButton>
+      </Button>
     </div>
   );
 }

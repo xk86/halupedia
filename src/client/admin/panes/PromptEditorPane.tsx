@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownEditor } from "../../MarkdownEditor";
 import { Pane } from "../Pane";
-import { AdminButton } from "../AdminButton";
+import { Button } from "@/components/ui/button";
 import { StatusBadge } from "../StatusBadge";
 
 interface PromptMeta {
@@ -281,9 +281,9 @@ export function PromptEditorPane() {
             )}
           </select>
           {selected && (
-            <AdminButton onClick={handleReload} disabled={loading}>
+            <Button variant="outline" onClick={handleReload} disabled={loading}>
               Reload
-            </AdminButton>
+            </Button>
           )}
         </div>
 
@@ -348,16 +348,20 @@ export function PromptEditorPane() {
             </label>
 
             <div className="admin-prompt-actions">
-              <AdminButton
-                variant="primary"
+              <Button
+                variant="default"
                 onClick={handleSave}
                 disabled={saving || !isDirty}
               >
                 {saving ? "Saving…" : "Save"}
-              </AdminButton>
-              <AdminButton onClick={handleReset} disabled={!isDirty}>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleReset}
+                disabled={!isDirty}
+              >
                 Reset
-              </AdminButton>
+              </Button>
               {isDirty && (
                 <span className="admin-prompt-dirty">
                   {previewingId !== null
@@ -392,18 +396,20 @@ export function PromptEditorPane() {
                         <StatusBadge variant={rev.source}>
                           {rev.source}
                         </StatusBadge>
-                        <AdminButton
+                        <Button
+                          variant="outline"
                           onClick={() => handlePreview(rev.id)}
                           disabled={previewingId === rev.id}
                         >
                           {previewingId === rev.id ? "Previewing" : "Preview"}
-                        </AdminButton>
-                        <AdminButton
+                        </Button>
+                        <Button
+                          variant="outline"
                           onClick={() => handleRevert(rev.id)}
                           disabled={revertingId === rev.id}
                         >
                           {revertingId === rev.id ? "Reverting…" : "Revert"}
-                        </AdminButton>
+                        </Button>
                       </li>
                     ))}
                   </ul>

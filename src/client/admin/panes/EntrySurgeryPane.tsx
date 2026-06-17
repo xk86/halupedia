@@ -1,5 +1,5 @@
 import { Pane } from "../Pane";
-import { AdminButton } from "../AdminButton";
+import { Button } from "@/components/ui/button";
 import { TOOLBAR } from "../ui";
 import { ArticleSearchDropdown } from "../../ArticleSearchDropdown";
 
@@ -37,13 +37,13 @@ export function EntrySurgeryPane({
           onPick={(s) => onDeleteSlugChange(s.slug)}
           placeholder="Search or enter slug to delete…"
         />
-        <AdminButton
-          variant="primary"
+        <Button
+          variant="default"
           onClick={onDeleteArticle}
           disabled={deleting || !deleteSlug.trim()}
         >
           {deleting ? "Deleting..." : "Delete article"}
-        </AdminButton>
+        </Button>
       </div>
       <div className={`${TOOLBAR} admin-action-row`}>
         <ArticleSearchDropdown
@@ -54,13 +54,13 @@ export function EntrySurgeryPane({
           onPick={(s) => onSummarySlugChange(s.slug)}
           placeholder="Search or paste /wiki/ link…"
         />
-        <AdminButton
-          variant="primary"
+        <Button
+          variant="default"
           onClick={onRegenerateSummary}
           disabled={regeneratingSummary || !summarySlug.trim()}
         >
           {regeneratingSummary ? "Regenerating..." : "Regenerate summary"}
-        </AdminButton>
+        </Button>
       </div>
       {summaryResult ? (
         <p className="admin-result-headline">{summaryResult}</p>

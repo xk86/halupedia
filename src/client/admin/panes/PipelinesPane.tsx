@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
-import { AdminButton } from "../AdminButton";
+import { Button } from "@/components/ui/button";
 import { AdminTable } from "../AdminTable";
 import { COUNT_LABEL } from "../ui";
 import { toWikiSegment } from "../../wikiPath";
@@ -241,7 +241,11 @@ export function PipelinesPane({
       id="pipelines"
       title="Pipelines"
       wide
-      actions={<AdminButton onClick={onRefresh}>Refresh</AdminButton>}
+      actions={
+        <Button variant="outline" onClick={onRefresh}>
+          Refresh
+        </Button>
+      }
     >
       {error ? <p className="search-error">{error}</p> : null}
 
@@ -366,23 +370,25 @@ export function PipelinesPane({
           </AdminTable>
           {pageCount > 1 && (
             <div className="admin-pipeline-runs-pager">
-              <AdminButton
-                size="small"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={page === 0}
               >
                 ← Prev
-              </AdminButton>
+              </Button>
               <span className={COUNT_LABEL}>
                 Page {page + 1} of {pageCount}
               </span>
-              <AdminButton
-                size="small"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
                 disabled={page >= pageCount - 1}
               >
                 Next →
-              </AdminButton>
+              </Button>
             </div>
           )}
         </>
@@ -399,9 +405,9 @@ export function PipelinesPane({
         style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}
       >
         <h4 className="sb-heading">Workflows</h4>
-        <AdminButton size="small" onClick={toggleAllWorkflows}>
+        <Button variant="outline" size="sm" onClick={toggleAllWorkflows}>
           {allExpanded ? "Collapse all" : "Expand all"}
-        </AdminButton>
+        </Button>
       </div>
 
       <div className="admin-pipeline-grid">

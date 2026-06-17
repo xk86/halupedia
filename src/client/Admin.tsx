@@ -8,7 +8,7 @@ import { PromptEditorPane } from "./admin/panes/PromptEditorPane";
 import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
 import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
 import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
-import { AdminButton } from "./admin/AdminButton";
+import { Button } from "@/components/ui/button";
 import { COUNT_LABEL, TOOLBAR } from "./admin/ui";
 
 interface AdminOverview {
@@ -433,20 +433,16 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
       </header>
 
       <div className={TOOLBAR}>
-        <AdminButton
-          variant="primary"
-          onClick={reloadRuntime}
-          disabled={reloading}
-        >
+        <Button variant="default" onClick={reloadRuntime} disabled={reloading}>
           {reloading ? "Reloading..." : "Reload config and prompts"}
-        </AdminButton>
-        <AdminButton
-          variant="primary"
+        </Button>
+        <Button
+          variant="default"
           onClick={resetFeaturedArticle}
           disabled={resettingFeatured}
         >
           {resettingFeatured ? "Resetting..." : "Reset featured article"}
-        </AdminButton>
+        </Button>
         <span className={COUNT_LABEL}>Model: {overview.model}</span>
       </div>
 

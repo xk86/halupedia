@@ -2,7 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownEditor } from "../../MarkdownEditor";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "../StatusBadge";
+import { Badge, type badgeVariants } from "@/components/ui/badge";
+import { type VariantProps } from "class-variance-authority";
+
+/** Map a prompt-history source ("save" | "revert" | "startup") to a badge look. */
+const SOURCE_BADGE: Record<
+  string,
+  VariantProps<typeof badgeVariants>["variant"]
+> = {
+  save: "secondary",
+  revert: "warn",
+  startup: "outline",
+};
 
 interface PromptMeta {
   key: string;
@@ -393,9 +404,12 @@ export function PromptEditorPane() {
                         <span className="admin-prompt-history-time">
                           {new Date(rev.createdAt).toLocaleString()}
                         </span>
-                        <StatusBadge variant={rev.source}>
+                        <Badge
+                          variant={SOURCE_BADGE[rev.source] ?? "outline"}
+                          className="uppercase"
+                        >
                           {rev.source}
-                        </StatusBadge>
+                        </Badge>
                         <Button
                           variant="outline"
                           onClick={() => handlePreview(rev.id)}

@@ -143,6 +143,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
           size: app.images?.generation?.openai?.size ?? "1088x624",
           quality: app.images?.generation?.openai?.quality ?? "low",
           output_format: app.images?.generation?.openai?.output_format ?? "jpeg",
+          output_compression: app.images?.generation?.openai?.output_compression ?? 70,
           timeout_ms: app.images?.generation?.openai?.timeout_ms ?? 120_000,
         },
         ollama: {

@@ -262,6 +262,7 @@ export interface OpenAIImageGenerationConfig {
   size: string;
   quality: string;
   output_format: string;
+  output_compression: number;
   timeout_ms: number;
 }
 

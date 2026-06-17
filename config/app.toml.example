@@ -100,6 +100,7 @@ model = "gpt-image-2"
 size = "1088x624"
 quality = "low"
 output_format = "jpeg"
+output_compression = 70
 timeout_ms = 120000
 
 [images.generation.ollama]

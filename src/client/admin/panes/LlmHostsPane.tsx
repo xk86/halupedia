@@ -65,6 +65,7 @@ interface ImageGenerationInfo {
     size: string;
     quality: string;
     outputFormat: string;
+    outputCompression: number;
     timeoutMs: number;
   };
   ollama: {
@@ -186,6 +187,11 @@ export function LlmHostsPane() {
   );
 }
 
+function numberOrFallback(value: string, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function ImageGenerationCard({
   info,
   busy,
@@ -204,6 +210,7 @@ function ImageGenerationCard({
   const [openaiSize, setOpenaiSize] = useState(info.openai.size);
   const [openaiQuality, setOpenaiQuality] = useState(info.openai.quality);
   const [openaiOutputFormat, setOpenaiOutputFormat] = useState(info.openai.outputFormat);
+  const [openaiOutputCompression, setOpenaiOutputCompression] = useState(String(info.openai.outputCompression));
   const [openaiTimeout, setOpenaiTimeout] = useState(String(info.openai.timeoutMs));
   const [ollamaBaseUrl, setOllamaBaseUrl] = useState(info.ollama.baseUrl);
   const [ollamaModel, setOllamaModel] = useState(info.ollama.model);
@@ -250,6 +257,7 @@ function ImageGenerationCard({
               <option value="webp">webp</option>
             </select>
           </label>
+          <label>output_compression<input type="number" min="0" max="100" value={openaiOutputCompression} onChange={(e) => setOpenaiOutputCompression(e.target.value)} /></label>
           <label>timeout_ms<input type="number" value={openaiTimeout} onChange={(e) => setOpenaiTimeout(e.target.value)} /></label>
         </div>
       ) : (
@@ -282,15 +290,16 @@ function ImageGenerationCard({
               size: openaiSize,
               quality: openaiQuality,
               outputFormat: openaiOutputFormat,
-              timeoutMs: Number(openaiTimeout) || info.openai.timeoutMs,
+              outputCompression: numberOrFallback(openaiOutputCompression, info.openai.outputCompression),
+              timeoutMs: numberOrFallback(openaiTimeout, info.openai.timeoutMs),
             },
             ollama: {
               baseUrl: ollamaBaseUrl,
               model: ollamaModel,
-              width: Number(ollamaWidth) || info.ollama.width,
-              height: Number(ollamaHeight) || info.ollama.height,
-              steps: Number(ollamaSteps) || info.ollama.steps,
-              timeoutMs: Number(ollamaTimeout) || info.ollama.timeoutMs,
+              width: numberOrFallback(ollamaWidth, info.ollama.width),
+              height: numberOrFallback(ollamaHeight, info.ollama.height),
+              steps: numberOrFallback(ollamaSteps, info.ollama.steps),
+              timeoutMs: numberOrFallback(ollamaTimeout, info.ollama.timeoutMs),
             },
           })
         }

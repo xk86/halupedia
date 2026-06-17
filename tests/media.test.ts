@@ -151,6 +151,7 @@ const enabledOpenAiImageGeneration: Partial<ImageGenerationConfig> = {
     size: "1088x624",
     quality: "low",
     output_format: "jpeg",
+    output_compression: 70,
     timeout_ms: 1000,
   },
 };
@@ -425,6 +426,7 @@ describe("article image generation", () => {
     assert.equal(capturedBody.model, "gpt-image-2");
     assert.equal(capturedBody.prompt, "draw aspirin");
     assert.equal(capturedBody.output_format, "jpeg");
+    assert.equal(capturedBody.output_compression, 70);
     assert.equal(capturedBody.size, "1088x624");
     assert.equal(result.backend, "openai");
     assert.equal(result.mime, "image/jpeg");
@@ -458,6 +460,38 @@ describe("article image generation", () => {
       /api_key/i,
     );
     assert.equal(called, false);
+  });
+
+  test("OpenAI backend omits output_compression for png responses", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: TINY_PNG_B64 }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const result = await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        ...enabledOpenAiImageGeneration,
+        openai: {
+          ...enabledOpenAiImageGeneration.openai!,
+          output_format: "png",
+        },
+        ollama: TEST_CONFIG.app.images.generation.ollama,
+      } as ImageGenerationConfig,
+      logger: noop(),
+    });
+
+    assert.equal(capturedBody.output_format, "png");
+    assert.equal("output_compression" in capturedBody, false);
+    assert.equal(result.mime, "image/png");
   });
 
   test("Ollama backend parses final image field", async (t) => {

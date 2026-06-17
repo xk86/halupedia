@@ -56,6 +56,11 @@ function mimeFromOpenAIOutputFormat(format: string | undefined): string {
   }
 }
 
+function supportsOpenAIOutputCompression(format: string | undefined): boolean {
+  const normalized = format?.toLowerCase();
+  return normalized === "jpeg" || normalized === "jpg" || normalized === "webp";
+}
+
 function parseOllamaGenerateResponse(text: string): { image?: string } {
   const trimmed = text.trim();
   if (!trimmed) return {};
@@ -85,6 +90,17 @@ async function generateWithOpenAI(
   }
   const url = `${normalizeBaseUrl(openai.base_url, "https://api.openai.com/v1")}/images/generations`;
   const startedAt = Date.now();
+  const body: Record<string, unknown> = {
+    model: openai.model,
+    prompt,
+    n: 1,
+    size: openai.size,
+    quality: openai.quality,
+    output_format: openai.output_format,
+  };
+  if (supportsOpenAIOutputCompression(openai.output_format)) {
+    body.output_compression = openai.output_compression;
+  }
   const response = await imageFetch(url, {
     method: "POST",
     headers: {
@@ -92,14 +108,7 @@ async function generateWithOpenAI(
       authorization: `Bearer ${openai.api_key}`,
     },
     signal: AbortSignal.timeout(openai.timeout_ms),
-    body: JSON.stringify({
-      model: openai.model,
-      prompt,
-      n: 1,
-      size: openai.size,
-      quality: openai.quality,
-      output_format: openai.output_format,
-    }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");

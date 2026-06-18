@@ -4101,15 +4101,6 @@ a:hover {
   font: 0.8rem var(--mono);
 }
 
-.admin-thinking-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  font: 0.78rem var(--mono);
-  color: var(--ink);
-  text-transform: uppercase;
-}
-
 .llm-card {
   border: 1px solid var(--rule-strong);
   padding: 0.7rem 0.8rem;

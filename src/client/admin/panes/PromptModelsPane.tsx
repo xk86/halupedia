@@ -72,7 +72,7 @@ export function PromptModelsPane({ associations, savingKey, onUpdate }: Props) {
                 </TableCell>
                 <TableCell title={item.baseUrl}>{item.modelName}</TableCell>
                 <TableCell>
-                  <label className="admin-thinking-toggle flex items-center gap-1.5">
+                  <label className="flex items-center gap-1.5 font-mono text-[0.78rem] text-ink uppercase">
                     <Checkbox
                       checked={item.thinking}
                       disabled={savingKey !== null}

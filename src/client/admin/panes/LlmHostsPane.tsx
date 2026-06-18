@@ -286,14 +286,14 @@ function ImageGenerationCard({
     <div className="llm-card">
       <div className="llm-card-head">
         <strong>article image generation</strong>
-        <label className="admin-thinking-toggle flex items-center gap-1.5">
+        <label className="flex items-center gap-1.5 font-mono text-[0.78rem] text-ink uppercase">
           <Checkbox
             checked={enabled}
             onCheckedChange={(c) => setEnabled(c === true)}
           />{" "}
           enabled
         </label>
-        <label className="admin-thinking-toggle flex items-center gap-1.5">
+        <label className="flex items-center gap-1.5 font-mono text-[0.78rem] text-ink uppercase">
           <Checkbox
             checked={autoGenerate}
             onCheckedChange={(c) => setAutoGenerate(c === true)}
@@ -803,7 +803,7 @@ function RoleCard({
       <div className="llm-card-head">
         <strong>{ROLE_LABEL[role]}</strong>
         {isEmbeddings && (
-          <label className="admin-thinking-toggle flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5 font-mono text-[0.78rem] text-ink uppercase">
             <Checkbox
               checked={enabled}
               onCheckedChange={(c) => setEnabled(c === true)}

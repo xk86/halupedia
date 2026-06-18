@@ -336,45 +336,6 @@ a:hover {
 /* ----------------------- Search results page ------------- */
 
 
-.search-input {
-  flex: 1;
-  font-family: var(--serif);
-  font-size: 1.05rem;
-  color: var(--ink);
-  background: var(--control-surface-soft);
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  padding: 0.55rem 0.7rem;
-  outline: none;
-  transition: border-color 120ms ease, background 120ms ease;
-}
-
-.search-input:focus {
-  border-color: var(--accent);
-  background: var(--control-surface-focus);
-}
-
-.search-submit {
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--parchment);
-  background: var(--accent);
-  border: none;
-  padding: 0.55rem 1.1rem;
-  cursor: pointer;
-  transition: background 120ms ease;
-}
-
-.search-submit:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.search-submit:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 
 .search-status {
   font-family: var(--serif);

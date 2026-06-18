@@ -186,30 +186,33 @@ export function HeadlineImagePanel({
     [articleSlug, busy, applyResult],
   );
 
-  const generateImage = useCallback(async (presetKey = selectedPresetKey) => {
-    if (busy) return;
-    setBusy(true);
-    setGenerating(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        `/api/article/${encodeURIComponent(articleSlug)}/image/generate`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ presetKey }),
-        },
-      );
-      const payload = (await res.json().catch(() => ({}))) as any;
-      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
-      applyResult(payload);
-    } catch (err: any) {
-      setError(err?.message || "Image generation failed.");
-    } finally {
-      setGenerating(false);
-      setBusy(false);
-    }
-  }, [articleSlug, busy, selectedPresetKey, applyResult]);
+  const generateImage = useCallback(
+    async (presetKey = selectedPresetKey) => {
+      if (busy) return;
+      setBusy(true);
+      setGenerating(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(articleSlug)}/image/generate`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ presetKey }),
+          },
+        );
+        const payload = (await res.json().catch(() => ({}))) as any;
+        if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+        applyResult(payload);
+      } catch (err: any) {
+        setError(err?.message || "Image generation failed.");
+      } finally {
+        setGenerating(false);
+        setBusy(false);
+      }
+    },
+    [articleSlug, busy, selectedPresetKey, applyResult],
+  );
 
   const searchExisting = useCallback(async () => {
     if (!searchQuery.trim()) return;
@@ -318,7 +321,7 @@ export function HeadlineImagePanel({
           <div className="contents">
             <Input
               type="search"
-              className="search-input col-start-1 row-start-1 w-full min-w-0 px-[0.5rem] py-[0.3rem] text-[0.85rem]"
+              className="col-start-1 row-start-1 h-auto w-full min-w-0 px-[0.5rem] py-[0.3rem] text-[0.85rem]"
               placeholder="Search existing images…"
               value={searchQuery}
               onChange={(e) => {
@@ -380,7 +383,7 @@ export function HeadlineImagePanel({
           <div className="contents">
             <Input
               type="url"
-              className="search-input col-start-1 row-start-2 w-full min-w-0 px-[0.5rem] py-[0.3rem] text-[0.85rem] max-[600px]:col-[1/-1]"
+              className="col-start-1 row-start-2 h-auto w-full min-w-0 px-[0.5rem] py-[0.3rem] text-[0.85rem] max-[600px]:col-[1/-1]"
               placeholder="Paste image URL or image…"
               value={urlDraft}
               onChange={(e) => {

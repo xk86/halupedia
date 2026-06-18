@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -1861,10 +1862,9 @@ export function App() {
                 >
                   (markdown, no links)
                 </span>
-                <input
+                <Input
                   type="text"
-                  className="search-input"
-                  style={{ width: "100%", marginTop: "0.25rem" }}
+                  className="mt-1 font-serif text-[1.05rem]"
                   placeholder={articleDisplayTitle}
                   value={editTitleDraft}
                   onChange={(e) => {

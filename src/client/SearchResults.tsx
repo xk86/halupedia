@@ -6,6 +6,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toWikiSegment } from "./wikiPath";
 
 /** Section heading with an optional count badge. */
@@ -147,22 +149,22 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       </header>
 
       <form className="mb-[1.25rem] flex gap-[0.5rem]" onSubmit={onSubmit}>
-        <input
+        <Input
           type="search"
-          className="search-input"
+          className="h-auto flex-1 py-[0.55rem] font-serif text-[1.05rem]"
           placeholder="Search Halupedia…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           maxLength={100}
           autoFocus
         />
-        <button
+        <Button
           type="submit"
-          className="search-submit"
+          className="h-auto px-[1.1rem]"
           disabled={!draft.trim()}
         >
           Search
-        </button>
+        </Button>
       </form>
 
       {q && (

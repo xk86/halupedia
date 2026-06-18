@@ -246,6 +246,45 @@ describe("HeadlineImagePanel", () => {
     });
   });
 
+  it("sends auto preset key from the automatic preset generate button", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/article-image-prompts")) {
+        return jsonResponse({
+          prompts: [
+            { key: "default", label: "default" },
+            { key: "conceptual", label: "conceptual" },
+          ],
+        });
+      }
+      if (String(url).endsWith("/image") && !init?.method) return NO_IMAGE_RESPONSE;
+      if (String(url).endsWith("/image/generate") && init?.method === "POST") {
+        return jsonResponse({
+          mediaId: "auto-generated-img",
+          caption: "Generated caption",
+          description: "Generated description",
+          width: 1024,
+          height: 1024,
+        });
+      }
+      return NO_IMAGE_RESPONSE;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /automatically select preset/i }));
+
+    await waitFor(() => {
+      const generateCall = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).endsWith("/image/generate") && (init as RequestInit | undefined)?.method === "POST"
+      );
+      expect(generateCall).toBeTruthy();
+      expect(JSON.parse(String((generateCall?.[1] as RequestInit).body))).toEqual({
+        presetKey: "auto",
+      });
+    });
+  });
+
   it("shows server error when generated image request fails", async () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).endsWith("/image/generate") && init?.method === "POST") {

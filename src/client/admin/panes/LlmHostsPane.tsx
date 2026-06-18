@@ -51,6 +51,31 @@ type RoleKey = "heavy" | "light" | "images" | "embeddings";
 interface LlmConfigResponse {
   hosts: HostInfo[];
   roles: Record<RoleKey, RoleInfo | null>;
+  imageGeneration: ImageGenerationInfo;
+}
+
+interface ImageGenerationInfo {
+  enabled: boolean;
+  autoGenerateForNewArticles: boolean;
+  backend: "openai" | "ollama";
+  openai: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    size: string;
+    quality: string;
+    outputFormat: string;
+    outputCompression: number;
+    timeoutMs: number;
+  };
+  ollama: {
+    baseUrl: string;
+    model: string;
+    width: number;
+    height: number;
+    steps: number;
+    timeoutMs: number;
+  };
 }
 
 const ROLE_ORDER: RoleKey[] = ["heavy", "light", "images", "embeddings"];
@@ -130,6 +155,10 @@ export function LlmHostsPane() {
           <AddHostForm busy={busy} onAdd={(body) => send("add-host", "/api/admin/llm/host", "POST", body)} />
 
           <h4 className="sb-copy" style={{ marginTop: 18 }}>Roles</h4>
+          <p className="sb-copy" style={{ opacity: 0.7 }}>
+            The <code>images</code> role describes existing images for captions and sidebars. New article image
+            generation is configured separately below.
+          </p>
           {ROLE_ORDER.map((role) => {
             const info = data.roles[role];
             if (!info) return null;
@@ -145,9 +174,139 @@ export function LlmHostsPane() {
               />
             );
           })}
+
+          <h4 className="sb-copy" style={{ marginTop: 18 }}>Image generation</h4>
+          <ImageGenerationCard
+            info={data.imageGeneration}
+            busy={busy}
+            onSave={(patch) => send("image-generation", "/api/admin/images/generation", "PUT", patch)}
+          />
         </div>
       )}
     </Pane>
+  );
+}
+
+function numberOrFallback(value: string, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function ImageGenerationCard({
+  info,
+  busy,
+  onSave,
+}: {
+  info: ImageGenerationInfo;
+  busy: string | null;
+  onSave: (patch: Record<string, unknown>) => void;
+}) {
+  const [enabled, setEnabled] = useState(info.enabled);
+  const [autoGenerate, setAutoGenerate] = useState(info.autoGenerateForNewArticles);
+  const [backend, setBackend] = useState<"openai" | "ollama">(info.backend);
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState(info.openai.baseUrl);
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [openaiModel, setOpenaiModel] = useState(info.openai.model);
+  const [openaiSize, setOpenaiSize] = useState(info.openai.size);
+  const [openaiQuality, setOpenaiQuality] = useState(info.openai.quality);
+  const [openaiOutputFormat, setOpenaiOutputFormat] = useState(info.openai.outputFormat);
+  const [openaiOutputCompression, setOpenaiOutputCompression] = useState(String(info.openai.outputCompression));
+  const [openaiTimeout, setOpenaiTimeout] = useState(String(info.openai.timeoutMs));
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState(info.ollama.baseUrl);
+  const [ollamaModel, setOllamaModel] = useState(info.ollama.model);
+  const [ollamaWidth, setOllamaWidth] = useState(String(info.ollama.width));
+  const [ollamaHeight, setOllamaHeight] = useState(String(info.ollama.height));
+  const [ollamaSteps, setOllamaSteps] = useState(String(info.ollama.steps));
+  const [ollamaTimeout, setOllamaTimeout] = useState(String(info.ollama.timeoutMs));
+  const saving = busy === "image-generation";
+
+  return (
+    <div className="llm-card">
+      <div className="llm-card-head">
+        <strong>article image generation</strong>
+        <label className="admin-thinking-toggle">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> enabled
+        </label>
+        <label className="admin-thinking-toggle">
+          <input type="checkbox" checked={autoGenerate} onChange={(e) => setAutoGenerate(e.target.checked)} /> auto for new articles
+        </label>
+      </div>
+
+      <div className="llm-card-grid">
+        <label>
+          backend
+          <select className="admin-model-select" value={backend} onChange={(e) => setBackend(e.target.value === "ollama" ? "ollama" : "openai")}>
+            <option value="openai">openai</option>
+            <option value="ollama">ollama</option>
+          </select>
+        </label>
+      </div>
+
+      {backend === "openai" ? (
+        <div className="llm-card-grid">
+          <label>base_url<input value={openaiBaseUrl} onChange={(e) => setOpenaiBaseUrl(e.target.value)} /></label>
+          <label>api_key<input type="password" placeholder={info.openai.apiKey || "(none)"} value={openaiApiKey} onChange={(e) => setOpenaiApiKey(e.target.value)} /></label>
+          <label>model<input value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)} /></label>
+          <label>size<input value={openaiSize} onChange={(e) => setOpenaiSize(e.target.value)} /></label>
+          <label>quality<input value={openaiQuality} onChange={(e) => setOpenaiQuality(e.target.value)} /></label>
+          <label>
+            output_format
+            <select className="admin-model-select" value={openaiOutputFormat} onChange={(e) => setOpenaiOutputFormat(e.target.value)}>
+              <option value="jpeg">jpeg</option>
+              <option value="png">png</option>
+              <option value="webp">webp</option>
+            </select>
+          </label>
+          <label>output_compression<input type="number" min="0" max="100" value={openaiOutputCompression} onChange={(e) => setOpenaiOutputCompression(e.target.value)} /></label>
+          <label>timeout_ms<input type="number" value={openaiTimeout} onChange={(e) => setOpenaiTimeout(e.target.value)} /></label>
+        </div>
+      ) : (
+        <div className="llm-card-grid">
+          <label>base_url<input value={ollamaBaseUrl} onChange={(e) => setOllamaBaseUrl(e.target.value)} /></label>
+          <label>model<input value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)} /></label>
+          <label>width<input type="number" value={ollamaWidth} onChange={(e) => setOllamaWidth(e.target.value)} /></label>
+          <label>height<input type="number" value={ollamaHeight} onChange={(e) => setOllamaHeight(e.target.value)} /></label>
+          <label>steps<input type="number" value={ollamaSteps} onChange={(e) => setOllamaSteps(e.target.value)} /></label>
+          <label>timeout_ms<input type="number" value={ollamaTimeout} onChange={(e) => setOllamaTimeout(e.target.value)} /></label>
+        </div>
+      )}
+
+      <p className="sb-copy" style={{ opacity: 0.6, fontSize: 12 }}>
+        Manual generation requires <code>enabled</code>. Automatic generation also requires <code>auto for new articles</code>.
+      </p>
+
+      <button
+        className="all-entries-more-btn"
+        disabled={saving}
+        onClick={() =>
+          onSave({
+            enabled,
+            autoGenerateForNewArticles: autoGenerate,
+            backend,
+            openai: {
+              baseUrl: openaiBaseUrl,
+              ...(openaiApiKey ? { apiKey: openaiApiKey } : {}),
+              model: openaiModel,
+              size: openaiSize,
+              quality: openaiQuality,
+              outputFormat: openaiOutputFormat,
+              outputCompression: numberOrFallback(openaiOutputCompression, info.openai.outputCompression),
+              timeoutMs: numberOrFallback(openaiTimeout, info.openai.timeoutMs),
+            },
+            ollama: {
+              baseUrl: ollamaBaseUrl,
+              model: ollamaModel,
+              width: numberOrFallback(ollamaWidth, info.ollama.width),
+              height: numberOrFallback(ollamaHeight, info.ollama.height),
+              steps: numberOrFallback(ollamaSteps, info.ollama.steps),
+              timeoutMs: numberOrFallback(ollamaTimeout, info.ollama.timeoutMs),
+            },
+          })
+        }
+      >
+        {saving ? "Saving…" : "Save image generation"}
+      </button>
+    </div>
   );
 }
 

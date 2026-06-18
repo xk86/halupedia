@@ -132,6 +132,29 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       fetch_timeout_ms: (app.images as Partial<ImagesConfig> | undefined)?.fetch_timeout_ms ?? 10_000,
       media_database_path: (app.images as Partial<ImagesConfig> | undefined)?.media_database_path ?? "data/halupedia-media.sqlite",
       allow_private_hosts: (app.images as Partial<ImagesConfig> | undefined)?.allow_private_hosts ?? false,
+      generation: {
+        enabled: app.images?.generation?.enabled ?? false,
+        auto_generate_for_new_articles: app.images?.generation?.auto_generate_for_new_articles ?? false,
+        backend: app.images?.generation?.backend === "ollama" ? "ollama" : "openai",
+        openai: {
+          base_url: app.images?.generation?.openai?.base_url ?? "https://api.openai.com/v1",
+          api_key: app.images?.generation?.openai?.api_key ?? "",
+          model: app.images?.generation?.openai?.model ?? "gpt-image-2",
+          size: app.images?.generation?.openai?.size ?? "1088x624",
+          quality: app.images?.generation?.openai?.quality ?? "low",
+          output_format: app.images?.generation?.openai?.output_format ?? "jpeg",
+          output_compression: app.images?.generation?.openai?.output_compression ?? 70,
+          timeout_ms: app.images?.generation?.openai?.timeout_ms ?? 120_000,
+        },
+        ollama: {
+          base_url: app.images?.generation?.ollama?.base_url ?? "http://127.0.0.1:11434",
+          model: app.images?.generation?.ollama?.model ?? "x/z-image-turbo",
+          width: app.images?.generation?.ollama?.width ?? 1088,
+          height: app.images?.generation?.ollama?.height ?? 624,
+          steps: app.images?.generation?.ollama?.steps ?? 20,
+          timeout_ms: app.images?.generation?.ollama?.timeout_ms ?? 120_000,
+        },
+      },
     },
   };
 }

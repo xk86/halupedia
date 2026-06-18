@@ -5515,6 +5515,41 @@ button.admin-danger-btn:hover:not(:disabled) {
   min-width: 0;
 }
 
+.admin-prompt-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.55rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--panel-surface);
+}
+
+.admin-prompt-preset-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.admin-prompt-preset-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 12rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.admin-prompt-preset-select {
+  min-width: 12rem;
+}
+
+.admin-prompt-preset-name {
+  min-width: 12rem;
+}
+
 .admin-prompt-meta {
   font: 0.78rem var(--mono);
   color: var(--ink-soft);
@@ -5737,4 +5772,3 @@ button.admin-danger-btn:hover:not(:disabled) {
   color: var(--ink);
   max-width: 40rem;
 }
-

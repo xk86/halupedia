@@ -16,6 +16,11 @@ interface MediaSearchResult {
   byte_size: number;
 }
 
+interface ImagePromptOption {
+  key: string;
+  label: string;
+}
+
 interface Props {
   articleSlug: string;
   onArticleUpdate: (article: unknown) => void;
@@ -30,7 +35,12 @@ export function HeadlineImagePanel({
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imagePrompts, setImagePrompts] = useState<ImagePromptOption[]>([
+    { key: "default", label: "default" },
+  ]);
+  const [selectedPresetKey, setSelectedPresetKey] = useState("default");
 
   // Search-existing state
   const [searchQuery, setSearchQuery] = useState("");
@@ -41,12 +51,28 @@ export function HeadlineImagePanel({
 
   const loadedSlugRef = useRef<string | null>(null);
 
+  const loadImagePrompts = useCallback(() => {
+    fetch("/api/admin/article-image-prompts")
+      .then((r) => r.json())
+      .then((body: { prompts?: ImagePromptOption[] }) => {
+        const prompts = Array.isArray(body.prompts) && body.prompts.length > 0
+          ? body.prompts
+          : [{ key: "default", label: "default" }];
+        setImagePrompts(prompts);
+        setSelectedPresetKey((current) =>
+          prompts.some((prompt) => prompt.key === current) ? current : prompts[0].key,
+        );
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (loadedSlugRef.current === articleSlug) return;
     loadedSlugRef.current = articleSlug;
     setImageInfo(null);
     setUrlDraft("");
     setError(null);
+    setGenerating(false);
     setSearchQuery("");
     setSearchResults(null);
 
@@ -70,11 +96,15 @@ export function HeadlineImagePanel({
               width: body.image.width,
               height: body.image.height,
             });
+          } else {
+            loadImagePrompts();
           }
         },
       )
-      .catch(() => {});
-  }, [articleSlug]);
+      .catch(() => {
+        loadImagePrompts();
+      });
+  }, [articleSlug, loadImagePrompts]);
 
   const applyResult = useCallback(
     (payload: any) => {
@@ -143,6 +173,31 @@ export function HeadlineImagePanel({
     [articleSlug, busy, applyResult],
   );
 
+  const generateImage = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(articleSlug)}/image/generate`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ presetKey: selectedPresetKey }),
+        },
+      );
+      const payload = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      applyResult(payload);
+    } catch (err: any) {
+      setError(err?.message || "Image generation failed.");
+    } finally {
+      setGenerating(false);
+      setBusy(false);
+    }
+  }, [articleSlug, busy, selectedPresetKey, applyResult]);
+
   const searchExisting = useCallback(async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
@@ -194,10 +249,11 @@ export function HeadlineImagePanel({
       if (!res.ok) return;
       setImageInfo(null);
       if (payload.article) onArticleUpdate(payload.article);
+      loadImagePrompts();
     } catch {
       /* silent */
     }
-  }, [articleSlug, onArticleUpdate]);
+  }, [articleSlug, onArticleUpdate, loadImagePrompts]);
 
   return (
     <div className="mb-[0.75rem] grid w-full min-w-0 rounded-[4px] bg-panel-surface px-[0.65rem] py-[0.5rem] [border:1px_solid_var(--panel-border)]">
@@ -360,6 +416,31 @@ export function HeadlineImagePanel({
               />
               {busy ? "…" : "↑"}
             </label>
+          </div>
+
+          <div className="col-[1/-1] row-start-3 flex flex-wrap items-center gap-[0.4rem] max-[600px]:row-start-4">
+            <select
+              className="admin-model-select max-w-full min-w-[11rem] px-[0.45rem] py-[0.28rem] text-[0.82rem]"
+              value={selectedPresetKey}
+              onChange={(e) => setSelectedPresetKey(e.target.value)}
+              disabled={busy}
+              aria-label="Image preset"
+              title="Image preset"
+            >
+              {imagePrompts.map((prompt) => (
+                <option key={prompt.key} value={prompt.key}>
+                  {prompt.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="edit-modal-close max-w-full whitespace-nowrap"
+              onClick={generateImage}
+              disabled={busy}
+            >
+              {generating ? "Generating…" : "Generate"}
+            </button>
           </div>
         </div>
       )}

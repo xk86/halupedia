@@ -1,5 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import type { InfoboxData, HeadlineMedia } from "@/types";
+
+// Compact field styling for the dense sidebar infobox editor — shrinks the
+// shadcn Input/Textarea defaults (height, padding, font) to sidebar scale.
+const EDIT_LABEL =
+  "mt-[0.4rem] mb-[0.15rem] block text-[0.72rem] font-semibold uppercase tracking-[0.04em] text-ink-fade";
+const EDIT_FIELD =
+  "h-auto max-h-32 min-h-[1.6rem] rounded-[3px] px-[0.4rem] py-[0.3rem] text-[0.72rem] shadow-none";
+const ROW_FIELD =
+  "h-auto max-h-28 min-h-[1.5rem] min-w-0 rounded-[2px] px-[0.3rem] py-[0.2rem] text-[0.72rem] shadow-none";
+// Small square delete (×) button used per section/row.
+const DEL_BTN = "size-5 shrink-0 p-0 text-[0.75rem] hover:text-danger";
 
 interface SidebarRevision {
   id: number;
@@ -106,7 +122,7 @@ function MarkdownField({
   onChange,
   disabled,
   placeholder,
-  className = "infobox-editor-row-value",
+  className = ROW_FIELD,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -115,12 +131,13 @@ function MarkdownField({
   className?: string;
 }) {
   return (
-    <textarea
+    <Textarea
       className={className}
       value={value}
       disabled={disabled}
       placeholder={placeholder}
       spellCheck={false}
+      rows={1}
       onChange={(e) => onChange(e.target.value)}
     />
   );
@@ -208,49 +225,43 @@ function InfoboxStructuredEditor({
   }, [draft, articleSlug, onSaved]);
 
   if (loading)
-    return (
-      <div className="sidebar-edit-panel">
-        <p className="sidebar-edit-loading">Loading…</p>
-      </div>
-    );
+    return <p className="my-2 text-[0.8rem] text-ink-fade">Loading…</p>;
   if (!draft) return null;
 
   return (
-    <div className="sidebar-edit-panel">
-      <label className="sidebar-edit-label">Title</label>
-      <input
-        className="sidebar-edit-input"
+    <div className="text-[0.8rem]">
+      <label className={EDIT_LABEL}>Title</label>
+      <Input
+        className={EDIT_FIELD}
         value={draft.title}
         disabled={busy}
         onChange={(e) => upd((d) => ({ ...d, title: e.target.value }))}
         placeholder="Display title…"
       />
 
-      <label className="sidebar-edit-label">
-        Subtitle (optional · markdown)
-      </label>
+      <label className={EDIT_LABEL}>Subtitle (optional · markdown)</label>
       <MarkdownField
         value={draft.subtitle}
         disabled={busy}
         placeholder="e.g. Chemical compound, 1923–1991…"
-        className="sidebar-edit-input"
+        className={EDIT_FIELD}
         onChange={(v) => upd((d) => ({ ...d, subtitle: v }))}
       />
 
-      <label className="sidebar-edit-label">Image caption (markdown)</label>
+      <label className={EDIT_LABEL}>Image caption (markdown)</label>
       <MarkdownField
         value={draft.caption}
         disabled={busy}
         placeholder="Caption for headline image…"
-        className="sidebar-edit-input"
+        className={EDIT_FIELD}
         onChange={(v) => upd((d) => ({ ...d, caption: v }))}
       />
 
       {draft.groups.map((group, gi) => (
-        <div key={gi} className="infobox-editor-section">
-          <div className="infobox-editor-section-hd">
-            <input
-              className="infobox-editor-section-label"
+        <div key={gi} className="mt-2 border-t border-rule pt-[0.35rem]">
+          <div className="mb-[0.25rem] flex items-center gap-[0.2rem]">
+            <Input
+              className={cn(ROW_FIELD, "flex-1 font-semibold")}
               value={group.label}
               disabled={busy}
               placeholder="Section heading (optional)…"
@@ -263,9 +274,11 @@ function InfoboxStructuredEditor({
                 })
               }
             />
-            <button
+            <Button
               type="button"
-              className="infobox-editor-del"
+              variant="outline"
+              size="icon"
+              className={DEL_BTN}
               disabled={busy}
               title="Delete section"
               onClick={() =>
@@ -276,13 +289,16 @@ function InfoboxStructuredEditor({
               }
             >
               ×
-            </button>
+            </Button>
           </div>
 
           {group.rows.map((row, ri) => (
-            <div key={ri} className="infobox-editor-row">
-              <input
-                className="infobox-editor-row-label"
+            <div
+              key={ri}
+              className="mb-[0.2rem] grid grid-cols-[2fr_3fr_auto] items-start gap-[0.2rem]"
+            >
+              <Input
+                className={ROW_FIELD}
                 value={row.label}
                 disabled={busy}
                 placeholder="Field…"
@@ -322,9 +338,11 @@ function InfoboxStructuredEditor({
                   })
                 }
               />
-              <button
+              <Button
                 type="button"
-                className="infobox-editor-del"
+                variant="outline"
+                size="icon"
+                className={DEL_BTN}
                 disabled={busy}
                 title="Delete row"
                 onClick={() =>
@@ -342,13 +360,15 @@ function InfoboxStructuredEditor({
                 }
               >
                 ×
-              </button>
+              </Button>
             </div>
           ))}
 
-          <button
+          <Button
             type="button"
-            className="infobox-editor-add-row"
+            variant="outline"
+            size="sm"
+            className="mt-[0.15rem] h-auto w-full border-dashed px-[0.4rem] py-[0.1rem] text-[0.68rem] font-normal"
             disabled={busy}
             onClick={() =>
               upd((d) => {
@@ -365,39 +385,46 @@ function InfoboxStructuredEditor({
             }
           >
             + row
-          </button>
+          </Button>
         </div>
       ))}
 
-      <button
+      <Button
         type="button"
-        className="infobox-editor-add-section"
+        variant="outline"
+        size="sm"
+        className="mt-2 h-auto w-full border-dashed px-[0.5rem] py-[0.25rem] text-[0.72rem] font-normal"
         disabled={busy}
         onClick={() =>
           upd((d) => ({ ...d, groups: [...d.groups, newGroup()] }))
         }
       >
         + Add section
-      </button>
+      </Button>
 
-      {error && <p className="sidebar-edit-error">{error}</p>}
-      <div className="sidebar-edit-actions">
-        <button
+      {error && (
+        <p className="my-[0.25rem] text-[0.75rem] text-danger">{error}</p>
+      )}
+      <div className="mt-2 flex gap-[0.4rem]">
+        <Button
           type="button"
-          className="sidebar-edit-save"
+          size="sm"
+          className="h-auto flex-1 py-[0.3rem] text-[0.75rem]"
           onClick={save}
           disabled={busy || !draft}
         >
           {busy ? "Saving…" : "Save"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="sidebar-edit-cancel"
+          variant="outline"
+          size="sm"
+          className="h-auto flex-1 py-[0.3rem] text-[0.75rem]"
           onClick={onCancel}
           disabled={busy}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -441,34 +468,39 @@ function InfoboxAiEditor({
   }, [articleSlug, instructions, onSaved]);
 
   return (
-    <div className="sidebar-edit-panel">
-      <label className="sidebar-edit-label">Instructions (optional)</label>
-      <textarea
-        className="sidebar-edit-textarea sidebar-edit-textarea--short"
+    <div className="text-[0.8rem]">
+      <label className={EDIT_LABEL}>Instructions (optional)</label>
+      <Textarea
+        className={cn(EDIT_FIELD, "max-h-none resize-y")}
         value={instructions}
         onChange={(e) => setInstructions(e.target.value)}
         disabled={busy}
         rows={4}
         placeholder="e.g. Focus on the political background, include founding year…"
       />
-      {error && <p className="sidebar-edit-error">{error}</p>}
-      <div className="sidebar-edit-actions">
-        <button
+      {error && (
+        <p className="my-[0.25rem] text-[0.75rem] text-danger">{error}</p>
+      )}
+      <div className="mt-2 flex gap-[0.4rem]">
+        <Button
           type="button"
-          className="sidebar-edit-save"
+          size="sm"
+          className="h-auto flex-1 py-[0.3rem] text-[0.75rem]"
           onClick={regenerate}
           disabled={busy}
         >
           {busy ? "Generating…" : "Regenerate"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="sidebar-edit-cancel"
+          variant="outline"
+          size="sm"
+          className="h-auto flex-1 py-[0.3rem] text-[0.75rem]"
           onClick={onCancel}
           disabled={busy}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -522,46 +554,55 @@ function InfoboxHistory({
   );
 
   if (!revisions)
-    return (
-      <div className="sidebar-edit-panel">
-        <p className="sidebar-edit-loading">Loading…</p>
-      </div>
-    );
+    return <p className="my-2 text-[0.8rem] text-ink-fade">Loading…</p>;
 
   return (
-    <div className="sidebar-edit-panel">
-      {error && <p className="sidebar-edit-error">{error}</p>}
+    <div className="text-[0.8rem]">
+      {error && (
+        <p className="my-[0.25rem] text-[0.75rem] text-danger">{error}</p>
+      )}
       {revisions.length === 0 ? (
-        <p className="sidebar-edit-empty">No revision history yet.</p>
+        <p className="my-2 text-[0.8rem] text-ink-fade">
+          No revision history yet.
+        </p>
       ) : (
-        <ul className="sidebar-history-list">
+        <ul className="m-0 max-h-[180px] list-none overflow-y-auto p-0">
           {revisions.map((rev) => (
-            <li key={rev.id} className="sidebar-history-item">
-              <span className="sidebar-history-op">{rev.operation}</span>
-              <span className="sidebar-history-date">
+            <li
+              key={rev.id}
+              className="flex items-center gap-[0.4rem] border-b border-rule py-[0.25rem] text-[0.75rem]"
+            >
+              <span className="min-w-16 text-[0.65rem] font-semibold tracking-[0.04em] text-ink-fade uppercase">
+                {rev.operation}
+              </span>
+              <span className="flex-1 text-ink-fade">
                 {new Date(rev.changedAt).toLocaleString()}
               </span>
-              <button
+              <Button
                 type="button"
-                className="sidebar-history-restore"
+                variant="outline"
+                size="sm"
+                className="h-auto px-[0.4rem] py-[0.1rem] text-[0.7rem] font-normal text-accent"
                 onClick={() => void restore(rev.id)}
                 disabled={busy}
               >
                 Restore
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       )}
-      <div className="sidebar-edit-actions">
-        <button
+      <div className="mt-2 flex gap-[0.4rem]">
+        <Button
           type="button"
-          className="sidebar-edit-cancel"
+          variant="outline"
+          size="sm"
+          className="h-auto flex-1 py-[0.3rem] text-[0.75rem]"
           onClick={onCancel}
           disabled={busy}
         >
           Close
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -820,43 +861,41 @@ export function Sidebar({
 
         {editOpen && articleSlug && (
           <div
-            className="sidebar-edit-container"
+            className="my-2 border-t border-rule pt-2"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="sidebar-edit-tabs">
-              {(["edit", "ai", "history"] as EditTab[]).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  className={`sidebar-edit-tab${editTab === tab ? "sidebar-edit-tab--active" : ""}`}
-                  onClick={() => setEditTab(tab)}
-                >
-                  {tab === "edit" ? "Edit" : tab === "ai" ? "AI" : "History"}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              value={editTab}
+              onValueChange={(v) => setEditTab(v as EditTab)}
+            >
+              <TabsList className="w-full">
+                <TabsTrigger value="edit">Edit</TabsTrigger>
+                <TabsTrigger value="ai">AI</TabsTrigger>
+                <TabsTrigger value="history">History</TabsTrigger>
+              </TabsList>
 
-            {editTab === "edit" && (
-              <InfoboxStructuredEditor
-                articleSlug={articleSlug}
-                onSaved={handleEditSaved}
-                onCancel={() => setEditOpen(false)}
-              />
-            )}
-            {editTab === "ai" && (
-              <InfoboxAiEditor
-                articleSlug={articleSlug}
-                onSaved={handleAiSaved}
-                onCancel={() => setEditOpen(false)}
-              />
-            )}
-            {editTab === "history" && (
-              <InfoboxHistory
-                articleSlug={articleSlug}
-                onRestored={handleRestored}
-                onCancel={() => setEditOpen(false)}
-              />
-            )}
+              <TabsContent value="edit">
+                <InfoboxStructuredEditor
+                  articleSlug={articleSlug}
+                  onSaved={handleEditSaved}
+                  onCancel={() => setEditOpen(false)}
+                />
+              </TabsContent>
+              <TabsContent value="ai">
+                <InfoboxAiEditor
+                  articleSlug={articleSlug}
+                  onSaved={handleAiSaved}
+                  onCancel={() => setEditOpen(false)}
+                />
+              </TabsContent>
+              <TabsContent value="history">
+                <InfoboxHistory
+                  articleSlug={articleSlug}
+                  onRestored={handleRestored}
+                  onCancel={() => setEditOpen(false)}
+                />
+              </TabsContent>
+            </Tabs>
           </div>
         )}
 

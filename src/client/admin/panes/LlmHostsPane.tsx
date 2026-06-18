@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -499,11 +500,10 @@ function RoleCard({
       <div className="llm-card-head">
         <strong>{ROLE_LABEL[role]}</strong>
         {isEmbeddings && (
-          <label className="admin-thinking-toggle">
-            <input
-              type="checkbox"
+          <label className="admin-thinking-toggle flex items-center gap-1.5">
+            <Checkbox
               checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
+              onCheckedChange={(c) => setEnabled(c === true)}
             />{" "}
             enabled
           </label>

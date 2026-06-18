@@ -1,4 +1,5 @@
 import { Pane } from "../Pane";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -71,13 +72,12 @@ export function PromptModelsPane({ associations, savingKey, onUpdate }: Props) {
                 </TableCell>
                 <TableCell title={item.baseUrl}>{item.modelName}</TableCell>
                 <TableCell>
-                  <label className="admin-thinking-toggle">
-                    <input
-                      type="checkbox"
+                  <label className="admin-thinking-toggle flex items-center gap-1.5">
+                    <Checkbox
                       checked={item.thinking}
                       disabled={savingKey !== null}
-                      onChange={(e) =>
-                        onUpdate(item.key, item.model, e.target.checked)
+                      onCheckedChange={(c) =>
+                        onUpdate(item.key, item.model, c === true)
                       }
                     />
                     {item.thinking ? "on" : "off"}

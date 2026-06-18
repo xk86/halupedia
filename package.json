@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "3d-force-graph": "^1.80.0",
+    "@base-ui/react": "^1.5.0",
     "@fontsource/inter": "^5.2.8",
     "@hono/node-server": "^2.0.2",
     "@langchain/core": "^1.1.48",
@@ -55,7 +56,6 @@
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-to-markdown": "^2.1.2",
     "mustache": "^4.2.0",
-    "radix-ui": "^1.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "rehype-sanitize": "^6.0.0",

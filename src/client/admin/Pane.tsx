@@ -57,7 +57,7 @@ export function Pane({
       <div className="flex items-center justify-between gap-[0.5rem] bg-blockquote-bg px-[0.85rem] py-[0.6rem] [border-bottom:1px_solid_var(--rule)] hover:bg-[var(--hover-bg,color-mix(in_srgb,var(--blockquote-bg)_85%,var(--ink)_15%))]">
         <CollapsibleTrigger className="group flex min-w-0 flex-1 cursor-pointer items-center gap-[0.5rem] text-left select-none">
           <span
-            className="shrink-0 text-[0.75rem] text-ink-soft [transition:rotate_140ms_ease] group-data-[state=closed]:-rotate-90"
+            className="shrink-0 text-[0.75rem] text-ink-soft [transition:rotate_140ms_ease] group-not-data-[panel-open]:-rotate-90"
             aria-hidden
           >
             ▾

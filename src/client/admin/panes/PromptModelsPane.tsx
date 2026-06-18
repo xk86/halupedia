@@ -1,5 +1,12 @@
 import { Pane } from "../Pane";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -46,21 +53,21 @@ export function PromptModelsPane({ associations, savingKey, onUpdate }: Props) {
               <TableRow key={item.key}>
                 <TableCell className="font-mono">{item.key}</TableCell>
                 <TableCell>
-                  <select
-                    className="admin-model-select"
+                  <Select
                     value={item.model}
                     disabled={savingKey !== null}
-                    onChange={(e) =>
-                      onUpdate(
-                        item.key,
-                        e.target.value as "heavy" | "light",
-                        item.thinking,
-                      )
+                    onValueChange={(v) =>
+                      onUpdate(item.key, v as "heavy" | "light", item.thinking)
                     }
                   >
-                    <option value="heavy">heavy</option>
-                    <option value="light">light</option>
-                  </select>
+                    <SelectTrigger size="sm" className="w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="heavy">heavy</SelectItem>
+                      <SelectItem value="light">light</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </TableCell>
                 <TableCell title={item.baseUrl}>{item.modelName}</TableCell>
                 <TableCell>

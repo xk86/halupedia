@@ -332,7 +332,11 @@ describe("App", () => {
     expect(screen.getByText("light-model")).toBeInTheDocument();
     expect(screen.getByText("on")).toBeInTheDocument();
 
-    await userEvent.selectOptions(screen.getByDisplayValue("light"), "heavy");
+    // The model picker is now a Base UI Select (button + listbox), not a native
+    // <select>: open the article_summary row's trigger and click "heavy".
+    const summaryRow = screen.getByText("light-model").closest("tr")!;
+    await userEvent.click(within(summaryRow).getByRole("combobox"));
+    await userEvent.click(await screen.findByRole("option", { name: "heavy" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/admin/prompt-model", {
         method: "POST",
@@ -1409,9 +1413,9 @@ describe("App", () => {
     const paneHeader = screen.getByRole("button", { name: /Prompt Editor/i, hidden: true });
     await userEvent.click(paneHeader);
 
-    // Select the article prompt
-    const select = await screen.findByRole("combobox");
-    await userEvent.selectOptions(select, "runnable:article");
+    // Select the article prompt (Base UI Select: open trigger, click option)
+    await userEvent.click(await screen.findByRole("combobox"));
+    await userEvent.click(await screen.findByRole("option", { name: "article" }));
 
     // Prompt text loads as rendered markdown blocks — click to destructure
     // into the raw source textarea.

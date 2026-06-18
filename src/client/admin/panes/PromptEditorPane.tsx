@@ -3,6 +3,15 @@ import { MarkdownEditor } from "../../MarkdownEditor";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Badge, type badgeVariants } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { type VariantProps } from "class-variance-authority";
 
 /** Map a prompt-history source ("save" | "revert" | "startup") to a badge look. */
@@ -265,32 +274,49 @@ export function PromptEditorPane() {
 
       <div className="admin-prompt-editor">
         <div className="admin-prompt-select-row">
-          <select
-            className="admin-model-select admin-prompt-select"
-            value={selected ? `${selected.scope}:${selected.key}` : ""}
-            onChange={(e) => handleSelect(e.target.value)}
+          <Select
+            value={selected ? `${selected.scope}:${selected.key}` : null}
+            onValueChange={(v) => handleSelect((v as string) ?? "")}
             disabled={!promptList}
+            // `items` maps each value (scope:key) to its display label (key) so
+            // the trigger shows the bare key, not the scoped value.
+            items={Object.fromEntries([
+              ...(promptList?.runnable ?? []).map((p) => [
+                `runnable:${p.key}`,
+                p.key,
+              ]),
+              ...(promptList?.shared ?? []).map((p) => [
+                `shared:${p.key}`,
+                p.key,
+              ]),
+            ])}
           >
-            <option value="">Select a prompt…</option>
-            {promptList && promptList.runnable.length > 0 && (
-              <optgroup label="Runnable">
-                {promptList.runnable.map((p) => (
-                  <option key={p.key} value={`runnable:${p.key}`}>
-                    {p.key}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {promptList && promptList.shared.length > 0 && (
-              <optgroup label="Shared">
-                {promptList.shared.map((p) => (
-                  <option key={p.key} value={`shared:${p.key}`}>
-                    {p.key}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+            <SelectTrigger className="admin-prompt-select w-full">
+              <SelectValue placeholder="Select a prompt…" />
+            </SelectTrigger>
+            <SelectContent>
+              {promptList && promptList.runnable.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Runnable</SelectLabel>
+                  {promptList.runnable.map((p) => (
+                    <SelectItem key={p.key} value={`runnable:${p.key}`}>
+                      {p.key}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {promptList && promptList.shared.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Shared</SelectLabel>
+                  {promptList.shared.map((p) => (
+                    <SelectItem key={p.key} value={`shared:${p.key}`}>
+                      {p.key}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+            </SelectContent>
+          </Select>
           {selected && (
             <Button variant="outline" onClick={handleReload} disabled={loading}>
               Reload

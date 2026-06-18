@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface HostInfo {
   id: string;
@@ -526,37 +533,39 @@ function RoleCard({
           </span>
         ))}
         {available.length > 0 && (
-          <select
-            className="admin-model-select"
-            value=""
-            onChange={(e) =>
-              e.target.value && setHosts([...hosts, e.target.value])
-            }
+          <Select
+            value={null}
+            onValueChange={(h) => h && setHosts([...hosts, h])}
           >
-            <option value="">+ add host…</option>
-            {available.map((h) => (
-              <option key={h} value={h}>
-                {h}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger size="sm">
+              <SelectValue placeholder="+ add host…" />
+            </SelectTrigger>
+            <SelectContent>
+              {available.map((h) => (
+                <SelectItem key={h} value={h}>
+                  {h}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </div>
 
       <div className="llm-card-grid">
         <label>
           model
-          <select
-            className="admin-model-select"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-          >
-            {modelOptions.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          <Select value={model} onValueChange={(v) => setModel(v ?? "")}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {modelOptions.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         {!isEmbeddings && (
           <label>

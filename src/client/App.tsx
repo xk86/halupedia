@@ -10,6 +10,16 @@ import { SearchResults } from "./SearchResults";
 import { Sidebar } from "./Sidebar";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { renderInlineHtml } from "./summaryHtml";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
 import {
@@ -2418,33 +2428,37 @@ export function App() {
               >
                 Restore this version
               </button>
-              {restoreConfirmRevision?.id === selectedRevision.id ? (
-                <div
-                  className="restore-confirm"
-                  role="dialog"
-                  aria-label="Confirm restore"
-                >
-                  <strong>Restore this old revision?</strong>
-                  <div>
-                    <button
-                      type="button"
+              <AlertDialog
+                open={restoreConfirmRevision?.id === selectedRevision.id}
+                onOpenChange={(open) => {
+                  if (!open) setRestoreConfirmRevision(null);
+                }}
+              >
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      Restore this old revision?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This replaces the current article with this older version.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={revertingId !== null}>
+                      No
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
                       onClick={() => revertToRevision(selectedRevision.id)}
                       disabled={revertingId !== null}
                     >
                       {revertingId === selectedRevision.id
                         ? "Restoring..."
                         : "Yes, restore"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRestoreConfirmRevision(null)}
-                      disabled={revertingId !== null}
-                    >
-                      No
-                    </button>
-                  </div>
-                </div>
-              ) : null}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
             <article className="article old-revision-preview">
               <div

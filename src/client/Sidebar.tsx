@@ -29,31 +29,48 @@ interface TopArticle {
 }
 
 /** Top-10 most-referenced articles — shown in the side pane on the homepage. */
-function TopArticlesPanel({ onNavigate }: { onNavigate: (slug: string) => void }) {
+function TopArticlesPanel({
+  onNavigate,
+}: {
+  onNavigate: (slug: string) => void;
+}) {
   const [topArticles, setTopArticles] = useState<TopArticle[]>([]);
 
   useEffect(() => {
     fetch("/api/top-articles?limit=10")
       .then((r) => r.json())
-      .then((d) => setTopArticles((d as { articles: TopArticle[] }).articles ?? []))
-      .catch(() => { });
+      .then((d) =>
+        setTopArticles((d as { articles: TopArticle[] }).articles ?? []),
+      )
+      .catch(() => {});
   }, []);
 
   if (topArticles.length === 0) return null;
   return (
-    <section className="homepage-top-articles sidebar-top-articles">
-      <h2>Top articles</h2>
-      <ol className="homepage-top-list">
+    <section className="w-full border border-panel-border bg-panel-surface p-[0.85rem]">
+      <h2 className="m-0 mb-3 font-mono text-base tracking-[0.08em] text-ink-soft uppercase">
+        Top articles
+      </h2>
+      <ol className="m-0 flex w-full list-none flex-col gap-[0.15rem] p-0">
         {topArticles.map((a, i) => (
-          <li key={a.slug}>
-            <span className="homepage-top-rank">{i + 1}</span>
+          <li
+            key={a.slug}
+            className="flex w-full items-baseline gap-2 py-[0.12rem] text-[0.9rem] [border-bottom:1px_solid_var(--rule)] last:border-b-0"
+          >
+            <span className="w-min min-w-[0.5rem] shrink-0 text-right font-mono text-[0.72rem] text-ink-fade">
+              {i + 1}
+            </span>
             <a
+              className="w-1/2 flex-1 [overflow-wrap:break-word]"
               href={`/wiki/${a.title.replace(/\s+/g, "_")}`}
-              onClick={(e) => { e.preventDefault(); onNavigate(a.title); }}
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate(a.title);
+              }}
             >
               {a.title}
             </a>
-            <span className="homepage-top-count">
+            <span className="shrink-0 font-mono text-[0.72rem] text-ink-fade">
               {a.inboundCount} {a.inboundCount === 1 ? "ref" : "refs"}
             </span>
           </li>
@@ -65,9 +82,20 @@ function TopArticlesPanel({ onNavigate }: { onNavigate: (slug: string) => void }
 
 type EditTab = "edit" | "ai" | "history";
 
-interface DraftRow { label: string; value: string }
-interface DraftGroup { label: string; rows: DraftRow[] }
-interface DraftState { title: string; subtitle: string; caption: string; groups: DraftGroup[] }
+interface DraftRow {
+  label: string;
+  value: string;
+}
+interface DraftGroup {
+  label: string;
+  rows: DraftRow[];
+}
+interface DraftState {
+  title: string;
+  subtitle: string;
+  caption: string;
+  groups: DraftGroup[];
+}
 
 function newGroup(): DraftGroup {
   return { label: "", rows: [{ label: "", value: "" }] };
@@ -115,7 +143,7 @@ function InfoboxStructuredEditor({
   useEffect(() => {
     setLoading(true);
     fetch(`/api/article/${encodeURIComponent(articleSlug)}/infobox`)
-      .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+      .then((r) => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
       .then((data: { infobox: InfoboxData | null; caption: string }) => {
         const raw = data.infobox;
         setDraft({
@@ -123,37 +151,52 @@ function InfoboxStructuredEditor({
           subtitle: raw?.subtitle ?? "",
           caption: data.caption,
           groups: raw?.groups.length
-            ? raw.groups.map((g) => ({ label: g.label, rows: g.rows.map((r) => ({ label: r.label, value: r.value })) }))
+            ? raw.groups.map((g) => ({
+                label: g.label,
+                rows: g.rows.map((r) => ({ label: r.label, value: r.value })),
+              }))
             : [newGroup()],
         });
         setLoading(false);
       })
-      .catch(() => { setError("Failed to load infobox data"); setLoading(false); });
+      .catch(() => {
+        setError("Failed to load infobox data");
+        setLoading(false);
+      });
   }, [articleSlug]);
 
   const upd = useCallback((fn: (d: DraftState) => DraftState) => {
-    setDraft((d) => d ? fn(d) : d);
+    setDraft((d) => (d ? fn(d) : d));
   }, []);
 
   const save = useCallback(async () => {
     if (!draft) return;
-    if (!draft.title.trim()) { setError("Title is required"); return; }
+    if (!draft.title.trim()) {
+      setError("Title is required");
+      return;
+    }
     const infobox: InfoboxData = {
       title: draft.title.trim(),
       subtitle: draft.subtitle.trim() || undefined,
       groups: draft.groups
-        .map((g) => ({ label: g.label.trim(), rows: g.rows.filter((r) => r.label.trim() || r.value.trim()) }))
+        .map((g) => ({
+          label: g.label.trim(),
+          rows: g.rows.filter((r) => r.label.trim() || r.value.trim()),
+        }))
         .filter((g) => g.rows.length > 0),
     };
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/infobox`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ infobox, caption: draft.caption }),
-      });
-      const payload = await res.json().catch(() => ({})) as any;
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(articleSlug)}/infobox`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ infobox, caption: draft.caption }),
+        },
+      );
+      const payload = (await res.json().catch(() => ({}))) as any;
       if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
       // Use server-returned pre-rendered values so the sidebar doesn't flash raw markdown.
       onSaved(payload.infobox ?? infobox, payload.caption ?? draft.caption);
@@ -164,17 +207,28 @@ function InfoboxStructuredEditor({
     }
   }, [draft, articleSlug, onSaved]);
 
-  if (loading) return <div className="sidebar-edit-panel"><p className="sidebar-edit-loading">Loading…</p></div>;
+  if (loading)
+    return (
+      <div className="sidebar-edit-panel">
+        <p className="sidebar-edit-loading">Loading…</p>
+      </div>
+    );
   if (!draft) return null;
 
   return (
     <div className="sidebar-edit-panel">
       <label className="sidebar-edit-label">Title</label>
-      <input className="sidebar-edit-input" value={draft.title} disabled={busy}
+      <input
+        className="sidebar-edit-input"
+        value={draft.title}
+        disabled={busy}
         onChange={(e) => upd((d) => ({ ...d, title: e.target.value }))}
-        placeholder="Display title…" />
+        placeholder="Display title…"
+      />
 
-      <label className="sidebar-edit-label">Subtitle (optional · markdown)</label>
+      <label className="sidebar-edit-label">
+        Subtitle (optional · markdown)
+      </label>
       <MarkdownField
         value={draft.subtitle}
         disabled={busy}
@@ -200,13 +254,29 @@ function InfoboxStructuredEditor({
               value={group.label}
               disabled={busy}
               placeholder="Section heading (optional)…"
-              onChange={(e) => upd((d) => {
-                const groups = d.groups.map((g, i) => i !== gi ? g : { ...g, label: e.target.value });
-                return { ...d, groups };
-              })}
+              onChange={(e) =>
+                upd((d) => {
+                  const groups = d.groups.map((g, i) =>
+                    i !== gi ? g : { ...g, label: e.target.value },
+                  );
+                  return { ...d, groups };
+                })
+              }
             />
-            <button type="button" className="infobox-editor-del" disabled={busy} title="Delete section"
-              onClick={() => upd((d) => ({ ...d, groups: d.groups.filter((_, i) => i !== gi) }))}>×</button>
+            <button
+              type="button"
+              className="infobox-editor-del"
+              disabled={busy}
+              title="Delete section"
+              onClick={() =>
+                upd((d) => ({
+                  ...d,
+                  groups: d.groups.filter((_, i) => i !== gi),
+                }))
+              }
+            >
+              ×
+            </button>
           </div>
 
           {group.rows.map((row, ri) => (
@@ -216,55 +286,118 @@ function InfoboxStructuredEditor({
                 value={row.label}
                 disabled={busy}
                 placeholder="Field…"
-                onChange={(e) => upd((d) => {
-                  const groups = d.groups.map((g, i) => i !== gi ? g : {
-                    ...g, rows: g.rows.map((r, j) => j !== ri ? r : { ...r, label: e.target.value }),
-                  });
-                  return { ...d, groups };
-                })}
+                onChange={(e) =>
+                  upd((d) => {
+                    const groups = d.groups.map((g, i) =>
+                      i !== gi
+                        ? g
+                        : {
+                            ...g,
+                            rows: g.rows.map((r, j) =>
+                              j !== ri ? r : { ...r, label: e.target.value },
+                            ),
+                          },
+                    );
+                    return { ...d, groups };
+                  })
+                }
               />
               <MarkdownField
                 value={row.value}
                 disabled={busy}
                 placeholder="Value (markdown ok)…"
-                onChange={(v) => upd((d) => {
-                  const groups = d.groups.map((g, i) => i !== gi ? g : {
-                    ...g, rows: g.rows.map((r, j) => j !== ri ? r : { ...r, value: v }),
-                  });
-                  return { ...d, groups };
-                })}
+                onChange={(v) =>
+                  upd((d) => {
+                    const groups = d.groups.map((g, i) =>
+                      i !== gi
+                        ? g
+                        : {
+                            ...g,
+                            rows: g.rows.map((r, j) =>
+                              j !== ri ? r : { ...r, value: v },
+                            ),
+                          },
+                    );
+                    return { ...d, groups };
+                  })
+                }
               />
-              <button type="button" className="infobox-editor-del" disabled={busy} title="Delete row"
-                onClick={() => upd((d) => {
-                  const groups = d.groups.map((g, i) => i !== gi ? g : {
-                    ...g, rows: g.rows.filter((_, j) => j !== ri),
-                  });
-                  return { ...d, groups };
-                })}>×</button>
+              <button
+                type="button"
+                className="infobox-editor-del"
+                disabled={busy}
+                title="Delete row"
+                onClick={() =>
+                  upd((d) => {
+                    const groups = d.groups.map((g, i) =>
+                      i !== gi
+                        ? g
+                        : {
+                            ...g,
+                            rows: g.rows.filter((_, j) => j !== ri),
+                          },
+                    );
+                    return { ...d, groups };
+                  })
+                }
+              >
+                ×
+              </button>
             </div>
           ))}
 
-          <button type="button" className="infobox-editor-add-row" disabled={busy}
-            onClick={() => upd((d) => {
-              const groups = d.groups.map((g, i) => i !== gi ? g : {
-                ...g, rows: [...g.rows, { label: "", value: "" }],
-              });
-              return { ...d, groups };
-            })}>+ row</button>
+          <button
+            type="button"
+            className="infobox-editor-add-row"
+            disabled={busy}
+            onClick={() =>
+              upd((d) => {
+                const groups = d.groups.map((g, i) =>
+                  i !== gi
+                    ? g
+                    : {
+                        ...g,
+                        rows: [...g.rows, { label: "", value: "" }],
+                      },
+                );
+                return { ...d, groups };
+              })
+            }
+          >
+            + row
+          </button>
         </div>
       ))}
 
-      <button type="button" className="infobox-editor-add-section" disabled={busy}
-        onClick={() => upd((d) => ({ ...d, groups: [...d.groups, newGroup()] }))}>
+      <button
+        type="button"
+        className="infobox-editor-add-section"
+        disabled={busy}
+        onClick={() =>
+          upd((d) => ({ ...d, groups: [...d.groups, newGroup()] }))
+        }
+      >
         + Add section
       </button>
 
       {error && <p className="sidebar-edit-error">{error}</p>}
       <div className="sidebar-edit-actions">
-        <button type="button" className="sidebar-edit-save" onClick={save} disabled={busy || !draft}>
+        <button
+          type="button"
+          className="sidebar-edit-save"
+          onClick={save}
+          disabled={busy || !draft}
+        >
           {busy ? "Saving…" : "Save"}
         </button>
-        <button type="button" className="sidebar-edit-cancel" onClick={onCancel} disabled={busy}>Cancel</button>
+        <button
+          type="button"
+          className="sidebar-edit-cancel"
+          onClick={onCancel}
+          disabled={busy}
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -287,12 +420,17 @@ function InfoboxAiEditor({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/infobox/regenerate`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ instructions: instructions.trim() || undefined }),
-      });
-      const payload = await res.json().catch(() => ({})) as any;
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(articleSlug)}/infobox/regenerate`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            instructions: instructions.trim() || undefined,
+          }),
+        },
+      );
+      const payload = (await res.json().catch(() => ({}))) as any;
       if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
       onSaved(payload.infobox, payload.caption ?? "");
     } catch (e: any) {
@@ -315,10 +453,20 @@ function InfoboxAiEditor({
       />
       {error && <p className="sidebar-edit-error">{error}</p>}
       <div className="sidebar-edit-actions">
-        <button type="button" className="sidebar-edit-save" onClick={regenerate} disabled={busy}>
+        <button
+          type="button"
+          className="sidebar-edit-save"
+          onClick={regenerate}
+          disabled={busy}
+        >
           {busy ? "Generating…" : "Regenerate"}
         </button>
-        <button type="button" className="sidebar-edit-cancel" onClick={onCancel} disabled={busy}>
+        <button
+          type="button"
+          className="sidebar-edit-cancel"
+          onClick={onCancel}
+          disabled={busy}
+        >
           Cancel
         </button>
       </div>
@@ -342,30 +490,43 @@ function InfoboxHistory({
   useEffect(() => {
     fetch(`/api/article/${encodeURIComponent(articleSlug)}/infobox/history`)
       .then((r) => r.json())
-      .then((data: { revisions: SidebarRevision[] }) => setRevisions(data.revisions))
+      .then((data: { revisions: SidebarRevision[] }) =>
+        setRevisions(data.revisions),
+      )
       .catch(() => setRevisions([]));
   }, [articleSlug]);
 
-  const restore = useCallback(async (revisionId: number) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/infobox/restore`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ revisionId }),
-      });
-      const payload = await res.json().catch(() => ({})) as any;
-      if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
-      onRestored(payload.infobox, payload.caption ?? "");
-    } catch (e: any) {
-      setError(e.message ?? "Restore failed");
-    } finally {
-      setBusy(false);
-    }
-  }, [articleSlug, onRestored]);
+  const restore = useCallback(
+    async (revisionId: number) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(articleSlug)}/infobox/restore`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ revisionId }),
+          },
+        );
+        const payload = (await res.json().catch(() => ({}))) as any;
+        if (!res.ok) throw new Error(payload?.error ?? `HTTP ${res.status}`);
+        onRestored(payload.infobox, payload.caption ?? "");
+      } catch (e: any) {
+        setError(e.message ?? "Restore failed");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [articleSlug, onRestored],
+  );
 
-  if (!revisions) return <div className="sidebar-edit-panel"><p className="sidebar-edit-loading">Loading…</p></div>;
+  if (!revisions)
+    return (
+      <div className="sidebar-edit-panel">
+        <p className="sidebar-edit-loading">Loading…</p>
+      </div>
+    );
 
   return (
     <div className="sidebar-edit-panel">
@@ -393,7 +554,12 @@ function InfoboxHistory({
         </ul>
       )}
       <div className="sidebar-edit-actions">
-        <button type="button" className="sidebar-edit-cancel" onClick={onCancel} disabled={busy}>
+        <button
+          type="button"
+          className="sidebar-edit-cancel"
+          onClick={onCancel}
+          disabled={busy}
+        >
           Close
         </button>
       </div>
@@ -408,19 +574,44 @@ const GENERATING_LABELS: Record<string, string> = {
   "llm.generate_sidebar_caption": "Writing caption…",
 };
 
-export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: headlineMediaProp, showTopArticles, onNavigate, onNavigateToMedia, onArticleUpdate }: SidebarProps) {
+// "Generating…" status label (with leading pulse dot) + its streamed partial.
+const GENERATING_LABEL =
+  "flex items-center gap-[0.4rem] text-[0.78rem] text-ink-fade italic";
+const GENERATING_PARTIAL =
+  "mt-[0.3rem] text-[0.78rem] text-ink-soft leading-[1.4] italic opacity-80";
+
+export function Sidebar({
+  articleSlug,
+  infobox: infoboxProp,
+  headlineMedia: headlineMediaProp,
+  showTopArticles,
+  onNavigate,
+  onNavigateToMedia,
+  onArticleUpdate,
+}: SidebarProps) {
   // Live sidecar state — starts from props, updated by the /live stream.
   const [infobox, setInfobox] = useState<InfoboxData | null>(infoboxProp);
-  const [headlineMedia, setHeadlineMedia] = useState<HeadlineMedia | null>(headlineMediaProp);
+  const [headlineMedia, setHeadlineMedia] = useState<HeadlineMedia | null>(
+    headlineMediaProp,
+  );
   const [generatingNode, setGeneratingNode] = useState<string | null>(null);
-  const [generatingPartial, setGeneratingPartial] = useState<string | null>(null);
+  const [generatingPartial, setGeneratingPartial] = useState<string | null>(
+    null,
+  );
   const [editOpen, setEditOpen] = useState(false);
   const [editTab, setEditTab] = useState<EditTab>("edit");
   const liveRef = useRef<AbortController | null>(null);
 
   // Sync prop changes (navigation) into local state; close edit panel on navigation.
-  useEffect(() => { setInfobox(infoboxProp); setEditOpen(false); setGeneratingNode(null); setGeneratingPartial(null); }, [infoboxProp]);
-  useEffect(() => { setHeadlineMedia(headlineMediaProp); }, [headlineMediaProp]);
+  useEffect(() => {
+    setInfobox(infoboxProp);
+    setEditOpen(false);
+    setGeneratingNode(null);
+    setGeneratingPartial(null);
+  }, [infoboxProp]);
+  useEffect(() => {
+    setHeadlineMedia(headlineMediaProp);
+  }, [headlineMediaProp]);
 
   // Subscribe to live sidecar updates for this article.
   useEffect(() => {
@@ -431,9 +622,12 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
 
     (async () => {
       try {
-        const res = await fetch(`/api/article/${encodeURIComponent(articleSlug)}/live`, {
-          signal: ac.signal,
-        });
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(articleSlug)}/live`,
+          {
+            signal: ac.signal,
+          },
+        );
         if (!res.ok || !res.body) return;
         const reader = res.body.getReader();
         const dec = new TextDecoder();
@@ -481,38 +675,64 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
       }
     })();
 
-    return () => { ac.abort(); };
+    return () => {
+      ac.abort();
+    };
   }, [articleSlug]);
 
   // All hooks must come before any conditional early return (Rules of Hooks).
-  const handleEditSaved = useCallback((newInfobox: InfoboxData, newCaption: string) => {
-    setInfobox(newInfobox);
-    setHeadlineMedia((prev) => prev && newCaption !== prev.caption ? { ...prev, caption: newCaption } : prev);
-    setEditOpen(false);
-  }, []);
+  const handleEditSaved = useCallback(
+    (newInfobox: InfoboxData, newCaption: string) => {
+      setInfobox(newInfobox);
+      setHeadlineMedia((prev) =>
+        prev && newCaption !== prev.caption
+          ? { ...prev, caption: newCaption }
+          : prev,
+      );
+      setEditOpen(false);
+    },
+    [],
+  );
 
-  const handleAiSaved = useCallback((newInfobox: InfoboxData, newCaption: string) => {
-    setInfobox(newInfobox);
-    if (newCaption) setHeadlineMedia((prev) => prev && newCaption !== prev.caption ? { ...prev, caption: newCaption } : prev);
-    setEditOpen(false);
-  }, []);
+  const handleAiSaved = useCallback(
+    (newInfobox: InfoboxData, newCaption: string) => {
+      setInfobox(newInfobox);
+      if (newCaption)
+        setHeadlineMedia((prev) =>
+          prev && newCaption !== prev.caption
+            ? { ...prev, caption: newCaption }
+            : prev,
+        );
+      setEditOpen(false);
+    },
+    [],
+  );
 
-  const handleRestored = useCallback((newInfobox: InfoboxData | null, newCaption: string) => {
-    if (newInfobox) setInfobox(newInfobox);
-    if (newCaption) setHeadlineMedia((prev) => prev ? { ...prev, caption: newCaption } : prev);
-    setEditOpen(false);
-  }, []);
+  const handleRestored = useCallback(
+    (newInfobox: InfoboxData | null, newCaption: string) => {
+      if (newInfobox) setInfobox(newInfobox);
+      if (newCaption)
+        setHeadlineMedia((prev) =>
+          prev ? { ...prev, caption: newCaption } : prev,
+        );
+      setEditOpen(false);
+    },
+    [],
+  );
 
-  const handleInternalLink = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    const a = (e.target as HTMLElement).closest("a");
-    if (!a) return;
-    const href = a.getAttribute("href") ?? "";
-    if (href.startsWith("/wiki/")) {
-      e.preventDefault();
-      const seg = href.slice("/wiki/".length);
-      onNavigate(decodeURIComponent(seg));
-    }
-  }, [onNavigate]);
+  const handleInternalLink = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      const a = (e.target as HTMLElement).closest("a");
+      if (!a) return;
+      const href = a.getAttribute("href") ?? "";
+      if (href.startsWith("/wiki/")) {
+        e.preventDefault();
+        const seg = href.slice("/wiki/".length);
+        onNavigate(decodeURIComponent(seg));
+      }
+    },
+    [onNavigate],
+  );
 
   const [mobileCollapsed, setMobileCollapsed] = useState(false);
 
@@ -525,15 +745,17 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
         </aside>
       );
     }
-    if (!generatingNode) return <aside className="sidebar" aria-label="Context" />;
+    if (!generatingNode)
+      return <aside className="sidebar" aria-label="Context" />;
     return (
       <aside className="sidebar" aria-label="Context">
-        <div className="sidebar-generating">
-          <span className="sidebar-generating-label">
+        <div className="px-[0.5rem] py-[0.6rem] [border-top:1px_solid_var(--rule-soft)]">
+          <span className={GENERATING_LABEL}>
+            <span className="inline-block size-[6px] animate-[sidebar-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent" />
             {GENERATING_LABELS[generatingNode] ?? "Generating…"}
           </span>
           {generatingPartial && (
-            <p className="sidebar-generating-partial">{generatingPartial}</p>
+            <p className={GENERATING_PARTIAL}>{generatingPartial}</p>
           )}
         </div>
       </aside>
@@ -546,41 +768,67 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
   const caption = headlineMedia?.caption ?? "";
 
   return (
-    <aside className="sidebar sidebar--infobox" aria-label="Article info" onClick={handleInternalLink}>
+    <aside
+      className="sidebar sidebar--infobox"
+      aria-label="Article info"
+      onClick={handleInternalLink}
+    >
       <button
         type="button"
         className="sidebar-mobile-toggle"
-        onClick={(e) => { e.stopPropagation(); setMobileCollapsed((v) => !v); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setMobileCollapsed((v) => !v);
+        }}
         aria-expanded={!mobileCollapsed}
       >
         <span>{title || "Article info"}</span>
-        <span className="sidebar-mobile-toggle-icon">{mobileCollapsed ? "▸" : "▾"}</span>
+        <span className="sidebar-mobile-toggle-icon">
+          {mobileCollapsed ? "▸" : "▾"}
+        </span>
       </button>
-      <div className={`infobox${mobileCollapsed ? " infobox--collapsed" : ""}`}>
+      <div className={`infobox${mobileCollapsed ? "infobox--collapsed" : ""}`}>
         <div className="infobox-header-row">
-          {title && <div className="infobox-title" dangerouslySetInnerHTML={{ __html: title }} />}
+          {title && (
+            <div
+              className="infobox-title"
+              dangerouslySetInnerHTML={{ __html: title }}
+            />
+          )}
           {articleSlug && (
             <button
               type="button"
               className="infobox-edit-btn"
               title="Edit sidebar"
-              onClick={(e) => { e.stopPropagation(); setEditOpen((v) => !v); setEditTab("edit"); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditOpen((v) => !v);
+                setEditTab("edit");
+              }}
               aria-label="Edit sidebar"
             >
               ✏
             </button>
           )}
         </div>
-        {subtitle && <div className="infobox-subtitle" dangerouslySetInnerHTML={{ __html: subtitle }} />}
+        {subtitle && (
+          <div
+            className="infobox-subtitle"
+            dangerouslySetInnerHTML={{ __html: subtitle }}
+          />
+        )}
 
         {editOpen && articleSlug && (
-          <div className="sidebar-edit-container" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="sidebar-edit-container"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="sidebar-edit-tabs">
               {(["edit", "ai", "history"] as EditTab[]).map((tab) => (
                 <button
                   key={tab}
                   type="button"
-                  className={`sidebar-edit-tab${editTab === tab ? " sidebar-edit-tab--active" : ""}`}
+                  className={`sidebar-edit-tab${editTab === tab ? "sidebar-edit-tab--active" : ""}`}
                   onClick={() => setEditTab(tab)}
                 >
                   {tab === "edit" ? "Edit" : tab === "ai" ? "AI" : "History"}
@@ -617,7 +865,10 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
             <a
               href={`/media/${encodeURIComponent(headlineMedia.mediaId)}`}
               className="infobox-image-link"
-              onClick={(e) => { e.preventDefault(); onNavigateToMedia(headlineMedia.mediaId); }}
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigateToMedia(headlineMedia.mediaId);
+              }}
             >
               <img
                 src={`/api/media/${encodeURIComponent(headlineMedia.mediaId)}`}
@@ -625,7 +876,12 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
                 className="infobox-image"
               />
             </a>
-            {caption && <p className="infobox-caption" dangerouslySetInnerHTML={{ __html: caption }} />}
+            {caption && (
+              <p
+                className="infobox-caption"
+                dangerouslySetInnerHTML={{ __html: caption }}
+              />
+            )}
           </>
         )}
 
@@ -635,29 +891,41 @@ export function Sidebar({ articleSlug, infobox: infoboxProp, headlineMedia: head
               <tbody key={gi}>
                 {group.label && (
                   <tr>
-                    <th className="infobox-group-header" colSpan={2} dangerouslySetInnerHTML={{ __html: group.label }} />
+                    <th
+                      className="infobox-group-header"
+                      colSpan={2}
+                      dangerouslySetInnerHTML={{ __html: group.label }}
+                    />
                   </tr>
                 )}
                 {group.rows.map((row, ri) => (
                   <tr key={ri}>
-                    <th className="infobox-label" dangerouslySetInnerHTML={{ __html: row.label }} />
-                    <td className="infobox-value" dangerouslySetInnerHTML={{ __html: row.value }} />
+                    <th
+                      className="infobox-label"
+                      dangerouslySetInnerHTML={{ __html: row.label }}
+                    />
+                    <td
+                      className="infobox-value"
+                      dangerouslySetInnerHTML={{ __html: row.value }}
+                    />
                   </tr>
                 ))}
               </tbody>
             ))}
           </table>
         )}
-      {generatingNode && (
-        <div className="sidebar-generating sidebar-generating--inline">
-          <span className="sidebar-generating-label">
-            {GENERATING_LABELS[generatingNode] ?? "Updating…"}
-          </span>
-          {generatingPartial && generatingNode === "llm.regenerate_summary" && (
-            <p className="sidebar-generating-partial">{generatingPartial}</p>
-          )}
-        </div>
-      )}
+        {generatingNode && (
+          <div className="px-[0.5rem] py-[0.4rem] [border-top:1px_solid_var(--rule-soft)]">
+            <span className={GENERATING_LABEL}>
+              <span className="inline-block size-[6px] animate-[sidebar-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent" />
+              {GENERATING_LABELS[generatingNode] ?? "Updating…"}
+            </span>
+            {generatingPartial &&
+              generatingNode === "llm.regenerate_summary" && (
+                <p className={GENERATING_PARTIAL}>{generatingPartial}</p>
+              )}
+          </div>
+        )}
       </div>
     </aside>
   );

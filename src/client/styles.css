@@ -3492,35 +3492,7 @@ a:hover {
 
 /* ── Sidebar generating indicator ────────────────────────────────────────── */
 
-.sidebar-generating {
-  padding: 0.6rem 0.5rem;
-  border-top: 1px solid var(--rule-soft);
-}
-
-.sidebar-generating--inline {
-  border-top: 1px solid var(--rule-soft);
-  padding: 0.4rem 0.5rem;
-}
-
-.sidebar-generating-label {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  color: var(--ink-fade);
-  font-style: italic;
-}
-
-.sidebar-generating-label::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: sidebar-pulse 1.2s ease-in-out infinite;
-}
-
+/* sidebar-pulse drives the small "generating…" status dot (a utility span). */
 @keyframes sidebar-pulse {
 
   0%,
@@ -3531,15 +3503,6 @@ a:hover {
   50% {
     opacity: 1;
   }
-}
-
-.sidebar-generating-partial {
-  margin: 0.3rem 0 0;
-  font-size: 0.78rem;
-  color: var(--ink-soft);
-  line-height: 1.4;
-  font-style: italic;
-  opacity: 0.8;
 }
 
 .admin-model-select {
@@ -3649,95 +3612,6 @@ a:hover {
 }
 
 /* ====================== Homepage top articles ============= */
-
-.homepage-top-articles {
-  margin-top: 2rem;
-  border-top: 1px dotted var(--rule-dotted);
-  padding-top: 1.5rem;
-}
-
-/* Variant for the side pane (homepage): boxed like the infobox, no top rule. */
-.sidebar-top-articles {
-  margin-top: 0;
-  border-top: none;
-  padding: 0.85rem;
-  border: 1px solid var(--panel-border);
-  width: 100%;
-  background: var(--panel-surface);
-}
-
-.homepage-top-articles h2 {
-  font-size: 1rem;
-  font-family: var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-soft);
-  margin: 0 0 0.75rem;
-}
-
-.homepage-top-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  width: 100%;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.homepage-top-list li {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.12rem 0;
-  border-bottom: 1px solid var(--rule);
-  font-size: 0.9rem;
-  width: 100%;
-}
-
-.homepage-top-list li:last-child {
-  border-bottom: none;
-}
-
-.homepage-top-rank {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--ink-fade);
-  min-width: 0.5rem;
-  text-align: right;
-  width: min-content;
-  flex-shrink: 0;
-}
-
-.homepage-top-list a {
-  flex: 1;
-  color: var(--link);
-  width: 50%;
-  overflow-wrap: break-word;
-  border-bottom: 1px solid var(--link-underline);
-}
-
-.homepage-top-list a:hover {
-  color: var(--accent-hover);
-  border-bottom-color: var(--accent-hover);
-  background: transparent;
-}
-
-.homepage-top-count {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--ink-fade);
-  flex-shrink: 0;
-}
-
-.homepage-top-thumb {
-  width: 1.6rem;
-  height: 1.6rem;
-  object-fit: cover;
-  border-radius: 2px;
-  flex-shrink: 0;
-  border: 1px solid var(--rule);
-}
 
 /* ====================== Graph view ======================== */
 

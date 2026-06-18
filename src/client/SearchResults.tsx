@@ -183,9 +183,9 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       {error && <div className="search-error">{error}</div>}
 
       {q && loading && (
-        <p className="search-status">
-          <span className="dot" /> Consulting the index and hallucinating
-          alternatives…
+        <p className="my-4 font-serif text-ink-fade italic">
+          <span className="mr-[0.4rem] inline-block size-2 animate-[pulse_1.1s_ease-in-out_infinite] rounded-full bg-accent align-middle" />{" "}
+          Consulting the index and hallucinating alternatives…
         </p>
       )}
 
@@ -205,16 +205,20 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
               anything new right now.
             </p>
           ) : (
-            <div className="search-results">
+            <div className="flex flex-col gap-6">
               {existingResults.length > 0 && (
                 <section>
                   <SectionTitle count={existingResults.length}>
                     In the encyclopedia
                   </SectionTitle>
-                  <ul className="search-list">
+                  <ul className="m-0 list-none p-0">
                     {existingResults.map((r) => (
-                      <li key={r.slug} className="search-item">
+                      <li
+                        key={r.slug}
+                        className="py-[0.35rem] [border-bottom:1px_dotted_var(--rule-soft)] last:border-b-0"
+                      >
                         <a
+                          className="border-b-0 text-[1.05rem]"
                           href={`/wiki/${toWikiSegment(r.title)}`}
                           onClick={(e) =>
                             onLinkClick(e, toWikiSegment(r.title))
@@ -234,11 +238,14 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
                   <SectionTitle count={unwrittenResults.length}>
                     Not yet written
                   </SectionTitle>
-                  <ul className="search-list">
+                  <ul className="m-0 list-none p-0">
                     {unwrittenResults.map((r) => (
-                      <li key={r.slug} className="search-item">
+                      <li
+                        key={r.slug}
+                        className="py-[0.35rem] [border-bottom:1px_dotted_var(--rule-soft)] last:border-b-0"
+                      >
                         <a
-                          className="group text-ink-fade italic [border-bottom:1px_dashed_var(--accent-border-soft)] hover:[border-bottom-color:var(--accent-hover)] hover:text-accent-hover"
+                          className="group text-[1.05rem] text-ink-fade italic [border-bottom:1px_dashed_var(--accent-border-soft)] hover:[border-bottom-color:var(--accent-hover)] hover:text-accent-hover"
                           href={`/wiki/${toWikiSegment(r.title)}`}
                           onClick={(e) =>
                             onLinkClick(e, toWikiSegment(r.title))
@@ -268,10 +275,14 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
           <SectionTitle>
             {q ? "You might also enjoy" : "Random entries"}
           </SectionTitle>
-          <ul className="search-list">
+          <ul className="m-0 list-none p-0">
             {suggestions.map((s) => (
-              <li key={s.slug} className="search-item">
+              <li
+                key={s.slug}
+                className="py-[0.35rem] [border-bottom:1px_dotted_var(--rule-soft)] last:border-b-0"
+              >
                 <a
+                  className="border-b-0 text-[1.05rem]"
                   href={`/wiki/${toWikiSegment(s.title)}`}
                   onClick={(e) => onLinkClick(e, toWikiSegment(s.title))}
                 >

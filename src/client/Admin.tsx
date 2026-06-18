@@ -412,7 +412,11 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
   );
 
   if (loading)
-    return <p className="search-status">Loading admin overview...</p>;
+    return (
+      <p className="my-4 font-serif text-ink-fade italic">
+        Loading admin overview...
+      </p>
+    );
   if (error) return <div className="search-error">{error}</div>;
   if (!overview) return null;
 

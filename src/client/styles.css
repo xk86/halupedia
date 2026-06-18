@@ -337,24 +337,6 @@ a:hover {
 
 
 
-.search-status {
-  font-family: var(--serif);
-  font-style: italic;
-  color: var(--ink-fade);
-  margin: 1rem 0;
-}
-
-.search-status .dot {
-  display: inline-block;
-  width: 0.5rem;
-  height: 0.5rem;
-  background: var(--accent);
-  border-radius: 50%;
-  margin-right: 0.4rem;
-  animation: pulse 1.1s ease-in-out infinite;
-  vertical-align: middle;
-}
-
 .search-error {
   font-family: var(--mono);
   font-size: 0.85rem;
@@ -363,34 +345,6 @@ a:hover {
   border: 1px solid var(--accent-border);
   padding: 0.6rem 0.8rem;
   margin: 1rem 0;
-}
-
-
-.search-results {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-
-.search-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.search-item {
-  padding: 0.35rem 0;
-  border-bottom: 1px dotted var(--rule-soft);
-}
-
-.search-item:last-child {
-  border-bottom: none;
-}
-
-.search-item a {
-  font-size: 1.05rem;
-  border-bottom: none;
 }
 
 

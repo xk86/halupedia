@@ -15,10 +15,17 @@ interface Props {
 
 export function RecentArticlesPane({ articles, onNavigate }: Props) {
   return (
-    <Pane id="recent-articles" title="Recent Articles" count={`${articles.length}`}>
-      <ul className="search-list">
+    <Pane
+      id="recent-articles"
+      title="Recent Articles"
+      count={`${articles.length}`}
+    >
+      <ul className="m-0 list-none p-0">
         {articles.map((item) => (
-          <li key={`${item.slug}-${item.generatedAt}`} className="search-item">
+          <li
+            key={`${item.slug}-${item.generatedAt}`}
+            className="py-[0.35rem] [border-bottom:1px_dotted_var(--rule-soft)] last:border-b-0 [&_a]:border-b-0 [&_a]:text-[1.05rem]"
+          >
             <a
               href={`/wiki/${toWikiSegment(item.title)}`}
               onClick={(e) => {

@@ -35,6 +35,13 @@ import {
 import { toWikiSegment } from "./wikiPath";
 import { type Suggestion } from "./articleSuggest";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // ── Node-drag button dispatch ────────────────────────────────────────────────
 // 3d-force-graph builds a THREE DragControls over the node meshes but never
@@ -2210,29 +2217,46 @@ export function GraphView({
           </div>
         )}
 
-        <select
-          className="graph-metric-select"
+        <Select
           value={metric}
-          onChange={(e) => setMetric(e.target.value as Metric)}
-          title="Node size and Top-N ranking metric"
+          onValueChange={(v) => v && setMetric(v as Metric)}
+          items={Object.fromEntries(
+            METRICS.map((m) => [m.value, m.label + (m.needsSeeds ? " *" : "")]),
+          )}
         >
-          {METRICS.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-              {m.needsSeeds ? " *" : ""}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            className="graph-metric-select"
+            aria-label="Metric"
+            title="Node size and Top-N ranking metric"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {METRICS.map((m) => (
+              <SelectItem key={m.value} value={m.value}>
+                {m.label}
+                {m.needsSeeds ? " *" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <select
-          className="graph-metric-select"
+        <Select
           value={colorMode}
-          onChange={(e) => setColorMode(e.target.value as ColorMode)}
-          title="Node color mode"
+          onValueChange={(v) => v && setColorMode(v as ColorMode)}
         >
-          <option value="community">Community</option>
-          <option value="component">Component</option>
-        </select>
+          <SelectTrigger
+            className="graph-metric-select"
+            aria-label="Color mode"
+            title="Node color mode"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="community">Community</SelectItem>
+            <SelectItem value="component">Component</SelectItem>
+          </SelectContent>
+        </Select>
 
         {filterMode === "top" && (
           <div className="graph-top-control">
@@ -2555,17 +2579,24 @@ export function GraphView({
                   />
                   <label className="grs-knob">
                     <span className="grs-knob-label">Count</span>
-                    <select
-                      className="graph-metric-select"
+                    <Select
                       value={settings.labelDegreeMode}
-                      onChange={(e) =>
-                        set("labelDegreeMode", e.target.value as DegreeMode)
+                      onValueChange={(v) =>
+                        v && set("labelDegreeMode", v as DegreeMode)
                       }
                     >
-                      <option value="in">In links</option>
-                      <option value="out">Out links</option>
-                      <option value="both">Both</option>
-                    </select>
+                      <SelectTrigger
+                        className="graph-metric-select"
+                        aria-label="Count"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="in">In links</SelectItem>
+                        <SelectItem value="out">Out links</SelectItem>
+                        <SelectItem value="both">Both</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </label>
                 </>
               )}

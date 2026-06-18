@@ -446,7 +446,7 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         <span className={COUNT_LABEL}>Model: {overview.model}</span>
       </div>
 
-      <div className="admin-grid">
+      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] items-start gap-3">
         <PipelinesPane
           workflows={pipelineWorkflows}
           runs={pipelineRuns}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,6 +11,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+// Shared chrome for the LLM admin cards (formerly the llm-card* CSS family).
+// --rule-strong is intentionally undefined upstream, so these borders render
+// transparent — preserved verbatim to keep the existing look.
+const LLM_CARD =
+  "my-2 mx-0 bg-input-surface px-[0.8rem] py-[0.7rem] [border:1px_solid_var(--rule-strong)]";
+const LLM_CARD_HEAD =
+  "mb-2 flex items-center gap-[0.8rem] font-mono text-[0.85rem]";
+const LLM_CARD_GRID =
+  "mb-2 grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-x-[0.8rem] gap-y-2";
+const LLM_FIELD =
+  "flex flex-col gap-[0.2rem] font-mono text-[0.72rem] uppercase opacity-85 [&_input]:normal-case";
+const LLM_FIELD_WIDE = `${LLM_FIELD} col-[1/-1]`;
 
 interface HostInfo {
   id: string;
@@ -158,9 +172,9 @@ export function LlmHostsPane() {
       {!data ? (
         <p className="sb-copy">Loading…</p>
       ) : (
-        <div className="llm-hosts">
+        <div>
           <h4 className="sb-copy">Hosts</h4>
-          <p className="sb-copy" style={{ opacity: 0.7 }}>
+          <p className="sb-copy opacity-70">
             Each host has its own queue (depth = <code>max_in_flight</code>).
             Lower <code>pref</code> wins when a request spills to a fallback.
             Blacklisted models are excluded at probe.
@@ -187,10 +201,8 @@ export function LlmHostsPane() {
             }
           />
 
-          <h4 className="sb-copy" style={{ marginTop: 18 }}>
-            Roles
-          </h4>
-          <p className="sb-copy" style={{ opacity: 0.7 }}>
+          <h4 className="sb-copy mt-[18px]">Roles</h4>
+          <p className="sb-copy opacity-70">
             The <code>images</code> role describes existing images for captions
             and sidebars. New article image generation is configured separately
             below.
@@ -218,9 +230,7 @@ export function LlmHostsPane() {
             );
           })}
 
-          <h4 className="sb-copy" style={{ marginTop: 18 }}>
-            Image generation
-          </h4>
+          <h4 className="sb-copy mt-[18px]">Image generation</h4>
           <ImageGenerationCard
             info={data.imageGeneration}
             busy={busy}
@@ -283,17 +293,17 @@ function ImageGenerationCard({
   const saving = busy === "image-generation";
 
   return (
-    <div className="llm-card">
-      <div className="llm-card-head">
+    <div className={LLM_CARD}>
+      <div className={LLM_CARD_HEAD}>
         <strong>article image generation</strong>
-        <label className="admin-thinking-toggle flex items-center gap-1.5">
+        <label className="flex items-center gap-1.5 font-mono text-[0.78rem] text-ink uppercase">
           <Checkbox
             checked={enabled}
             onCheckedChange={(c) => setEnabled(c === true)}
           />{" "}
           enabled
         </label>
-        <label className="admin-thinking-toggle flex items-center gap-1.5">
+        <label className="flex items-center gap-1.5 font-mono text-[0.78rem] text-ink uppercase">
           <Checkbox
             checked={autoGenerate}
             onCheckedChange={(c) => setAutoGenerate(c === true)}
@@ -302,8 +312,8 @@ function ImageGenerationCard({
         </label>
       </div>
 
-      <div className="llm-card-grid">
-        <label>
+      <div className={LLM_CARD_GRID}>
+        <label className={LLM_FIELD}>
           backend
           <Select
             value={backend}
@@ -323,15 +333,15 @@ function ImageGenerationCard({
       </div>
 
       {backend === "openai" ? (
-        <div className="llm-card-grid">
-          <label>
+        <div className={LLM_CARD_GRID}>
+          <label className={LLM_FIELD}>
             base_url
             <Input
               value={openaiBaseUrl}
               onChange={(e) => setOpenaiBaseUrl(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             api_key
             <Input
               type="password"
@@ -340,28 +350,28 @@ function ImageGenerationCard({
               onChange={(e) => setOpenaiApiKey(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             model
             <Input
               value={openaiModel}
               onChange={(e) => setOpenaiModel(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             size
             <Input
               value={openaiSize}
               onChange={(e) => setOpenaiSize(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             quality
             <Input
               value={openaiQuality}
               onChange={(e) => setOpenaiQuality(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             output_format
             <Select
               value={openaiOutputFormat}
@@ -377,7 +387,7 @@ function ImageGenerationCard({
               </SelectContent>
             </Select>
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             output_compression
             <Input
               type="number"
@@ -387,7 +397,7 @@ function ImageGenerationCard({
               onChange={(e) => setOpenaiOutputCompression(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             timeout_ms
             <Input
               type="number"
@@ -397,22 +407,22 @@ function ImageGenerationCard({
           </label>
         </div>
       ) : (
-        <div className="llm-card-grid">
-          <label>
+        <div className={LLM_CARD_GRID}>
+          <label className={LLM_FIELD}>
             base_url
             <Input
               value={ollamaBaseUrl}
               onChange={(e) => setOllamaBaseUrl(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             model
             <Input
               value={ollamaModel}
               onChange={(e) => setOllamaModel(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             width
             <Input
               type="number"
@@ -420,7 +430,7 @@ function ImageGenerationCard({
               onChange={(e) => setOllamaWidth(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             height
             <Input
               type="number"
@@ -428,7 +438,7 @@ function ImageGenerationCard({
               onChange={(e) => setOllamaHeight(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             steps
             <Input
               type="number"
@@ -436,7 +446,7 @@ function ImageGenerationCard({
               onChange={(e) => setOllamaSteps(e.target.value)}
             />
           </label>
-          <label>
+          <label className={LLM_FIELD}>
             timeout_ms
             <Input
               type="number"
@@ -447,7 +457,7 @@ function ImageGenerationCard({
         </div>
       )}
 
-      <p className="sb-copy" style={{ opacity: 0.6, fontSize: 12 }}>
+      <p className="sb-copy text-[12px] opacity-60">
         Manual generation requires <code>enabled</code>. Automatic generation
         also requires <code>auto for new articles</code>.
       </p>
@@ -471,10 +481,7 @@ function ImageGenerationCard({
                 openaiOutputCompression,
                 info.openai.outputCompression,
               ),
-              timeoutMs: numberOrFallback(
-                openaiTimeout,
-                info.openai.timeoutMs,
-              ),
+              timeoutMs: numberOrFallback(openaiTimeout, info.openai.timeoutMs),
             },
             ollama: {
               baseUrl: ollamaBaseUrl,
@@ -482,10 +489,7 @@ function ImageGenerationCard({
               width: numberOrFallback(ollamaWidth, info.ollama.width),
               height: numberOrFallback(ollamaHeight, info.ollama.height),
               steps: numberOrFallback(ollamaSteps, info.ollama.steps),
-              timeoutMs: numberOrFallback(
-                ollamaTimeout,
-                info.ollama.timeoutMs,
-              ),
+              timeoutMs: numberOrFallback(ollamaTimeout, info.ollama.timeoutMs),
             },
           })
         }
@@ -513,25 +517,31 @@ function HostCard({
   const saving = busy === `host:${host.id}`;
 
   return (
-    <div className="llm-card">
-      <div className="llm-card-head">
+    <div className={LLM_CARD}>
+      <div className={LLM_CARD_HEAD}>
         <strong>{host.id}</strong>
-        <span className={host.online ? "llm-dot-online" : "llm-dot-offline"}>
+        <span
+          className={
+            host.online
+              ? "font-mono text-[0.72rem] text-[#2e7d32]"
+              : "font-mono text-[0.72rem] text-[#b00020]"
+          }
+        >
           {host.online
             ? `online · ${host.models?.length ?? 0} models`
             : "offline"}
         </span>
-        <span style={{ opacity: 0.6 }}>
+        <span className="opacity-60">
           {host.active}/{host.max_in_flight} in-flight · {host.queued} queued
         </span>
       </div>
       <HostUtilization host={host} />
-      <div className="llm-card-grid">
-        <label>
+      <div className={LLM_CARD_GRID}>
+        <label className={LLM_FIELD}>
           base_url
           <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
         </label>
-        <label>
+        <label className={LLM_FIELD}>
           api_key
           <Input
             type="password"
@@ -540,7 +550,7 @@ function HostCard({
             onChange={(e) => setApiKey(e.target.value)}
           />
         </label>
-        <label>
+        <label className={LLM_FIELD}>
           queue depth
           <Input
             type="number"
@@ -549,7 +559,7 @@ function HostCard({
             onChange={(e) => setMaxInFlight(e.target.value)}
           />
         </label>
-        <label>
+        <label className={LLM_FIELD}>
           pref
           <Input
             type="number"
@@ -557,7 +567,7 @@ function HostCard({
             onChange={(e) => setPref(e.target.value)}
           />
         </label>
-        <label className="llm-wide">
+        <label className={LLM_FIELD_WIDE}>
           blacklist (comma-sep)
           <Input
             value={blacklist}
@@ -590,19 +600,20 @@ function HostCard({
 function HostUtilization({ host }: { host: HostInfo }) {
   const hasJobs = host.activeJobs.length > 0 || host.queuedJobs.length > 0;
   return (
-    <div className="llm-utilization">
+    <div className="mb-[0.6rem]">
       <div
-        className="llm-util-bar"
+        className="h-[0.45rem] overflow-hidden bg-[color-mix(in_srgb,var(--paper,#fff)_80%,var(--ink)_20%)] [border:1px_solid_var(--rule-strong)]"
         title={`${host.active}/${host.max_in_flight} active`}
       >
         <span
+          className="block h-full bg-[#2e7d32]"
           style={{
             width: `${Math.min(100, Math.round((host.active / Math.max(host.max_in_flight, 1)) * 100))}%`,
           }}
         />
       </div>
       {hasJobs ? (
-        <div className="llm-job-list">
+        <div className="mt-[0.45rem] grid gap-1">
           {host.activeJobs.map((job) => (
             <JobRow key={`active:${job.id}`} job={job} state="active" />
           ))}
@@ -615,7 +626,9 @@ function HostUtilization({ host }: { host: HostInfo }) {
           ))}
         </div>
       ) : (
-        <p className="llm-job-empty">No active or queued LLM dispatches.</p>
+        <p className="mx-0 mt-[0.35rem] mb-0 font-mono text-[0.72rem] text-[var(--muted)]">
+          No active or queued LLM dispatches.
+        </p>
       )}
     </div>
   );
@@ -634,14 +647,25 @@ function JobRow({
       ? `${formatDuration(job.runningMs ?? 0)} running`
       : `${formatDuration(job.queuedMs)} queued`;
   return (
-    <div className={`llm-job-row llm-job-row--${state}`}>
-      <span className="llm-job-state">{state}</span>
-      <span className="llm-job-main" title={topic}>
+    <div
+      className={clsx(
+        "grid grid-cols-[4.5rem_minmax(12rem,1fr)_minmax(14rem,1fr)] items-center gap-2 px-[0.45rem] py-[0.3rem] font-mono text-[0.74rem] [border:1px_solid_var(--rule)] max-[600px]:grid-cols-[1fr]",
+        state === "queued" && "opacity-75",
+      )}
+    >
+      <span className="text-[var(--muted)] uppercase">{state}</span>
+      <span
+        className="flex min-w-0 gap-[0.45rem] overflow-hidden text-ellipsis whitespace-nowrap"
+        title={topic}
+      >
         <strong>{job.role}</strong>
         <span>{job.workflow ?? "(direct)"}</span>
         <span>{topic}</span>
       </span>
-      <span className="llm-job-meta" title={job.candidates.join(" → ")}>
+      <span
+        className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+        title={job.candidates.join(" → ")}
+      >
         {job.node ?? "llm"} · {job.model} · {timing}
       </span>
     </div>
@@ -672,12 +696,12 @@ function AddHostForm({
   const valid = /^[A-Za-z0-9_-]+$/.test(id) && baseUrl.length > 0;
 
   return (
-    <div className="llm-card">
-      <div className="llm-card-head">
+    <div className={LLM_CARD}>
+      <div className={LLM_CARD_HEAD}>
         <strong>Add host</strong>
       </div>
-      <div className="llm-card-grid">
-        <label>
+      <div className={LLM_CARD_GRID}>
+        <label className={LLM_FIELD}>
           id
           <Input
             value={id}
@@ -685,15 +709,15 @@ function AddHostForm({
             onChange={(e) => setId(e.target.value)}
           />
         </label>
-        <label>
+        <label className={LLM_FIELD}>
           base_url
           <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
         </label>
-        <label>
+        <label className={LLM_FIELD}>
           api_key
           <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
         </label>
-        <label>
+        <label className={LLM_FIELD}>
           queue depth
           <Input
             type="number"
@@ -702,7 +726,7 @@ function AddHostForm({
             onChange={(e) => setMaxInFlight(e.target.value)}
           />
         </label>
-        <label>
+        <label className={LLM_FIELD}>
           pref
           <Input
             type="number"
@@ -799,11 +823,11 @@ function RoleCard({
   }, [hosts, hostModels, model]);
 
   return (
-    <div className="llm-card">
-      <div className="llm-card-head">
+    <div className={LLM_CARD}>
+      <div className={LLM_CARD_HEAD}>
         <strong>{ROLE_LABEL[role]}</strong>
         {isEmbeddings && (
-          <label className="admin-thinking-toggle flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5 font-mono text-[0.78rem] text-ink uppercase">
             <Checkbox
               checked={enabled}
               onCheckedChange={(c) => setEnabled(c === true)}
@@ -813,10 +837,13 @@ function RoleCard({
         )}
       </div>
 
-      <div className="llm-host-list">
+      <div className="mb-2 flex flex-wrap items-center gap-[0.4rem]">
         {hosts.map((h, i) => (
-          <span key={h} className="llm-host-chip">
-            <span style={{ opacity: 0.5 }}>{i + 1}.</span> {h}
+          <span
+            key={h}
+            className="inline-flex items-center gap-[0.3rem] px-[0.4rem] py-[0.2rem] font-mono text-[0.78rem] [border:1px_solid_var(--rule-strong)] [&_button]:cursor-pointer [&_button]:border-none [&_button]:bg-transparent [&_button]:px-[0.15rem] [&_button]:py-0 [&_button]:text-ink [&_button:disabled]:cursor-default [&_button:disabled]:opacity-30"
+          >
+            <span className="opacity-50">{i + 1}.</span> {h}
             <button title="up" disabled={i === 0} onClick={() => move(i, -1)}>
               ↑
             </button>
@@ -854,8 +881,8 @@ function RoleCard({
         )}
       </div>
 
-      <div className="llm-card-grid">
-        <label>
+      <div className={LLM_CARD_GRID}>
+        <label className={LLM_FIELD}>
           model
           <Select value={model} onValueChange={(v) => setModel(v ?? "")}>
             <SelectTrigger className="w-full">
@@ -871,7 +898,7 @@ function RoleCard({
           </Select>
         </label>
         {!isEmbeddings && (
-          <label>
+          <label className={LLM_FIELD}>
             temperature
             <Input
               type="number"
@@ -882,7 +909,7 @@ function RoleCard({
           </label>
         )}
         {!isEmbeddings && (
-          <label>
+          <label className={LLM_FIELD}>
             max_tokens
             <Input
               type="number"
@@ -892,7 +919,7 @@ function RoleCard({
           </label>
         )}
         {!isEmbeddings && (
-          <label>
+          <label className={LLM_FIELD}>
             top_k
             <Input
               type="number"
@@ -903,7 +930,7 @@ function RoleCard({
           </label>
         )}
         {!isEmbeddings && (
-          <label>
+          <label className={LLM_FIELD}>
             top_p
             <Input
               type="number"
@@ -915,7 +942,7 @@ function RoleCard({
           </label>
         )}
         {!isEmbeddings && (
-          <label>
+          <label className={LLM_FIELD}>
             min_p
             <Input
               type="number"
@@ -928,7 +955,7 @@ function RoleCard({
         )}
       </div>
 
-      <p className="sb-copy" style={{ opacity: 0.6, fontSize: 12 }}>
+      <p className="sb-copy text-[12px] opacity-60">
         Resolved order:{" "}
         {info.candidates.length
           ? info.candidates.join(" → ")

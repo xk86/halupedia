@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import { Pane } from "../Pane";
 import { toWikiSegment } from "../../wikiPath";
 
@@ -67,10 +68,10 @@ function LiveCot({ text }: { text: string }) {
   }, [text, open]);
 
   return (
-    <div className="admin-queue-cot">
+    <div className="mt-[0.2rem] flex-[1_1_100%]">
       <button
         type="button"
-        className="admin-queue-cot-toggle"
+        className="cursor-pointer border-none bg-none p-0 font-mono text-[0.72rem] tracking-[0.06em] text-ink-fade hover:text-ink"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -79,10 +80,11 @@ function LiveCot({ text }: { text: string }) {
       {open && (
         <pre
           ref={boxRef}
-          className="admin-queue-cot-body"
+          className="mx-0 mt-[0.35rem] mb-0 max-h-[14rem] overflow-y-auto rounded-[4px] bg-[var(--surface-sunken,rgba(0,0,0,0.04))] px-[0.7rem] py-[0.55rem] font-mono text-[0.72rem] leading-[1.5] break-words whitespace-pre-wrap text-ink-fade [border:1px_solid_var(--rule)]"
           onScroll={(e) => {
             const el = e.currentTarget;
-            pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+            pinnedToBottom.current =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 24;
           }}
         >
           {text}
@@ -122,23 +124,41 @@ function stateLabel(state: "queued" | "processing" | "llm"): string {
   return "Processing";
 }
 
+const STATE_CLASSES: Record<"queued" | "processing" | "llm", string> = {
+  queued: "[border-left:3px_solid_#a87d2a] bg-[rgba(168,125,42,0.08)]",
+  processing: "[border-left:3px_solid_#4d7f93] bg-[rgba(77,127,147,0.08)]",
+  llm: "[border-left:3px_solid_var(--accent)] bg-accent-wash",
+};
+
 export function GenerationQueuePane({ items, onNavigate }: Props) {
   const queued = items.filter((item) => queueState(item) === "queued").length;
   const active = items.length - queued;
   return (
-    <Pane id="generation-queue" title="Generation Queue" count={`${active} active · ${queued} queued`}>
+    <Pane
+      id="generation-queue"
+      title="Generation Queue"
+      count={`${active} active · ${queued} queued`}
+    >
       {items.length ? (
-        <ul className="admin-queue-list">
+        <ul className="mx-0 mt-[0.85rem] mb-0 flex list-none flex-col gap-[0.55rem] p-0">
           {items.map((item) => {
             const phase = formatPhase(item.phase);
             const workflowLabel = formatWorkflow(item.workflow);
             const state = queueState(item);
-            const timer = state === "queued"
-              ? `${formatDuration(item.queuedMs)} queued`
-              : `${formatDuration(item.activeMs)} active`;
+            const timer =
+              state === "queued"
+                ? `${formatDuration(item.queuedMs)} queued`
+                : `${formatDuration(item.activeMs)} active`;
             return (
-              <li key={`${item.slug}-${item.seq}`} className={`admin-queue-item admin-queue-item--${state}`}>
+              <li
+                key={`${item.slug}-${item.seq}`}
+                className={clsx(
+                  "flex flex-wrap items-center justify-between gap-x-4 gap-y-[0.4rem] px-[0.7rem] py-[0.65rem] [border-top:1px_solid_var(--rule)] max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-1",
+                  STATE_CLASSES[state],
+                )}
+              >
                 <a
+                  className="font-semibold text-[var(--link)] [text-decoration-thickness:1px] [text-underline-offset:0.18em]"
                   href={`/wiki/${toWikiSegment(item.title)}`}
                   onClick={(e) => {
                     e.preventDefault();
@@ -147,8 +167,9 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
                 >
                   {item.title}
                 </a>
-                <span className="admin-queue-meta">
-                  {stateLabel(state)} · {timer} · {workflowLabel}{phase ? ` · ${phase}` : ""}
+                <span className="admin-queue-meta shrink-0 font-mono text-[0.72rem] tracking-[0.08em] text-ink-fade uppercase">
+                  {stateLabel(state)} · {timer} · {workflowLabel}
+                  {phase ? ` · ${phase}` : ""}
                   {item.waiting > 0 && ` · ${item.waiting} waiting`}
                 </span>
                 {item.reasoning ? <LiveCot text={item.reasoning} /> : null}

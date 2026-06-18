@@ -1,6 +1,7 @@
 import { MutableRefObject } from "react";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   ArticleSearchDropdown,
   SEARCH_INPUT,
@@ -159,7 +160,7 @@ export function SlugAliasPane({
         article.
       </p>
       <div className="mb-[0.5rem] flex flex-wrap items-start gap-[0.5rem]">
-        <input
+        <Input
           className={`${SEARCH_INPUT} min-w-[140px] flex-1`}
           placeholder="new alias-slug"
           value={newAliasSlug}

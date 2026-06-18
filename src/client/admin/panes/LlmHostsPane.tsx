@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface HostInfo {
   id: string;
@@ -217,11 +218,11 @@ function HostCard({
       <div className="llm-card-grid">
         <label>
           base_url
-          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+          <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
         </label>
         <label>
           api_key
-          <input
+          <Input
             type="password"
             placeholder={host.api_key || "(none)"}
             value={apiKey}
@@ -230,7 +231,7 @@ function HostCard({
         </label>
         <label>
           queue depth
-          <input
+          <Input
             type="number"
             min={1}
             value={maxInFlight}
@@ -239,7 +240,7 @@ function HostCard({
         </label>
         <label>
           pref
-          <input
+          <Input
             type="number"
             value={pref}
             onChange={(e) => setPref(e.target.value)}
@@ -247,7 +248,7 @@ function HostCard({
         </label>
         <label className="llm-wide">
           blacklist (comma-sep)
-          <input
+          <Input
             value={blacklist}
             onChange={(e) => setBlacklist(e.target.value)}
           />
@@ -367,7 +368,7 @@ function AddHostForm({
       <div className="llm-card-grid">
         <label>
           id
-          <input
+          <Input
             value={id}
             placeholder="host-b"
             onChange={(e) => setId(e.target.value)}
@@ -375,15 +376,15 @@ function AddHostForm({
         </label>
         <label>
           base_url
-          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+          <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
         </label>
         <label>
           api_key
-          <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+          <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
         </label>
         <label>
           queue depth
-          <input
+          <Input
             type="number"
             min={1}
             value={maxInFlight}
@@ -392,7 +393,7 @@ function AddHostForm({
         </label>
         <label>
           pref
-          <input
+          <Input
             type="number"
             value={pref}
             onChange={(e) => setPref(e.target.value)}
@@ -560,7 +561,7 @@ function RoleCard({
         {!isEmbeddings && (
           <label>
             temperature
-            <input
+            <Input
               type="number"
               step="0.1"
               value={temperature}
@@ -571,7 +572,7 @@ function RoleCard({
         {!isEmbeddings && (
           <label>
             max_tokens
-            <input
+            <Input
               type="number"
               value={maxTokens}
               onChange={(e) => setMaxTokens(e.target.value)}
@@ -581,7 +582,7 @@ function RoleCard({
         {!isEmbeddings && (
           <label>
             top_k
-            <input
+            <Input
               type="number"
               placeholder="default"
               value={topK}
@@ -592,7 +593,7 @@ function RoleCard({
         {!isEmbeddings && (
           <label>
             top_p
-            <input
+            <Input
               type="number"
               step="0.01"
               placeholder="default"
@@ -604,7 +605,7 @@ function RoleCard({
         {!isEmbeddings && (
           <label>
             min_p
-            <input
+            <Input
               type="number"
               step="0.01"
               placeholder="default"

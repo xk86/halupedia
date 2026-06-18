@@ -80,10 +80,11 @@ function LiveCot({ text }: { text: string }) {
       {open && (
         <pre
           ref={boxRef}
-          className="mt-[0.35rem] mb-0 mx-0 max-h-[14rem] overflow-y-auto rounded-[4px] bg-[var(--surface-sunken,rgba(0,0,0,0.04))] px-[0.7rem] py-[0.55rem] font-mono text-[0.72rem] leading-[1.5] break-words whitespace-pre-wrap text-ink-fade [border:1px_solid_var(--rule)]"
+          className="mx-0 mt-[0.35rem] mb-0 max-h-[14rem] overflow-y-auto rounded-[4px] bg-[var(--surface-sunken,rgba(0,0,0,0.04))] px-[0.7rem] py-[0.55rem] font-mono text-[0.72rem] leading-[1.5] break-words whitespace-pre-wrap text-ink-fade [border:1px_solid_var(--rule)]"
           onScroll={(e) => {
             const el = e.currentTarget;
-            pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+            pinnedToBottom.current =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 24;
           }}
         >
           {text}
@@ -133,16 +134,21 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
   const queued = items.filter((item) => queueState(item) === "queued").length;
   const active = items.length - queued;
   return (
-    <Pane id="generation-queue" title="Generation Queue" count={`${active} active · ${queued} queued`}>
+    <Pane
+      id="generation-queue"
+      title="Generation Queue"
+      count={`${active} active · ${queued} queued`}
+    >
       {items.length ? (
         <ul className="mx-0 mt-[0.85rem] mb-0 flex list-none flex-col gap-[0.55rem] p-0">
           {items.map((item) => {
             const phase = formatPhase(item.phase);
             const workflowLabel = formatWorkflow(item.workflow);
             const state = queueState(item);
-            const timer = state === "queued"
-              ? `${formatDuration(item.queuedMs)} queued`
-              : `${formatDuration(item.activeMs)} active`;
+            const timer =
+              state === "queued"
+                ? `${formatDuration(item.queuedMs)} queued`
+                : `${formatDuration(item.activeMs)} active`;
             return (
               <li
                 key={`${item.slug}-${item.seq}`}
@@ -162,7 +168,8 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
                   {item.title}
                 </a>
                 <span className="admin-queue-meta shrink-0 font-mono text-[0.72rem] tracking-[0.08em] text-ink-fade uppercase">
-                  {stateLabel(state)} · {timer} · {workflowLabel}{phase ? ` · ${phase}` : ""}
+                  {stateLabel(state)} · {timer} · {workflowLabel}
+                  {phase ? ` · ${phase}` : ""}
                   {item.waiting > 0 && ` · ${item.waiting} waiting`}
                 </span>
                 {item.reasoning ? <LiveCot text={item.reasoning} /> : null}

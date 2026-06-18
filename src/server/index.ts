@@ -81,8 +81,10 @@ import {
   setArticleInfobox,
   listSidebarRevisions,
   getSidebarRevision,
+  insertArticleRevisionSnapshot,
   upsertArticleHeadlineMedia,
   updateArticleMediaCaption,
+  updateLatestArticleRevisionMediaSnapshot,
   removeArticleMedia,
   type InfoboxData,
   type SidebarOperation,
@@ -3132,6 +3134,17 @@ export async function createApp(options: CreateAppOptions = {}) {
         revertedFromRevisionId: revision.id,
       },
     );
+    if (revision.headlineMediaId) {
+      upsertArticleHeadlineMedia(db, nextArticle.slug, revision.headlineMediaId, revision.headlineMediaCaption ?? "");
+    } else {
+      removeArticleMedia(db, nextArticle.slug, 1);
+    }
+    updateLatestArticleRevisionMediaSnapshot(
+      db,
+      nextArticle.slug,
+      revision.headlineMediaId,
+      revision.headlineMediaCaption,
+    );
     afterArticleSaved(nextArticle.slug, nextArticle.title, nextArticle.markdown, nextArticle.generated_at);
     invalidateArticleHtml(nextArticle.slug);
     const response = buildArticleResponseFor(nextArticle.slug);
@@ -4477,6 +4490,23 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   });
 
+  function preserveCurrentImageSnapshot(articleSlug: string) {
+    const article = getArticleByLookup(db, articleSlug);
+    if (!article) return;
+    const headlineMedia = getArticleHeadlineMedia(db, article.slug);
+    listArticleRevisions(db, article.slug);
+    updateLatestArticleRevisionMediaSnapshot(
+      db,
+      article.slug,
+      headlineMedia?.mediaId ?? null,
+      headlineMedia?.caption ?? null,
+    );
+  }
+
+  function recordImageSnapshot(articleSlug: string, operation: string, instructions: string) {
+    insertArticleRevisionSnapshot(db, articleSlug, { operation, instructions });
+  }
+
   /** Shared helper: attach a just-ingested image, fire caption pipeline async. */
   function attachAndCaption(
     articleSlug: string,
@@ -4484,10 +4514,19 @@ export async function createApp(options: CreateAppOptions = {}) {
     isNew: boolean,
     width: number,
     height: number,
+    operation = "image-attach",
   ) {
     // ── Strip any existing inline media images from the article body ──────────
     // Articles should never have headline images inline; they live in the sidebar.
     const article = getArticleByLookup(db, articleSlug);
+    const previousHeadline = article ? getArticleHeadlineMedia(db, article.slug) : null;
+    const previousRecord = previousHeadline ? getMediaById(mediaDb, previousHeadline.mediaId) : null;
+    const newRecord = getMediaById(mediaDb, mediaId);
+    if (previousHeadline?.mediaId === mediaId && previousHeadline.caption) {
+      invalidateArticleHtml(articleSlug);
+      return { mediaId, isNew, width, height };
+    }
+    preserveCurrentImageSnapshot(articleSlug);
     if (article) {
       const cleaned = article.markdown.replace(/!\[[^\]]*\]\(media:[^)]+\)\n?/g, "").trimEnd();
       if (cleaned !== article.markdown) {
@@ -4504,17 +4543,22 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     upsertArticleHeadlineMedia(db, articleSlug, mediaId, "");
+    recordImageSnapshot(
+      articleSlug,
+      operation,
+      previousHeadline
+        ? `Changed headline image from ${previousHeadline.mediaId} to ${mediaId}.`
+        : `Attached headline image ${mediaId}.`,
+    );
     invalidateArticleHtml(articleSlug);
 
     // ── Hash-check: skip pipeline if same image is already captioned ──────────
-    const newRecord = getMediaById(mediaDb, mediaId);
-    const currentHeadline = getArticleHeadlineMedia(db, articleSlug);
-    if (currentHeadline && currentHeadline.caption && newRecord) {
-      const currentRecord = getMediaById(mediaDb, currentHeadline.mediaId);
-      if (currentRecord && currentRecord.sha256 === newRecord.sha256) {
-        logger.info("image.caption_skipped_same_hash", { slug: articleSlug, mediaId, sha256: newRecord.sha256 });
-        return { mediaId, isNew, width, height };
-      }
+    if (previousHeadline?.caption && previousRecord && newRecord && previousRecord.sha256 === newRecord.sha256) {
+      updateArticleMediaCaption(db, articleSlug, 1, previousHeadline.caption, "generated", {
+        updateArticleRevision: true,
+      });
+      logger.info("image.caption_skipped_same_hash", { slug: articleSlug, mediaId, sha256: newRecord.sha256 });
+      return { mediaId, isNew, width, height };
     }
 
     // ── Fire caption + post-process pipeline ──────────────────────────────────
@@ -4533,13 +4577,20 @@ export async function createApp(options: CreateAppOptions = {}) {
       })
         .then((result) => {
           if (result.status === "ok") {
+            const currentHeadline = getArticleHeadlineMedia(db, articleSlug);
+            if (currentHeadline?.mediaId !== mediaId) {
+              logger.info("image.caption_stale_attachment", { slug: articleSlug, mediaId });
+              return;
+            }
             // Rename the temp id (img-xxxx) to the title_slug from the description
             // pipeline. Only at ingest — never during regeneration.
             const titleSlug = result.state.imageCaptionResult?.titleSlug;
             if (titleSlug && titleSlug !== mediaId) {
               const renamed = updateMediaId(mediaDb, mediaId, titleSlug);
               if (renamed) {
-                upsertArticleHeadlineMedia(db, articleSlug, titleSlug, "");
+                const articleCaption = result.state.imageCaptionResult?.articleCaption ?? "";
+                upsertArticleHeadlineMedia(db, articleSlug, titleSlug, articleCaption);
+                updateLatestArticleRevisionMediaSnapshot(db, articleSlug, titleSlug, articleCaption);
                 logger.info("media.renamed_after_ingest", { from: mediaId, to: titleSlug });
               }
             }
@@ -4582,7 +4633,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     return { mediaId, isNew, width, height };
   }
 
-  async function generateAndAttachArticleImage(articleSlug: string, replace = false, presetKey = "default") {
+  async function generateAndAttachArticleImage(articleSlug: string, _replace = false, presetKey = "default") {
     const generationConfig = runtime.app.images.generation;
     if (!generationConfig.enabled) {
       throw new Error("image generation is disabled");
@@ -4592,10 +4643,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!article) {
       throw new Error("article not found");
     }
-    if (!replace && getArticleHeadlineMedia(db, article.slug)) {
-      throw new Error("article already has a headline image");
-    }
-
     const infobox = getArticleInfobox(db, article.slug);
     const sidebarContext = infobox
       ? [
@@ -4644,7 +4691,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
       sourceLabel: `${generated.backend}:${generated.model}`,
     });
-    const attached = attachAndCaption(article.slug, result.mediaId, result.isNew, result.width, result.height);
+    const attached = attachAndCaption(article.slug, result.mediaId, result.isNew, result.width, result.height, "image-generate");
     const response = buildArticleResponseFor(article.slug);
     if (response) {
       notifySidecar(article.slug, { type: "article", article: response });
@@ -4769,7 +4816,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     } catch (err: any) {
       return c.json({ error: err?.message || "Image ingestion failed" }, 400);
     }
-    const attached = attachAndCaption(slug, result.mediaId, result.isNew, result.width, result.height);
+    const attached = attachAndCaption(slug, result.mediaId, result.isNew, result.width, result.height, "image-attach");
     const response = buildArticleResponseFor(slug);
     if (!response) return c.json({ error: "article not found" }, 404);
     return c.json({ ...attached, article: response });
@@ -4836,7 +4883,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     } catch (err: any) {
       return c.json({ error: err?.message || "Image processing failed" }, 400);
     }
-    const attached = attachAndCaption(slug, result.mediaId, result.isNew, result.width, result.height);
+    const attached = attachAndCaption(slug, result.mediaId, result.isNew, result.width, result.height, "image-upload");
     const response = buildArticleResponseFor(slug);
     if (!response) return c.json({ error: "article not found" }, 404);
     return c.json({ ...attached, article: response });
@@ -4845,7 +4892,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.delete("/api/article/:slug/image", (c) => {
     const slug = slugify(decodeURIComponent(c.req.param("slug")));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
+    preserveCurrentImageSnapshot(slug);
+    const previousHeadline = getArticleHeadlineMedia(db, slug);
     removeArticleMedia(db, slug, 1);
+    if (previousHeadline) {
+      recordImageSnapshot(slug, "image-remove", `Removed headline image ${previousHeadline.mediaId}.`);
+    }
     invalidateArticleHtml(slug);
     const response = buildArticleResponseFor(slug);
     if (!response) return c.json({ error: "article not found" }, 404);
@@ -4858,7 +4910,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = await c.req.json().catch(() => ({})) as { caption?: string };
     const caption = typeof body.caption === "string" ? body.caption : null;
     if (caption === null) return c.json({ error: "caption required" }, 400);
-    updateArticleMediaCaption(db, slug, 1, caption);
+    preserveCurrentImageSnapshot(slug);
+    updateArticleMediaCaption(db, slug, 1, caption, "user-edit");
+    const headlineMedia = getArticleHeadlineMedia(db, slug);
+    if (headlineMedia) {
+      recordImageSnapshot(slug, "image-caption-edit", `Changed headline image caption for ${headlineMedia.mediaId}.`);
+    }
     invalidateArticleHtml(slug);
     return c.json({ ok: true });
   });

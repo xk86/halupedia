@@ -609,7 +609,9 @@ export const generateSidebarCaptionNode = defineNode({
       const parsed = JSON.parse(match[0]) as Partial<Record<string, string>>;
       const caption = String(parsed.caption ?? "").replace(/\s+/g, " ").trim();
       if (caption) {
-        updateArticleMediaCaption(deps.db, slug, 1, caption);
+        updateArticleMediaCaption(deps.db, slug, 1, caption, "generated", {
+          updateArticleRevision: true,
+        });
         deps.logger.info("pipeline.sidebar_caption.saved", { slug, mediaId: headlineMedia.mediaId });
         deps.onSidecarUpdate?.(slug, { type: "caption", caption, mediaId: headlineMedia.mediaId });
       }

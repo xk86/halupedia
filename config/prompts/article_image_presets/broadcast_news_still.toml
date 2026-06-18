@@ -1,0 +1,128 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as a still captured
+from a broadcast news source: local news footage, public television segment,
+field report, studio package, live remote, archived news tape, or institutional
+press pool video.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make it feel like paused broadcast footage, not a clean photograph: interlace
+  combing, analog or early digital compression, luma noise, color bleed, soft
+  zoom, studio camera sharpness falloff, blown highlights, crushed shadows,
+  chroma crawl, smeared motion, frame jitter, and noisy transfer artifacts.
+- Choose a plausible news-capture mode from the subject: field reporter shot,
+  press conference, exterior stand-up, podium, municipal chamber, disaster
+  footage, studio cutaway, archive package, interview, crowd scene, facility
+  exterior, or evidence footage.
+- Keep the main subject readable and dominant enough for a headline image.
+  Broadcast artifacts should make it feel captured from TV, not obscure it
+  completely.
+- Include an actual broadcast lower-third graphic across the bottom portion of
+  the frame. It should look like a TV-news chyron/lower-third package: colored
+  bars, inset blocks, ticker-like bands, headline fields, and compressed video
+  graphics.
+- The main lower-third headline should be a short plausible news chyron for the
+  event, object, person, place, or controversy shown in the image. Derive it
+  from the subject name and article context, but do not simply copy the article
+  title unless that would genuinely be the natural broadcast wording.
+- Make the chyron concise, like real lower-third text: usually 2-7 words,
+  headline-case or all-caps, simple and declarative. Examples of form only:
+  "MAYOR ANNOUNCES CLOSURES", "OBJECT FOUND IN RIVER", "HEARING ENDS EARLY",
+  "NEW DEVICE UNDER REVIEW". Do not reuse these example phrases.
+- Render the main chyron large, horizontally stable, high-contrast, and
+  readable in a simple bold broadcast sans-serif treatment, with enough padding
+  and contrast that it remains legible despite video artifacts.
+- Other lower-third details may appear as small unreadable ticker marks,
+  abstract glyphs, cropped blur, or decorative bars, but the main chyron should
+  be clear.
+- Use news visual logic with broadcast graphics. The lower third should feel
+  built into the TV still, while station branding and other readable captions
+  remain absent.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific events, institutions, people, objects, places,
+  conflicts, discoveries, and accidents into a news-captured moment from the
+  subject's fictional world.
+- For abstract, technical, or historical subjects, choose a news archive shot,
+  interview setup, press briefing, exterior facility shot, or B-roll still tied
+  to the subject.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a useful broadcast still from an encyclopedia entry.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use broadcast framing: medium shot, awkward zoom, podium view, reporter
+  shoulder angle, field B-roll, crowd telephoto, exterior facility establishing
+  shot, or studio interview composition.
+- Reserve the lower part of the frame for the lower-third graphic. Do not let
+  important faces, hands, or subject details be hidden behind it unless that
+  accidental obstruction makes the frame feel more authentically broadcast.
+- Leave plausible headline negative space in wall, sky, dark studio backdrop,
+  empty podium side, blurred crowd, pavement, or out-of-focus background.
+- Prefer one paused TV moment over a montage, split-screen, or title card.
+
+Avoid:
+- Readable lower-third text other than the short plausible main chyron, readable
+  tickers, readable captions, station logos, fake news branding, timestamps,
+  UI overlays outside the lower-third treatment, monitor frames, split-screen
+  panels, title cards, screenshots, posters, and images that are primarily
+  text.
+- Perfect cinematic stills, glossy documentary photography, modern YouTube
+  thumbnail styling, meme formats, neon cyberpunk, anime, comic styling, and
+  clean corporate video frames.
+- Gore, excessive horror, pornographic framing, overt nudity, explicit sexual
+  content, sexualized minors, sexual violence, or anything that makes the image
+  feel exploitative instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a still from broadcast news footage.
+
+Make it feel like paused local news, public television, field-report, press
+pool, studio interview, or archived TV footage: interlacing, compression,
+color bleed, soft zoom, luma noise, blown highlights, crushed shadows, smeared
+motion, and broadcast camera framing. Keep the subject readable.
+
+Include a TV-news lower-third graphic across the bottom: colored bars, inset
+blocks, ticker-like bands, headline fields, and compressed broadcast graphics.
+The main headline in the lower third should not be a literal copy of the
+article title. It should be the kind of short chyron text that would plausibly
+appear if this subject were covered on the news.
+
+Base the chyron on the subject name and context above. Make it concise, usually
+2-7 words, headline-case or all-caps, large, readable, high-contrast,
+horizontally stable, and set in a simple bold broadcast sans-serif style. Other
+small lower-third details may be unreadable blurred ticker marks or abstract
+filler, but the main chyron must be legible.
+
+No readable lower-third text except the short plausible main chyron, no
+readable captions, no readable tickers, no station logos, no timestamps, no
+split screens, no screenshots, no title cards, no overt nudity, or explicit
+sexual content.
+"""

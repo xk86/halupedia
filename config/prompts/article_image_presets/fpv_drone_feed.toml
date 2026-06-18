@@ -1,0 +1,98 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as if seen through a
+small first-person-view drone camera feed: low-altitude, wide-angle, fast,
+unstable, compressed, and close to the ground, like contemporary FPV drone
+footage used in conflict zones and field documentation.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image feel like a raw FPV drone camera frame, not an aerial
+  photography shot. Use low-altitude forward motion, wide-angle lens distortion,
+  prop vibration, rolling-shutter wobble, digital breakup, analog snow or
+  blocky compression, smeared motion, low dynamic range, blown sky, crushed
+  shadows, muddy colors, sensor noise, and tilted horizon.
+- Use drone-flight framing: skimming over roads, fields, rooftops, trenches,
+  courtyards, tree lines, industrial yards, interiors, riverbanks, vehicles,
+  ruins, utility corridors, or improvised routes when the context supports it.
+- The camera should feel like it is piloted through space: nose-forward,
+  diving, banking, threading through gaps, approaching a subject, or hovering
+  awkwardly near an object.
+- Keep the subject readable despite feed artifacts. The image should feel
+  captured by a small FPV platform, not a satellite, helicopter, cinematic
+  drone, or security camera.
+- Optional telemetry-like artifacts may appear as abstract OSD noise, edge
+  distortion, battery-bar-like shapes, or unreadable tiny glyphs, but avoid
+  readable coordinates, targeting text, or real military identifiers.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, vehicles, facilities,
+  hazards, conflicts, routes, landscapes, machines, rituals, or discoveries
+  into a low-altitude FPV pass or approach.
+- For people or organizations, show the place, object, vehicle, facility,
+  route, gathering, or aftermath associated with them rather than a posed
+  portrait.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a raw FPV camera frame tied to the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use FPV framing: forward motion down a path, low approach to a subject,
+  banking turn, diagonal horizon, foreground blur, fast-passing ground, or
+  central approach corridor.
+- Leave usable empty space in blown sky, empty road, field, roof, water,
+  smoke, static breakup, or blurred foreground, but do not make it look like
+  composed photographic negative space.
+- Prefer one captured feed moment over a montage, map, poster, or polished
+  aerial photograph.
+
+Avoid:
+- Gore, visible severe injury, bodies, explicit violence, targeting reticles,
+  crosshairs, weapons firing, impact moments, readable coordinates, real unit
+  markings, real flags, real military insignia, propaganda symbols, timestamps,
+  readable telemetry, UI panels, captions, logos, or screenshots.
+- Clean cinematic drone footage, satellite views, helicopter news footage,
+  polished travel aerials, perfectly stable gimbal shots, photo mode, glossy
+  film color grading, or high-resolution nature photography.
+- Overt nudity, explicit sexual content, sexualized minors, sexual violence, or
+  anything that makes the image feel exploitative instead of documentary.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a raw FPV drone camera feed.
+
+Make it feel like a small first-person-view drone flying low and fast:
+wide-angle distortion, tilted horizon, prop vibration, rolling-shutter wobble,
+digital breakup, analog snow or blocky compression, smeared motion, blown sky,
+crushed shadows, muddy colors, low-altitude approach, banking turn, foreground
+blur, and a subject seen through forward motion.
+
+No gore, bodies, targeting reticles, crosshairs, readable coordinates, readable
+telemetry, real flags, real military insignia, captions, logos, UI panels,
+screenshots, overt nudity, or explicit sexual content.
+"""

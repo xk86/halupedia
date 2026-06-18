@@ -1,0 +1,88 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject in the style of a
+courtroom sketch, public inquiry drawing, tribunal illustration, hearing-room
+press sketch, or official proceeding artist's record.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use courtroom-sketch materials and texture: graphite, charcoal, pastel,
+  colored pencil, rough paper, quick gestural lines, worked faces, blocky
+  shadows, loose perspective, and areas of unfinished paper.
+- Make the scene feel observed from a public proceeding: courtroom, council
+  chamber, inquiry hearing, disciplinary board, witness table, public gallery,
+  official bench, security barrier, archive hearing room, or improvised
+  tribunal space.
+- Keep the main subject readable and dominant, whether it is a person, object,
+  institution, machine, place represented through testimony, or symbolic
+  evidence display.
+- Use tense documentary restraint. The sketch should feel like an artist
+  captured a real hearing in the fictional world, not a polished comic panel or
+  courtroom drama poster.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific conflicts, institutions, scandals, disasters,
+  inventions, rituals, discoveries, and disputes into a public proceeding scene
+  or hearing-room composition.
+- If the subject is not inherently legal, choose a plausible public-record
+  interpretation: testimony about the subject, an inquiry into it, a hearing
+  where it is presented as evidence, or officials gathered around it.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a useful press sketch tied to the article context.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a believable sketch-artist vantage point: slightly elevated gallery view,
+  side view of the witness table, bench-facing composition, crowded hearing
+  room, or close view of the subject with officials blurred behind it.
+- Leave plausible headline negative space in wall, bench, empty floor, paper
+  texture, gallery shadow, or unfinished sketch area.
+- Prefer one clear hearing-room moment over a montage or collage.
+
+Avoid:
+- Readable text, court seals, real-world flags, real public figures, fake news
+  branding, captions, labels, title cards, logos, screenshots, comic-book
+  speech bubbles, manga/anime, polished courtroom-drama cinematography, and
+  images that are primarily documents.
+- Gore, excessive horror, pornographic framing, overt nudity, explicit sexual
+  content, sexualized minors, sexual violence, or anything that makes the image
+  feel exploitative instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a courtroom sketch or public inquiry illustration.
+
+Use graphite, charcoal, pastel, colored pencil, rough paper, loose perspective,
+gestural lines, unfinished paper areas, and tense hearing-room composition. The
+subject should feel observed during a fictional public proceeding, tribunal,
+council hearing, disciplinary board, inquiry, witness testimony, or evidence
+presentation.
+
+No readable text, seals, labels, logos, captions, screenshots, title cards,
+real public figures, overt nudity, or explicit sexual content.
+"""

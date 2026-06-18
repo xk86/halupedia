@@ -1,0 +1,92 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as if it were captured
+through a 1990s school or office overhead projector using transparent acetate
+sheets, hand-drawn marker diagrams, photocopied transparencies, stacked gels,
+or a projected classroom presentation.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the medium unmistakable: transparent acetate, grease-pencil or marker
+  strokes, photocopier grain, toner speckles, dust, fingerprints, smudged ink,
+  warped plastic edges, curled corners, projected light spill, slight blur,
+  lens falloff, keystone distortion, color fringing, and stacked translucent
+  layers.
+- The image may be the projected surface, the lit glass bed, or the projected
+  result on a classroom wall. It should feel like a real captured transparency
+  artifact rather than a clean digital diagram.
+- Use diagrammatic simplification without relying on readable text. Visual
+  arrows, boxes, circles, grids, silhouettes, transparent overlays, and hand
+  markings can structure the image, but avoid legible labels.
+- Keep the main subject readable and specific. The projector treatment should
+  translate the article context into a teaching, briefing, or institutional
+  presentation artifact.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific objects, places, systems, institutions,
+  technologies, conflicts, and processes into layered transparency shapes,
+  projected silhouettes, simple diagrams, classroom demonstrations, or briefing
+  visuals.
+- For people or organizations, depict a projected training or briefing image
+  about them rather than a clean portrait.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a useful 1990s overhead-projector artifact tied to the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use the projector surface, classroom wall, glass bed, table edge, or blank
+  projected field as the compositional base.
+- Leave plausible headline negative space in blank projection glow, classroom
+  wall, empty acetate margin, tabletop, or dark falloff around the projected
+  rectangle.
+- Prefer one layered transparency capture over a collage, poster, or modern
+  slide deck.
+
+Avoid:
+- Readable labels, equations, paragraphs, title cards, modern PowerPoint
+  slides, clean vector infographics, LCD projector looks, screenshots, fake
+  UI, logos, school names, real-world seals, and images that are primarily
+  text.
+- Slick contemporary graphic design, neon cyberpunk, glossy 3D, anime, comic
+  styling, and pristine digital illustration.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of educational/editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a 1990s overhead-projector transparency artifact.
+
+Use acetate sheets, marker strokes, photocopied grain, toner speckles,
+fingerprints, smudges, curled plastic edges, projected light spill, keystone
+distortion, color fringing, translucent stacked diagrams, and a classroom or
+briefing-room projection feel. The subject must remain readable without text.
+
+No readable labels, equations, slide titles, logos, screenshots, modern digital
+slides, title cards, overt nudity, or explicit sexual content.
+"""

@@ -1,0 +1,129 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject in the highly
+recognizable visual language of a wikiHow instructional illustration: clear,
+generic, step-by-step how-to artwork that looks like it belongs inside a
+practical online guide rather than a polished magazine or encyclopedia plate.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image very close to actual wikiHow guide artwork, not merely a
+  generic instructional vector image. The illustration should have the familiar
+  slightly awkward but earnest wikiHow look: dark gray-black outlines, simple
+  semi-realistic anatomy, softly modeled flat colors, airbrushed gradients,
+  smooth but hand-drawn contour lines, and a practical how-to-guide tone.
+- Use wikiHow-like figures: generic adults with simplified oval faces, small
+  noses, simple mouths, almond or dot-like eyes, understated eyebrows, blocky
+  hair shapes, plain everyday clothing, neutral or mildly concerned
+  expressions, slightly stiff poses, and clear but somewhat awkward body
+  language. Avoid fashionable character-design polish.
+- Use wikiHow-like hands and props: hands should be prominent, outlined,
+  simplified, slightly stiff, and posed to demonstrate an action. Props should
+  be cleanly drawn, domestic or practical, and shown from a clear instructional
+  angle.
+- Use the wikiHow coloring approach: pastel fills, pale skin tones, muted
+  greens and blues, denim, tan, soft gray shadows, simple white or light beige
+  backgrounds, gentle airbrush shading inside shapes, darker outline strokes,
+  and minimal cast shadows. Keep the finish clean but not sleek.
+- Include the recognizable wikiHow bottom banner treatment: a solid green
+  horizontal footer strip along the bottom edge with the wikiHow wordmark/logo
+  inside it, like the branded lower banner commonly seen on wikiHow images.
+  This banner should be part of the image artifact, not a website screenshot.
+- Use the calm instructional pose language of a how-to diagram: hands showing
+  an action, a person demonstrating a procedure, an object held or adjusted, a
+  simple room or tabletop setup, or a clear before/after-like arrangement
+  without making a multi-panel comic.
+- Keep the subject readable, literal, and specific. The image should feel like
+  an illustrated step from a guide explaining the article subject, even when
+  the subject is fictional, technical, historical, social, or strange.
+- Preserve the intentionally generic and slightly uncanny guide-illustration
+  quality. It should look useful, literal, and oddly specific rather than
+  stylish, cinematic, cute, or promotional.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific objects, practices, devices, places,
+  institutions, rituals, hazards, social customs, technologies, or processes
+  into a clear instructional demonstration.
+- For people or organizations, depict a generic demonstration, procedure,
+  gesture, meeting, object interaction, or public-facing practice associated
+  with them rather than a portrait.
+- For places or abstract subjects, show a practical action, map-free
+  navigation cue, household-scale model, tabletop demonstration, or simplified
+  scenario that teaches the subject visually.
+- If multiple interpretations are plausible, choose the one that most clearly
+  reads as a wikiHow-like instructional step tied to the article context.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use one clear instructional moment rather than a collage, montage, comic
+  strip, or numbered sequence.
+- Prefer wikiHow-like medium-close compositions: a person or pair of hands
+  demonstrating one action, simple three-quarter view, object centered near the
+  hands, sparse domestic/office/classroom background, and a clean crop that
+  feels like a single how-to step image.
+- Leave plausible headline negative space in blank wall, tabletop, floor,
+  simple sky, empty room corner, or pale background.
+- Reserve the bottom edge for the green wikiHow banner. Do not let the subject,
+  hands, or important props overlap the banner.
+- Keep all hands, tools, and object interactions clean, readable, and
+  anatomically plausible; the style depends on clarity.
+
+Avoid:
+- Website UI, top green website headers, screenshots, page layouts, step
+  numbers, arrows with text, readable labels, captions, speech bubbles, title
+  cards, fake typography, or images that are primarily text. The only permitted
+  readable text or logo is the wikiHow wordmark/logo in the bottom green banner.
+- Generic modern flat illustration, corporate SaaS vector people, Storyset or
+  unDraw-style characters, emoji-like faces, children's book illustration,
+  clip art, comic-book panels, manga/anime, glossy editorial illustration,
+  photorealism, painterly art, public-domain engraving, 3D renders, memes,
+  parody, dramatic lighting, stylish fashion poses, or clean app onboarding art.
+- Imitating a living artist or a specific copyrighted visual franchise.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of instructional/editorial.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a very accurate wikiHow-style instructional
+illustration.
+
+Make it look like actual wikiHow artwork: dark gray-black outlines,
+simplified semi-realistic adults, oval generic faces, small noses, simple
+mouths, understated eyes, blocky hair, practical clothing, slightly stiff poses,
+prominent instructional hands, cleanly outlined props, pastel flat fills,
+soft airbrushed gradient shading, pale neutral backgrounds, and one clear
+demonstration or object interaction that teaches the subject visually.
+
+Include the green wikiHow banner at the bottom edge with the wikiHow
+wordmark/logo inside it. Keep the subject and hands above the banner.
+
+No website UI, screenshots, top green website header, step numbers, readable
+labels, captions, speech bubbles, title cards, fake typography except the
+bottom wikiHow wordmark/logo, modern corporate vector art, anime, comic-book
+style, photorealism, overt nudity, or explicit sexual content.
+"""

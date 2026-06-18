@@ -1,0 +1,126 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as a physically
+reproduced fictional-world communist propaganda artifact: a 1930s-1970s
+socialist realist poster, state mural reproduction, workers' newspaper plate,
+offset lithograph, linocut, screenprint, gouache poster maquette, classroom
+wall chart, or revolutionary campaign print.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make it look like an actual old printed or painted state artifact that has
+  been scanned or photographed, not a clean contemporary digital poster.
+- Use period socialist realist composition with restraint: heroic scale,
+  upward gazes, strong diagonals, simplified bodies, collective labor,
+  disciplined crowds, banners as abstract cloth shapes, industrial machinery,
+  agricultural abundance, civic architecture, sunrise rays, smoke, factories,
+  fields, laboratories, railways, ships, schools, monuments, and confident
+  public ceremony when the context supports them.
+- Use authentic flat print handling: limited spot colors, matte ink, coarse
+  halftone, screenprint grain, lithographic rosette, rough paper fibers, uneven
+  ink density, misregistration, slightly off-color plates, brushy gouache
+  edges, linocut-like carved shadows, aged varnish, yellowed paper, fold wear,
+  small chips, and softened scan contrast.
+- Keep shapes broad and graphic. Prefer flat blocks of color, hard-edged
+  silhouettes, simplified anatomy, idealized but stiff faces, posterized
+  shadows, and hand-painted contours over glossy gradients or cinematic
+  rendering.
+- Use historically plausible ink palettes: deep red, black, cream, ochre,
+  brick, dull gold, faded cyan, dusty blue, olive, oxide green, warm gray, and
+  sunlit yellow. Colors should feel printed, oxidized, and slightly faded,
+  never neon or RGB-clean.
+- Keep the main subject readable and dominant. The propaganda language should
+  interpret the article context, not replace it with generic workers, flags, or
+  factory silhouettes.
+- Prefer fictional symbols, abstract geometric insignia, non-readable banner
+  shapes, and context-specific objects over real-world party symbols.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, institutions, technologies,
+  conflicts, materials, emotional tone, and relationships into heroic public
+  imagery, civic murals, symbolic machinery, idealized uniforms, monumental
+  architecture, landscapes, mass ceremonies, or stylized labor scenes.
+- For people or organizations, depict fictional-world public mythmaking around
+  them rather than realistic documentary portraiture.
+- For objects, places, science, or abstractions, make them feel like the center
+  of a state-sponsored educational or revolutionary image: a monumental object,
+  heroic invention, civic facility, symbolic landscape, or idealized public
+  project.
+- If multiple interpretations are plausible, choose the strongest propaganda
+  poster or mural interpretation that remains tied to the article context.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use clear foreground/midground/background layers, strong subject hierarchy,
+  and readable silhouette shapes.
+- Leave plausible headline negative space in sky, rays, wall, smoke, fields,
+  empty banner cloth, masonry, or flat color.
+- Let the image feel cropped from a larger poster, mural, lithograph, linocut,
+  or workers' newspaper illustration. A border, margin, paper edge, fold, or
+  scuffed surface is acceptable, but the image should not be primarily
+  typography.
+
+Avoid:
+- Readable slogans, readable labels, real-world communist party names, real
+  public figures, national flags, real coats of arms, hammer-and-sickle
+  emblems, swastikas, modern campaign branding, memes, fake headlines, fake
+  logos, screenshots, title cards, or images that are primarily text.
+- Clean modern corporate vector art, anime, comic-book superhero styling,
+  glossy modern fantasy concept art, photoreal documentary photography, generic
+  cyberpunk, and parody caricature unless the article context clearly calls for
+  satire.
+- Modern internet-retro aesthetics: smooth AI-poster gloss, perfect vector
+  curves, vaporwave colors, meme-poster framing, faux screenprint filters,
+  fake distressed overlays pasted on top of clean art, 3D bevels, cinematic
+  rim light, plastic skin, perfect gradients, stock-poster composition, and
+  anything that looks like a contemporary online homage.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as an authentic old fictional-world communist
+propaganda artifact.
+
+Make it feel like a 1930s-1970s state mural reproduction, revolutionary
+poster, offset lithograph, screenprint, linocut, gouache poster maquette, or
+workers' newspaper plate that was scanned from a physical artifact. Use matte
+limited inks, flat graphic shapes, coarse halftone or screenprint grain, rough
+paper fibers, slight plate misregistration, yellowed paper, fold wear, brushy
+paint edges, simplified heroic anatomy, industrial or agricultural symbolism,
+and strong period socialist realist hierarchy. Keep the main subject specific
+to the article.
+
+Avoid modern internet-retro poster polish, perfect vector smoothness, glossy
+AI gradients, neon colors, cinematic lighting, meme framing, fake text, and
+generic contemporary propaganda homage.
+
+No readable text, slogans, labels, logos, real-world emblems, real public
+figures, screenshots, title cards, overt nudity, or explicit sexual content.
+"""

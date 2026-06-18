@@ -1,0 +1,129 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as an early 1900s
+black-and-white documentary photograph: roughly 1900-1939, captured on glass
+plate, nitrate film, early roll film, press camera, field camera, reform
+photographer's camera, or archival public-record print.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make it feel like a real old monochrome photograph, not a modern black-and-
+  white filter. Use period lens behavior, orthochromatic or early panchromatic
+  tonal response, limited dynamic range, silver gelatin texture, plate grain,
+  uneven exposure, slight blur, lens falloff, halation, emulsion scratches,
+  dust, paper fiber, edge wear, silvering, contact-print softness, and archival
+  contrast.
+- Use the visual grammar of early industrial-era social documentary, civic
+  archive, labor investigation, protest, and exposition photography as a style
+  reference only. Think of the camera language, surface quality, flash behavior,
+  stiffness, crowd spacing, public-record plainness, and unpolished archival
+  directness seen in child-labor reform photos, factory record photos, street
+  protests, courthouse crowds, and world's fair documentation.
+- Do not import those reference subjects into the image unless the Halupedia
+  article itself calls for them. Preserve the article's actual subject, setting,
+  object, character, institution, or event; borrow only the period photographic
+  treatment and observational attitude.
+- Choose a plausible photographic mode from the subject: reform-documentary
+  photo, street press photo, civic-event image, architectural survey, disaster
+  aftermath, institutional yard, train platform, ship deck, storefront, public
+  archive image, object record, field documentation, or posed demonstration.
+  Avoid studio portraiture unless the article context truly requires it.
+- Use period visual cues only when they fit the supplied subject: early
+  clothing, worn interiors, brickwork, smoke haze, gaslight, early electric
+  lights, streetcars, early vehicles, hand-painted signs without readable text,
+  weathered public buildings, temporary structures, institutional rooms,
+  industrial materials, or plain civic backdrops.
+- Keep the subject readable and physically grounded. The old-photo treatment
+  should make the image feel discovered in an archive, not decorative.
+- Let motion blur and stiffness feel period-accurate: long exposures, rigid
+  posture, blurred crowds, blown windows, deep factory shadows, smoke haze,
+  uneven daylight, flash-powder harshness, and imperfect focus are welcome when
+  they support the subject.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, places, artifacts, institutions,
+  technologies, conflicts, rituals, discoveries, and locations into a plausible
+  early-20th-century documentary or public-record photograph without changing
+  what the subject is.
+- For abstract or technical subjects, choose an archival object photograph,
+  field survey, civic documentation, exposition-style display, municipal scene,
+  public record, or posed demonstration tied to the subject.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a useful early-20th-century documentary archive image.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use period documentary composition: direct flash-lit subject, street-level
+  crowd spacing, institutional frontage, public-building steps, room-corner
+  perspective, plain object record, field-survey distance, exhibition-display
+  symmetry, slightly awkward archival crop, or a static tripod-height view.
+- Keep the camera human-height or tripod-height, as if a reform photographer,
+  press photographer, municipal recorder, or fair visitor captured it. Avoid
+  modern cinematic low angles and polished portrait lighting.
+- Leave plausible empty space in wall, sky, floor, street, smoke, shadow, crowd
+  gap, institutional interior, public square, or paper border.
+- Prefer one coherent archival photograph over a montage, poster, or modern
+  historical reenactment.
+
+Avoid:
+- Modern digital black-and-white photography, crisp contemporary documentary
+  lighting, modern clothing, modern cars, modern signage, digital film filters,
+  noir movie stills, glossy fashion photography, modern photojournalism,
+  sentimental costume-drama stills, clean museum object photography, tasteful
+  studio portraits unless context demands them, readable labels, captions, fake
+  dates, fake archive stamps, logos, screenshots, posters, and images that are
+  primarily text.
+- Real public figures, real-world political symbols, specific copyrighted
+  visual franchises, or imitation of a living artist.
+- Gore, overt nudity, explicit sexual content, sexualized minors, sexual
+  violence, or anything that makes the image feel exploitative instead of
+  archival/editorial.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as an early 1900s black-and-white documentary archival
+photograph.
+
+Make it feel like a real 1900-1939 photographic record: glass plate or nitrate
+film, silver gelatin texture, period lens falloff, limited dynamic range,
+archival contrast, plate grain, emulsion scratches, dust, slight blur, uneven
+exposure, rigid posture, factory shadows, smoke haze, blurred crowds, early
+machinery or architecture only where appropriate, and a plausible
+reform-documentary, civic, public-record, press, field, object-record,
+exposition-documentation, or institutional archive composition.
+
+Use early industrial and civic documentary photography as a style benchmark:
+the plainness, stiffness, exposure flaws, public-record directness, flash,
+grain, archival wear, and observational framing associated with reform photos,
+labor investigation records, protest documentation, courthouse crowds, world's
+fair documentation, municipal-event photos, and public archives. Do not add
+those subjects unless they are already implied by the article.
+
+No readable captions, labels, fake dates, archive stamps, logos, screenshots,
+modern digital black-and-white styling, overt nudity, or explicit sexual
+content.
+"""

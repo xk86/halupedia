@@ -1674,7 +1674,7 @@ export function App() {
     if (route.kind === "disambiguation") {
       return (
         <article
-          className="article disambiguation-page"
+          className="article disambiguation-page prose-halu prose max-w-none"
           onClick={interceptArticleLinks}
         >
           <div className="disambiguation-notice">
@@ -2508,6 +2508,7 @@ export function App() {
             </div>
             <article className="article old-revision-preview">
               <div
+                className="prose-halu prose max-w-none"
                 dangerouslySetInnerHTML={{
                   __html: stripLeadingH1(selectedRevision.html),
                 }}
@@ -2521,6 +2522,7 @@ export function App() {
             onClick={interceptArticleLinks}
           >
             <div
+              className="prose-halu prose max-w-none"
               dangerouslySetInnerHTML={{
                 __html: stripLeadingH1(page.article.html),
               }}

@@ -435,25 +435,6 @@ a:hover {
 
 /* ----------------------- Article ------------------------- */
 
-.article {
-  font-size: 1.05rem;
-  color: var(--ink);
-}
-
-.article h1 {
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 2.4rem;
-  line-height: 1.15;
-  min-width: 0;
-  margin: 0;
-  padding-bottom: 0.6rem;
-  border-bottom: 2px solid var(--rule);
-  letter-spacing: -0.005em;
-  text-wrap: balance;
-  overflow-wrap: anywhere;
-}
-
 .edit-tray,
 .history-panel {
   display: flex;
@@ -649,29 +630,6 @@ a:hover {
   cursor: pointer;
 }
 
-.article h2 {
-  font-family: var(--serif);
-  font-weight: 500;
-  font-size: 1.45rem;
-  margin: 2rem 0 0.75rem;
-  color: var(--ink-soft);
-  border-bottom: 1px solid var(--rule-soft);
-  padding-bottom: 0.25rem;
-}
-
-.article h3 {
-  font-size: 1.15rem;
-  font-weight: 600;
-  margin: 1.5rem 0 0.5rem;
-  color: var(--ink-soft);
-}
-
-.article p {
-  margin: 0 0 1rem;
-  text-align: justify;
-  hyphens: auto;
-}
-
 .article .math-inline {
   display: inline-block;
   padding: 0 0.16em;
@@ -692,53 +650,6 @@ a:hover {
   border-radius: 2px;
   overflow-x: auto;
   text-align: center;
-}
-
-.article ul,
-.article ol {
-  padding-left: 1.5rem;
-  margin: 0 0 1.25rem;
-}
-
-.article li {
-  margin-bottom: 0.4rem;
-}
-
-.article blockquote {
-  margin: 1.5rem 0;
-  padding: 1rem 1.25rem;
-  background: var(--blockquote-bg);
-  border-left: 3px solid var(--accent);
-  font-style: italic;
-  color: var(--ink-soft);
-}
-
-.article blockquote p {
-  margin: 0 0 0.35rem;
-}
-
-.article blockquote cite {
-  display: block;
-  font-style: normal;
-  font-size: 0.9rem;
-  color: var(--ink-fade);
-  margin-top: 0.35rem;
-}
-
-.article blockquote cite::before {
-  content: "";
-}
-
-.article hr {
-  border: none;
-  border-top: 1px solid var(--rule);
-  margin: 2rem 0;
-}
-
-.article img {
-  max-width: calc(100% - 2rem);
-  height: auto;
-  margin: 1.25rem 1rem;
 }
 
 /* ── Infobox (Wikipedia-style floated side panel) ─────────────────────────── */
@@ -3053,39 +2964,6 @@ a:hover {
  * Tablets and below: the absolute positioning + h1 padding falls back to
  * a normal block flow above the title (see media query at the bottom).
  */
-
-.article-frame {
-  position: relative;
-}
-
-/* h1 left-padding only kicks in on votable articles. The homepage
-   ("/") shares the same wrapper for layout consistency but doesn't get
-   the vote button, so it must not waste 3.6rem on the title row. */
-.article-frame-votable .article>h1:first-of-type {
-  padding-left: 3.6rem;
-  min-height: 2.6rem;
-}
-
-.article a.ref-link {
-  color: inherit;
-  border-bottom: 0;
-  text-decoration: underline;
-  text-decoration-thickness: 0.06em;
-  text-underline-offset: 0.14em;
-}
-
-.article a.ref-link:hover {
-  color: inherit;
-  background: transparent;
-}
-
-.article a.ref-num {
-  margin-left: 0.12em;
-  border-bottom: 0;
-  font-family: var(--sans);
-  font-size: 0.82em;
-  text-decoration: none;
-}
 
 .article-references ol {
   padding-left: 1.5rem;

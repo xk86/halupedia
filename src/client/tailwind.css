@@ -41,6 +41,47 @@
 @import "./styles.css" layer(legacy);
 
 /*
+ * @tailwindcss/typography — supplies the article-body prose styling that used to
+ * live as hand-written `.article h1/h2/p/ul/blockquote/...` rules. We theme it
+ * purely by mapping the plugin's `--tw-prose-*` variables onto our design
+ * tokens (below), so there is no second prose stylesheet — just the token map.
+ * Server-generated special structures (infobox/sidebar/references/refs/math)
+ * keep their own rules in the `article-overrides` layer, which is declared
+ * AFTER utilities so it wins over prose's generated selectors.
+ */
+@plugin "@tailwindcss/typography";
+
+/*
+ * Declared AFTER utilities so these win over the typography plugin's generated
+ * `:where()` selectors. In-body citations are intentionally NOT colored links:
+ * `.ref-link` is body-colored cited text with a hairline underline and `.ref-num`
+ * is a small superscript marker — prose would otherwise repaint both accent.
+ */
+@layer article-overrides {
+  .article a.ref-link {
+    color: inherit;
+    border-bottom: 0;
+    text-decoration: underline;
+    text-decoration-thickness: 0.06em;
+    text-underline-offset: 0.14em;
+  }
+
+  .article a.ref-link:hover {
+    color: inherit;
+    background: transparent;
+  }
+
+  .article a.ref-num {
+    margin-left: 0.12em;
+    border-bottom: 0;
+    font-family: var(--sans);
+    font-size: 0.82em;
+    text-decoration: none;
+    color: inherit;
+  }
+}
+
+/*
  * shadcn/ui base radius. The design is intentionally sharp (buttons/cards use
  * 2–3px, not shadcn's default 0.625rem), so the derived radius scale below is
  * tuned down to keep parity. Declared on :root (not @theme) per shadcn; the
@@ -160,4 +201,29 @@
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
   --radius-xl: calc(var(--radius) + 6px);
+}
+
+/*
+ * Prose theme for the article body. `.prose-halu` only remaps the typography
+ * plugin's variables onto our parchment tokens — no element rules — so the
+ * generated article HTML renders in the house palette/serif with no bespoke
+ * prose stylesheet. Used as `prose prose-halu max-w-none` on the body wrapper.
+ */
+.prose-halu {
+  --tw-prose-body: var(--ink);
+  --tw-prose-headings: var(--ink-soft);
+  --tw-prose-lead: var(--ink-soft);
+  --tw-prose-links: var(--accent);
+  --tw-prose-bold: var(--ink);
+  --tw-prose-counters: var(--ink-fade);
+  --tw-prose-bullets: var(--rule);
+  --tw-prose-hr: var(--rule);
+  --tw-prose-quotes: var(--ink-soft);
+  --tw-prose-quote-borders: var(--accent);
+  --tw-prose-captions: var(--ink-fade);
+  --tw-prose-code: var(--ink);
+  --tw-prose-pre-code: var(--ink);
+  --tw-prose-pre-bg: var(--panel-surface-soft);
+  --tw-prose-th-borders: var(--rule);
+  --tw-prose-td-borders: var(--rule-soft);
 }

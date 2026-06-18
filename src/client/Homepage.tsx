@@ -224,8 +224,10 @@ export function Homepage({ onNavigate }: Props) {
         <p className="text-ink-fade italic">No prior homepage snapshots yet.</p>
       )}
 
-      <h1>Halupedia</h1>
-      <p>
+      <h1 className="m-0 border-b-2 border-rule pb-[0.6rem] font-serif text-[2.4rem] leading-[1.15] font-medium tracking-[-0.005em] text-balance">
+        Halupedia
+      </h1>
+      <p className="m-0 mt-4 mb-4 text-justify [hyphens:auto]">
         A local fictional encyclopedia whose canon accumulates over time.
         Articles seed future articles through hidden link hints, and the
         backlink graph persists even when a target entry has not been written

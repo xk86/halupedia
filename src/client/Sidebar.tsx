@@ -17,6 +17,12 @@ const ROW_FIELD =
 // Small square delete (×) button used per section/row.
 const DEL_BTN = "size-5 shrink-0 p-0 text-[0.75rem] hover:text-danger";
 
+// The sticky right-rail shell. Desktop: spans both content rows in column 2 and
+// pins to the viewport bottom. Mobile (<=680px): collapses into the single
+// column above the article. Shared by every sidebar render branch.
+const SIDEBAR =
+  "sticky bottom-4 col-[2] row-[1/span_2] flex flex-col gap-[1.4rem] self-start font-serif text-ink max-[680px]:static max-[680px]:col-[1] max-[680px]:row-[1] max-[680px]:max-w-[50dvw] max-[680px]:justify-self-center max-[680px]:border-t max-[680px]:border-rule";
+
 interface SidebarRevision {
   id: number;
   articleSlug: string;
@@ -781,15 +787,15 @@ export function Sidebar({
   if (!hasContent) {
     if (showTopArticles) {
       return (
-        <aside className="sidebar" aria-label="Context">
+        <aside className={SIDEBAR} aria-label="Context">
           <TopArticlesPanel onNavigate={onNavigate} />
         </aside>
       );
     }
     if (!generatingNode)
-      return <aside className="sidebar" aria-label="Context" />;
+      return <aside className={SIDEBAR} aria-label="Context" />;
     return (
-      <aside className="sidebar" aria-label="Context">
+      <aside className={SIDEBAR} aria-label="Context">
         <div className="px-[0.5rem] py-[0.6rem] [border-top:1px_solid_var(--rule-soft)]">
           <span className={GENERATING_LABEL}>
             <span className="inline-block size-[6px] animate-[sidebar-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent" />
@@ -810,13 +816,13 @@ export function Sidebar({
 
   return (
     <aside
-      className="sidebar sidebar--infobox"
+      className={SIDEBAR}
       aria-label="Article info"
       onClick={handleInternalLink}
     >
       <button
         type="button"
-        className="sidebar-mobile-toggle"
+        className="hidden w-full max-w-[67dvw] items-center justify-between border-0 border-b border-rule-soft bg-transparent px-[0.1rem] py-[0.65rem] text-left font-serif text-[0.9rem] font-semibold [overflow-wrap:break-word] [word-break:break-all] text-ink hover:text-accent max-[680px]:flex"
         onClick={(e) => {
           e.stopPropagation();
           setMobileCollapsed((v) => !v);
@@ -824,12 +830,12 @@ export function Sidebar({
         aria-expanded={!mobileCollapsed}
       >
         <span>{title || "Article info"}</span>
-        <span className="sidebar-mobile-toggle-icon">
+        <span className="ml-2 shrink-0 text-[0.75rem] text-ink-fade">
           {mobileCollapsed ? "▸" : "▾"}
         </span>
       </button>
-      <div className={`infobox${mobileCollapsed ? "infobox--collapsed" : ""}`}>
-        <div className="infobox-header-row">
+      <div className="infobox group/sb" data-collapsed={mobileCollapsed}>
+        <div className="flex items-start justify-between gap-[0.25rem] bg-accent-wash-strong [border-bottom:1px_solid_var(--panel-border)]">
           {title && (
             <div
               className="infobox-title"
@@ -837,9 +843,11 @@ export function Sidebar({
             />
           )}
           {articleSlug && (
-            <button
+            <Button
               type="button"
-              className="infobox-edit-btn"
+              variant="outline"
+              size="icon"
+              className="mt-[0.1rem] size-6 shrink-0 bg-parchment p-0 text-[0.75rem] opacity-60 hover:opacity-100"
               title="Edit sidebar"
               onClick={(e) => {
                 e.stopPropagation();
@@ -849,19 +857,19 @@ export function Sidebar({
               aria-label="Edit sidebar"
             >
               ✏
-            </button>
+            </Button>
           )}
         </div>
         {subtitle && (
           <div
-            className="infobox-subtitle"
+            className="infobox-subtitle max-[680px]:group-data-[collapsed=true]/sb:hidden"
             dangerouslySetInnerHTML={{ __html: subtitle }}
           />
         )}
 
         {editOpen && articleSlug && (
           <div
-            className="my-2 border-t border-rule pt-2"
+            className="my-2 border-t border-rule pt-2 max-[680px]:group-data-[collapsed=true]/sb:hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <Tabs
@@ -903,7 +911,7 @@ export function Sidebar({
           <>
             <a
               href={`/media/${encodeURIComponent(headlineMedia.mediaId)}`}
-              className="infobox-image-link"
+              className="infobox-image-link max-[680px]:group-data-[collapsed=true]/sb:hidden"
               onClick={(e) => {
                 e.preventDefault();
                 onNavigateToMedia(headlineMedia.mediaId);
@@ -917,7 +925,7 @@ export function Sidebar({
             </a>
             {caption && (
               <p
-                className="infobox-caption"
+                className="infobox-caption max-[680px]:group-data-[collapsed=true]/sb:hidden"
                 dangerouslySetInnerHTML={{ __html: caption }}
               />
             )}
@@ -925,7 +933,7 @@ export function Sidebar({
         )}
 
         {groups.length > 0 && (
-          <table className="infobox-table">
+          <table className="infobox-table max-[680px]:group-data-[collapsed=true]/sb:hidden">
             {groups.map((group, gi) => (
               <tbody key={gi}>
                 {group.label && (

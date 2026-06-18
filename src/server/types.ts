@@ -242,6 +242,37 @@ export interface ImagesConfig {
   fetch_timeout_ms: number;
   media_database_path: string;
   allow_private_hosts: boolean;
+  generation: ImageGenerationConfig;
+}
+
+export type ImageGenerationBackend = "openai" | "ollama";
+
+export interface ImageGenerationConfig {
+  enabled: boolean;
+  auto_generate_for_new_articles: boolean;
+  backend: ImageGenerationBackend;
+  openai: OpenAIImageGenerationConfig;
+  ollama: OllamaImageGenerationConfig;
+}
+
+export interface OpenAIImageGenerationConfig {
+  base_url: string;
+  api_key: string;
+  model: string;
+  size: string;
+  quality: string;
+  output_format: string;
+  output_compression: number;
+  timeout_ms: number;
+}
+
+export interface OllamaImageGenerationConfig {
+  base_url: string;
+  model: string;
+  width: number;
+  height: number;
+  steps: number;
+  timeout_ms: number;
 }
 
 export interface AppConfig {

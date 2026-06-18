@@ -1,0 +1,100 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject that looks like a still
+from an analog black-and-white security camera: fixed-position surveillance
+footage, monochrome CCTV, old building monitor feed, institutional camera
+recording, parking-lot camera, hallway camera, store camera, lab camera, or
+low-light perimeter camera.
+
+Halupedia is fictional. People, organizations, events, cultures, places, and
+relationships in the supplied context should be treated as fictional-world
+subjects, not real public figures or real-world claims.
+
+Core look:
+- Make the source unmistakably analog monochrome surveillance: black-and-white
+  or greenish-gray grayscale, low resolution, poor contrast, harsh infrared or
+  fluorescent lighting, sensor bloom, blown white highlights, crushed shadows,
+  scanlines, mild tracking noise, rolling interference, static speckles, soft
+  focus, lens grime, vignetting, fixed wide-angle distortion, and smeared motion.
+- Use security-camera logic, not cinematic logic. The camera should feel bolted
+  to a wall, ceiling, pole, corner, gate, lobby, back room, corridor, platform,
+  loading bay, stairwell, storefront, lab, archive, or exterior perimeter.
+- Let the scene feel incidental and uncomposed: too much empty floor, ceiling,
+  pavement, wall, aisle, corridor, or doorway; subject off-center, distant,
+  partially cropped, partially occluded, or caught mid-motion.
+- Use the article context to choose a plausible surveillance view of the main
+  subject: a place, object, figure, machine, meeting, ritual, animal, vehicle,
+  artifact, storefront, facility, or unexplained event caught by a fixed camera.
+- Keep the main subject readable enough to function as a headline image, even
+  if it is grainy, distant, distorted, or partly obscured.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, institutions, technologies,
+  maps, conflicts, materials, emotional tone, and relationships into a fixed
+  surveillance-camera scene that feels captured rather than staged.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a strange but credible black-and-white CCTV still tied to the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a fixed elevated or corner-mounted camera angle when appropriate:
+  high-angle room view, ceiling-corner hallway view, parking-lot wide shot,
+  loading-dock view, gate camera, lobby camera, stairwell camera, or exterior
+  perimeter view.
+- Leave plausible headline negative space in dark wall, empty floor, pavement,
+  ceiling, shadow, fogged glass, blown-out doorway, blank corridor, or noisy
+  exterior darkness.
+- Prefer one captured surveillance moment over a collage, montage, title card,
+  fake interface, or poster.
+
+Avoid:
+- Clean modern security-camera UI, timestamps, overlays, crosshairs, captions,
+  readable labels, fake logos, fake monitor frames, split-screen grids,
+  screenshots, title cards, posters, or images that are primarily text.
+- Polished film stills, cinematic horror lighting, dramatic handheld camera
+  work, professional documentary photography, crisp 4K detail, glossy
+  monochrome portraiture, modern cyberpunk, neon synthwave, and fashionable
+  retro filters that do not feel like actual surveillance footage.
+- Gore, excessive horror, pornographic framing, overt nudity, explicit sexual
+  content, sexualized minors, sexual violence, or anything that makes the image
+  feel exploitative instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a still from an analog black-and-white security
+camera.
+
+Make it feel like fixed-position monochrome CCTV footage: high or corner camera
+angle, low resolution, poor contrast, scanlines, static speckles, infrared or
+fluorescent lighting, blown highlights, crushed shadows, lens grime, wide-angle
+distortion, empty institutional space, and awkward incidental framing.
+
+The main subject should be readable but caught by surveillance rather than
+posed. No timestamps, overlays, text, logos, captions, readable labels, monitor
+frames, split-screen grids, title cards, posters, screenshots, overt nudity, or
+explicit sexual content.
+"""

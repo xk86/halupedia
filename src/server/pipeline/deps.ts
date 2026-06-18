@@ -50,6 +50,24 @@ export interface PipelineDeps {
    * the update immediately without polling.
    */
   onSidecarUpdate?: (slug: string, event: SidecarUpdateEvent) => void;
+  /**
+   * Optional bridge for the article.image_generate workflow. Kept as a
+   * dependency hook so the node reuses the server's media ingest, caption,
+   * sidecar, and provider configuration logic instead of duplicating it.
+   */
+  generateArticleImageAttachment?: (
+    slug: string,
+    replace?: boolean,
+    presetKey?: string,
+  ) => Promise<{
+    mediaId: string;
+    isNew: boolean;
+    width: number;
+    height: number;
+    backend: string;
+    model: string;
+    revisedPrompt?: string;
+  }>;
 }
 
 export type SidecarUpdateEvent =

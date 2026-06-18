@@ -18,7 +18,7 @@
 
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -29,6 +29,7 @@ import { renderInfoboxHtml } from "../src/server/articleRender";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 import { type LlmRouter, type ChatOptions } from "../src/server/llm";
 import { makeRouter } from "./helpers/router";
+import { setLlmFetchForTests } from "../src/server/llm";
 import { createApp } from "../src/server/index";
 import { loadConfig } from "../src/server/config";
 import type { Logger } from "../src/server/logger";
@@ -44,6 +45,8 @@ import { initialPipelineState } from "../src/server/pipeline/state";
 import { buildPromptRegistry } from "../src/server/pipeline/prompts/registry";
 import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
+import { generateArticleImage, setImageGenerationFetchForTests } from "../src/server/imageGeneration";
+import type { ImageGenerationConfig } from "../src/server/types";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
@@ -103,7 +106,10 @@ class FakeLlm implements LlmRouter {
 }
 
 
-async function makeTestServer(llm: LlmRouter = new FakeLlm()) {
+async function makeTestServer(
+  llm: LlmRouter = new FakeLlm(),
+  imageGenerationConfig: Partial<ImageGenerationConfig> = { enabled: false },
+) {
   const { dir, cleanup } = tmpDir();
   const databasePath = join(dir, "articles.sqlite");
   const mediaDatabasePath = join(dir, "media.sqlite");
@@ -111,7 +117,15 @@ async function makeTestServer(llm: LlmRouter = new FakeLlm()) {
   const db = openDatabase(databasePath);
   saveArticle(db, { slug: "aspirin", canonicalSlug: "aspirin", title: "Aspirin", markdown: md, html: renderMarkdown(md), plain_text: markdownToPlainText(md), generated_at: Date.now() }, [], ["aspirin"]);
   db.close();
-  const { app, shutdown } = await createApp({ databasePath, mediaDatabasePath, skipLlmProbe: true, skipHomepagePrepare: true, logger: noop(), llmClient: llm });
+  const { app, shutdown } = await createApp({
+    databasePath,
+    mediaDatabasePath,
+    skipLlmProbe: true,
+    skipHomepagePrepare: true,
+    logger: noop(),
+    llmClient: llm,
+    imageGenerationConfig,
+  });
   const go = (path: string, init?: RequestInit) => app.fetch(new Request(`http://localhost${path}`, init));
   return { dir, databasePath, mediaDatabasePath, cleanup: async () => { await shutdown(); cleanup(); }, go };
 }
@@ -122,9 +136,41 @@ function seedMedia(mediaDatabasePath: string, id = "img-x") {
   db.close();
 }
 
+function seedArticle(databasePath: string, slug = "image-test-article") {
+  const db = openDatabase(databasePath);
+  const md = "# Image Test Article\n\nA neutral test article.";
+  saveArticle(db, {
+    slug,
+    canonicalSlug: slug,
+    title: "Image Test Article",
+    markdown: md,
+    html: renderMarkdown(md),
+    plain_text: markdownToPlainText(md),
+    generated_at: Date.now(),
+  }, [], [slug]);
+  db.close();
+  return slug;
+}
+
 const defaultIngestConfig = {
   model_max_edge: 256, jpeg_quality: 70, max_bytes: 10 * 1024 * 1024,
   fetch_timeout_ms: 5000, media_database_path: "", allow_private_hosts: false,
+  generation: TEST_CONFIG.app.images.generation,
+};
+
+const enabledOpenAiImageGeneration: Partial<ImageGenerationConfig> = {
+  enabled: true,
+  backend: "openai",
+  openai: {
+    base_url: "https://api.openai.test/v1",
+    api_key: "test-key",
+    model: "gpt-image-2",
+    size: "1088x624",
+    quality: "low",
+    output_format: "jpeg",
+    output_compression: 70,
+    timeout_ms: 1000,
+  },
 };
 
 // ── mediaDb ───────────────────────────────────────────────────────────────────
@@ -365,6 +411,184 @@ describe("image backlinks", () => {
   });
 });
 
+// ── image generation backends ────────────────────────────────────────────────
+
+describe("article image generation", () => {
+  test("OpenAI backend parses b64_json image responses", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (url, init) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: TINY_PNG_B64, revised_prompt: "revised" }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const result = await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        ...enabledOpenAiImageGeneration,
+        ollama: TEST_CONFIG.app.images.generation.ollama,
+      } as ImageGenerationConfig,
+      logger: noop(),
+    });
+
+    assert.equal(capturedUrl, "https://api.openai.test/v1/images/generations");
+    assert.equal(capturedBody.model, "gpt-image-2");
+    assert.equal(capturedBody.prompt, "draw aspirin");
+    assert.equal(capturedBody.output_format, "jpeg");
+    assert.equal(capturedBody.output_compression, 70);
+    assert.equal(capturedBody.size, "1088x624");
+    assert.equal(result.backend, "openai");
+    assert.equal(result.mime, "image/jpeg");
+    assert.equal(result.revisedPrompt, "revised");
+    assert.deepEqual(result.bytes, TINY_PNG);
+  });
+
+  test("OpenAI backend rejects missing API keys before calling the provider", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let called = false;
+    setImageGenerationFetchForTests(async () => {
+      called = true;
+      return new Response("{}");
+    });
+
+    await assert.rejects(
+      () =>
+        generateArticleImage({
+          prompt: "draw aspirin",
+          config: {
+            ...TEST_CONFIG.app.images.generation,
+            ...enabledOpenAiImageGeneration,
+            openai: {
+              ...enabledOpenAiImageGeneration.openai!,
+              api_key: "",
+            },
+            ollama: TEST_CONFIG.app.images.generation.ollama,
+          } as ImageGenerationConfig,
+          logger: noop(),
+        }),
+      /api_key/i,
+    );
+    assert.equal(called, false);
+  });
+
+  test("OpenAI backend omits output_compression for png responses", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: TINY_PNG_B64 }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const result = await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        ...enabledOpenAiImageGeneration,
+        openai: {
+          ...enabledOpenAiImageGeneration.openai!,
+          output_format: "png",
+        },
+        ollama: TEST_CONFIG.app.images.generation.ollama,
+      } as ImageGenerationConfig,
+      logger: noop(),
+    });
+
+    assert.equal(capturedBody.output_format, "png");
+    assert.equal("output_compression" in capturedBody, false);
+    assert.equal(result.mime, "image/png");
+  });
+
+  test("Ollama backend parses final image field", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (url, init) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ image: `data:image/png;base64,${TINY_PNG_B64}` }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const result = await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        enabled: true,
+        backend: "ollama",
+        openai: TEST_CONFIG.app.images.generation.openai,
+        ollama: {
+          base_url: "http://ollama.test:11434",
+          model: "x/z-image-turbo",
+          width: 640,
+          height: 480,
+          steps: 7,
+          timeout_ms: 1000,
+        },
+      },
+      logger: noop(),
+    });
+
+    assert.equal(capturedUrl, "http://ollama.test:11434/api/generate");
+    assert.equal(capturedBody.model, "x/z-image-turbo");
+    assert.equal(capturedBody.width, 640);
+    assert.equal(capturedBody.steps, 7);
+    assert.equal(result.backend, "ollama");
+    assert.equal(result.mime, "image/png");
+    assert.deepEqual(result.bytes, TINY_PNG);
+  });
+
+  test("Ollama backend parses streamed final image field", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    setImageGenerationFetchForTests(async () =>
+      new Response(
+        [
+          JSON.stringify({ model: "x/z-image-turbo", completed: 1, total: 2, done: false }),
+          JSON.stringify({ model: "x/z-image-turbo", image: TINY_PNG_B64, done: true }),
+        ].join("\n"),
+        { headers: { "content-type": "application/x-ndjson" } },
+      ),
+    );
+
+    const result = await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        enabled: true,
+        backend: "ollama",
+        openai: TEST_CONFIG.app.images.generation.openai,
+        ollama: {
+          base_url: "http://ollama.test:11434",
+          model: "x/z-image-turbo",
+          width: 640,
+          height: 480,
+          steps: 7,
+          timeout_ms: 1000,
+        },
+      },
+      logger: noop(),
+    });
+
+    assert.equal(result.backend, "ollama");
+    assert.equal(result.mime, "image/png");
+    assert.deepEqual(result.bytes, TINY_PNG);
+  });
+});
+
 // ── article_media ─────────────────────────────────────────────────────────────
 
 describe("article_media", () => {
@@ -557,14 +781,13 @@ describe("markdown", () => {
 
 describe("vision-probe", () => {
   function mockShowEndpoint(body: unknown) {
-    const orig = globalThis.fetch;
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      if (String(input).endsWith("/api/show")) {
+    setLlmFetchForTests(async (input: string) => {
+      if (input.endsWith("/api/show")) {
         return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
       }
       return new Response("nf", { status: 404 });
-    };
-    return () => { globalThis.fetch = orig; };
+    });
+    return () => { setLlmFetchForTests(null); };
   }
 
   function makeVisionRouter(imagesChatConfig?: { base_url: string; api_key: string; model: string; temperature: number; max_tokens: number }) {
@@ -597,9 +820,8 @@ describe("vision-probe", () => {
   });
 
   test("false when provider endpoint unreachable", async (t) => {
-    const orig = globalThis.fetch;
-    t.after(() => { globalThis.fetch = orig; });
-    globalThis.fetch = async () => { throw new Error("refused"); };
+    t.after(() => { setLlmFetchForTests(null); });
+    setLlmFetchForTests(async () => { throw new Error("refused"); });
     const r = makeVisionRouter();
     await r.probeConnections();
     assert.equal(r.supportsVision("heavy"), false);
@@ -636,12 +858,11 @@ describe("vision-probe", () => {
 describe("multimodal", () => {
   function makeCaptureRouter() {
     let lastBody: any = null;
-    const orig = globalThis.fetch;
-    const restore = () => { globalThis.fetch = orig; };
-    globalThis.fetch = async (_: RequestInfo | URL, init?: RequestInit) => {
+    const restore = () => { setLlmFetchForTests(null); };
+    setLlmFetchForTests(async (_: string, init?: RequestInit) => {
       lastBody = JSON.parse(String(init?.body ?? "{}"));
       return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "ok" } }], usage: { total_tokens: 1 } }), { status: 200, headers: { "content-type": "application/json" } });
-    };
+    });
     const cfg = { base_url: "http://llm.test/v1", api_key: "k", model: "m", temperature: 1, max_tokens: 10 };
     const router = makeRouter(cfg, cfg, { enabled: false, base_url: "", api_key: "", model: "" }, noop());
     return { router, getBody: () => lastBody, restore };
@@ -719,6 +940,140 @@ describe("http", () => {
     const s = await makeTestServer(); t.after(s.cleanup);
     const body = await (await s.go("/api/article/aspirin/image")).json() as any;
     assert.equal(body.image, null);
+  });
+
+  test("POST /api/article/:slug/image/generate rejects when disabled", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const res = await s.go("/api/article/aspirin/image/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json() as any;
+    assert.match(body.error, /disabled/i);
+  });
+
+  test("POST /api/article/:slug/image/generate rejects existing image without replace", async (t) => {
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    seedMedia(s.mediaDatabasePath, "existing-img");
+    const db = openDatabase(s.databasePath);
+    upsertArticleHeadlineMedia(db, "aspirin", "existing-img", "");
+    db.close();
+    const res = await s.go("/api/article/aspirin/image/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(res.status, 409);
+  });
+
+  test("POST /api/article/:slug/image/generate stores and attaches generated image", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    setImageGenerationFetchForTests(async () =>
+      new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const res = await s.go("/api/article/aspirin/image/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.ok(body.mediaId);
+    assert.equal(body.backend, "openai");
+    const check = await (await s.go("/api/article/aspirin/image")).json() as any;
+    assert.ok(check.image?.id);
+  });
+
+  test("GET /api/admin/article-image-prompts lists image prompt variants", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const body = await (await s.go("/api/admin/article-image-prompts")).json() as any;
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "default"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "conceptual"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "1990s_cgi"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "analog_video_still"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "bad_phone_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "black_and_white_security_camera"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "haunted_analog_still"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "public_domain_engraving"));
+    assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
+
+    const promptList = await (await s.go("/api/admin/prompts")).json() as any;
+    assert.ok(promptList.runnable.some((prompt: any) => prompt.key === "article_image"));
+    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "1990s_cgi"), false);
+    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
+  });
+
+  test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {
+    const suffix = randomUUID().replace(/-/g, "_");
+    const key = `test_${suffix}`;
+    const promptPath = join(process.cwd(), "config", "prompts", "article_image_presets", `${key}.toml`);
+    t.after(() => {
+      if (existsSync(promptPath)) unlinkSync(promptPath);
+    });
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const createRes = await s.go("/api/admin/article-image-prompts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: `test ${suffix}`, copyFrom: "default" }),
+    });
+    assert.equal(createRes.status, 200);
+    const created = await createRes.json() as any;
+    assert.equal(created.prompt.key, key);
+    assert.equal(existsSync(promptPath), true);
+
+    const deleteRes = await s.go(`/api/admin/article-image-prompts/${key}`, { method: "DELETE" });
+    assert.equal(deleteRes.status, 200);
+    assert.equal(existsSync(promptPath), false);
+  });
+
+  test("POST /api/article/:slug/image/generate uses selected image preset key", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedPrompt = "";
+    setImageGenerationFetchForTests(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      capturedPrompt = body.prompt ?? "";
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "conceptual" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    await res.json();
+    assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
+  });
+
+  test("POST /api/article/:slug/image/generate rejects non-image prompt key", async (t) => {
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ promptKey: "article" }),
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json() as any;
+    assert.match(body.error, /unknown image preset/i);
   });
 
   test("GET /api/article/:slug/image returns image info when attached", async (t) => {

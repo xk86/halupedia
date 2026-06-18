@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ERROR_BOX } from "@/lib/utils";
 import { RuntimePane } from "./admin/panes/RuntimePane";
 import { GenerationQueuePane } from "./admin/panes/GenerationQueuePane";
 import { PipelinesPane } from "./admin/panes/PipelinesPane";
@@ -417,7 +418,7 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         Loading admin overview...
       </p>
     );
-  if (error) return <div className="search-error">{error}</div>;
+  if (error) return <div className={ERROR_BOX}>{error}</div>;
   if (!overview) return null;
 
   return (

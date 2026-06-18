@@ -4,6 +4,7 @@ import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Badge, type badgeVariants } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { cn, ERROR_BOX } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -479,7 +480,7 @@ export function PromptEditorPane() {
 
   return (
     <Pane id="prompt-editor" title="Prompt Editor" wide defaultCollapsed>
-      {listError && <p className="search-error">{listError}</p>}
+      {listError && <p className={ERROR_BOX}>{listError}</p>}
 
       <div className="admin-prompt-editor">
         <div className="admin-prompt-select-row">
@@ -592,16 +593,12 @@ export function PromptEditorPane() {
                 {presetBusy ? "Working…" : "Add preset"}
               </Button>
             </div>
-            {presetError && (
-              <p className="search-error admin-prompt-save-error">
-                {presetError}
-              </p>
-            )}
+            {presetError && <p className={ERROR_BOX}>{presetError}</p>}
           </div>
         )}
 
         {loading && <p className="sb-copy">Loading…</p>}
-        {loadError && <p className="search-error">{loadError}</p>}
+        {loadError && <p className={ERROR_BOX}>{loadError}</p>}
 
         {content && !loading && (
           <>
@@ -683,11 +680,7 @@ export function PromptEditorPane() {
                 </span>
               )}
               {saveMsg && <span className="admin-prompt-saved">{saveMsg}</span>}
-              {saveError && (
-                <span className="search-error admin-prompt-save-error">
-                  {saveError}
-                </span>
-              )}
+              {saveError && <span className={ERROR_BOX}>{saveError}</span>}
             </div>
 
             {!editingCustomImagePreset && revisions.length > 0 && (
@@ -731,9 +724,7 @@ export function PromptEditorPane() {
                   </ul>
                 )}
                 {revertError && (
-                  <p className="search-error" style={{ marginTop: "0.4rem" }}>
-                    {revertError}
-                  </p>
+                  <p className={cn(ERROR_BOX, "mt-[0.4rem]")}>{revertError}</p>
                 )}
               </div>
             )}

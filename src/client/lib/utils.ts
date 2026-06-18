@@ -15,3 +15,12 @@ import { twMerge } from "tailwind-merge";
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+/**
+ * Inline error-message box: mono accent text on an accent wash, used for
+ * fetch/save failures across the search page and admin panes. A plain class
+ * string (not a component) so it drops onto whatever element each call site
+ * already uses — block <p>/<div> banners or inline <span> status text.
+ */
+export const ERROR_BOX =
+  "my-4 [border:1px_solid_var(--accent-border)] bg-accent-wash px-[0.8rem] py-[0.6rem] font-mono text-[0.85rem] text-accent";

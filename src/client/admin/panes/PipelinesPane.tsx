@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import clsx from "clsx";
+import { ERROR_BOX } from "@/lib/utils";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
@@ -255,7 +256,7 @@ export function PipelinesPane({
         </Button>
       }
     >
-      {error ? <p className="search-error">{error}</p> : null}
+      {error ? <p className={ERROR_BOX}>{error}</p> : null}
 
       {/* Run history is the primary view; the workflow diagrams below are
           collapsed reference material. In-progress articles lead the list. */}

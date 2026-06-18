@@ -4,6 +4,7 @@ import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { ERROR_BOX } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -170,7 +171,7 @@ export function LlmHostsPane() {
       count={`${data?.hosts.length ?? 0} hosts`}
       wide
     >
-      {error && <div className="search-error">{error}</div>}
+      {error && <div className={ERROR_BOX}>{error}</div>}
       {!data ? (
         <p className="sb-copy">Loading…</p>
       ) : (

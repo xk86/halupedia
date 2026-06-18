@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ERROR_BOX } from "@/lib/utils";
 import { toWikiSegment } from "./wikiPath";
 
 /** Section heading with an optional count badge. */
@@ -180,7 +181,7 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
         </div>
       )}
 
-      {error && <div className="search-error">{error}</div>}
+      {error && <div className={ERROR_BOX}>{error}</div>}
 
       {q && loading && (
         <p className="my-4 font-serif text-ink-fade italic">

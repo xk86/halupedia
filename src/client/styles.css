@@ -3541,23 +3541,6 @@ a:hover {
    Admin panel
    ==================================================================== */
 
-.admin-result-headline {
-  margin: 0 0 0.6rem;
-  font-style: italic;
-}
-
-.admin-result-headline code {
-  font-family: var(--mono);
-  font-style: normal;
-  background: var(--panel-surface-soft);
-  padding: 0.05rem 0.3rem;
-  border-radius: 2px;
-}
-
-.admin-action-row {
-  margin-top: 0.75rem;
-}
-
 .admin-section-title-row {
   display: flex;
   align-items: center;

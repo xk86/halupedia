@@ -45,7 +45,7 @@ export function EntrySurgeryPane({
           {deleting ? "Deleting..." : "Delete article"}
         </Button>
       </div>
-      <div className={`${TOOLBAR} admin-action-row`}>
+      <div className={`${TOOLBAR} mt-3`}>
         <ArticleSearchDropdown
           wrapClassName="flex-1"
           inputType="text"
@@ -63,7 +63,7 @@ export function EntrySurgeryPane({
         </Button>
       </div>
       {summaryResult ? (
-        <p className="admin-result-headline">{summaryResult}</p>
+        <p className="mx-0 mt-0 mb-[0.6rem] italic">{summaryResult}</p>
       ) : null}
     </Pane>
   );

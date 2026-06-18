@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { renderInlineHtml } from "./summaryHtml";
 import { toWikiSegment } from "./wikiPath";
+
+// Mono uppercase eyebrow heading shared by the two homepage panels.
+const PANEL_HEADING =
+  "font-mono text-[0.78rem] font-semibold uppercase tracking-[0.1em] text-ink-fade mt-0 mb-3 pb-[0.35rem] border-b border-rule";
 
 interface FeaturedArticle {
   slug: string;
@@ -84,7 +96,7 @@ export function Homepage({ onNavigate }: Props) {
     setHistoryError(null);
     try {
       const res = await fetch("/api/homepage/history");
-      const body = await res.json() as { history: HomepageData[] };
+      const body = (await res.json()) as { history: HomepageData[] };
       if (!res.ok) throw new Error("Failed to load history");
       setHistory(body.history);
       setHistoryOpen(true);
@@ -106,7 +118,14 @@ export function Homepage({ onNavigate }: Props) {
     if (!target) return;
     const href = target.getAttribute("href");
     if (!href) return;
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e as any).button === 1) return;
+    if (
+      e.metaKey ||
+      e.ctrlKey ||
+      e.shiftKey ||
+      e.altKey ||
+      (e as any).button === 1
+    )
+      return;
     // Swallow dead "#" hrefs produced by the markdown renderer for any
     // non-halu link. Without this the browser appends "#" to the URL bar.
     if (href === "#" || href.startsWith("#")) {
@@ -119,151 +138,199 @@ export function Homepage({ onNavigate }: Props) {
     }
   };
 
-  const secondsRemaining = data ? Math.max(0, Math.ceil((data.expiresAt - now) / 1000)) : null;
-  const timerText = secondsRemaining === null
-    ? "Loading homepage cache..."
-    : `Homepage refreshes in ${formatDuration(secondsRemaining)}`;
+  const secondsRemaining = data
+    ? Math.max(0, Math.ceil((data.expiresAt - now) / 1000))
+    : null;
+  const timerText =
+    secondsRemaining === null
+      ? "Loading homepage cache..."
+      : `Homepage refreshes in ${formatDuration(secondsRemaining)}`;
 
   // Whichever snapshot is being displayed (history preview or current)
-  const displayData = historyOpen && history && historyIndex !== null
-    ? history[historyIndex] ?? null
-    : data;
+  const displayData =
+    historyOpen && history && historyIndex !== null
+      ? (history[historyIndex] ?? null)
+      : data;
 
   return (
-    <article className="article homepage">
-      <div className="homepage-timer-row">
-        <div className="homepage-timer">{timerText}</div>
-        <button
+    <article className="article">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="inline-flex min-h-[1.6rem] items-center rounded border border-rule bg-parchment-deep px-2 py-[0.2rem] font-mono text-xs text-ink-fade">
+          {timerText}
+        </div>
+        <Button
           type="button"
-          className="homepage-history-btn"
-          onClick={historyOpen ? () => { setHistoryOpen(false); setHistoryIndex(null); } : loadHistory}
+          variant="outline"
+          size="sm"
+          onClick={
+            historyOpen
+              ? () => {
+                  setHistoryOpen(false);
+                  setHistoryIndex(null);
+                }
+              : loadHistory
+          }
           disabled={historyLoading}
           aria-label="View homepage history"
         >
           {historyOpen ? "Current" : historyLoading ? "Loading..." : "History"}
-        </button>
+        </Button>
       </div>
 
-      {historyError && (
-        <p className="homepage-empty">{historyError}</p>
-      )}
+      {historyError && <p className="text-ink-fade italic">{historyError}</p>}
 
       {/* History navigation bar — shown when browsing past snapshots */}
       {historyOpen && history && history.length > 0 && (
-        <div className="homepage-history-nav">
-          <button
+        <div className="mb-2 flex items-center gap-3 rounded border border-rule bg-parchment-deep px-2 py-[0.35rem] text-[0.8rem]">
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             disabled={historyIndex === null || historyIndex <= 0}
-            onClick={() => setHistoryIndex((i) => (i !== null && i > 0 ? i - 1 : i))}
+            onClick={() =>
+              setHistoryIndex((i) => (i !== null && i > 0 ? i - 1 : i))
+            }
             aria-label="Newer snapshot"
           >
             ← Newer
-          </button>
-          <span className="homepage-history-label">
+          </Button>
+          <span className="flex-1 text-center font-mono text-ink-fade">
             {historyIndex !== null
               ? new Date(history[historyIndex].generatedAt).toLocaleString()
-              : ""}
-            {" "}({historyIndex !== null ? historyIndex + 1 : "?"} of {history.length})
+              : ""}{" "}
+            ({historyIndex !== null ? historyIndex + 1 : "?"} of{" "}
+            {history.length})
           </span>
-          <button
+          <Button
             type="button"
-            disabled={historyIndex === null || historyIndex >= history.length - 1}
-            onClick={() => setHistoryIndex((i) => (i !== null && i < history.length - 1 ? i + 1 : i))}
+            variant="outline"
+            size="sm"
+            disabled={
+              historyIndex === null || historyIndex >= history.length - 1
+            }
+            onClick={() =>
+              setHistoryIndex((i) =>
+                i !== null && i < history.length - 1 ? i + 1 : i,
+              )
+            }
             aria-label="Older snapshot"
           >
             Older →
-          </button>
+          </Button>
         </div>
       )}
 
       {historyOpen && history && history.length === 0 && (
-        <p className="homepage-empty">No prior homepage snapshots yet.</p>
+        <p className="text-ink-fade italic">No prior homepage snapshots yet.</p>
       )}
 
       <h1>Halupedia</h1>
       <p>
-        A local fictional encyclopedia whose canon accumulates over time. Articles seed future articles through
-        hidden link hints, and the backlink graph persists even when a target entry has not been written yet.
+        A local fictional encyclopedia whose canon accumulates over time.
+        Articles seed future articles through hidden link hints, and the
+        backlink graph persists even when a target entry has not been written
+        yet.
       </p>
 
       {error && (
-        <p className="homepage-empty">Could not load homepage content.</p>
+        <p className="text-ink-fade italic">Could not load homepage content.</p>
       )}
 
-      {displayData && !displayData.featured && displayData.didYouKnow.length === 0 && (
-        <p className="homepage-empty">
-          No articles yet. Search for a topic to generate your first entry.
-        </p>
-      )}
+      {displayData &&
+        !displayData.featured &&
+        displayData.didYouKnow.length === 0 && (
+          <p className="text-ink-fade italic">
+            No articles yet. Search for a topic to generate your first entry.
+          </p>
+        )}
 
       {displayData && (
-        <div className="homepage-panels">
+        <div className="mt-8 grid grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)] items-start gap-6 max-[760px]:grid-cols-1">
           {displayData.featured && (
-            <section className="homepage-featured">
-              <h2>Featured article</h2>
-              <div className="homepage-featured-card">
-                <h3>
-                  <a
-                    href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
-                    onClick={handleClick(displayData.featured.title)}
-                  >
-                    {displayData.featured.title}
-                  </a>
-                </h3>
-                {displayData.featured.imageId && (
-                  <figure className="homepage-featured-figure">
+            <section>
+              <h2 className={PANEL_HEADING}>Featured article</h2>
+              <Card size="sm">
+                <CardHeader>
+                  <CardTitle>
                     <a
                       href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
                       onClick={handleClick(displayData.featured.title)}
-                      className="homepage-featured-image-link"
+                      className="font-serif text-2xl leading-tight font-medium text-accent hover:text-accent-hover"
                     >
-                      <img
-                        className="homepage-featured-image"
-                        src={`/api/media/${encodeURIComponent(displayData.featured.imageId)}`}
-                        alt={displayData.featured.imageCaption || ""}
-                        loading="lazy"
-                      />
+                      {displayData.featured.title}
                     </a>
-                    {displayData.featured.imageCaption && (
-                      <figcaption
-                        className="homepage-featured-image-caption"
-                        dangerouslySetInnerHTML={{ __html: renderInlineHtml(displayData.featured.imageCaption) }}
-                      />
-                    )}
-                  </figure>
-                )}
-                {displayData.featured.summaryMarkdown && (
-                  <div
-                    className="homepage-summary"
-                    onClick={handleRenderedClick}
-                    dangerouslySetInnerHTML={{ __html: renderInlineHtml(displayData.featured.summaryMarkdown) }}
-                  />
-                )}
-                <a
-                  className="homepage-read-more"
-                  href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
-                  onClick={handleClick(displayData.featured.title)}
-                >
-                  Read full article →
-                </a>
-              </div>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {displayData.featured.imageId && (
+                    <figure className="m-0">
+                      <a
+                        href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
+                        onClick={handleClick(displayData.featured.title)}
+                        className="block border-b-0"
+                      >
+                        <img
+                          className="homepage-featured-image block max-h-64 w-full rounded-sm border border-rule object-cover"
+                          src={`/api/media/${encodeURIComponent(displayData.featured.imageId)}`}
+                          alt={displayData.featured.imageCaption || ""}
+                          loading="lazy"
+                        />
+                      </a>
+                      {displayData.featured.imageCaption && (
+                        <figcaption
+                          className="homepage-featured-image-caption"
+                          dangerouslySetInnerHTML={{
+                            __html: renderInlineHtml(
+                              displayData.featured.imageCaption,
+                            ),
+                          }}
+                        />
+                      )}
+                    </figure>
+                  )}
+                  {displayData.featured.summaryMarkdown && (
+                    <div
+                      className="homepage-summary"
+                      onClick={handleRenderedClick}
+                      dangerouslySetInnerHTML={{
+                        __html: renderInlineHtml(
+                          displayData.featured.summaryMarkdown,
+                        ),
+                      }}
+                    />
+                  )}
+                </CardContent>
+                <CardFooter>
+                  <a
+                    className="font-mono text-[0.82rem] tracking-[0.02em] text-accent hover:text-accent-hover"
+                    href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
+                    onClick={handleClick(displayData.featured.title)}
+                  >
+                    Read full article →
+                  </a>
+                </CardFooter>
+              </Card>
             </section>
           )}
 
           <section className="homepage-dyk">
-            <h2>Did you know...</h2>
+            <h2 className={PANEL_HEADING}>Did you know...</h2>
             {displayData.didYouKnow.length > 0 ? (
               <ul>
                 {displayData.didYouKnow.map((item) => (
                   <li
                     key={item.slug}
                     onClick={handleRenderedClick}
-                    dangerouslySetInnerHTML={{ __html: renderInlineHtml(item.fact) }}
+                    dangerouslySetInnerHTML={{
+                      __html: renderInlineHtml(item.fact),
+                    }}
                   />
                 ))}
               </ul>
             ) : (
-              <p className="homepage-empty">Add or generate an article to seed the first featured fact.</p>
+              <p className="text-ink-fade italic">
+                Add or generate an article to seed the first featured fact.
+              </p>
             )}
           </section>
         </div>

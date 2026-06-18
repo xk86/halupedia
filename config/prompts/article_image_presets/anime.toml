@@ -1,0 +1,118 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as a high-quality
+hand-drawn Japanese anime broadcast still: flat cel layers over a painted
+background, crisp inked outlines, simple shadow shapes, restrained highlights,
+and a finished production-frame quality that avoids the generic AI-anime or
+fantasy-concept-art look. Dark magical-girl battle imagery, surreal barrier
+spaces, and symbolic nightmare scenery may be used when they fit the subject,
+but the main goal is convincing premium 2D anime craft.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use real 2D anime production language: strong black or dark colored line art,
+  clean cel fills, two or three flat shadow tones, restrained highlights, color
+  holds, simple graphic silhouettes, limited-detail shapes, hand-painted
+  background plates, and the slight stillness of an actual paused TV frame.
+- Make nonhuman subjects, creatures, objects, and environments look like they
+  were drawn for animation cels, not rendered as fantasy illustration: simpler
+  anatomy, clear outline, flat color blocks, limited texture, readable
+  silhouette, and stylized design sheets translated into a scene.
+- Avoid generic AI-anime tells: overglossy skin, shiny wet eyes, random hair
+  strands, mushy facial features, distorted hands, too many specular
+  highlights, meaningless glowing particles, plastic 3D softness, painterly
+  creature rendering, crowded detail soup, and pinup-like posing when the
+  context does not call for it.
+- Choose a scene that feels like a real anime still tied to the article:
+  tense conversation, quiet aftermath, magical-girl combat pose, school or
+  city night scene, shrine or hospital corridor, train platform, ritual room,
+  moonlit rooftop, control room, strange institution, or surreal threshold.
+- Use dark magical-girl and witch-barrier motifs selectively: ornate patterns,
+  symbolic props, paper-cutout shapes, ribbons, gears, picture frames, clocks,
+  abstract enemies, theatrical scenery, and impossible architecture should
+  support the subject rather than overwhelm it.
+- If the article context is technical, political, historical, scientific, or
+  organizational, translate it into grounded anime staging first, then add
+  symbolic magical-girl details only where useful: props, diagrams, costume
+  accents, weapons, sigils, scenery, or abstract threats.
+- Keep the result as one believable anime still or key visual frame, not a
+  poster collage, cosplay photo, generic cute anime portrait, mecha splash art,
+  creature concept painting, glossy fantasy illustration, cluttered witch-space
+  wallpaper, or direct franchise reference.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, institutions, machines, rituals,
+  conflicts, relationships, organisms, and artifacts into original anime
+  staging, character acting, props, costumes, magic effects, abstract threats,
+  sigils, weapons, or symbolic scenery.
+- If multiple interpretations are plausible, choose the one that gives the
+  strongest emotional and symbolic read while preserving the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a single striking anime still: a figure or subject in a clear dramatic
+  pose, a quiet emotional beat, a tense confrontation, a magical attack, an
+  object held in close-up, or a calm scene made strange by a few symbolic
+  details.
+- Leave headline negative space in sky, wall, shadow, screen glow, empty floor,
+  smoke, curtains, painted background planes, or simple abstract geometry.
+
+Avoid:
+- Names, logos, recognizable characters, specific magical-girl outfits, mascot
+  creatures, transformation items, witch designs, familiars, scene replicas,
+  exact color-coded uniforms, specific mecha silhouettes, or any direct
+  imitation of a copyrighted anime franchise.
+- Readable text, captions, subtitles, UI text, posters, title cards, manga
+  panels, modern 3D anime renders, generic chibi style, generic AI-anime faces,
+  cosplay photography, painterly fantasy art, semi-realistic animal rendering,
+  detailed fur or scale rendering, wet cinematic concept-art lighting, overt
+  nudity, explicit sexual content, sexualized minors, sexual violence, or
+  exploitative framing.
+- Imitating a living artist.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as an original high-quality hand-drawn anime still:
+flat cel-animation foreground subject, crisp inked outline, simple color
+fills, two or three clean shadow tones, restrained highlights, readable
+silhouette, hand-painted background plate, and one clear dramatic moment that
+looks like a paused premium TV anime frame.
+
+Use dark magical-girl battle or surreal barrier motifs only if they help:
+ornate symbolic props, ribbons, gears, picture frames, clocks, paper-cutout
+shapes, abstract threats, moonlit architecture, or strange theatrical scenery.
+Keep the image elegant, specific, and production-quality, not cluttered or
+generic AI anime.
+
+Do not copy or reference any specific anime franchise, characters, logos,
+costumes, mascot creatures, witch designs, familiars, transformation items,
+mecha silhouettes, or exact scenes. Avoid generic AI-anime gloss, painterly
+fantasy illustration, semi-realistic creature rendering, detailed fur or scale
+rendering, wet cinematic concept-art lighting, and 3D softness. No readable
+text, subtitles, captions, overt nudity, explicit sexual content, or sexualized
+minors.
+"""

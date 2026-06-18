@@ -1,0 +1,87 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as a crude painting on
+someone's stomach: a homemade, awkward, funny, slightly embarrassing belly
+painting documented like an odd local photo or amateur archive image.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- The painting should be on one person's bare stomach or abdomen, not full-body
+  bodypaint. Show a cropped torso, seated person, reclined person, beach chair,
+  bathroom mirror, living-room couch, backyard party, doctor's-office gag,
+  county fair booth, dorm room, or other amateur setting.
+- Make the stomach painting crude and hand-done: wobbly brush strokes, uneven
+  cheap craft paint, marker outlines, smeared colors, patchy coverage, bad
+  symmetry, shaky lettering-like marks that are not readable text, and a visual
+  joke or naive diagram based on the article context.
+- Keep it awkward, candid, and physical rather than beautiful or professional.
+  It should feel like someone painted the subject on their belly for a dare,
+  school project, fan ritual, local festival, medical protest, or weird
+  documentary moment.
+- Use clothing, framing, props, hands, waistband, towel, blanket, swimsuit top,
+  undershirt, robe, or crop to avoid explicit nudity while preserving the
+  stomach-painting idea.
+- Let the painted motif come from the article context: a bad little map,
+  mascot, organism, machine, diagram, heraldic symbol, building, mineral,
+  weather shape, fictional emblem, or childish portrait.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, institutions, places, species,
+  technologies, conflicts, rituals, materials, and symbols into one crude
+  painted belly motif.
+- If multiple interpretations are plausible, choose the one that makes the
+  subject clearest while staying dignified and editorial.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a candid close or medium crop centered on the abdomen, with enough
+  surrounding context to make the situation funny or strange.
+- Leave headline negative space in wall, couch, towel, blanket, floor, mirror,
+  sky, bathroom tile, bedsheet, or soft background.
+- Keep anatomy plausible and non-explicit. The belly painting should be the
+  clear subject.
+
+Avoid:
+- Full-body bodypaint, high-fashion body art, elegant performance art, gallery
+  catalog polish, erotic posing, fetish framing, pornographic styling,
+  explicit nudity, sexualized minors, sexual violence, voyeuristic crops, or
+  anything that makes the image feel exploitative instead of awkward/editorial.
+- Readable text, captions, logos, fake typography, screenshots, posters,
+  generic fantasy body art, cosplay of real franchises, and imitation of a
+  living artist or specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a crude painting on someone's stomach: a cropped
+bare abdomen with a wobbly handmade paint motif based on the article context,
+cheap craft paint or marker outlines, smeared colors, awkward candid setting,
+and amateur documentary-photo energy.
+
+No full-body bodypaint, elegant body-art performance, explicit nudity, erotic
+posing, fetish framing, sexualized minors, readable text, labels, captions,
+logos, screenshots, or explicit sexual content.
+"""

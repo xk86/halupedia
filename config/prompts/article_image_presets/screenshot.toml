@@ -1,0 +1,98 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject that looks like a
+grounded, realistic computer screenshot from the subject's fictional world:
+mundane desktop software, an old office application, Windows XP/Windows 7-era
+utility UI, browser-based admin panel, database console, map viewer, lab
+instrument screen, security camera viewer, or internal records system.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image read immediately as a real screenshot from ordinary software:
+  rectangular windows, title bars, menu bars, toolbar icons, tabs, gray panels,
+  blue selection highlights, status bars, scrollbars, tree views, property
+  grids, form fields, tables, tiny buttons, checkbox lists, map panes, image
+  preview panes, and practical dialog boxes.
+- Favor Windows XP/Windows 7-era and early-2000s-to-2010s interface language:
+  Luna-blue window chrome, Aero glass hints, beige or light-gray enterprise
+  forms, old browser frames, intranet admin tools, Access-like databases,
+  lab-equipment software, municipal GIS viewers, CCTV clients, or clunky
+  vertical-industry applications.
+- Use invented interface marks and unreadable pseudo-text only as texture. No
+  readable words, real logos, real product UI, real brands, or legible data.
+- Choose the screenshot source from the article context: a desktop records
+  tool, public-works database, museum catalog app, government form, old
+  intranet page, spreadsheet-like grid, security dashboard, lab instrument,
+  satellite/map viewer, medical display, industrial control panel, or archival
+  website.
+- Keep one dominant software state. The image should feel like someone hit
+  Print Screen on a real boring computer, not like a sci-fi concept interface.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, organizations, species,
+  conflicts, machines, software, rituals, maps, or events into plausible
+  mundane interface elements: selected rows, blank forms, small thumbnails,
+  maps, tree-view folders, status panes, charts, dialog boxes, and old utility
+  windows.
+- If multiple interpretations are plausible, choose the most article-specific
+  screenshot format.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Frame the full screen or a plausible cropped capture with stable desktop
+  geometry, crisp window edges, and headline negative space in empty panels,
+  gray workspace, form gutters, map oceans, whitespace, inactive panes, or
+  blank dialog areas.
+- Let JPEG compression, LCD pixel grid, moire, cursor trails, slightly wrong
+  scaling, low-resolution icons, and old anti-aliased fonts add authenticity
+  without hiding the main subject.
+
+Avoid:
+- Sci-fi holograms, futuristic HUDs, cyberpunk dashboards, glowing transparent
+  interfaces, spaceship consoles, fantasy game UI, slick neon monitor walls,
+  readable real text, real application names, real logos, exact replicas of
+  commercial interfaces, fake news headlines, memes, social media posts,
+  typography-first title cards, posters, photoreal scenes with no screen
+  capture logic, and illegible clutter.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a grounded realistic screenshot from mundane
+desktop software: Windows XP/Windows 7-era window chrome, old browser or
+intranet UI, gray enterprise panels, forms, tables, tree views, toolbar icons,
+scrollbars, blue selection highlights, tiny utility buttons, map panes, camera
+feed panes, lab-instrument panes, old anti-aliased fonts, pixels, compression,
+and rasterized interface detail.
+
+Use only invented unreadable pseudo-text as texture. No readable real text,
+real logos, real app names, sci-fi holograms, futuristic HUDs, neon cyberpunk
+dashboards, captions, title cards, overt nudity, or explicit sexual content.
+"""

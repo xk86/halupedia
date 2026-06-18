@@ -1,0 +1,119 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as a very simple crude
+manuscript folio with the visual mood of the Voynich manuscript and slight
+inspiration from Leonardo da Vinci notebook studies: one awkward low-skill
+drawing, shaky sepia ink, uneven parchment, maybe one or two tiny side doodles,
+and unsettling amateur scholarship, while remaining an invented
+fictional-world artifact.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image feel like a photographed or scanned parchment folio from a
+  mysterious handmade manuscript: aged vellum, brown ink, faded mineral
+  pigments, blotchy washes, crooked ruling lines, page waviness, stains,
+  abrasions, wormholes, thumb grime, uneven margins, and poor registration.
+- Make the drawing crude and human: wobbly contour lines, inconsistent scale,
+  bad symmetry, lopsided circles, flat childlike perspective, awkward hands or
+  plants, strange proportions, scratchy hatching, hesitant outlines, repeated
+  little corrections, and small mistakes that make the page feel handmade.
+- Keep the drawing low-detail. Avoid careful natural-history rendering,
+  beautiful anatomy, dense fur, hundreds of scales, polished crosshatching, or
+  confident professional illustration. Prefer sparse linework, simple shapes,
+  flat washes, visibly wrong proportions, and naive handmade marks.
+- Borrow lightly from early scientific notebook studies: loose exploratory
+  sketches, rough construction lines, simple section cuts, measurement-like
+  ticks, and crude diagram logic. Keep this influence modest; it should not
+  become a polished Renaissance master drawing.
+- Use invented cryptic glyphs and pseudo-writing as texture only. The page may
+  contain one or two short rows of unreadable characters, but no full text
+  blocks, real readable words, captions, labels, modern typography, logos, or
+  legible language.
+- Translate the article context into one rough manuscript subject: an impossible
+  plant, creature, object, map fragment, ritual implement, small figure,
+  medicinal specimen, simple cosmology, or crude technical diagram that looks
+  sincerely drawn by someone without modern illustration skill.
+- Keep the folio very simple. Prefer one large central drawing, zero to two
+  small side doodles, one or two short glyph fragments, and lots of empty
+  stained parchment. The page should not be packed edge-to-edge.
+- Keep the subject readable as a single folio or spread, not a modern fantasy
+  illustration. It should feel like a strange archival artifact, not a clean
+  AI-generated illuminated manuscript.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Let Halupedia-specific materials, institutions, places, species, rituals,
+  technologies, diseases, maps, or conflicts determine the manuscript's visual
+  motifs.
+- If multiple interpretations are plausible, choose the folio design that makes
+  the subject most specific and visually legible.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Show one strong manuscript folio or open spread with clear subject hierarchy
+  and generous parchment negative space.
+- Use crude borders, lopsided circular diagrams, specimen doodles, marginal
+  figures, and awkward page organization sparingly. The composition should feel
+  like a notebook page or single manuscript sketch, not a full illustrated
+  encyclopedia plate.
+
+Avoid:
+- Clean AI fantasy manuscript polish, perfect symmetrical illumination, elegant
+  calligraphy, glossy gold-leaf luxury, modern fantasy art, neat vector
+  infographics, readable real text, modern screenshots, website UI,
+  typography-first posters, fake book covers, anime, photoreal scenes outside
+  the manuscript artifact, and images that look like a contemporary puzzle game
+  interface.
+- Overloaded pages, dense bestiary plates, dozens of mini-diagrams, fully
+  filled layouts, polished natural-history illustration, and every corner of
+  the parchment being used.
+- Professional animal anatomy, delicate fur rendering, hundreds of individual
+  scales or feathers, tidy pseudo-calligraphy blocks, decorative completeness,
+  and overly coherent creature-design polish.
+- Renaissance-master polish, elegant anatomical study, precise engineering
+  draftsmanship, and beautiful finished sketchbook pages.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a mysterious manuscript folio in a Voynich-like
+style, but simple, crude, and handmade: aged vellum, brown ink, faded mineral
+pigments, blotchy washes, crooked lines, one large awkward low-skill central
+drawing, zero to two tiny side doodles, one or two short unreadable glyph
+fragments, slight da Vinci notebook-study influence, rough construction lines,
+simple section-cut details, bad proportions, sparse linework, stains,
+abrasions, grime, and lots of empty parchment.
+
+No readable real text, labels, captions, logos, screenshots, modern typography,
+clean AI fantasy manuscript polish, elegant calligraphy, overt nudity, or
+explicit sexual content. Do not make a dense illustrated encyclopedia plate;
+do not fill every part of the page. Avoid polished natural-history rendering,
+professional anatomy, Renaissance-master polish, dense fur or scale detail, and
+tidy pseudo-text blocks.
+"""

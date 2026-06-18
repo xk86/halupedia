@@ -1,0 +1,89 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as an embarrassingly
+earnest romance novel cover: melodramatic, airbrushed, sentimental, overposed,
+and slightly cringy in the way mass-market paperback romance covers can be.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use mass-market romance cover language: soft-focus glow, airbrushed skin,
+  windblown hair, dramatic embrace or longing gaze, backlit sunset, billowing
+  fabric, open collars, decorative landscape, castle/estate/ship/city backdrop,
+  roses, mist, moonlight, candle glow, or stormy passion when appropriate.
+- Make it knowingly overwrought but not pornographic. The cover can be cheesy,
+  sentimental, melodramatic, and too polished, with awkward sensual staging and
+  intense yearning.
+- Use genre subtypes from the context: historical romance, paranormal romance,
+  small-town romance, gothic romance, workplace romance, space romance,
+  forbidden love, fake-marriage drama, or melodramatic adventure romance.
+- Keep the main subject readable. If the article is not about people, translate
+  it into a romance-cover object, place, institution, vehicle, artifact, or
+  symbolic scene with exaggerated yearning.
+- Keep the style cover-like and illustrated/airbrushed, not candid photography.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, places, artifacts, institutions,
+  conflicts, secrets, rivalries, rituals, or settings into a melodramatic
+  romance-cover tableau.
+- For abstract or technical subjects, choose an exaggerated romanticized
+  symbolic object, facility, landscape, or encounter tied to the subject.
+- If multiple interpretations are plausible, choose the funniest but still
+  context-specific romance-cover interpretation.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a cover-like central couple, single yearning figure, dramatic object, or
+  symbolic landscape. Compose with sweeping diagonals, soft vignettes, glowing
+  sky, and decorative foreground shapes.
+- Leave space in sky, mist, fabric, wall, landscape, or soft gradient, but do
+  not add title text.
+- Prefer one coherent cover tableau over a collage or meme.
+
+Avoid:
+- Readable titles, author names, publisher logos, price stickers, blurbs,
+  series badges, fake typography, watermarks, screenshots, UI, or book mockups.
+- Explicit sexual content, visible genitalia, pornographic framing, sexualized
+  minors, sexual violence, coercive imagery, or nudity more explicit than a
+  cheesy non-explicit romance cover.
+- Specific copyrighted romance franchises, recognizable real people, or
+  imitation of a living artist.
+- Modern fashion-editorial realism, tasteful prestige-drama posters, and
+  generic fantasy key art that lacks the cringy paperback-cover mood.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a cringy mass-market romance novel cover.
+
+Use overearnest paperback romance aesthetics: soft-focus glow, airbrushed
+figures or objects, windblown hair or fabric, longing gazes, dramatic embrace
+when appropriate, sunset or moonlit backdrop, mist, roses, candlelight,
+stormy melodrama, and sentimental cover-like composition. Keep it cheesy but
+non-explicit and specific to the article.
+
+No readable text, titles, author names, publisher logos, blurbs, UI,
+screenshots, overt nudity, pornographic framing, or explicit sexual content.
+"""

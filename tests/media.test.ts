@@ -1005,8 +1005,23 @@ describe("http", () => {
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "analog_video_still"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "bad_phone_photo"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "black_and_white_security_camera"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "broadcast_news_still"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "paparazzi_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "communist_propaganda"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "courtroom_sketch"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "cringy_romance_novel_cover"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "fpv_drone_feed"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "haunted_analog_still"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "overhead_projector_transparency"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "painting"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "promotional_movie_poster"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "black_and_white_photo"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "public_domain_engraving"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "satellite_reconnaissance"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "sixth_generation_console_graphics"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "space_agency_artist_conception"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "wikihow_illustration"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "seventh_generation_console_graphics"));
     assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;

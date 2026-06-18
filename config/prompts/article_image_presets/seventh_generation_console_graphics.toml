@@ -1,0 +1,158 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one menu-free game viewport image for a Halupedia subject as if it were rendered
+in a seventh-generation console game from the Xbox 360 / PlayStation 3 era:
+roughly 2005-2013 HD real-time graphics, shader-heavy but pre-PBR, with the
+technical limits and visual language of that generation.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image look like an actual Xbox 360 / PS3-era in-engine frame or
+  cutscene still, not modern retro fan art. It should feel like HD console
+  real-time rendering from the mid-2000s to early 2010s.
+- Use the correct rendering vocabulary for the era: programmable vertex and
+  pixel shaders, normal maps, specular maps, gloss maps, baked lightmaps,
+  mixed baked and dynamic lighting, shadow maps, limited soft shadows,
+  screen-space bloom, HDR-like tone mapping, color grading, depth of field,
+  motion blur, soft particles, alpha-blended smoke or dust, lens dirt or glare
+  when appropriate, mipmapping, anisotropic filtering, and visible texture
+  streaming or compression artifacts.
+- Keep materials pre-PBR. Use Blinn-Phong or Phong-like specular response,
+  hand-authored diffuse/specular/normal map workflows, shiny wet surfaces,
+  plastic-looking skin, waxy faces, glossy armor, gritty concrete, noisy metal,
+  normal-mapped bricks, smeared terrain textures, and over-sharpened grunge.
+  Do not use modern physically based metalness/roughness realism.
+- Use era-appropriate asset density: moderately high-poly hero objects and
+  characters, but with visible LOD transitions, repeated modular environment
+  pieces, baked grime decals, tiled textures, simplified foliage cards,
+  low-detail background props, stiff cloth, simple hair cards, and facial
+  animation that can feel slightly uncanny.
+- Preserve seventh-generation image artifacts: 720p or sub-HD sharpness,
+  jagged alpha edges, specular aliasing, stair-stepped silhouettes, noisy
+  shadow maps, screen-space edge halos, bloom clipping, crushed blacks,
+  desaturated brown/gray/green color grading when fitting, and slightly muddy
+  texture detail.
+- Keep the main subject readable and visually dominant. The console-era
+  treatment should interpret the article context, not turn every subject into
+  a generic military shooter, ruined city, or sci-fi corridor.
+- The frame should feel like a real gameplay viewport, replay frame, scripted
+  in-engine sequence, or cutscene rendered by the game engine with all HUD/UI
+  disabled. Avoid photography, photo mode, splash screens, loading art,
+  marketing key art, and box-art composition.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, objects, places, institutions,
+  technologies, conflicts, materials, emotional tone, and relationships into
+  a seventh-generation console scene, character model, object model,
+  environment, simulation, or cutscene frame.
+- For abstract, political, historical, or scientific subjects, choose a game
+  environment, evidence object, training simulation, museum-like level,
+  facility, landscape, vehicle bay, lab, urban exterior, or symbolic prop
+  instead of a modern infographic.
+- If multiple interpretations are plausible, choose the one that gives the
+  clearest Xbox 360 / PS3-era article hero while remaining tied to the context.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Compose it like an actual seventh-generation game screen with HUD disabled:
+  over-the-shoulder gameplay camera, third-person cover-shooter camera,
+  third-person exploration camera, first-person viewpoint without weapon/HUD
+  when appropriate, vehicle chase camera, scripted in-engine set-piece camera,
+  replay camera, hub-world camera, arena combat camera, corridor traversal
+  camera, or cutscene shot that still obeys game-engine staging.
+- Frame the subject through level and encounter design rather than photography:
+  cover objects, doorways, ramps, walkable floors, collision-readable walls,
+  modular architecture, vista reveal, combat lanes, traversal route, vehicle
+  path, objective-like landmark without UI, boss arena, laboratory room, urban
+  street segment, or environmental storytelling prop.
+- Use camera behavior common to the era: readable gameplay FOV, stable shoulder
+  or third-person distance, target centered for interaction or combat, strong
+  rim light and bloom as engine effects, depth of field mainly in cutscenes or
+  scripted moments, motion blur from camera or object movement, fog/particles
+  as level atmosphere, and high-contrast grading. Do not make it feel like a
+  real-world camera photograph.
+- Leave usable empty screen area as part of the level: fog, skybox, wall,
+  floor, corridor depth, empty road, water plane, blurred background geometry,
+  or bloom-lit atmosphere. Do not frame it like photographic headline negative
+  space.
+- Prefer one coherent in-engine game screen over a collage, poster, box art,
+  promo key art, photo-mode shot, loading screen, title screen, or interface
+  screenshot.
+
+Avoid:
+- Any HUD or interface: no health bars, ammo counters, minimaps, reticles,
+  crosshairs, objective markers, button prompts, inventory screens, menu
+  frames, pause screens, subtitles, dialog boxes, loading screens, achievement
+  popups, watermarks, timestamps, usernames, or UI overlays.
+- Any readable text or branding: no readable signs, labels, captions, logos,
+  real console logos, controller icons, studio marks, title cards, fake text,
+  box art, posters, or screenshots with menus.
+- Specific copyrighted game franchises, recognizable characters, recognizable
+  maps, or imitation of a specific studio's proprietary art direction.
+- Modern rendering techniques: ray tracing, path tracing, real-time global
+  illumination, screen-space global illumination, Lumen-like lighting, modern
+  PBR metalness/roughness materials, high-resolution photogrammetry, Nanite-like
+  geometry density, physically accurate skin shading, modern temporal
+  anti-aliasing, DLSS/FSR-like upscaling, modern volumetric clouds, cinematic
+  UE5/Unity HDRP polish, and current AAA material fidelity.
+- Sixth-generation or earlier looks: PS2/GameCube/original Xbox fixed-function
+  low-poly rendering, 1990s CGI, pixel art, pre-rendered CD-ROM graphics, anime,
+  comic styling, or intentionally retro low-poly nostalgia.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal menu-free game viewport image of the main subject, informed
+by the Halupedia context above, as an Xbox 360 / PlayStation 3-era in-engine
+frame, gameplay capture, replay frame, scripted sequence, or cutscene still.
+
+Make it technically accurate to seventh-generation HD console graphics:
+programmable shaders, normal maps, specular/gloss maps, baked lightmaps mixed
+with dynamic lights, shadow maps, screen-space bloom, HDR-like tone mapping,
+depth of field, motion blur, soft particles, alpha-card fog or smoke, mipmapped
+compressed textures, pre-PBR Blinn-Phong-style materials, 720p/sub-HD sharpness,
+specular aliasing, jagged alpha edges, muddy texture detail, modular
+environment pieces, and slightly uncanny character models when people appear.
+
+Use actual game framing, not photographic framing: over-the-shoulder gameplay
+camera, third-person cover-shooter camera, third-person exploration camera,
+first-person viewpoint without weapon/HUD when appropriate, vehicle chase
+camera, scripted in-engine set-piece camera, replay camera, hub-world camera,
+arena combat camera, corridor traversal camera, or cutscene shot that still
+obeys game-engine staging. Frame the subject through level geometry, cover
+objects, doorways, walkable floors, modular architecture, combat lanes,
+traversal routes, vehicle paths, objective-like landmarks without UI, boss
+arena layout, or environmental storytelling props. Keep the main subject
+readable and specific to the article.
+
+No HUD, no UI, no health bars, no minimap, no crosshair, no objective marker,
+no button prompts, no subtitles, no readable text, no labels, no logos, no
+title cards, no menu screens, no photo mode, no promotional key art, no
+screenshots with interface, no overt nudity, and no explicit sexual content.
+"""

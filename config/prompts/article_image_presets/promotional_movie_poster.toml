@@ -1,0 +1,90 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as a promotional movie
+poster or theatrical key art image from the subject's fictional world.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image feel like polished theatrical campaign art: dramatic character
+  or object hierarchy, composited lighting, atmospheric background, cinematic
+  color grade, rim light, smoke, glow, rain, sparks, practical lens flare, or
+  studio-lit object treatment when it fits the context.
+- Use poster composition rather than documentary composition: one dominant
+  central figure/object, stacked supporting silhouettes, looming architecture,
+  symbolic landscape, dramatic sky, diagonal action, or symmetrical ensemble.
+- Let the image be promotional and heightened. It can look airbrushed,
+  composited, retouched, and studio-finished, but it should still be tied to the
+  article context rather than becoming generic genre art.
+- Use genre cues from the context: disaster film, prestige drama, occult
+  thriller, courtroom drama, creature feature, political thriller, biopic,
+  sci-fi spectacle, sports movie, romance, procedural, or documentary poster.
+- Keep the subject readable and visually dominant at thumbnail size.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, artifacts, places, institutions,
+  conflicts, relationships, inventions, and disasters into fictional theatrical
+  key art.
+- For abstract, technical, or non-person subjects, make the subject an iconic
+  poster object, location, machine, institution, landscape, creature, vehicle,
+  or symbolic prop.
+- If multiple interpretations are plausible, choose the strongest theatrical
+  campaign image while remaining tied to the article context.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use dramatic poster hierarchy: central subject, supporting background forms,
+  clear silhouette, large sky or atmospheric field, foreground object, or
+  staged ensemble.
+- Leave usable empty space in smoke, sky, shadow, wall, water, landscape, or
+  dark gradient, but do not include title typography.
+- Prefer one coherent poster image over a collage of unrelated vignettes.
+
+Avoid:
+- Readable text, movie titles, taglines, credits, billing blocks, studio logos,
+  review quotes, laurels, release dates, fake typography, watermarks, box art,
+  DVD covers, streaming UI, screenshots, or images that are primarily text.
+- Specific copyrighted movie franchises, recognizable actors, real public
+  figures, real studio branding, or imitation of a living artist.
+- Excessively modern AI gloss, malformed faces, extra fingers, melted hands,
+  generic stock-poster imagery, and subject-agnostic action explosions.
+- Gore, overt nudity, explicit sexual content, sexualized minors, sexual
+  violence, or anything that makes the image feel exploitative instead of
+  editorial.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as promotional theatrical movie-poster key art.
+
+Use polished cinematic poster composition: dramatic central subject, supporting
+silhouettes or symbolic background, composited lighting, atmosphere, rim light,
+genre-appropriate color grade, and strong thumbnail readability. Keep the
+subject specific to the article.
+
+No readable text, titles, taglines, credits, billing blocks, logos, release
+dates, review quotes, UI, screenshots, overt nudity, or explicit sexual
+content.
+"""

@@ -1,0 +1,100 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as a NASA-style space
+agency artist conception: a scientifically minded painted or digital concept
+illustration used to explain a spacecraft, planet, astronomical event, mission,
+instrument, habitat, or speculative discovery.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use the visual language of NASA, ESA, JPL, and classic space-agency artist
+  conceptions: precise spacecraft silhouettes, planetary surfaces, star fields,
+  orbital arcs implied by composition, solar-panel geometry, probe hardware,
+  clean scientific lighting, dust, ice, regolith, atmospheric haze, rings,
+  aurora, sun glints, and dramatic but educational scale.
+- Make it feel like an artist's conception made for a mission briefing,
+  science press release, museum exhibit, or astronomy textbook, not a fantasy
+  space painting or movie poster.
+- Use plausible space-science materials and environments: thermal blankets,
+  gold foil, white spacecraft bus panels, antennas, instrument booms, lander
+  legs, rover wheels, reflective visors, basalt, ice, methane haze, dust
+  plumes, cratered terrain, orbital darkness, and sunlight from a clear
+  direction.
+- Keep the subject readable and technically specific. The image can be
+  speculative, but it should feel grounded in scientific visualization.
+- For non-space subjects, translate the article into a space-agency-style
+  artist conception: a probe observing it, an orbital view of the place, a
+  mission concept, a habitat, a remote-sensing scene, or a scientific cutaway-
+  like view without labels.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, technologies, discoveries,
+  organisms, institutions, hazards, or landscapes into a science-mission
+  artist conception.
+- If multiple interpretations are plausible, choose the one that feels most
+  like an accurate space-agency concept illustration tied to the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use space-agency concept composition: spacecraft in foreground with planet
+  or moon behind it, lander on surface, rover viewpoint, orbital flyby,
+  cutaway-like environmental view without labels, telescope observation,
+  habitat on terrain, or scientific object shown at clear scale.
+- Leave useful empty space in star field, dark sky, planetary horizon,
+  atmosphere, dust, surface plain, shadow, or instrument-lit darkness.
+- Prefer one coherent scientific concept image over a collage, poster, or
+  infographic panel.
+
+Avoid:
+- Readable labels, mission patches, NASA/ESA/JPL logos, real mission names,
+  real spacecraft branding, captions, arrows with text, UI overlays, title
+  cards, fake typography, posters, screenshots, and images that are primarily
+  text.
+- Star Wars/Star Trek-like franchise language, fantasy space battles, sleek
+  impossible sci-fi ships, cinematic movie-poster explosions, generic nebula
+  wallpaper, or astrology/mystical imagery.
+- Modern photoreal film stills, magical glow, inaccurate decorative planets,
+  and subject-agnostic space art that ignores the article context.
+- Gore, overt nudity, explicit sexual content, sexualized minors, sexual
+  violence, or anything that makes the image feel exploitative instead of
+  scientific/editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a NASA-style space agency artist conception.
+
+Make it feel like a scientifically grounded mission concept image: precise
+spacecraft or instrument hardware, planetary surfaces, orbital darkness, star
+fields, regolith, ice, dust, atmospheric haze, solar panels, antennas, gold
+thermal foil, clear sunlight, educational scale, and a plausible mission or
+remote-sensing viewpoint tied to the subject.
+
+No readable labels, mission names, NASA/ESA/JPL logos, mission patches,
+captions, UI overlays, title cards, fake typography, posters, screenshots,
+overt nudity, or explicit sexual content.
+"""

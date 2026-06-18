@@ -1,0 +1,90 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as if it were captured
+by satellite reconnaissance, orbital survey imaging, aerial intelligence
+photography, environmental monitoring, or a high-altitude institutional scan.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image feel instrument-derived and overhead: nadir or steep oblique
+  view, compressed scale, terrain texture, rooftops, roads, coastlines, fields,
+  grids, scars, cloud shadow, atmospheric haze, heat bloom, low sun angle,
+  sensor noise, sharpening artifacts, banding, compression, and faint color
+  separation.
+- Choose the capture modality from the subject: natural-color satellite photo,
+  false-color infrared, thermal-like survey, radar-like surface return, aerial
+  reconnaissance print, or old intelligence-film transfer.
+- Keep the subject readable as something discovered from above. The image can
+  be abstract at first glance, but the main article subject should remain
+  interpretable through shape, scale, context, or pattern.
+- Use institutional restraint. It should look like a recovered reconnaissance
+  image or survey artifact, not a fantasy map, poster, infographic, or modern
+  cinematic drone photograph.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, facilities, disasters,
+  migrations, conflicts, materials, landscapes, technologies, and anomalies
+  into overhead visual evidence.
+- For people or organizations, depict a place, route, facility, crowd pattern,
+  compound, ceremonial ground, vehicle trace, or environmental signature tied
+  to them rather than a portrait.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a useful overhead reconnaissance capture tied to the article context.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use strong overhead geometry: roads, grids, rivers, shadows, fields, roofs,
+  piers, coastlines, tracks, craters, terraces, or scan bands.
+- Leave plausible headline negative space in water, desert, snow, cloud,
+  forest canopy, empty terrain, shadow, sensor banding, or flat roof areas.
+- Prefer one coherent overhead capture over a collage, map panel, or dashboard.
+
+Avoid:
+- Readable labels, map text, coordinate overlays, UI frames, crosshairs,
+  timestamps, fake agency logos, national flags, real-world military insignia,
+  screenshots, posters, title cards, and images that are primarily text.
+- Fantasy cartography, clean vector maps, glossy drone cinematography,
+  contemporary sci-fi concept art, orbiting satellite views with Earth as a
+  decorative backdrop, and generic blue planet imagery.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as satellite reconnaissance or high-altitude survey
+imagery.
+
+Make it feel captured from above by an institutional sensor: overhead terrain,
+roads, rooftops, fields, coastlines, shadows, atmospheric haze, sensor banding,
+compression, false color or natural color as appropriate, and readable patterns
+that reveal the subject from scale and context.
+
+No readable text, labels, coordinates, UI overlays, logos, flags, crosshairs,
+screenshots, title cards, overt nudity, or explicit sexual content.
+"""

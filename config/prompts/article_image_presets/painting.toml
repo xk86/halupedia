@@ -1,0 +1,89 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject as a painted image:
+oil painting, acrylic painting, tempera panel, gouache study, mural fragment,
+museum painting reproduction, public commission, or archival photograph of a
+painted work.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image visibly painted: brushwork, layered pigment, canvas weave,
+  panel grain, impasto, varnish sheen, craquelure, scumbled color, underdrawing
+  traces, worn edges, aged surface, or museum reproduction lighting where
+  appropriate.
+- Choose a painting mode that fits the subject: formal portrait, historical
+  scene, civic mural, still life, landscape, object study, devotional-like
+  panel, expedition painting, industrial mural, or academic study.
+- Keep the main subject readable and specific. The painting should feel like a
+  real artifact from the subject's fictional world, not generic fantasy art.
+- Use painterly interpretation while preserving article context. Atmosphere,
+  posture, palette, symbolism, materials, and setting should come from the
+  supplied context.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, objects, places, institutions, rituals,
+  conflicts, inventions, and environments into a painted artifact that could
+  plausibly be cataloged or reproduced in an encyclopedia.
+- For technical, scientific, or abstract subjects, choose a painted object
+  study, mural, allegorical public commission, landscape, specimen painting, or
+  studio still life rather than a diagram.
+- If multiple interpretations are plausible, choose the painted interpretation
+  that gives the clearest article hero image.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use strong painted composition: clear subject hierarchy, controlled palette,
+  deliberate light, readable silhouette, and atmospheric negative space.
+- Leave plausible headline negative space in sky, wall, curtain, tabletop,
+  background field, unworked canvas, smoke, water, or shadow.
+- The image may include the texture of being photographed or scanned from a
+  painting, but it should not be primarily a museum label, book page, or frame.
+
+Avoid:
+- Imitating a living artist, named contemporary painter, or specific
+  copyrighted visual franchise.
+- Readable text, museum labels, captions, signatures, fake plaques, logos,
+  title cards, screenshots, posters, and images that are primarily typography.
+- Generic fantasy cover art, anime, comic styling, clean vector art, or glossy
+  digital concept painting unless the article context strongly calls for it.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a painted artifact from the subject's fictional
+world.
+
+Use visible brushwork, layered pigment, canvas or panel texture, varnish,
+craquelure, worn surface, and a fitting painting mode such as portrait,
+historical scene, landscape, civic mural, still life, object study, or public
+commission. Keep the subject specific and readable.
+
+No readable text, labels, captions, signatures, logos, title cards,
+screenshots, overt nudity, or explicit sexual content.
+"""

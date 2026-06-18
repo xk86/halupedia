@@ -109,6 +109,12 @@ describe("HeadlineImagePanel", () => {
     expect(screen.getByRole("button", { name: /attach/i })).not.toBeDisabled();
   });
 
+  it("shows Generate button when no image is attached", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
+    renderPanel();
+    expect(await screen.findByRole("button", { name: /generate/i })).toBeInTheDocument();
+  });
+
   // ── URL attach ───────────────────────────────────────────────────────────────
 
   it("clicking Attach POSTs to the image endpoint and shows thumbnail", async () => {
@@ -162,6 +168,98 @@ describe("HeadlineImagePanel", () => {
       });
       expect(calls.length).toBeGreaterThan(0);
     });
+  });
+
+  // ── generated image attach ──────────────────────────────────────────────────
+
+  it("clicking Generate POSTs to the generate endpoint and shows thumbnail", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/image") && !init?.method) return NO_IMAGE_RESPONSE;
+      if (String(url).endsWith("/image/generate") && init?.method === "POST") {
+        return jsonResponse({
+          mediaId: "generated-img",
+          caption: "Generated caption",
+          description: "Generated description",
+          width: 1024,
+          height: 1024,
+          article: { slug: "aspirin", title: "Aspirin" },
+        });
+      }
+      return NO_IMAGE_RESPONSE;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    const onArticleUpdate = vi.fn();
+    renderPanel({ onArticleUpdate });
+
+    await user.click(await screen.findByRole("button", { name: /generate/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("img")).toBeInTheDocument();
+    });
+    expect(screen.getByText("generated-img")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/article/aspirin/image/generate",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(onArticleUpdate).toHaveBeenCalled();
+  });
+
+  it("sends the selected image preset key when generating", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/article-image-prompts")) {
+        return jsonResponse({
+          prompts: [
+            { key: "default", label: "default" },
+            { key: "conceptual", label: "conceptual" },
+          ],
+        });
+      }
+      if (String(url).endsWith("/image") && !init?.method) return NO_IMAGE_RESPONSE;
+      if (String(url).endsWith("/image/generate") && init?.method === "POST") {
+        return jsonResponse({
+          mediaId: "generated-img",
+          caption: "Generated caption",
+          description: "Generated description",
+          width: 1024,
+          height: 1024,
+        });
+      }
+      return NO_IMAGE_RESPONSE;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("combobox", { name: /image preset/i }));
+    await user.click(await screen.findByRole("option", { name: "conceptual" }));
+    await user.click(screen.getByRole("button", { name: /generate/i }));
+
+    await waitFor(() => {
+      const generateCall = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).endsWith("/image/generate") && (init as RequestInit | undefined)?.method === "POST"
+      );
+      expect(generateCall).toBeTruthy();
+      expect(JSON.parse(String((generateCall?.[1] as RequestInit).body))).toEqual({
+        presetKey: "conceptual",
+      });
+    });
+  });
+
+  it("shows server error when generated image request fails", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/image/generate") && init?.method === "POST") {
+        return jsonResponse({ error: "image generation is disabled" }, 400);
+      }
+      return NO_IMAGE_RESPONSE;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /generate/i }));
+
+    expect(await screen.findByText(/image generation is disabled/i)).toBeInTheDocument();
   });
 
   // ── file upload ───────────────────────────────────────────────────────────────

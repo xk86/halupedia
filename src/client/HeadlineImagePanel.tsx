@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { UploadIcon } from "lucide-react";
 
 interface ImageInfo {
   mediaId: string;
@@ -16,6 +26,11 @@ interface MediaSearchResult {
   byte_size: number;
 }
 
+interface ImagePromptOption {
+  key: string;
+  label: string;
+}
+
 interface Props {
   articleSlug: string;
   onArticleUpdate: (article: unknown) => void;
@@ -30,7 +45,12 @@ export function HeadlineImagePanel({
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
   const [urlDraft, setUrlDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imagePrompts, setImagePrompts] = useState<ImagePromptOption[]>([
+    { key: "default", label: "default" },
+  ]);
+  const [selectedPresetKey, setSelectedPresetKey] = useState("default");
 
   // Search-existing state
   const [searchQuery, setSearchQuery] = useState("");
@@ -41,12 +61,31 @@ export function HeadlineImagePanel({
 
   const loadedSlugRef = useRef<string | null>(null);
 
+  const loadImagePrompts = useCallback(() => {
+    fetch("/api/admin/article-image-prompts")
+      .then((r) => r.json())
+      .then((body: { prompts?: ImagePromptOption[] }) => {
+        const prompts =
+          Array.isArray(body.prompts) && body.prompts.length > 0
+            ? body.prompts
+            : [{ key: "default", label: "default" }];
+        setImagePrompts(prompts);
+        setSelectedPresetKey((current) =>
+          prompts.some((prompt) => prompt.key === current)
+            ? current
+            : prompts[0].key,
+        );
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (loadedSlugRef.current === articleSlug) return;
     loadedSlugRef.current = articleSlug;
     setImageInfo(null);
     setUrlDraft("");
     setError(null);
+    setGenerating(false);
     setSearchQuery("");
     setSearchResults(null);
 
@@ -70,11 +109,15 @@ export function HeadlineImagePanel({
               width: body.image.width,
               height: body.image.height,
             });
+          } else {
+            loadImagePrompts();
           }
         },
       )
-      .catch(() => {});
-  }, [articleSlug]);
+      .catch(() => {
+        loadImagePrompts();
+      });
+  }, [articleSlug, loadImagePrompts]);
 
   const applyResult = useCallback(
     (payload: any) => {
@@ -143,6 +186,31 @@ export function HeadlineImagePanel({
     [articleSlug, busy, applyResult],
   );
 
+  const generateImage = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/article/${encodeURIComponent(articleSlug)}/image/generate`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ presetKey: selectedPresetKey }),
+        },
+      );
+      const payload = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) throw new Error(payload?.error || `error ${res.status}`);
+      applyResult(payload);
+    } catch (err: any) {
+      setError(err?.message || "Image generation failed.");
+    } finally {
+      setGenerating(false);
+      setBusy(false);
+    }
+  }, [articleSlug, busy, selectedPresetKey, applyResult]);
+
   const searchExisting = useCallback(async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
@@ -194,10 +262,11 @@ export function HeadlineImagePanel({
       if (!res.ok) return;
       setImageInfo(null);
       if (payload.article) onArticleUpdate(payload.article);
+      loadImagePrompts();
     } catch {
       /* silent */
     }
-  }, [articleSlug, onArticleUpdate]);
+  }, [articleSlug, onArticleUpdate, loadImagePrompts]);
 
   return (
     <div className="mb-[0.75rem] grid w-full min-w-0 rounded-[4px] bg-panel-surface px-[0.65rem] py-[0.5rem] [border:1px_solid_var(--panel-border)]">
@@ -247,7 +316,7 @@ export function HeadlineImagePanel({
         <div className="grid max-w-full min-w-0 grid-cols-[minmax(0,1fr)_max-content_max-content] gap-[0.5rem] overflow-hidden max-[600px]:w-full max-[600px]:grid-cols-[minmax(0,1fr)_max-content]">
           {/* Search existing — `contents` so its children join the panel grid. */}
           <div className="contents">
-            <input
+            <Input
               type="search"
               className="search-input col-start-1 row-start-1 w-full min-w-0 px-[0.5rem] py-[0.3rem] text-[0.85rem]"
               placeholder="Search existing images…"
@@ -262,14 +331,16 @@ export function HeadlineImagePanel({
                   void searchExisting();
               }}
             />
-            <button
+            <Button
               type="button"
-              className="edit-modal-close col-[2/4] row-start-1 max-w-full whitespace-nowrap max-[600px]:col-[2] max-[600px]:w-auto"
+              variant="outline"
+              size="sm"
+              className="col-[2/4] row-start-1 max-w-full whitespace-nowrap max-[600px]:col-[2] max-[600px]:w-auto"
               onClick={searchExisting}
               disabled={busy || searching || !searchQuery.trim()}
             >
               {searching ? "…" : "Search"}
-            </button>
+            </Button>
           </div>
 
           {/* Search results */}
@@ -307,7 +378,7 @@ export function HeadlineImagePanel({
 
           {/* URL / file upload — `contents` so its children join the panel grid. */}
           <div className="contents">
-            <input
+            <Input
               type="url"
               className="search-input col-start-1 row-start-2 w-full min-w-0 px-[0.5rem] py-[0.3rem] text-[0.85rem] max-[600px]:col-[1/-1]"
               placeholder="Paste image URL or image…"
@@ -333,16 +404,18 @@ export function HeadlineImagePanel({
                 }
               }}
             />
-            <button
+            <Button
               type="button"
-              className="edit-modal-close col-[3] row-start-2 max-w-full whitespace-nowrap max-[600px]:col-[2] max-[600px]:row-start-3 max-[600px]:w-auto"
+              variant="outline"
+              size="sm"
+              className="col-[3] row-start-2 max-w-full whitespace-nowrap max-[600px]:col-[2] max-[600px]:row-start-3 max-[600px]:w-auto"
               onClick={uploadUrl}
               disabled={busy || !urlDraft.trim()}
             >
               {busy ? "Fetching…" : "Attach"}
-            </button>
+            </Button>
             <label
-              className="col-[2] row-start-2 inline-flex min-w-[2rem] cursor-pointer items-center justify-center rounded-[3px] bg-control-surface px-[0.5rem] py-[0.28rem] text-[0.95rem] leading-none text-ink-soft [border:1px_solid_var(--control-border)] [transition:background_100ms] hover:bg-control-surface-strong max-[600px]:col-[1] max-[600px]:row-start-3 max-[600px]:w-full"
+              className="col-[2] row-start-2 inline-flex h-8 min-w-[2rem] cursor-pointer items-center justify-center rounded-md border border-border bg-background px-2 text-sm text-foreground shadow-xs transition-colors hover:bg-muted max-[600px]:col-[1] max-[600px]:row-start-3 max-[600px]:w-full"
               title="Upload from disk"
             >
               <input
@@ -358,8 +431,45 @@ export function HeadlineImagePanel({
                   }
                 }}
               />
-              {busy ? "…" : "↑"}
+              {busy ? "…" : <UploadIcon aria-hidden="true" />}
             </label>
+          </div>
+
+          <div className="col-[1/-1] row-start-3 flex flex-wrap items-center gap-[0.4rem] max-[600px]:row-start-4">
+            <Select
+              value={selectedPresetKey}
+              onValueChange={(value) => value && setSelectedPresetKey(value)}
+              disabled={busy}
+              items={Object.fromEntries(
+                imagePrompts.map((prompt) => [prompt.key, prompt.label]),
+              )}
+            >
+              <SelectTrigger
+                size="sm"
+                className="max-w-full min-w-[11rem]"
+                aria-label="Image preset"
+                title="Image preset"
+              >
+                <SelectValue placeholder="Image preset" />
+              </SelectTrigger>
+              <SelectContent>
+                {imagePrompts.map((prompt) => (
+                  <SelectItem key={prompt.key} value={prompt.key}>
+                    {prompt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="max-w-full whitespace-nowrap"
+              onClick={generateImage}
+              disabled={busy}
+            >
+              {generating ? "Generating…" : "Generate"}
+            </Button>
           </div>
         </div>
       )}

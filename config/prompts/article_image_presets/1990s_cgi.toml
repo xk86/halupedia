@@ -23,14 +23,28 @@ Core look:
   city, reflective water, procedural terrain, or synthetic landscape. Do not
   default every image to a tiled floor, pyramid, mountain lake, and purple-
   orange sky.
+- Keep the renderer era-appropriate. Use the limits of mid-1990s consumer
+  desktop CGI: simple point lights or sun lights, ambient fill, hard or basic
+  shadows, weak indirect bounce, primitive ray-traced reflections/refractions,
+  no physically based light transport, and no modern render pipeline polish.
 - Make the rendering visibly lo-fi: limited polygon detail, simple ray-traced
   reflections, hard specular highlights, basic glass transparency, airbrushed
-  sky gradients, banded fog, simple shadows, jagged silhouettes, slight aliasing,
-  dithered color, crunchy compression, and low-resolution texture feel.
+  sky gradients, banded fog, simple shadows, hard un-antialiased jagged edges,
+  visible stair-stepping on silhouettes and diagonals, dithered color, crunchy
+  compression, and low-resolution texture feel.
+- Use obviously pixelated texture maps: low-res bitmap surfaces, nearest-
+  neighbor texture scaling, blocky repeating patterns, smeared or crunchy
+  procedural maps, and texture detail that breaks into square pixels instead of
+  crisp modern material definition.
+- Include subtle affine texture-mapping artifacts where appropriate: no
+  perspective-correct texture mapping, visible texture warping or stretching on
+  angled planes, and imperfectly mapped floors, walls, tabletops, roads, ramps,
+  or other large polygons. Keep these as period-authentic surface artifacts, not
+  as a full PlayStation game screenshot style.
 - Prefer old-school material presets: mirror chrome, smoked glass, glossy black
   plastic, translucent colored glass, brushed bronze, marble-like procedural
-  stone, ceramic tile, watery reflection, matte clay, rough wood, and simple
-  bitmap-like texture maps.
+  stone, ceramic tile, watery reflection, matte clay, crude wood grain, and
+  simple bitmap-like texture maps. Avoid modern roughness/metalness realism.
 - Use simple iconic composition and synthetic 1990s-CGI scene logic. The result
   can feel odd, stiff, and obviously rendered; do not smooth it into modern
   photorealism.
@@ -81,6 +95,9 @@ Composition:
 - Use a clear foreground/midground/background structure led by the subject.
   Choose the ground plane, backdrop, and distant forms from the article context,
   not from a fixed default scene.
+- Favor broad planar surfaces, right-angle layouts, chunky polygon subdivision,
+  and simple repeated texture directions when they help keep old texture
+  distortion plausible. Do not use modern UV-perfect surfaces everywhere.
 - Keep forms large, sparse, and readable at thumbnail size. Prefer one simple
   hero subject over several competing centerpieces; secondary objects should be
   smaller, simpler, and clearly subordinate.
@@ -94,6 +111,12 @@ Avoid:
   realistic satellites; detailed modern materials; cinematic lens realism;
   filmic color grading; photoreal documentary scenes; anime; comics; pixel art;
   vaporwave posters; and clean modern product-render aesthetics.
+- Modern rendering techniques: path tracing, physically based rendering, HDRI
+  environment lighting, modern global illumination, ambient occlusion passes,
+  subsurface scattering, volumetric path tracing, ray-marched volume lighting,
+  photogrammetry materials, normal maps, parallax or displacement mapping,
+  micro-scratch detail, accurate BRDF roughness/metalness, or layered physically
+  plausible materials.
 - Sleek contemporary vehicles, modern product-design forms, modern yachts,
   modern aircraft, modern spacecraft, or realistic contemporary machinery
   unless the article context explicitly calls for them. If a vehicle or machine
@@ -135,9 +158,11 @@ Halupedia context above, as if it were rendered in Bryce 2 or similar
 mid-1990s consumer CGI software.
 
 Make it truly lo-fi and period-specific: simple shadows, jagged edges, visible
-aliasing, dithered color, crunchy compression, airbrushed gradients, synthetic
-fog, old material presets, sparse iconic geometry, and low-resolution texture
-feel. It should look like a 1990s render, not modern 3D art with a retro theme.
+aliasing with no anti-aliasing polish, dithered color, crunchy compression,
+airbrushed gradients, synthetic fog, old material presets, sparse iconic
+geometry, affine texture warping on angled planes where appropriate, and
+low-res pixelated bitmap textures. It should look like a 1990s render, not
+modern 3D art with a retro theme.
 
 Use one dominant subject interpretation. Let any primitives, vehicles, bases,
 buildings, or secondary objects serve the subject and stay clearly subordinate.

@@ -3,6 +3,16 @@ import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   ArticleSearchDropdown,
   SEARCH_INPUT,
 } from "../../ArticleSearchDropdown";
@@ -221,23 +231,33 @@ export function SlugAliasPane({
           Create Redirect
         </Button>
       </div>
-      {redirectConfirmData && (
-        <div className="mb-[0.5rem] rounded-[6px] bg-warning-bg p-[0.75rem] [border:1px_solid_var(--warning-border)]">
-          <p className="mb-[0.5rem]">{redirectConfirmData.message}</p>
-          <div className="flex gap-[0.5rem]">
-            <Button
+      <AlertDialog
+        open={!!redirectConfirmData}
+        onOpenChange={(open) => {
+          if (!open) onClearRedirectConfirm();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm redirect</AlertDialogTitle>
+            <AlertDialogDescription>
+              {redirectConfirmData?.message}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={redirectBusy}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
               variant="destructive"
-              onClick={() => onCreateRedirect(true)}
               disabled={redirectBusy}
+              onClick={() => onCreateRedirect(true)}
             >
               Confirm & Archive
-            </Button>
-            <Button variant="outline" onClick={onClearRedirectConfirm}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {redirectMsg && (
         <p className="mt-[0.3rem] text-[0.85rem]">{redirectMsg}</p>
       )}
@@ -274,26 +294,37 @@ export function SlugAliasPane({
               {a.reason} — archived {new Date(a.archivedAt).toLocaleString()}
             </div>
           </div>
-          {restoreConfirm === a.slug ? (
-            <div className="flex gap-[0.4rem]">
-              <Button
-                variant="destructive"
-                onClick={() => onRestoreArchived(a.slug, true)}
-              >
-                Confirm Restore
-              </Button>
-              <Button variant="outline" onClick={onClearRestoreConfirm}>
-                Cancel
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={() => onRestoreArchived(a.slug, false)}
-            >
-              Restore
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            onClick={() => onRestoreArchived(a.slug, false)}
+          >
+            Restore
+          </Button>
+          <AlertDialog
+            open={restoreConfirm === a.slug}
+            onOpenChange={(open) => {
+              if (!open) onClearRestoreConfirm();
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Restore archived article?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Restore <strong>{a.title}</strong> ({a.slug}) from the
+                  archive?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  onClick={() => onRestoreArchived(a.slug, true)}
+                >
+                  Confirm Restore
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       ))}
       {restoreMsg && <p className="mt-[0.5rem] text-[0.85rem]">{restoreMsg}</p>}

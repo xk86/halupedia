@@ -1002,6 +1002,11 @@ describe("http", () => {
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "default"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "conceptual"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "1990s_cgi"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "analog_video_still"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "bad_phone_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "black_and_white_security_camera"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "haunted_analog_still"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "public_domain_engraving"));
     assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;

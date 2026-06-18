@@ -1,0 +1,146 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject that looks like a
+barely usable still from a badly degraded analog film or video source found
+long after it was recorded. The frame should feel old, damaged, obscure, and
+physically unstable, as if the film stock, tape, or transfer process warped the
+subject into a body-horror shape that was always present in the captured frame.
+
+Halupedia is fictional. People, organizations, events, cultures, places, and
+relationships in the supplied context should be treated as fictional-world
+subjects, not real public figures or real-world claims.
+
+Core look:
+- Lean heavily into source decay. Make the image almost too damaged to use:
+  severe tape noise, tracking collapse, vertical roll, warped frame edges,
+  heavy ghosting, chroma smear, color drift, luma tearing, frame dropout,
+  interlacing combs, crushed blacks, milky highlights, moldy film texture,
+  dust, scratches, gate weave, chemical staining, duplicated exposure, signal
+  loss, and multi-generation copy degradation.
+- Do not make the footage simply desaturated or sepia. Keep unstable analog
+  color present: sickly greens, bruised reds, jaundiced yellows, cyan shadows,
+  magenta color bleed, orange chemical stains, overripe skin tones, and warped
+  color channels that make the damaged frame feel wet, overheated, or chemically
+  wrong.
+- The subject should be unmistakably physically wrong while still identifiable.
+  Do not merely hint at distortion. Make the degradation feel like it has
+  visibly bent, folded, stretched, compressed, multiplied, inverted, melted, or
+  fused the subject into an impossible shape within the original photograph.
+- Lean into analog-body horror caused by the image material: emulsion melt,
+  chemical staining, bad registration, duplicated exposure, tracking tear,
+  frame dropout, warped sprocket/gate movement, and transfer smear should bend
+  the subject's anatomy, silhouette, surfaces, or object geometry. Make bodies
+  aggressively and obviously twisted by the medium: folded spines bent into
+  hairpin curves, backwards elbows or knees, limbs bending in places with no
+  joint, torsos looped or corkscrewed, bodies flattened against walls then
+  peeling away, stretched arms reaching at impossible angles, necks bent into
+  U-shapes, crawl-like or crab-walk postures, faces pulled sideways by color
+  registration, jaws or heads bent off-axis, hands smeared into too many
+  repeated fingers, shoulders fused into walls or furniture, doubled heads,
+  collapsed ribcage-like silhouettes without gore, fused figure/object
+  boundaries, non-organic subjects with organic posture, and shapes that look
+  grown into the damaged frame.
+- The effect should not feel like a ghost, spirit, possession, jump scare, or
+  supernatural apparition. It should feel like the old image has physically
+  aged wrong, and the subject has aged with it.
+- Use the article context to choose a plausible recovered image: a place, room,
+  object, figure, ceremony, machine, landscape, facility, storefront, transit
+  site, weather event, field observation, or unexplained institutional scene.
+- Liminal interiors, empty service corridors, yellowed office rooms, utility
+  halls, tiled basements, storage rooms, low ceilings, dead fluorescent light,
+  and vacant institutional spaces are good when they fit the article context.
+  The horror should come from something in the subject bending wrong inside an
+  ordinary recorded environment.
+- Keep the main subject readable as a subject, but make the body distortion
+  impossible to miss. This preset can be ugly, difficult, and grotesque, but it
+  should still serve as a headline image rather than pure noise.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, institutions, technologies,
+  maps, conflicts, materials, emotional tone, and relationships into a damaged
+  archive still that feels accidentally preserved rather than staged.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a disturbing, materially degraded body-horror still tied to the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use awkward still-frame composition: subject off-center, partly cropped,
+  caught between frames, blocked by static, warped by gate movement, or
+  swallowed by damaged emulsion and dark negative space.
+- Leave plausible headline negative space in darkness, blown-out wall, empty
+  floor, noisy sky, degraded border, chemical stain, or blank damaged frame
+  area.
+- Prefer one damaged moment over a collage, montage, title card, or poster.
+
+Avoid:
+- Clean modern cinematography, fashionable VHS filters, polished horror-poster
+  composition, ghost-story tropes, spectral figures, glowing eyes, misty
+  apparitions, explicit jump-scare imagery, gore, monsters added without
+  context, flat gray desaturation, sepia-only aging, neon synthwave, modern
+  cyberpunk, crisp documentary photography, pristine 4K detail, fake UI
+  overlays, captions, lower thirds, title cards, readable labels, fake logos,
+  posters, screenshots, or images that are primarily text.
+- Pornographic framing, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+- Polished fantasy-monster design, splatter effects, exposed wounds,
+  dismemberment, gore-forward body horror, or unrelated monsters that ignore the
+  article context. Strong monstrous and body-horror distortion is desired, but
+  it should read as aged film or tape materially warping the subject in the
+  captured image.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a barely usable still from a severely degraded old
+analog film or video source.
+
+Make the source feel almost ruined: severe tape noise, tracking collapse,
+vertical roll, warped frame edges, ghosting, chroma smear, color drift, luma
+tearing, frame dropout, interlacing combs, crushed blacks, milky highlights,
+dust, scratches, chemical staining, signal loss, and multi-generation copy
+degradation. Keep the image in unstable damaged color rather than plain
+desaturation: sickly greens, bruised reds, jaundiced yellows, cyan shadows,
+magenta bleed, orange stains, and warped color channels.
+
+Make the degradation visibly twist the subject itself, as if the original
+captured frame and the aging film stock warped together: doubled contours,
+tracking-tear warping, smeared features, wrong proportions, frame dropout
+cutting through the body or object, folded spines, backwards elbows or knees,
+limbs bending where there is no joint, torsos looped or corkscrewed, bodies
+flattened into the wall then peeling away, dragged limbs, elongated hands or
+necks, U-shaped neck bends, crab-walk or crawl-like posture, repeated fingers,
+doubled or warped faces, heads bent off-axis, shoulders fused into the
+background, fused figure/object boundaries, organic posture in a non-organic
+subject, or the subject partly dissolving into chemical stain, tape noise, and
+shadow. The body horror should be clear at first glance, not a tiny implication.
+Liminal rooms, service corridors, utility halls, basements, and dead fluorescent
+spaces are welcome when they fit the subject. Let the still read as material
+analog body horror, not a ghost sighting or polished creature design. The main
+subject should remain identifiable through the damage. No text, logos,
+captions, readable labels, title cards, posters, screenshots, overt nudity,
+gore, or explicit sexual content.
+"""

@@ -1,0 +1,87 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject in the style of a
+public-domain historical engraving, etching, or encyclopedia plate. The result
+should feel like a scanned illustration from an old reference book, expedition
+report, museum catalogue, newspaper supplement, or antiquarian monograph.
+
+Halupedia is fictional. People, organizations, events, cultures, places, and
+relationships in the supplied context should be treated as fictional-world
+subjects, not real public figures or real-world claims.
+
+Core look:
+- Use black-and-white or restrained hand-tinted engraving language: hatch marks,
+  crosshatching, stippling, etched contour lines, woodcut-like shadows, worn
+  ink, uneven plate pressure, aged paper texture, slight foxing, and imperfect
+  reproduction.
+- Make the subject feel documented by an old reference illustration rather than
+  invented by modern fantasy art.
+- Use the article context to choose an appropriate plate type: object study,
+  field-guide illustration, architectural view, specimen drawing, machinery
+  diagram, landscape vista, expedition scene, portrait bust, ritual scene,
+  map-like terrain view, or museum catalogue figure.
+- Keep the main subject readable and visually dominant. Historical print
+  texture should enrich the subject, not bury it.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, institutions, technologies,
+  maps, conflicts, materials, emotional tone, and relationships into engraved
+  forms, period props, landscape details, specimen posture, architectural
+  setting, or catalog-style composition.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a useful old encyclopedia or museum-archive illustration.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a clean plate-like composition with strong central subject or
+  rule-of-thirds placement.
+- Leave plausible headline negative space in paper margin, sky, wall, water,
+  blank table, or lightly hatched background.
+- The image may include ornamental borders or plate wear, but it should not be
+  primarily a page, poster, caption, or typography artifact.
+
+Avoid:
+- Named living artists, specific copyrighted franchises, modern fantasy cover
+  art, clean vector line art, comic-book inking, manga/anime, photoreal
+  documentary scenes, glossy 3D renderings, modern infographic panels, fake
+  readable captions, fake labels, title cards, logos, posters, screenshots, and
+  images that are primarily text.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a public-domain historical engraving, etching,
+woodcut, or old encyclopedia plate.
+
+Use hatch marks, crosshatching, stippling, etched contour lines, worn ink, aged
+paper texture, slight foxing, imperfect reproduction, and restrained
+black-and-white or hand-tinted color. Keep the main subject clear and dominant.
+
+No readable text, logos, captions, labels, title cards, posters, screenshots,
+overt nudity, or explicit sexual content.
+"""

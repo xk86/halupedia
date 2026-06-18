@@ -1,0 +1,95 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject that looks like a
+damaged still captured from an analog video source: VHS, late-night local TV,
+camcorder tape, public-access broadcast, training cassette, surveillance feed,
+or a copied-over institutional video archive.
+
+Halupedia is fictional. People, organizations, events, cultures, places, and
+relationships in the supplied context should be treated as fictional-world
+subjects, not real public figures or real-world claims.
+
+Core look:
+- Make the source feel physical, degraded, and imperfect: tape noise, color
+  bleed, luma/chroma separation, tracking errors, scanlines, rolling distortion,
+  blown highlights, crushed shadows, soft focus, ghosting, interlacing, dirty
+  edges, frame jitter, analog smear, and generation-loss compression.
+- The image should feel like a paused frame from a strange documentary,
+  field recording, training video, local-news segment, late-night broadcast, or
+  damaged archive transfer, not like a clean retro poster.
+- Use the article context to choose a plausible video situation: someone
+  filming an object, a room, a ceremony, a facility, a landscape, a storefront,
+  a lab, a roadway, a performance, a disaster scene, a screen-lit interview, or
+  a poorly documented field observation.
+- Keep the subject readable and dominant even when the frame is degraded. The
+  damage should make the image stranger and more believable, not obscure the
+  central subject completely.
+- Let the image be awkward, ugly, and unsettling when the context supports it:
+  bad lighting, practical lamps, flashlight spill, consumer-camera exposure,
+  cheap zoom, skewed horizon, cramped interiors, smeared motion, and video
+  artifacts across faces, objects, or backgrounds.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, institutions, technologies,
+  maps, conflicts, materials, emotional tone, and relationships into an
+  analog-video scene that looks incidentally captured rather than staged.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a useful but damaged archive still tied to the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a still-frame composition with imperfect framing: subject slightly
+  off-center, partial occlusion, uneven headroom, awkward zoom, or clipped
+  foreground details when appropriate.
+- Leave plausible headline negative space in dark walls, blown-out sky, noisy
+  background, shadow, or empty floor.
+- Prefer one dominant captured moment over a collage or montage.
+
+Avoid:
+- Clean modern cinematography, glossy film stills, polished horror-movie
+  lighting, fashionable music-video VHS effects, neon synthwave, modern
+  cyberpunk, crisp documentary photography, pristine 4K detail, perfect
+  composition, fake UI overlays, captions, lower thirds, title cards, readable
+  labels, fake logos, posters, screenshots, and images that are primarily text.
+- Gore, excessive horror, pornographic framing, overt nudity, explicit sexual
+  content, sexualized minors, sexual violence, or anything that makes the image
+  feel exploitative instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a damaged still from an analog video source.
+
+Make it feel like a paused VHS, camcorder, public-access, surveillance,
+training-tape, or archive-transfer frame: tape noise, tracking errors,
+interlacing, ghosting, color bleed, analog smear, frame jitter, soft focus,
+blown highlights, crushed shadows, and awkward capture defects.
+
+The frame may be ugly, badly lit, unsettling, poorly composed, and visibly
+degraded, but the main subject must remain readable. No text, logos, captions,
+readable labels, title cards, posters, screenshots, overt nudity, or explicit
+sexual content.
+"""

@@ -1,0 +1,88 @@
+model = "light"
+thinking = false
+json = false
+
+system = """
+{{shared_tone}}
+
+Create one editorial hero image for a Halupedia subject that looks like an
+imperfect phone camera photo: candid, badly timed, badly framed, motion-blurred,
+overexposed or underexposed, and captured by someone who was not composing a
+professional image.
+
+Halupedia is fictional. People, organizations, events, cultures, places, and
+relationships in the supplied context should be treated as fictional-world
+subjects, not real public figures or real-world claims.
+
+Core look:
+- Make the image feel like an accidental or hurried phone photo: tilted horizon,
+  subject clipped by the edge, finger or case shadow near the lens, motion blur,
+  rolling-shutter skew, digital noise, smeared low-light detail, harsh phone
+  flash, blown highlights, autofocus on the wrong plane, lens smudge, awkward
+  crop, and mixed indoor lighting.
+- Preserve the casual camera-phone character. It should look like evidence from
+  a message thread, local forum, field note, or personal camera roll rather
+  than a professional editorial shoot.
+- Use the article context to choose what someone plausibly tried to photograph:
+  a person, object, storefront, signless building, machine, meeting, landscape,
+  animal, artifact, room, vehicle, weather event, ritual, document-free scene,
+  or unexpected sighting.
+- Keep the main subject recognizable despite blur and poor framing. The
+  defects should make the picture feel found and specific, not unusable.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific places, artifacts, institutions, technologies,
+  conflicts, materials, emotional tone, and relationships into a candid phone
+  photo situation.
+- If multiple interpretations are plausible, choose the one that would feel
+  most like a revealing but imperfect photo taken by a bystander.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use intentionally poor but believable framing: subject pushed to one side,
+  cropped top or bottom, too much ceiling or pavement, partial obstruction,
+  uneven horizon, accidental foreground, or a subject moving out of frame.
+- Leave plausible headline negative space in blank wall, pavement, sky, dark
+  room, blurred background, or overexposed empty area.
+- Prefer one candid moment over a staged tableau.
+
+Avoid:
+- Professional camera aesthetics, perfect portrait lighting, clean documentary
+  photography, symmetrical magazine composition, cinematic color grading, fake
+  social-media UI, phone screen screenshots, chat bubbles, captions, readable
+  labels, title cards, fake logos, posters, or images that are primarily text.
+- Beauty-filter skin, glamour posing, fetishized framing, overt nudity,
+  explicit sexual content, sexualized minors, sexual violence, gore, or
+  anything that makes the image feel exploitative instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as an imperfect candid phone camera photo.
+
+Make it feel badly captured but believable: motion blur, tilted horizon, bad
+framing, awkward crop, harsh flash or poor exposure, autofocus mistakes,
+rolling-shutter skew, digital noise, lens smudge, accidental foreground, and
+mixed lighting. The main subject should remain recognizable.
+
+No text, logos, captions, readable labels, title cards, posters, screenshots,
+social-media UI, overt nudity, or explicit sexual content.
+"""

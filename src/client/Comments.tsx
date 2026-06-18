@@ -1,3 +1,13 @@
+// ============================================================================
+// DEAD CODE — DO NOT TOUCH (as of 2026-06-18)
+// ----------------------------------------------------------------------------
+// The comments feature is currently disabled: nothing imports or renders this
+// component, and there is no live comments section in the app. It is left in
+// place in case the feature is revived, but it is intentionally EXCLUDED from
+// the ongoing Tailwind/shadcn migration. Do not spend effort migrating its
+// styles or components until the feature is wired back in.
+// ============================================================================
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 

@@ -400,7 +400,7 @@ describe("App", () => {
     expect(
       screen.getByText(
         (_, el) =>
-          el?.className === "admin-queue-meta" &&
+          el?.classList.contains("admin-queue-meta") === true &&
           /3 waiting/.test(el.textContent ?? ""),
       ),
     ).toBeInTheDocument();

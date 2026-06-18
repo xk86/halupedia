@@ -3569,95 +3569,6 @@ a:hover {
   margin: 0;
 }
 
-.admin-queue-list {
-  list-style: none;
-  margin: 0.85rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-}
-
-.admin-queue-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.4rem 1rem;
-  padding: 0.65rem 0.7rem;
-  border-top: 1px solid var(--rule);
-  border-left: 3px solid transparent;
-  background: transparent;
-}
-
-.admin-queue-item--queued {
-  border-left-color: #a87d2a;
-  background: rgba(168, 125, 42, 0.08);
-}
-
-.admin-queue-item--processing {
-  border-left-color: #4d7f93;
-  background: rgba(77, 127, 147, 0.08);
-}
-
-.admin-queue-item--llm {
-  border-left-color: var(--accent);
-  background: var(--accent-wash);
-}
-
-/* Live chain-of-thought for the currently-generating item (admin-only). */
-.admin-queue-cot {
-  flex: 1 1 100%;
-  margin-top: 0.2rem;
-}
-
-.admin-queue-cot-toggle {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  color: var(--ink-fade);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-}
-
-.admin-queue-cot-toggle:hover {
-  color: var(--ink);
-}
-
-.admin-queue-cot-body {
-  margin: 0.35rem 0 0;
-  max-height: 14rem;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  line-height: 1.5;
-  color: var(--ink-fade);
-  background: var(--surface-sunken, rgba(0, 0, 0, 0.04));
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: 0.55rem 0.7rem;
-}
-
-.admin-queue-item a {
-  color: var(--link);
-  font-weight: 600;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.18em;
-}
-
-.admin-queue-item span {
-  flex: 0 0 auto;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-fade);
-}
-
 .admin-pipeline-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
@@ -4338,12 +4249,6 @@ a:hover {
 @media (max-width: 600px) {
   .llm-job-row {
     grid-template-columns: 1fr;
-  }
-
-  .admin-queue-item {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 0.25rem;
   }
 }
 

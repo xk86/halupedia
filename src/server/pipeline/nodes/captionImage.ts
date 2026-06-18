@@ -30,7 +30,7 @@
 
 import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps } from "../deps";
-import { getArticleByLookup, updateArticleMediaCaption } from "../../db";
+import { getArticleByLookup, getArticleHeadlineMedia, updateArticleMediaCaption } from "../../db";
 import { getMediaById, updateMediaDescription } from "../../mediaDb";
 
 // ─── READ ─────────────────────────────────────────────────────────────────────
@@ -191,8 +191,11 @@ export const persistImageCaptionNode = defineNode({
       updateMediaDescription(deps.mediaDb, imageId, description, "described");
     }
 
-    if (articleSlug && articleCaption) {
-      updateArticleMediaCaption(deps.db, articleSlug, 1, articleCaption);
+    const currentHeadline = articleSlug ? getArticleHeadlineMedia(deps.db, articleSlug) : null;
+    if (articleSlug && articleCaption && currentHeadline?.mediaId === imageId) {
+      updateArticleMediaCaption(deps.db, articleSlug, 1, articleCaption, "generated", {
+        updateArticleRevision: true,
+      });
     }
 
     deps.logger.info("pipeline.image_description.saved", {

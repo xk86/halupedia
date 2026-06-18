@@ -114,6 +114,8 @@ export function openDatabase(databasePath: string): DatabaseSync {
       html TEXT NOT NULL,
       summary_markdown TEXT NOT NULL DEFAULT '',
       plain_text TEXT NOT NULL,
+      headline_media_id TEXT,
+      headline_media_caption TEXT,
       generated_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       operation TEXT NOT NULL,
@@ -310,6 +312,12 @@ export function openDatabase(databasePath: string): DatabaseSync {
   if (!hasColumn(db, "articles", "is_protected")) {
     db.exec(`ALTER TABLE articles ADD COLUMN is_protected INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!hasColumn(db, "article_revisions", "headline_media_id")) {
+    db.exec(`ALTER TABLE article_revisions ADD COLUMN headline_media_id TEXT`);
+  }
+  if (!hasColumn(db, "article_revisions", "headline_media_caption")) {
+    db.exec(`ALTER TABLE article_revisions ADD COLUMN headline_media_caption TEXT`);
+  }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   // Serves the All Pages listing (WHERE is_disambiguation = 0 ORDER BY title
   // COLLATE NOCASE) without a full scan + sort per request.
@@ -496,13 +504,15 @@ export function saveArticle(
       html,
       summary_markdown,
       plain_text,
+      headline_media_id,
+      headline_media_caption,
       generated_at,
       created_at,
       operation,
       instructions,
       reverted_from_revision_id
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const deleteLinks = db.prepare(`DELETE FROM article_links WHERE source_slug = ?`);
   const deleteAliases = db.prepare(`DELETE FROM article_aliases WHERE article_slug = ?`);
@@ -539,6 +549,7 @@ export function saveArticle(
       article.isDisambiguation ? 1 : 0
     );
     if (!revision.skipRevision) {
+      const headlineMedia = getArticleHeadlineMedia(db, article.slug);
       insertRevision.run(
         article.slug,
         article.title,
@@ -546,6 +557,8 @@ export function saveArticle(
         article.html,
         summaryMarkdown,
         article.plain_text,
+        headlineMedia?.mediaId ?? null,
+        headlineMedia?.caption ?? null,
         article.generated_at,
         Date.now(),
         revision.operation ?? "update",
@@ -1282,6 +1295,8 @@ export function listArticleRevisions(db: DatabaseSync, lookupSlug: string): Arti
               html,
               summary_markdown AS summaryMarkdown,
               plain_text,
+              headline_media_id AS headlineMediaId,
+              headline_media_caption AS headlineMediaCaption,
               generated_at AS generatedAt,
               created_at AS createdAt,
               operation,
@@ -1302,13 +1317,15 @@ export function listArticleRevisions(db: DatabaseSync, lookupSlug: string): Arti
         html,
         summary_markdown,
         plain_text,
+        headline_media_id,
+        headline_media_caption,
         generated_at,
         created_at,
         operation,
         instructions,
         reverted_from_revision_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       article.slug,
       article.title,
@@ -1316,6 +1333,8 @@ export function listArticleRevisions(db: DatabaseSync, lookupSlug: string): Arti
       article.html,
       summaryMarkdown,
       article.plain_text,
+      getArticleHeadlineMedia(db, article.slug)?.mediaId ?? null,
+      getArticleHeadlineMedia(db, article.slug)?.caption ?? null,
       article.generated_at,
       article.generated_at,
       "baseline",
@@ -1338,6 +1357,8 @@ export function getArticleRevision(db: DatabaseSync, id: number): ArticleRevisio
                 html,
                 summary_markdown AS summaryMarkdown,
                 plain_text,
+                headline_media_id AS headlineMediaId,
+                headline_media_caption AS headlineMediaCaption,
                 generated_at AS generatedAt,
                 created_at AS createdAt,
                 operation,
@@ -1348,6 +1369,108 @@ export function getArticleRevision(db: DatabaseSync, id: number): ArticleRevisio
       )
       .get(id) as ArticleRevision | undefined
   ) ?? null;
+}
+
+export interface ArticleRevisionSnapshotOptions {
+  operation: string;
+  instructions?: string;
+  headlineMediaId?: string | null;
+  headlineMediaCaption?: string | null;
+}
+
+export function insertArticleRevisionSnapshot(
+  db: DatabaseSync,
+  lookupSlug: string,
+  options: ArticleRevisionSnapshotOptions,
+): ArticleRevision | null {
+  const article = getArticleByLookup(db, lookupSlug);
+  if (!article) return null;
+  const headlineMedia =
+    options.headlineMediaId === undefined && options.headlineMediaCaption === undefined
+      ? getArticleHeadlineMedia(db, article.slug)
+      : null;
+  const mediaId = options.headlineMediaId ?? headlineMedia?.mediaId ?? null;
+  const mediaCaption = options.headlineMediaCaption ?? headlineMedia?.caption ?? null;
+  const now = Date.now();
+  const result = db.prepare(
+    `INSERT INTO article_revisions (
+       article_slug,
+       title,
+       markdown,
+       html,
+       summary_markdown,
+       plain_text,
+       headline_media_id,
+       headline_media_caption,
+       generated_at,
+       created_at,
+       operation,
+       instructions,
+       reverted_from_revision_id
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    article.slug,
+    article.title,
+    article.markdown,
+    article.html,
+    article.summaryMarkdown ?? "",
+    article.plain_text,
+    mediaId,
+    mediaCaption,
+    article.generated_at,
+    now,
+    options.operation,
+    options.instructions ?? "",
+    null,
+  );
+  return getArticleRevision(db, Number(result.lastInsertRowid));
+}
+
+export function updateLatestArticleRevisionMediaSnapshot(
+  db: DatabaseSync,
+  lookupSlug: string,
+  headlineMediaId: string | null,
+  headlineMediaCaption: string | null,
+): boolean {
+  const article = getArticleByLookup(db, lookupSlug);
+  if (!article) return false;
+  const result = db.prepare(
+    `UPDATE article_revisions
+     SET headline_media_id = ?,
+         headline_media_caption = ?
+     WHERE id = (
+       SELECT id
+       FROM article_revisions
+       WHERE article_slug = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1
+     )`,
+  ).run(headlineMediaId, headlineMediaCaption, article.slug);
+  return result.changes > 0;
+}
+
+export function updateLatestArticleRevisionCaptionForMedia(
+  db: DatabaseSync,
+  lookupSlug: string,
+  headlineMediaId: string,
+  headlineMediaCaption: string,
+): boolean {
+  const article = getArticleByLookup(db, lookupSlug);
+  if (!article) return false;
+  const result = db.prepare(
+    `UPDATE article_revisions
+     SET headline_media_caption = ?
+     WHERE id = (
+       SELECT id
+       FROM article_revisions
+       WHERE article_slug = ?
+         AND headline_media_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1
+     )`,
+  ).run(headlineMediaCaption, article.slug, headlineMediaId);
+  return result.changes > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1722,11 +1845,18 @@ export function updateArticleMediaCaption(
   ordinal: number,
   caption: string,
   operation: SidebarOperation = "generated",
+  options: { updateArticleRevision?: boolean } = {},
 ): void {
   const now = Date.now();
   db.prepare(
     `UPDATE article_media SET caption = ?, updated_at = ? WHERE article_slug = ? AND ordinal = ?`,
   ).run(caption, now, articleSlug, ordinal);
+  if (ordinal === 1 && options.updateArticleRevision) {
+    const headlineMedia = getArticleHeadlineMedia(db, articleSlug);
+    if (headlineMedia) {
+      updateLatestArticleRevisionCaptionForMedia(db, articleSlug, headlineMedia.mediaId, caption);
+    }
+  }
   // Record sidebar revision so caption changes are auditable.
   if (ordinal === 1) {
     const infoboxJson = (db

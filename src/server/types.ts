@@ -457,6 +457,8 @@ export interface ArticleRevision {
   html: string;
   summaryMarkdown: string;
   plain_text: string;
+  headlineMediaId: string | null;
+  headlineMediaCaption: string | null;
   generatedAt: number;
   createdAt: number;
   operation: string;

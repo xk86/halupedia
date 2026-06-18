@@ -278,6 +278,8 @@ export const PipelineStateSchema = z.object({
     .optional(),
 
   // Image generation ───────────────────────────────────────────────────────
+  /** Concrete article-image preset selected for article.image_generate. */
+  selectedImagePromptKey: z.string().optional(),
   /** Generated headline image attachment result for article.image_generate. */
   imageGenerationResult: z
     .object({
@@ -287,6 +289,7 @@ export const PipelineStateSchema = z.object({
       height: z.number(),
       backend: z.string(),
       model: z.string(),
+      presetKey: z.string().optional(),
       revisedPrompt: z.string().optional(),
     })
     .optional(),

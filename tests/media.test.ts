@@ -90,9 +90,11 @@ function makeArticleDb(dir: string) {
 
 class FakeLlm implements LlmRouter {
   capturedOptions: ChatOptions[] = [];
+  capturedPrompts: Array<{ role: string; system: string; user: string }> = [];
   constructor(private readonly resp = '{"title":"T","groups":[{"label":"","rows":[]}]}') {}
   async chat(_r: "heavy" | "light", _s: string, _u: string, opts?: ChatOptions) {
     this.capturedOptions.push(opts ?? {});
+    this.capturedPrompts.push({ role: _r, system: _s, user: _u });
     return this.resp;
   }
   async streamChat(_r: "heavy" | "light", _s: string, _u: string, onChunk: (d: string, a: string) => void, opts?: ChatOptions) {
@@ -942,6 +944,12 @@ describe("http", () => {
     assert.equal(body.image, null);
   });
 
+  test("image generation admin settings default featured auto-generation off", async (t) => {
+    const s = await makeTestServer(); t.after(s.cleanup);
+    const body = await (await s.go("/api/admin/llm")).json() as any;
+    assert.equal(body.imageGeneration.autoGenerateForFeaturedArticle, false);
+  });
+
   test("POST /api/article/:slug/image/generate rejects when disabled", async (t) => {
     const s = await makeTestServer(); t.after(s.cleanup);
     const res = await s.go("/api/article/aspirin/image/generate", {
@@ -1076,6 +1084,36 @@ describe("http", () => {
     }
     await res.json();
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
+  });
+
+  test("POST /api/article/:slug/image/generate can ask the LLM to select an image preset", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedPrompt = "";
+    setImageGenerationFetchForTests(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      capturedPrompt = body.prompt ?? "";
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm('{"presetKey":"conceptual"}');
+    const s = await makeTestServer(llm, enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "conceptual");
+    assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
+    assert.ok(llm.capturedPrompts.some((prompt) => prompt.user.includes("Allowed presets:")));
   });
 
   test("POST /api/article/:slug/image/generate rejects non-image prompt key", async (t) => {

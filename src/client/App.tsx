@@ -21,6 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -1725,16 +1726,19 @@ export function App() {
         ) : null}
         {refreshMessage ? <div className="status">{refreshMessage}</div> : null}
         {restoreMessage ? <div className="status">{restoreMessage}</div> : null}
-        <div className="article-title-row">
+        <div className="m-0 mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start justify-between gap-3 max-[680px]:grid-cols-1">
           <h1
+            className="m-0 min-w-0 flex-1 border-b-2 border-rule pb-[0.6rem] font-serif text-[2.4rem] leading-[1.15] font-medium tracking-[-0.005em] text-balance [overflow-wrap:anywhere]"
             dangerouslySetInnerHTML={{
               __html: renderInlineHtml(articleDisplayTitle),
             }}
           />
-          <div className="article-title-actions">
-            <button
+          <div className="flex max-w-[clamp(7rem,18vw,16rem)] flex-row flex-nowrap content-start justify-end gap-2 max-[680px]:max-w-none max-[680px]:flex-wrap max-[680px]:justify-start">
+            <Button
               type="button"
-              className="article-edit-button"
+              variant="outline"
+              size="icon"
+              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
               style={{
                 opacity: page.isProtected ? 1 : 0.35,
                 fontSize: "1.1rem",
@@ -1770,10 +1774,12 @@ export function App() {
               }}
             >
               {page.isProtected ? "🔒" : "🔓"}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="article-edit-button"
+              variant="outline"
+              size="icon"
+              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
               onClick={copyArticleSlug}
               aria-label="Copy slug"
               title="Copy slug"
@@ -1781,10 +1787,12 @@ export function App() {
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1Zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H10V7h9v14Z" />
               </svg>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="article-edit-button"
+              variant="outline"
+              size="icon"
+              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
               onClick={refreshContext}
               disabled={refreshBusy}
               aria-label="Refresh with retrieved context"
@@ -1793,10 +1801,12 @@ export function App() {
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3l-3.3 3.3Z" />
               </svg>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="article-edit-button"
+              variant="outline"
+              size="icon"
+              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
               onClick={loadHistory}
               aria-label="View history"
               title="View history"
@@ -1804,10 +1814,12 @@ export function App() {
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M13 3a9 9 0 1 1-8.95 10H2l3-3.2L8 13H6.06A7 7 0 1 0 13 5a6.95 6.95 0 0 0-4.95 2.05L6.63 5.63A8.94 8.94 0 0 1 13 3Zm-1 4h2v5.15l3.2 1.9-1 1.72-4.2-2.5V7Z" />
               </svg>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="article-edit-button"
+              variant="outline"
+              size="icon"
+              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
               onClick={() => {
                 setEditOpen(true);
                 setEditError(null);
@@ -1818,7 +1830,7 @@ export function App() {
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25Zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.96 1.96 3.75 3.75 2.13-1.79Z" />
               </svg>
-            </button>
+            </Button>
           </div>
         </div>
         {copySlugMessage ? (
@@ -2514,8 +2526,8 @@ export function App() {
               }}
             />
             {page.statusMessage ? (
-              <div className="article-status">
-                <span className="dot" />
+              <div className="mt-6 flex items-center gap-[0.6rem] border-t border-rule py-[0.6rem] font-mono text-[0.82rem] text-ink-fade">
+                <span className="size-[7px] animate-[pulse_1.1s_ease-in-out_infinite] rounded-full bg-accent" />
                 <span>{page.statusMessage}</span>
               </div>
             ) : null}
@@ -2524,17 +2536,20 @@ export function App() {
         {/* Backlinks — moved to bottom of article column */}
         {(page.backlinks.existing.length > 0 ||
           page.backlinks.unwritten.length > 0) && (
-          <section className="article-backlinks" aria-label="Referenced by">
-            <h4 className="article-backlinks-heading">
+          <section
+            className="mt-8 max-w-[87dvw] border-t border-rule-soft pt-3"
+            aria-label="Referenced by"
+          >
+            <h4 className="m-0 mb-[0.4rem] text-[0.78rem] font-semibold tracking-[0.06em] text-ink-fade uppercase">
               Referenced by{" "}
-              <span className="article-backlinks-count">
+              <span className="font-normal">
                 (
                 {page.backlinks.existing.length +
                   page.backlinks.unwritten.length}
                 )
               </span>
             </h4>
-            <ul className="article-backlinks-list">
+            <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-1 p-0 [&_li]:text-[0.85rem] [&_li]:[word-break:break-all] [&_li]:[hyphens:manual]">
               {page.backlinks.existing.map((b) => (
                 <li key={b.slug}>
                   <a
@@ -2549,7 +2564,7 @@ export function App() {
                 </li>
               ))}
               {page.backlinks.unwritten.map((b) => (
-                <li key={b.slug} className="article-backlinks-unwritten">
+                <li key={b.slug}>
                   <a
                     href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
                     onClick={(e) => {
@@ -2559,7 +2574,10 @@ export function App() {
                   >
                     {b.title}
                   </a>
-                  <span className="article-backlinks-stub"> (unwritten)</span>
+                  <span className="text-[0.8rem] text-ink-fade">
+                    {" "}
+                    (unwritten)
+                  </span>
                 </li>
               ))}
             </ul>

@@ -35,6 +35,7 @@ import {
 import { toWikiSegment } from "./wikiPath";
 import { type Suggestion } from "./articleSuggest";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -2155,10 +2156,9 @@ export function GraphView({
         </div>
 
         <label className="graph-path-toggle">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={pathMode}
-            onChange={(e) => setPathMode(e.target.checked)}
+            onCheckedChange={(c) => setPathMode(c === true)}
           />
           <span>Path</span>
         </label>
@@ -2484,10 +2484,9 @@ export function GraphView({
             <div className="grs-section">
               <div className="grs-section-label">Nodes</div>
               <label className="grs-toggle">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={shadingEnabled}
-                  onChange={(e) => setShadingEnabled(e.target.checked)}
+                  onCheckedChange={(c) => setShadingEnabled(c === true)}
                 />
                 <span>Shading</span>
                 <span className="grs-toggle-hint">
@@ -2532,10 +2531,11 @@ export function GraphView({
                 onChange={(v) => set("nodeOpacity", v)}
               />
               <label className="grs-toggle">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={settings.alwaysShowLabels}
-                  onChange={(e) => set("alwaysShowLabels", e.target.checked)}
+                  onCheckedChange={(c) =>
+                    set("alwaysShowLabels", c === true)
+                  }
                 />
                 <span>Always show names</span>
                 <span className="grs-toggle-hint">
@@ -2555,10 +2555,11 @@ export function GraphView({
               )}
               {settings.alwaysShowLabels && (
                 <label className="grs-toggle">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={settings.dynamicLabelSize}
-                    onChange={(e) => set("dynamicLabelSize", e.target.checked)}
+                    onCheckedChange={(c) =>
+                      set("dynamicLabelSize", c === true)
+                    }
                   />
                   <span>Size by link count</span>
                   <span className="grs-toggle-hint">
@@ -2667,11 +2668,10 @@ export function GraphView({
                 onChange={(v) => set("particleWidth", v)}
               />
               <label className="grs-toggle">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={settings.directionalParticles}
-                  onChange={(e) =>
-                    set("directionalParticles", e.target.checked)
+                  onCheckedChange={(c) =>
+                    set("directionalParticles", c === true)
                   }
                 />
                 <span>Color by direction</span>
@@ -2775,10 +2775,9 @@ export function GraphView({
                 onChange={(v) => set("pathLinkBrightness", v)}
               />
               <label className="grs-toggle">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={settings.particleGlow}
-                  onChange={(e) => set("particleGlow", e.target.checked)}
+                  onCheckedChange={(c) => set("particleGlow", c === true)}
                 />
                 <span>Particle glow</span>
                 <span className="grs-toggle-hint">

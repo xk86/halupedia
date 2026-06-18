@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/client/App";
@@ -12,7 +18,12 @@ function setPath(path: string) {
 // article-page payload (wrong shape) crashes it with "Cannot read properties
 // of undefined (reading 'length')".
 function emptyHomepagePayload() {
-  return { featured: null, didYouKnow: [], generatedAt: Date.now(), expiresAt: Date.now() + 3600_000 };
+  return {
+    featured: null,
+    didYouKnow: [],
+    generatedAt: Date.now(),
+    expiresAt: Date.now() + 3600_000,
+  };
 }
 function emptyTopArticlesPayload() {
   return { articles: [] };
@@ -27,7 +38,10 @@ function emptyTopArticlesPayload() {
 // (Sidebar bails out on `!res.ok` without touching the body) keeps the shared
 // fixture pattern working without each test having to special-case /live.
 function withLiveBypass(
-  impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response,
+  impl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> | Response,
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     if (/\/live(\?|$)/.test(String(input))) {
@@ -45,7 +59,8 @@ function pagePayload(overrides: Partial<any> = {}) {
       canonicalSlug: "test-article",
       title: "Test Article",
       html: '<h1>Test Article</h1><p>Body copy with <a href="/wiki/Linked_Article">Linked Article</a>.</p>',
-      markdown: '# Test Article\n\nBody copy with [Linked Article](halu:linked-article "Hidden hint").',
+      markdown:
+        '# Test Article\n\nBody copy with [Linked Article](halu:linked-article "Hidden hint").',
       plain_text: "Body copy with Linked Article.",
       generated_at: 1715000000000,
     },
@@ -92,16 +107,26 @@ describe("App", () => {
 
   it("renders the home route and fetches homepage data", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ featured: null, didYouKnow: [], didYouKnowPending: false, expiresAt: Date.now() + 3600000 }), {
-        headers: { "content-type": "application/json" },
-      })
+      new Response(
+        JSON.stringify({
+          featured: null,
+          didYouKnow: [],
+          didYouKnowPending: false,
+          expiresAt: Date.now() + 3600000,
+        }),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "Halupedia" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Halupedia" }),
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/homepage");
     expect(document.title).toBe("Halupedia");
   });
@@ -110,9 +135,16 @@ describe("App", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/homepage") {
-        return new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            featured: null,
+            didYouKnow: [],
+            expiresAt: Date.now() + 3600000,
+          }),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (url === "/api/top-articles?limit=10") {
         return new Response(JSON.stringify({ articles: [] }), {
@@ -125,19 +157,24 @@ describe("App", () => {
         });
       }
       if (url === "/api/page/Ledger_tariff") {
-        return new Response(JSON.stringify(pagePayload({
-          article: {
-            ...pagePayload().article,
-            slug: "ledger-tariff",
-            canonicalSlug: "ledger-tariff",
-            title: "Ledger Tariff",
-            html: "<h1>Ledger Tariff</h1><p>Random article body.</p>",
-            markdown: "# Ledger Tariff\n\nRandom article body.",
-            plain_text: "Random article body.",
+        return new Response(
+          JSON.stringify(
+            pagePayload({
+              article: {
+                ...pagePayload().article,
+                slug: "ledger-tariff",
+                canonicalSlug: "ledger-tariff",
+                title: "Ledger Tariff",
+                html: "<h1>Ledger Tariff</h1><p>Random article body.</p>",
+                markdown: "# Ledger Tariff\n\nRandom article body.",
+                plain_text: "Random article body.",
+              },
+            }),
+          ),
+          {
+            headers: { "content-type": "application/json" },
           },
-        })), {
-          headers: { "content-type": "application/json" },
-        });
+        );
       }
       return new Response("not found", { status: 404 });
     });
@@ -148,7 +185,9 @@ describe("App", () => {
 
     await userEvent.click(screen.getByRole("link", { name: "Random" }));
 
-    expect(await screen.findByRole("heading", { name: "Ledger Tariff" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Ledger Tariff" }),
+    ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/wiki/Ledger_tariff");
     expect(window.location.search).toBe("");
     expect(fetchMock).toHaveBeenCalledWith("/api/random-page");
@@ -167,49 +206,64 @@ describe("App", () => {
       ragMode: "full",
       promptModelAssociations: [],
     };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "/api/admin/overview") {
-        return new Response(JSON.stringify(overview), {
-          headers: { "content-type": "application/json" },
-        });
-      }
-      if (url === "/api/admin/generation-queue") {
-        return new Response(JSON.stringify({ items: [] }), {
-          headers: { "content-type": "application/json" },
-        });
-      }
-      if (url === "/api/admin/pipeline/workflows") {
-        return new Response(JSON.stringify({ workflows: [] }), {
-          headers: { "content-type": "application/json" },
-        });
-      }
-      if (url === "/api/admin/pipeline/runs?limit=12") {
-        return new Response(JSON.stringify({ traceEnabled: true, runs: [] }), {
-          headers: { "content-type": "application/json" },
-        });
-      }
-      if (url === "/api/admin/regenerate-summary") {
-        return new Response(JSON.stringify({
-          ok: true,
-          slug: "test-article",
-          article: { title: "Test Article" },
-        }), {
-          headers: { "content-type": "application/json" },
-        });
-      }
-      return new Response("not found", { status: 404 });
-    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/admin/overview") {
+          return new Response(JSON.stringify(overview), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url === "/api/admin/generation-queue") {
+          return new Response(JSON.stringify({ items: [] }), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url === "/api/admin/pipeline/workflows") {
+          return new Response(JSON.stringify({ workflows: [] }), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url === "/api/admin/pipeline/runs?limit=12") {
+          return new Response(
+            JSON.stringify({ traceEnabled: true, runs: [] }),
+            {
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        if (url === "/api/admin/regenerate-summary") {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              slug: "test-article",
+              article: { title: "Test Article" },
+            }),
+            {
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/admin");
 
     render(<App />);
 
     await screen.findByRole("heading", { name: "Admin" });
-    await userEvent.type(screen.getByPlaceholderText("Search or paste /wiki/ link…"), "https://host/wiki/Test_Article");
-    await userEvent.click(screen.getByRole("button", { name: "Regenerate summary" }));
+    await userEvent.type(
+      screen.getByPlaceholderText("Search or paste /wiki/ link…"),
+      "https://host/wiki/Test_Article",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Regenerate summary" }),
+    );
 
-    expect(await screen.findByText("Summary regenerated for Test Article.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Summary regenerated for Test Article."),
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/regenerate-summary", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -244,20 +298,19 @@ describe("App", () => {
         },
       ],
     };
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url === "/api/admin/overview") {
-          return Promise.resolve(
-            new Response(JSON.stringify(overview), {
-              headers: { "content-type": "application/json" },
-            }),
-          );
-        }
-        if (url === "/api/admin/generation-queue") {
-          return Promise.resolve(
-            new Response(JSON.stringify({
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/admin/overview") {
+        return Promise.resolve(
+          new Response(JSON.stringify(overview), {
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      if (url === "/api/admin/generation-queue") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
               items: [
                 {
                   slug: "queued-article",
@@ -267,29 +320,37 @@ describe("App", () => {
                   waiting: 3,
                 },
               ],
-            }), {
-              headers: { "content-type": "application/json" },
             }),
-          );
-        }
-        if (url === "/api/admin/pipeline/workflows") {
-          return Promise.resolve(
-            new Response(JSON.stringify({
+            {
+              headers: { "content-type": "application/json" },
+            },
+          ),
+        );
+      }
+      if (url === "/api/admin/pipeline/workflows") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
               workflows: [
                 {
                   name: "article.generate",
                   summary: "article.generate (14 nodes, read=2)",
-                  nodes: [{ name: "read.article", kind: "read", conditional: false }],
+                  nodes: [
+                    { name: "read.article", kind: "read", conditional: false },
+                  ],
                 },
               ],
-            }), {
-              headers: { "content-type": "application/json" },
             }),
-          );
-        }
-        if (url === "/api/admin/pipeline/runs?limit=12") {
-          return Promise.resolve(
-            new Response(JSON.stringify({
+            {
+              headers: { "content-type": "application/json" },
+            },
+          ),
+        );
+      }
+      if (url === "/api/admin/pipeline/runs?limit=12") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
               traceEnabled: true,
               runs: [
                 {
@@ -303,20 +364,30 @@ describe("App", () => {
                   error_message: null,
                 },
               ],
-            }), {
-              headers: { "content-type": "application/json" },
             }),
-          );
-        }
-        if (url === "/api/admin/prompt-model") {
-          return Promise.resolve(
-            new Response(JSON.stringify({ ok: true, key: "article_summary", model: "heavy", thinking: true }), {
+            {
               headers: { "content-type": "application/json" },
+            },
+          ),
+        );
+      }
+      if (url === "/api/admin/prompt-model") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              key: "article_summary",
+              model: "heavy",
+              thinking: true,
             }),
-          );
-        }
-        return Promise.resolve(new Response("not found", { status: 404 }));
-      });
+            {
+              headers: { "content-type": "application/json" },
+            },
+          ),
+        );
+      }
+      return Promise.resolve(new Response("not found", { status: 404 }));
+    });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/admin");
 
@@ -326,8 +397,13 @@ describe("App", () => {
     // The waiting count is concatenated into the same <span> as the workflow
     // label/phase (e.g. "Active · 3 waiting"), so match on substring rather
     // than the exact combined text.
-    expect(screen.getByText((_, el) => el?.className === "admin-queue-meta" && /3 waiting/.test(el.textContent ?? "")))
-      .toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.className === "admin-queue-meta" &&
+          /3 waiting/.test(el.textContent ?? ""),
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText("article_summary")).toBeInTheDocument();
     expect(screen.getByText("light-model")).toBeInTheDocument();
     expect(screen.getByText("on")).toBeInTheDocument();
@@ -341,7 +417,11 @@ describe("App", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/admin/prompt-model", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key: "article_summary", model: "heavy", thinking: true }),
+        body: JSON.stringify({
+          key: "article_summary",
+          model: "heavy",
+          thinking: true,
+        }),
       });
     });
   });
@@ -361,7 +441,9 @@ describe("App", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/admin/overview") {
-        return new Response(JSON.stringify(overview), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(overview), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url === "/api/admin/reset-featured-article") {
         return new Response(JSON.stringify({ status: "triggered" }), {
@@ -369,13 +451,19 @@ describe("App", () => {
         });
       }
       if (url === "/api/admin/generation-queue") {
-        return new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ items: [] }), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url === "/api/admin/pipeline/workflows") {
-        return new Response(JSON.stringify({ workflows: [] }), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ workflows: [] }), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url === "/api/admin/pipeline/runs?limit=12") {
-        return new Response(JSON.stringify({ traceEnabled: false, runs: [] }), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ traceEnabled: false, runs: [] }), {
+          headers: { "content-type": "application/json" },
+        });
       }
       return new Response("not found", { status: 404 });
     });
@@ -384,45 +472,63 @@ describe("App", () => {
 
     render(<App />);
 
-    const button = await screen.findByRole("button", { name: "Reset featured article" });
+    const button = await screen.findByRole("button", {
+      name: "Reset featured article",
+    });
     await userEvent.click(button);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/admin/reset-featured-article", { method: "POST" });
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/reset-featured-article",
+        { method: "POST" },
+      );
     });
-    expect(await screen.findByRole("button", { name: "Reset featured article" })).not.toBeDisabled();
+    expect(
+      await screen.findByRole("button", { name: "Reset featured article" }),
+    ).not.toBeDisabled();
   });
 
   it("shows the DYK section with an empty placeholder instead of hiding it", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        featured: {
-          slug: "index-lamp",
-          title: "Index Lamp",
-          summaryMarkdown: "Index Lamp are ceremonial freshwater accountants.",
+      new Response(
+        JSON.stringify({
+          featured: {
+            slug: "index-lamp",
+            title: "Index Lamp",
+            summaryMarkdown:
+              "Index Lamp are ceremonial freshwater accountants.",
+          },
+          didYouKnow: [],
+          didYouKnowPending: false,
+          expiresAt: Date.now() + 3600000,
+        }),
+        {
+          headers: { "content-type": "application/json" },
         },
-        didYouKnow: [],
-        didYouKnowPending: false,
-        expiresAt: Date.now() + 3600000,
-      }), {
-        headers: { "content-type": "application/json" },
-      })
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Featured article" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Did you know..." })).toBeInTheDocument();
-    expect(screen.getByText("Add or generate an article to seed the first featured fact.")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Featured article" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Did you know..." }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Add or generate an article to seed the first featured fact.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("renders cached featured article, timer, and startup DYK without polling", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
           featured: {
             slug: "test-article",
             title: "Test Article",
@@ -432,28 +538,42 @@ describe("App", () => {
             {
               slug: "linked-article",
               title: "Linked Article",
-              fact: "... [Linked Article](halu:linked-article \"Linked Article\") is filed under ceremonial ballast accounting.",
+              fact: '... [Linked Article](halu:linked-article "Linked Article") is filed under ceremonial ballast accounting.',
             },
           ],
           generatedAt: Date.now(),
           expiresAt: Date.now() + 3600000,
-        }), {
+        }),
+        {
           headers: { "content-type": "application/json" },
-        })
-      );
+        },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Featured article" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Test Article" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Featured article" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Test Article" }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Homepage refreshes in/)).toBeInTheDocument();
-    expect(document.querySelector(".homepage-summary .math-inline")).not.toBeNull();
-    expect(await screen.findByRole("link", { name: "Linked Article" })).toHaveAttribute("href", "/wiki/Linked_Article");
-    expect(screen.getByText(/is filed under ceremonial ballast accounting\./)).toBeInTheDocument();
+    expect(
+      document.querySelector(".homepage-summary .math-inline"),
+    ).not.toBeNull();
+    expect(
+      await screen.findByRole("link", { name: "Linked Article" }),
+    ).toHaveAttribute("href", "/wiki/Linked_Article");
+    expect(
+      screen.getByText(/is filed under ceremonial ballast accounting\./),
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/homepage");
-    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage")).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage"),
+    ).toHaveLength(1);
   });
 
   it("refetches homepage when the cached payload expires", async () => {
@@ -467,18 +587,20 @@ describe("App", () => {
       }
       homepageCalls += 1;
       if (homepageCalls === 1) {
-        return (
-        new Response(JSON.stringify({
-          featured: null,
-          didYouKnow: [],
-          generatedAt: Date.now(),
-          expiresAt: Date.now() + 10,
-        }), {
-          headers: { "content-type": "application/json" },
-        })
+        return new Response(
+          JSON.stringify({
+            featured: null,
+            didYouKnow: [],
+            generatedAt: Date.now(),
+            expiresAt: Date.now() + 10,
+          }),
+          {
+            headers: { "content-type": "application/json" },
+          },
         );
       }
-      return new Response(JSON.stringify({
+      return new Response(
+        JSON.stringify({
           featured: {
             slug: "refreshed-page",
             title: "Refreshed Page",
@@ -487,38 +609,63 @@ describe("App", () => {
           didYouKnow: [],
           generatedAt: Date.now() + 10,
           expiresAt: Date.now() + 3600010,
-        }), {
+        }),
+        {
           headers: { "content-type": "application/json" },
-      });
+        },
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
 
     render(<App />);
 
-    expect(await screen.findByText("No articles yet. Search for a topic to generate your first entry.")).toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage")).toHaveLength(1);
+    expect(
+      await screen.findByText(
+        "No articles yet. Search for a topic to generate your first entry.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage"),
+    ).toHaveLength(1);
 
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage")).toHaveLength(2));
-    expect(await screen.findByRole("link", { name: "Refreshed Page" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url) === "/api/homepage"),
+      ).toHaveLength(2),
+    );
+    expect(
+      await screen.findByRole("link", { name: "Refreshed Page" }),
+    ).toBeInTheDocument();
   });
 
   it("loads and renders a cached article route", async () => {
-    const fetchMock = withLiveBypass(() =>
-      new Response(JSON.stringify(pagePayload()), {
-        headers: { "content-type": "application/json" },
-      })
+    const fetchMock = withLiveBypass(
+      () =>
+        new Response(JSON.stringify(pagePayload()), {
+          headers: { "content-type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
     render(<App />);
 
-    expect(screen.getByText("Waiting and contemplating...")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Test Article" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Linked Article" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit article" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Linking Article" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Waiting and contemplating..."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Test Article" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Linked Article" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edit article" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Linking Article" }),
+    ).toBeInTheDocument();
     expect(document.title).toBe("Test Article - Halupedia");
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Test_Article");
   });
@@ -527,9 +674,16 @@ describe("App", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/homepage") {
-        return new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            featured: null,
+            didYouKnow: [],
+            expiresAt: Date.now() + 3600000,
+          }),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (url === "/api/top-articles?limit=10") {
         return new Response(JSON.stringify({ articles: [] }), {
@@ -537,19 +691,24 @@ describe("App", () => {
         });
       }
       if (url === "/api/page/Archive_scouts") {
-        return new Response(JSON.stringify(pagePayload({
-          article: {
-            ...pagePayload().article,
-            slug: "archive-scouts",
-            canonicalSlug: "archive-scouts",
-            title: "Archive scouts",
-            html: "<h1>Archive scouts</h1><p>Scout body.</p>",
-            markdown: "# Archive scouts\n\nScout body.",
-            plain_text: "Scout body.",
+        return new Response(
+          JSON.stringify(
+            pagePayload({
+              article: {
+                ...pagePayload().article,
+                slug: "archive-scouts",
+                canonicalSlug: "archive-scouts",
+                title: "Archive scouts",
+                html: "<h1>Archive scouts</h1><p>Scout body.</p>",
+                markdown: "# Archive scouts\n\nScout body.",
+                plain_text: "Scout body.",
+              },
+            }),
+          ),
+          {
+            headers: { "content-type": "application/json" },
           },
-        })), {
-          headers: { "content-type": "application/json" },
-        });
+        );
       }
       return new Response("not found", { status: 404 });
     });
@@ -562,7 +721,9 @@ describe("App", () => {
     await userEvent.type(input, "wiki/Archive_scouts");
     await userEvent.click(screen.getByRole("button", { name: "Go" }));
 
-    expect(await screen.findByRole("heading", { name: "Archive scouts" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Archive scouts" }),
+    ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/wiki/Archive_scouts");
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Archive_scouts");
   });
@@ -571,9 +732,16 @@ describe("App", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/homepage") {
-        return new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            featured: null,
+            didYouKnow: [],
+            expiresAt: Date.now() + 3600000,
+          }),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (url === "/api/top-articles?limit=10") {
         return new Response(JSON.stringify({ articles: [] }), {
@@ -581,26 +749,34 @@ describe("App", () => {
         });
       }
       if (url.startsWith("/api/search?")) {
-        return new Response(JSON.stringify({
-          results: [
-            { slug: "clock-tower", title: "Clock Tower", exists: true },
-            { slug: "ghost-clock", title: "Ghost Clock", exists: false },
-          ],
-          has_more: false,
-        }), { headers: { "content-type": "application/json" } });
+        return new Response(
+          JSON.stringify({
+            results: [
+              { slug: "clock-tower", title: "Clock Tower", exists: true },
+              { slug: "ghost-clock", title: "Ghost Clock", exists: false },
+            ],
+            has_more: false,
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
       }
       if (url === "/api/page/Clock_Tower") {
-        return new Response(JSON.stringify(pagePayload({
-          article: {
-            ...pagePayload().article,
-            slug: "clock-tower",
-            canonicalSlug: "clock-tower",
-            title: "Clock Tower",
-            html: "<h1>Clock Tower</h1><p>Body.</p>",
-            markdown: "# Clock Tower\n\nBody.",
-            plain_text: "Body.",
-          },
-        })), { headers: { "content-type": "application/json" } });
+        return new Response(
+          JSON.stringify(
+            pagePayload({
+              article: {
+                ...pagePayload().article,
+                slug: "clock-tower",
+                canonicalSlug: "clock-tower",
+                title: "Clock Tower",
+                html: "<h1>Clock Tower</h1><p>Body.</p>",
+                markdown: "# Clock Tower\n\nBody.",
+                plain_text: "Body.",
+              },
+            }),
+          ),
+          { headers: { "content-type": "application/json" } },
+        );
       }
       return new Response("not found", { status: 404 });
     });
@@ -620,7 +796,9 @@ describe("App", () => {
 
     await userEvent.click(result);
 
-    expect(await screen.findByRole("heading", { name: "Clock Tower" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Clock Tower" }),
+    ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/wiki/Clock_Tower");
     // Passing the literal title forwards it out-of-band as a request header,
     // so the page fetch carries the exact text alongside the canonical URL.
@@ -638,9 +816,16 @@ describe("App", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/homepage") {
-        return new Response(JSON.stringify({ featured: null, didYouKnow: [], expiresAt: Date.now() + 3600000 }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            featured: null,
+            didYouKnow: [],
+            expiresAt: Date.now() + 3600000,
+          }),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       if (url === "/api/top-articles?limit=10") {
         return new Response(JSON.stringify({ articles: [] }), {
@@ -648,19 +833,24 @@ describe("App", () => {
         });
       }
       if (url === "/api/page/Ledger_tariff") {
-        return new Response(JSON.stringify(pagePayload({
-          article: {
-            ...pagePayload().article,
-            slug: "ledger-tariff",
-            canonicalSlug: "ledger-tariff",
-            title: "Ledger tariff",
-            html: "<h1>Ledger tariff</h1><p>Tariff body.</p>",
-            markdown: "# Ledger tariff\n\nTariff body.",
-            plain_text: "Tariff body.",
+        return new Response(
+          JSON.stringify(
+            pagePayload({
+              article: {
+                ...pagePayload().article,
+                slug: "ledger-tariff",
+                canonicalSlug: "ledger-tariff",
+                title: "Ledger tariff",
+                html: "<h1>Ledger tariff</h1><p>Tariff body.</p>",
+                markdown: "# Ledger tariff\n\nTariff body.",
+                plain_text: "Tariff body.",
+              },
+            }),
+          ),
+          {
+            headers: { "content-type": "application/json" },
           },
-        })), {
-          headers: { "content-type": "application/json" },
-        });
+        );
       }
       return new Response("not found", { status: 404 });
     });
@@ -670,26 +860,37 @@ describe("App", () => {
     render(<App />);
 
     const input = screen.getByPlaceholderText("Search the register...");
-    await userEvent.type(input, "https://example.invalid/prefix/wiki/Ledger_tariff?old=1");
+    await userEvent.type(
+      input,
+      "https://example.invalid/prefix/wiki/Ledger_tariff?old=1",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Go" }));
 
-    expect(await screen.findByRole("heading", { name: "Ledger tariff" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Ledger tariff" }),
+    ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/wiki/Ledger_tariff");
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Ledger_tariff");
   });
 
   it("copies the canonical slug from the article toolbar", async () => {
-    const fetchMock = withLiveBypass(() =>
-      new Response(JSON.stringify(pagePayload({
-        article: {
-          ...pagePayload().article,
-          slug: "café-β-registry",
-          canonicalSlug: "café-β-registry",
-          title: "Café β Registry",
-        },
-      })), {
-        headers: { "content-type": "application/json" },
-      })
+    const fetchMock = withLiveBypass(
+      () =>
+        new Response(
+          JSON.stringify(
+            pagePayload({
+              article: {
+                ...pagePayload().article,
+                slug: "café-β-registry",
+                canonicalSlug: "café-β-registry",
+                title: "Café β Registry",
+              },
+            }),
+          ),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("fetch", fetchMock);
@@ -698,7 +899,9 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Café β Registry" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Café β Registry" }),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Copy slug" }));
     expect(writeText).toHaveBeenCalledWith("café-β-registry");
     // Message now shows the slug itself so it's visible even if clipboard fails
@@ -720,20 +923,23 @@ describe("App", () => {
             canonicalSlug: "fresh-page",
             title: "Fresh Page",
             html: "",
-            markdown: '# Fresh Page\n\nStreaming body with [Alpha](halu:alpha "Hint").',
+            markdown:
+              '# Fresh Page\n\nStreaming body with [Alpha](halu:alpha "Hint").',
             plain_text: "Streaming body with Alpha.",
             generated_at: 1715000000002,
           },
           backlinks: { existing: [], unwritten: [] },
         },
-      ])
+      ]),
     );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/fresh_page");
 
     render(<App />);
 
-    expect(await screen.findByText("Fresh generation from local canon.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Fresh generation from local canon."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Streaming body.")).toBeInTheDocument();
     await waitFor(() => {
       expect(window.location.pathname).toBe("/wiki/Fresh_Page");
@@ -754,7 +960,8 @@ describe("App", () => {
     const updated = {
       ...initial,
       html: '<h1>Fresh Page</h1><p>Streaming body.</p><h2>See also</h2><ul><li><a href="/wiki/Related_Page">Related Page</a></li></ul>',
-      markdown: '# Fresh Page\n\nStreaming body.\n\n## See also\n\n- [Related Page](halu:related-page "Related Page")',
+      markdown:
+        '# Fresh Page\n\nStreaming body.\n\n## See also\n\n- [Related Page](halu:related-page "Related Page")',
       generated_at: 1715000001000,
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -776,14 +983,17 @@ describe("App", () => {
         ]);
       }
       if (url === "/api/page/Fresh_Page?wait=0") {
-        return new Response(JSON.stringify({
-          cached: true,
-          canonicalPath: "/wiki/Fresh_Page",
-          article: updated,
-          backlinks: { existing: [], unwritten: [] },
-        }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            cached: true,
+            canonicalPath: "/wiki/Fresh_Page",
+            article: updated,
+            backlinks: { existing: [], unwritten: [] },
+          }),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
       return new Response("not found", { status: 404 });
     });
@@ -793,8 +1003,16 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("Streaming body.")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "See also" }, { timeout: 3000 })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Related Page" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "See also" },
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Related Page" }),
+    ).toBeInTheDocument();
   });
 
   it("renders a joined generation stream directly from progress/done events without polling", async () => {
@@ -836,9 +1054,15 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Finished article.", undefined, { timeout: 2500 })).toBeInTheDocument();
+    expect(
+      await screen.findByText("Finished article.", undefined, {
+        timeout: 2500,
+      }),
+    ).toBeInTheDocument();
     // No ?wait=0 polling requests should have been issued for a joined stream.
-    expect(fetchMock.mock.calls.some(([u]) => /\?wait=0/.test(String(u)))).toBe(false);
+    expect(fetchMock.mock.calls.some(([u]) => /\?wait=0/.test(String(u)))).toBe(
+      false,
+    );
   });
 
   it("intercepts article link clicks and fetches the next article client-side", async () => {
@@ -858,14 +1082,15 @@ describe("App", () => {
                 canonicalSlug: "linked-article",
                 title: "Linked Article",
                 html: "<h1>Linked Article</h1><p>Second page body.</p>",
-                markdown: '# Linked Article\n\nSecond page body with [Alpha](halu:alpha "Hint").',
+                markdown:
+                  '# Linked Article\n\nSecond page body with [Alpha](halu:alpha "Hint").',
                 plain_text: "Second page body.",
                 generated_at: 1715000000003,
               },
               backlinks: { existing: [], unwritten: [] },
-            })
+            }),
           ),
-          { headers: { "content-type": "application/json" } }
+          { headers: { "content-type": "application/json" } },
         );
       }
       return new Response("not found", { status: 404 });
@@ -878,7 +1103,9 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Test Article" });
     await userEvent.click(screen.getByRole("link", { name: "Linked Article" }));
 
-    expect(await screen.findByRole("heading", { name: "Linked Article" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Linked Article" }),
+    ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Linked_Article");
     expect(window.location.pathname).toBe("/wiki/Linked_Article");
   });
@@ -929,15 +1156,23 @@ describe("App", () => {
     const fetchMock = withLiveBypass((input) => {
       const url = String(input);
       if (url.includes("/raw-save")) {
-        return new Response(JSON.stringify({ article: updated.article }), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ article: updated.article }), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/references")) {
-        return new Response(JSON.stringify({ references: [] }), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ references: [] }), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/api/page/")) {
-        return new Response(JSON.stringify(original), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(original), {
+          headers: { "content-type": "application/json" },
+        });
       }
-      return new Response(JSON.stringify({ image: null }), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ image: null }), {
+        headers: { "content-type": "application/json" },
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
@@ -946,21 +1181,31 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Test Article" });
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await userEvent.click(screen.getByRole("button", { name: "Raw" }));
-    const rawPanel = screen.getByRole("region", { name: "Raw markdown editor" });
+    const rawPanel = screen.getByRole("region", {
+      name: "Raw markdown editor",
+    });
 
-    await userEvent.click(within(rawPanel).getByText("Original body paragraph."));
-    const blockTextarea = rawPanel.querySelector(".mdedit-textarea") as HTMLTextAreaElement;
+    await userEvent.click(
+      within(rawPanel).getByText("Original body paragraph."),
+    );
+    const blockTextarea = rawPanel.querySelector(
+      ".mdedit-textarea",
+    ) as HTMLTextAreaElement;
     expect(blockTextarea).toBeTruthy();
     await userEvent.clear(blockTextarea);
     await userEvent.type(blockTextarea, "Rewritten in block mode.");
     await userEvent.click(screen.getByRole("button", { name: "Save raw" }));
 
     await waitFor(() => {
-      const rawCall = fetchMock.mock.calls.find(([u, callInit]) =>
-        String(u).includes("/raw-save") && (callInit as RequestInit)?.method === "POST"
+      const rawCall = fetchMock.mock.calls.find(
+        ([u, callInit]) =>
+          String(u).includes("/raw-save") &&
+          (callInit as RequestInit)?.method === "POST",
       );
       expect(rawCall).toBeDefined();
-      expect(JSON.parse(String((rawCall![1] as RequestInit).body)).markdown).toContain("Rewritten in block mode.");
+      expect(
+        JSON.parse(String((rawCall![1] as RequestInit).body)).markdown,
+      ).toContain("Rewritten in block mode.");
     });
   });
 
@@ -984,20 +1229,23 @@ describe("App", () => {
       }
       if (url.includes("/history")) {
         historyCalls += 1;
-        const revisions = historyCalls === 1
-          ? []
-          : [{
-            id: 9,
-            title: "Test Article",
-            html: updated.article.html,
-            markdown: updated.article.markdown,
-            summaryMarkdown: "Changed by raw save.",
-            generatedAt: 1715000000001,
-            createdAt: 1715000000002,
-            operation: "raw-edit",
-            instructions: "raw-edit",
-            revertedFromRevisionId: null,
-          }];
+        const revisions =
+          historyCalls === 1
+            ? []
+            : [
+                {
+                  id: 9,
+                  title: "Test Article",
+                  html: updated.article.html,
+                  markdown: updated.article.markdown,
+                  summaryMarkdown: "Changed by raw save.",
+                  generatedAt: 1715000000001,
+                  createdAt: 1715000000002,
+                  operation: "raw-edit",
+                  instructions: "raw-edit",
+                  revertedFromRevisionId: null,
+                },
+              ];
         return new Response(JSON.stringify({ revisions }), {
           headers: { "content-type": "application/json" },
         });
@@ -1028,24 +1276,36 @@ describe("App", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await userEvent.click(screen.getByRole("button", { name: "Raw" }));
-    const rawPanel = screen.getByRole("region", { name: "Raw markdown editor" });
-    await userEvent.click(within(rawPanel).getByRole("button", { name: "Raw text" }));
-    const rawTextarea = document.querySelector(".mdedit-raw-textarea") as HTMLTextAreaElement;
+    const rawPanel = screen.getByRole("region", {
+      name: "Raw markdown editor",
+    });
+    await userEvent.click(
+      within(rawPanel).getByRole("button", { name: "Raw text" }),
+    );
+    const rawTextarea = document.querySelector(
+      ".mdedit-raw-textarea",
+    ) as HTMLTextAreaElement;
     await userEvent.clear(rawTextarea);
     await userEvent.type(rawTextarea, "# Test Article\n\nChanged by raw save.");
     await userEvent.click(screen.getByRole("button", { name: "Save raw" }));
 
     await waitFor(() => {
-      const rawCall = fetchMock.mock.calls.find(([u, callInit]) =>
-        String(u).includes("/raw-save") && (callInit as RequestInit)?.method === "POST"
+      const rawCall = fetchMock.mock.calls.find(
+        ([u, callInit]) =>
+          String(u).includes("/raw-save") &&
+          (callInit as RequestInit)?.method === "POST",
       );
       expect(rawCall).toBeDefined();
-      expect(JSON.parse(String((rawCall![1] as RequestInit).body))).toMatchObject({
+      expect(
+        JSON.parse(String((rawCall![1] as RequestInit).body)),
+      ).toMatchObject({
         markdown: "# Test Article\n\nChanged by raw save.",
       });
     });
     await waitFor(() => {
-      expect(screen.getAllByText("Changed by raw save.").length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByText("Changed by raw save.").length,
+      ).toBeGreaterThan(0);
       expect(screen.getAllByText("raw-edit").length).toBeGreaterThan(0);
     });
     expect(historyCalls).toBe(2);
@@ -1071,22 +1331,34 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Test Article" });
-    const clickPromise = userEvent.click(screen.getByRole("button", { name: "Refresh with retrieved context" }));
+    const clickPromise = userEvent.click(
+      screen.getByRole("button", { name: "Refresh with retrieved context" }),
+    );
 
-    expect(await screen.findByText("Refreshing with retrieved context...")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Refreshing with retrieved context..."),
+    ).toBeInTheDocument();
     resolveRefresh(
-      new Response(`${JSON.stringify({ type: "done", ...payload, refreshChanged: false })}\n`, {
-        headers: { "content-type": "application/x-ndjson" },
-      })
+      new Response(
+        `${JSON.stringify({ type: "done", ...payload, refreshChanged: false })}\n`,
+        {
+          headers: { "content-type": "application/x-ndjson" },
+        },
+      ),
     );
     await clickPromise;
-    expect(await screen.findByText("References already up to date.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("References already up to date."),
+    ).toBeInTheDocument();
     // objectContaining: the refresh request also passes an AbortSignal now,
     // which isn't relevant to what this test is verifying.
-    expect(fetchMock).toHaveBeenCalledWith(refreshUrl, expect.objectContaining({
-      method: "POST",
-      headers: { accept: "application/x-ndjson" },
-    }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      refreshUrl,
+      expect.objectContaining({
+        method: "POST",
+        headers: { accept: "application/x-ndjson" },
+      }),
+    );
   });
 
   it("reports article refresh when streamed refresh changes body content", async () => {
@@ -1102,9 +1374,12 @@ describe("App", () => {
     const fetchMock = withLiveBypass((input) => {
       const url = String(input);
       if (url === refreshUrl) {
-        return new Response(`${JSON.stringify({ type: "done", ...payload })}\n`, {
-          headers: { "content-type": "application/x-ndjson" },
-        });
+        return new Response(
+          `${JSON.stringify({ type: "done", ...payload })}\n`,
+          {
+            headers: { "content-type": "application/x-ndjson" },
+          },
+        );
       }
       return new Response(JSON.stringify(pagePayload()), {
         headers: { "content-type": "application/json" },
@@ -1116,49 +1391,71 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Test Article" });
-    await userEvent.click(screen.getByRole("button", { name: "Refresh with retrieved context" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Refresh with retrieved context" }),
+    );
 
     expect(await screen.findByText("Article refreshed.")).toBeInTheDocument();
     expect(await screen.findByText("Changed body.")).toBeInTheDocument();
   });
 
   it("shows a refresh notice when body references are missing from metadata", async () => {
-    const fetchMock = withLiveBypass(() =>
-      new Response(JSON.stringify(pagePayload({
-        referenceStatus: {
-          missing: [{ slug: "source-article", title: "Source Article" }],
-        },
-      })), {
-        headers: { "content-type": "application/json" },
-      })
+    const fetchMock = withLiveBypass(
+      () =>
+        new Response(
+          JSON.stringify(
+            pagePayload({
+              referenceStatus: {
+                missing: [{ slug: "source-article", title: "Source Article" }],
+              },
+            }),
+          ),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
     render(<App />);
 
-    expect(await screen.findByText(/This article seems to cite references that are not listed/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh with retrieved context" })).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /This article seems to cite references that are not listed/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Refresh with retrieved context" }),
+    ).toBeInTheDocument();
   });
 
   it("shows a refresh notice when legacy references are embedded in the article body", async () => {
-    const fetchMock = withLiveBypass(() =>
-      new Response(JSON.stringify(pagePayload({
-        referenceStatus: {
-          missing: [],
-          unformatted: [],
-          hasReferencesSection: true,
-        },
-      })), {
-        headers: { "content-type": "application/json" },
-      })
+    const fetchMock = withLiveBypass(
+      () =>
+        new Response(
+          JSON.stringify(
+            pagePayload({
+              referenceStatus: {
+                missing: [],
+                unformatted: [],
+                hasReferencesSection: true,
+              },
+            }),
+          ),
+          {
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
     render(<App />);
 
-    expect(await screen.findByText(/current reference format/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/current reference format/),
+    ).toBeInTheDocument();
   });
 
   it("locks existing references during section edits", async () => {
@@ -1168,13 +1465,25 @@ describe("App", () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
       const u = String(url);
       if (u.includes("/api/page/"))
-        return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(payload), {
+          headers: { "content-type": "application/json" },
+        });
       if (u.includes("/references"))
         return new Response(
-          JSON.stringify({ references: [{ slug: "source-entry", title: "Source Entry", summaryMarkdown: "Source summary." }] }),
+          JSON.stringify({
+            references: [
+              {
+                slug: "source-entry",
+                title: "Source Entry",
+                summaryMarkdown: "Source summary.",
+              },
+            ],
+          }),
           { headers: { "content-type": "application/json" } },
         );
-      return new Response(JSON.stringify({ image: null }), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ image: null }), {
+        headers: { "content-type": "application/json" },
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
@@ -1184,28 +1493,44 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Test Article" });
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
 
-    const refsCheckbox = await screen.findByRole("checkbox", { name: "Reference other articles" });
+    const refsCheckbox = await screen.findByRole("checkbox", {
+      name: "Reference other articles",
+    });
     await waitFor(() => expect(refsCheckbox).toBeChecked());
-    expect(refsCheckbox).not.toBeDisabled();
+    // Base UI Checkbox renders a <span role=checkbox>, so disabled state is
+    // aria-disabled (not the native disabled attribute / toBeDisabled).
+    expect(refsCheckbox).not.toHaveAttribute("aria-disabled", "true");
 
-    await userEvent.selectOptions(screen.getByLabelText("Section"), "notes");
+    // Section picker is now a Base UI Select: open it and click the "Notes" option.
+    await userEvent.click(screen.getByRole("combobox", { name: "Section" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Notes" }));
 
-    expect(refsCheckbox).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Remove Source Entry" })).toBeDisabled();
+    expect(refsCheckbox).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: "Remove Source Entry" }),
+    ).toBeDisabled();
   });
 
   it("can include recent edit prompts in a rewrite request", async () => {
     const payload = pagePayload();
-    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
-      const u = String(url);
-      if (u.includes("/api/page/"))
-        return new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
-      if (u.includes("/rewrite"))
-        return ndjsonResponse([{ type: "done", ...payload }]);
-      if (u.includes("/references"))
-        return new Response(JSON.stringify({ references: [] }), { headers: { "content-type": "application/json" } });
-      return new Response(JSON.stringify({ image: null }), { headers: { "content-type": "application/json" } });
-    });
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes("/api/page/"))
+          return new Response(JSON.stringify(payload), {
+            headers: { "content-type": "application/json" },
+          });
+        if (u.includes("/rewrite"))
+          return ndjsonResponse([{ type: "done", ...payload }]);
+        if (u.includes("/references"))
+          return new Response(JSON.stringify({ references: [] }), {
+            headers: { "content-type": "application/json" },
+          });
+        return new Response(JSON.stringify({ image: null }), {
+          headers: { "content-type": "application/json" },
+        });
+      });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Test_Article");
 
@@ -1215,17 +1540,32 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     // The markdown editor starts empty — click the add-block area, then type.
     await userEvent.click(screen.getByText("Describe your changes."));
-    await userEvent.type(screen.getByPlaceholderText("Describe your changes."), "tighten the ending");
-    await userEvent.click(screen.getByRole("button", { name: "Use last 2 edit prompts" }));
+    await userEvent.type(
+      screen.getByPlaceholderText("Describe your changes."),
+      "tighten the ending",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Use last 2 edit prompts" }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
 
     // Wait for the rewrite POST to appear among the calls
     await waitFor(() => {
-      const rewriteCall = fetchMock.mock.calls.find(([u, init]) => String(u).includes("/rewrite") && (init as RequestInit)?.method === "POST");
+      const rewriteCall = fetchMock.mock.calls.find(
+        ([u, init]) =>
+          String(u).includes("/rewrite") &&
+          (init as RequestInit)?.method === "POST",
+      );
       expect(rewriteCall).toBeDefined();
     });
-    const rewriteCall = fetchMock.mock.calls.find(([u, init]) => String(u).includes("/rewrite") && (init as RequestInit)?.method === "POST")!;
-    expect(JSON.parse(String((rewriteCall[1] as RequestInit).body))).toMatchObject({
+    const rewriteCall = fetchMock.mock.calls.find(
+      ([u, init]) =>
+        String(u).includes("/rewrite") &&
+        (init as RequestInit)?.method === "POST",
+    )!;
+    expect(
+      JSON.parse(String((rewriteCall[1] as RequestInit).body)),
+    ).toMatchObject({
       instructions: "tighten the ending",
       includeRecentEditHistory: true,
       rewriteMode: "aggressive",
@@ -1247,44 +1587,65 @@ describe("App", () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
       const u = String(url);
       if (u.includes("/api/page/"))
-        return new Response(JSON.stringify(original), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(original), {
+          headers: { "content-type": "application/json" },
+        });
       if (u.includes("/rewrite"))
         return ndjsonResponse([
           {
             type: "progress",
             html: "<h1>Energy storage</h1><p>Maternal Energy Potential refers to rejected renamed article body.</p>",
-            markdown: "# Energy storage\n\nMaternal Energy Potential refers to rejected renamed article body.",
+            markdown:
+              "# Energy storage\n\nMaternal Energy Potential refers to rejected renamed article body.",
           },
           {
             type: "error",
-            message: 'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"',
+            message:
+              'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"',
           },
         ]);
       if (u.includes("/references"))
-        return new Response(JSON.stringify({ references: [] }), { headers: { "content-type": "application/json" } });
-      return new Response(JSON.stringify({ image: null }), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ references: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      return new Response(JSON.stringify({ image: null }), {
+        headers: { "content-type": "application/json" },
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/wiki/Energy_storage");
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Energy storage" })).toBeInTheDocument();
-    expect(screen.getByText("Original retained energy body.")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Energy storage" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Original retained energy body."),
+    ).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await userEvent.click(screen.getByText("Describe your changes."));
-    await userEvent.type(screen.getByPlaceholderText("Describe your changes."), "make this article to be about your mom");
+    await userEvent.type(
+      screen.getByPlaceholderText("Describe your changes."),
+      "make this article to be about your mom",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
 
     expect(
       await screen.findByText(
-        'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"'
-      )
+        'article lead subject did not match requested title: requested="Energy storage" got="Maternal Energy Potential"',
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Energy storage" })).toBeInTheDocument();
-    expect(screen.getByText("Original retained energy body.")).toBeInTheDocument();
-    expect(screen.queryByText("Rejected renamed article body.")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Energy storage" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Original retained energy body."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Rejected renamed article body."),
+    ).not.toBeInTheDocument();
   });
 
   it("opens history in-page and restores only after confirmation", async () => {
@@ -1339,26 +1700,36 @@ describe("App", () => {
     // History renders in-page: the URL never changes (a /history suffix used
     // to be mangled into "..._urlhistory" by back-button navigation).
     expect(window.location.pathname).toBe("/wiki/Test_Article");
-    expect(await screen.findByRole("heading", { name: "History" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "History" }),
+    ).toBeInTheDocument();
     expect(await screen.findByText("Earlier edit.")).toBeInTheDocument();
-    expect(document.querySelector(".history-summary .math-inline")).not.toBeNull();
+    expect(
+      document.querySelector(".history-summary .math-inline"),
+    ).not.toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "View revision 7" }));
-    expect(await screen.findByText("You are viewing an old revision.")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "View revision 7" }),
+    );
+    expect(
+      await screen.findByText("You are viewing an old revision."),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("Older body copy.").length).toBeGreaterThan(0);
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/article/test-article/revert",
-      expect.objectContaining({ method: "POST" })
+      expect.objectContaining({ method: "POST" }),
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Restore this version" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Restore this version" }),
+    );
     expect(screen.getByText("Restore this old revision?")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Yes, restore" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/article/test-article/revert",
-        expect.objectContaining({ method: "POST" })
+        expect.objectContaining({ method: "POST" }),
       );
     });
     expect(await screen.findByText("Version restored.")).toBeInTheDocument();
@@ -1387,21 +1758,65 @@ describe("App", () => {
       hasModes: false,
       path: "config/prompts/article.toml",
     };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url === "/api/admin/overview") return new Response(JSON.stringify(overview), { headers: { "content-type": "application/json" } });
-      if (url === "/api/admin/generation-queue") return new Response(JSON.stringify({ items: [] }), { headers: { "content-type": "application/json" } });
-      if (url === "/api/admin/pipeline/workflows") return new Response(JSON.stringify({ workflows: [] }), { headers: { "content-type": "application/json" } });
-      if (url === "/api/admin/pipeline/runs?limit=12") return new Response(JSON.stringify({ traceEnabled: false, runs: [] }), { headers: { "content-type": "application/json" } });
-      if (url === "/api/admin/prompts") return new Response(JSON.stringify({ runnable: [{ key: "article", scope: "runnable", model: "heavy", thinking: false, json: false, hasModes: false }], shared: [] }), { headers: { "content-type": "application/json" } });
-      if (url === "/api/admin/prompt/runnable/article" && method === "GET") return new Response(JSON.stringify(promptContent), { headers: { "content-type": "application/json" } });
-      if (url === "/api/admin/prompt/runnable/article" && method === "PUT") {
-        const body = JSON.parse(String(init?.body));
-        return new Response(JSON.stringify({ ok: true, prompt: { ...promptContent, system: body.system, user: body.user } }), { headers: { "content-type": "application/json" } });
-      }
-      return new Response("not found", { status: 404 });
-    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/admin/overview")
+          return new Response(JSON.stringify(overview), {
+            headers: { "content-type": "application/json" },
+          });
+        if (url === "/api/admin/generation-queue")
+          return new Response(JSON.stringify({ items: [] }), {
+            headers: { "content-type": "application/json" },
+          });
+        if (url === "/api/admin/pipeline/workflows")
+          return new Response(JSON.stringify({ workflows: [] }), {
+            headers: { "content-type": "application/json" },
+          });
+        if (url === "/api/admin/pipeline/runs?limit=12")
+          return new Response(
+            JSON.stringify({ traceEnabled: false, runs: [] }),
+            { headers: { "content-type": "application/json" } },
+          );
+        if (url === "/api/admin/prompts")
+          return new Response(
+            JSON.stringify({
+              runnable: [
+                {
+                  key: "article",
+                  scope: "runnable",
+                  model: "heavy",
+                  thinking: false,
+                  json: false,
+                  hasModes: false,
+                },
+              ],
+              shared: [],
+            }),
+            { headers: { "content-type": "application/json" } },
+          );
+        if (url === "/api/admin/prompt/runnable/article" && method === "GET")
+          return new Response(JSON.stringify(promptContent), {
+            headers: { "content-type": "application/json" },
+          });
+        if (url === "/api/admin/prompt/runnable/article" && method === "PUT") {
+          const body = JSON.parse(String(init?.body));
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              prompt: {
+                ...promptContent,
+                system: body.system,
+                user: body.user,
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/admin");
 
@@ -1410,12 +1825,17 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Admin" });
 
     // Expand the Prompt Editor pane (collapsed by default)
-    const paneHeader = screen.getByRole("button", { name: /Prompt Editor/i, hidden: true });
+    const paneHeader = screen.getByRole("button", {
+      name: /Prompt Editor/i,
+      hidden: true,
+    });
     await userEvent.click(paneHeader);
 
     // Select the article prompt (Base UI Select: open trigger, click option)
     await userEvent.click(await screen.findByRole("combobox"));
-    await userEvent.click(await screen.findByRole("option", { name: "article" }));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "article" }),
+    );
 
     // Prompt text loads as rendered markdown blocks — click to destructure
     // into the raw source textarea.
@@ -1442,14 +1862,24 @@ describe("App", () => {
       );
     });
 
-    expect(await screen.findByText("Saved — runtime reloaded.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Saved — runtime reloaded."),
+    ).toBeInTheDocument();
   });
 
   it("toggles night mode from the header", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ featured: null, didYouKnow: [], didYouKnowPending: false, expiresAt: Date.now() + 3600000 }), {
-        headers: { "content-type": "application/json" },
-      })
+      new Response(
+        JSON.stringify({
+          featured: null,
+          didYouKnow: [],
+          didYouKnowPending: false,
+          expiresAt: Date.now() + 3600000,
+        }),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
@@ -1460,17 +1890,23 @@ describe("App", () => {
     await userEvent.click(button);
 
     expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(screen.getByRole("button", { name: "Use automatic theme" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Use automatic theme" }),
+    ).toBeInTheDocument();
   });
 
   it("normalises spaces to underscores in the URL immediately when navigating via the search bar", async () => {
     const fetchMock = withLiveBypass((input) => {
       const url = String(input);
       if (url === "/api/homepage") {
-        return new Response(JSON.stringify(emptyHomepagePayload()), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(emptyHomepagePayload()), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.startsWith("/api/top-articles")) {
-        return new Response(JSON.stringify(emptyTopArticlesPayload()), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(emptyTopArticlesPayload()), {
+          headers: { "content-type": "application/json" },
+        });
       }
       return new Response(JSON.stringify(pagePayload()), {
         headers: { "content-type": "application/json" },
@@ -1499,16 +1935,25 @@ describe("App", () => {
     const fetchMock = withLiveBypass((input) => {
       const url = String(input);
       if (url === "/api/homepage") {
-        return new Response(JSON.stringify(emptyHomepagePayload()), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(emptyHomepagePayload()), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.startsWith("/api/top-articles")) {
-        return new Response(JSON.stringify(emptyTopArticlesPayload()), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(emptyTopArticlesPayload()), {
+          headers: { "content-type": "application/json" },
+        });
       }
-      return new Response(JSON.stringify(pagePayload({
-        article: { ...pagePayload().article, title: "Test: The Movie" },
-      })), {
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify(
+          pagePayload({
+            article: { ...pagePayload().article, title: "Test: The Movie" },
+          }),
+        ),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
@@ -1527,7 +1972,11 @@ describe("App", () => {
       // emoji are percent-encoded for transport (the server decodes them back).
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/page/Test_The_Movie",
-        expect.objectContaining({ headers: { "x-requested-title": encodeURIComponent("Test: The Movie") } }),
+        expect.objectContaining({
+          headers: {
+            "x-requested-title": encodeURIComponent("Test: The Movie"),
+          },
+        }),
       );
     });
   });
@@ -1539,22 +1988,34 @@ describe("App", () => {
     const fetchMock = withLiveBypass((input) => {
       const url = String(input);
       if (url === "/api/homepage") {
-        return new Response(JSON.stringify(emptyHomepagePayload()), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(emptyHomepagePayload()), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.startsWith("/api/top-articles")) {
-        return new Response(JSON.stringify(emptyTopArticlesPayload()), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(emptyTopArticlesPayload()), {
+          headers: { "content-type": "application/json" },
+        });
       }
       // A stream that opens with a `start` event and stays open (never sends
       // `done`) so we observe the placeholder title, not the final one.
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(new TextEncoder().encode(
-            JSON.stringify({ type: "start", slug: "rat-eating-test", cached: false }) + "\n",
-          ));
+          controller.enqueue(
+            new TextEncoder().encode(
+              JSON.stringify({
+                type: "start",
+                slug: "rat-eating-test",
+                cached: false,
+              }) + "\n",
+            ),
+          );
           // intentionally left open
         },
       });
-      return new Response(stream, { headers: { "content-type": "application/x-ndjson" } });
+      return new Response(stream, {
+        headers: { "content-type": "application/x-ndjson" },
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
     setPath("/");
@@ -1566,16 +2027,21 @@ describe("App", () => {
     await userEvent.type(input, "Rat: Eating Test");
     // Navigate via the "Go to:" suggestion button (the path that previously
     // dropped the typed title), not the form submit.
-    await userEvent.click(await screen.findByRole("button", { name: /Go to:/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Go to:/ }),
+    );
 
-    expect(await screen.findByRole("heading", { name: "Rat: Eating Test" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Rat: Eating Test" }),
+    ).toBeInTheDocument();
   });
 
   it("normalises a URL with spaces when loaded directly (e.g. pasted into address bar)", async () => {
-    const fetchMock = withLiveBypass(() =>
-      new Response(JSON.stringify(pagePayload()), {
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = withLiveBypass(
+      () =>
+        new Response(JSON.stringify(pagePayload()), {
+          headers: { "content-type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
     // Simulate browser decoding %20 spaces in the URL.
@@ -1592,10 +2058,14 @@ describe("App", () => {
     const fetchMock = withLiveBypass((input) => {
       const url = String(input);
       if (url === "/api/homepage") {
-        return new Response(JSON.stringify(emptyHomepagePayload()), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(emptyHomepagePayload()), {
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.startsWith("/api/top-articles")) {
-        return new Response(JSON.stringify(emptyTopArticlesPayload()), { headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(emptyTopArticlesPayload()), {
+          headers: { "content-type": "application/json" },
+        });
       }
       return new Response(JSON.stringify(pagePayload()), {
         headers: { "content-type": "application/json" },

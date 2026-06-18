@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
 import { GraphView } from "./GraphView";
@@ -20,6 +21,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { renderInlineHtml } from "./summaryHtml";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
 import {
@@ -1923,40 +1932,62 @@ export function App() {
             <div className="edit-tray-row">
               <label>
                 Section
-                <select
+                <Select
                   value={editSectionId}
-                  onChange={(e) => {
-                    setEditSectionId(e.target.value);
-                    if (e.target.value !== "__selection__")
-                      setEditSelectedText("");
+                  onValueChange={(v) => {
+                    const val = v ?? "";
+                    setEditSectionId(val);
+                    if (val !== "__selection__") setEditSelectedText("");
                   }}
                   disabled={editBusy}
+                  // label != value, so map values -> labels for the trigger.
+                  items={{
+                    "": "Entire article",
+                    ...(editSelectedText
+                      ? { __selection__: "*Selected Text*" }
+                      : {}),
+                    ...Object.fromEntries(
+                      (page.sections ?? []).map((s) => [s.id, s.title]),
+                    ),
+                  }}
                 >
-                  <option value="">Entire article</option>
-                  {editSelectedText && (
-                    <option value="__selection__">*Selected Text*</option>
-                  )}
-                  {(page.sections ?? []).map((section) => (
-                    <option key={section.id} value={section.id}>
-                      {section.title}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger aria-label="Section" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Entire article</SelectItem>
+                    {editSelectedText && (
+                      <SelectItem value="__selection__">
+                        *Selected Text*
+                      </SelectItem>
+                    )}
+                    {(page.sections ?? []).map((section) => (
+                      <SelectItem key={section.id} value={section.id}>
+                        {section.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </label>
               <label className="edit-modal-mode-toggle">
                 Mode
-                <select
+                <Select
                   value={editRewriteMode}
-                  onChange={(e) =>
+                  onValueChange={(v) =>
                     setEditRewriteMode(
-                      e.target.value as "aggressive" | "subtle",
+                      (v as "aggressive" | "subtle") ?? "aggressive",
                     )
                   }
                   disabled={editBusy}
                 >
-                  <option value="aggressive">Aggressive</option>
-                  <option value="subtle">Subtle</option>
-                </select>
+                  <SelectTrigger aria-label="Mode" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="aggressive">Aggressive</SelectItem>
+                    <SelectItem value="subtle">Subtle</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
               <button
                 type="button"
@@ -1977,7 +2008,10 @@ export function App() {
             />
             <button
               type="button"
-              className={`edit-recent-prompts-btn${editIncludeRecentPrompts ? "edit-recent-prompts-btn--active" : ""}`}
+              className={clsx(
+                "edit-recent-prompts-btn",
+                editIncludeRecentPrompts && "edit-recent-prompts-btn--active",
+              )}
               aria-pressed={editIncludeRecentPrompts}
               onClick={() => setEditIncludeRecentPrompts((enabled) => !enabled)}
               disabled={editBusy}
@@ -1988,14 +2022,14 @@ export function App() {
             </button>
             {/* References panel */}
             <div className="edit-refs-row">
-              <label className="edit-modal-rag-toggle">
-                <input
-                  type="checkbox"
+              <label className="edit-modal-rag-toggle flex items-center gap-1.5">
+                <Checkbox
                   checked={editRefsEnabled}
-                  onChange={(e) => {
+                  onCheckedChange={(c) => {
                     if (editRefsToggleLocked) return;
-                    setEditRefsEnabled(e.target.checked);
-                    if (!e.target.checked) {
+                    const next = c === true;
+                    setEditRefsEnabled(next);
+                    if (!next) {
                       setEditAddRefsOpen(false);
                       setEditRefSearchDraft("");
                     }

@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { UploadIcon } from "lucide-react";
+import { SparklesIcon, UploadIcon } from "lucide-react";
 
 interface ImageInfo {
   mediaId: string;
@@ -186,7 +186,7 @@ export function HeadlineImagePanel({
     [articleSlug, busy, applyResult],
   );
 
-  const generateImage = useCallback(async () => {
+  const generateImage = useCallback(async (presetKey = selectedPresetKey) => {
     if (busy) return;
     setBusy(true);
     setGenerating(true);
@@ -197,7 +197,7 @@ export function HeadlineImagePanel({
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ presetKey: selectedPresetKey }),
+          body: JSON.stringify({ presetKey }),
         },
       );
       const payload = (await res.json().catch(() => ({}))) as any;
@@ -465,10 +465,22 @@ export function HeadlineImagePanel({
               variant="default"
               size="sm"
               className="max-w-full whitespace-nowrap"
-              onClick={generateImage}
+              onClick={() => void generateImage()}
               disabled={busy}
             >
               {generating ? "Generating…" : "Generate"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-w-8 px-2"
+              onClick={() => void generateImage("auto")}
+              disabled={busy}
+              aria-label="Automatically select preset"
+              title="Generate with automatically selected preset"
+            >
+              <SparklesIcon aria-hidden="true" className="size-4" />
             </Button>
           </div>
         </div>

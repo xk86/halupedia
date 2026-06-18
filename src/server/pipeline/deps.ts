@@ -66,6 +66,7 @@ export interface PipelineDeps {
     height: number;
     backend: string;
     model: string;
+    presetKey?: string;
     revisedPrompt?: string;
   }>;
 }

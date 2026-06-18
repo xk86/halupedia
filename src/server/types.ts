@@ -250,6 +250,7 @@ export type ImageGenerationBackend = "openai" | "ollama";
 export interface ImageGenerationConfig {
   enabled: boolean;
   auto_generate_for_new_articles: boolean;
+  auto_generate_for_featured_article: boolean;
   backend: ImageGenerationBackend;
   openai: OpenAIImageGenerationConfig;
   ollama: OllamaImageGenerationConfig;

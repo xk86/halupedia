@@ -81,6 +81,7 @@ interface LlmConfigResponse {
 interface ImageGenerationInfo {
   enabled: boolean;
   autoGenerateForNewArticles: boolean;
+  autoGenerateForFeaturedArticle: boolean;
   backend: "openai" | "ollama";
   openai: {
     baseUrl: string;
@@ -267,6 +268,9 @@ function ImageGenerationCard({
   const [autoGenerate, setAutoGenerate] = useState(
     info.autoGenerateForNewArticles,
   );
+  const [autoGenerateFeatured, setAutoGenerateFeatured] = useState(
+    info.autoGenerateForFeaturedArticle,
+  );
   const [backend, setBackend] = useState<"openai" | "ollama">(info.backend);
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState(info.openai.baseUrl);
   const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -309,6 +313,13 @@ function ImageGenerationCard({
             onCheckedChange={(c) => setAutoGenerate(c === true)}
           />{" "}
           auto for new articles
+        </label>
+        <label className="admin-thinking-toggle flex items-center gap-1.5">
+          <Checkbox
+            checked={autoGenerateFeatured}
+            onCheckedChange={(c) => setAutoGenerateFeatured(c === true)}
+          />{" "}
+          auto for featured
         </label>
       </div>
 
@@ -459,7 +470,7 @@ function ImageGenerationCard({
 
       <p className="sb-copy text-[12px] opacity-60">
         Manual generation requires <code>enabled</code>. Automatic generation
-        also requires <code>auto for new articles</code>.
+        also requires one of the auto options.
       </p>
 
       <Button
@@ -469,6 +480,7 @@ function ImageGenerationCard({
           onSave({
             enabled,
             autoGenerateForNewArticles: autoGenerate,
+            autoGenerateForFeaturedArticle: autoGenerateFeatured,
             backend,
             openai: {
               baseUrl: openaiBaseUrl,

@@ -559,6 +559,7 @@ function articleImagePresetKeyFromName(name: string): string {
 function normalizeArticleImagePresetKey(value: string | undefined): string {
   const key = (value ?? "").trim();
   if (!key || key === "default" || key === "article_image") return "default";
+  if (key === "auto") return "auto";
   const normalized = key.replace(/^article_image_/, "");
   if (!/^[a-z0-9_]+$/i.test(normalized)) {
     throw new Error("invalid image preset key");
@@ -985,6 +986,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   // Tracks slugs that have had an auto-post-process triggered this session
   // so we don't re-fire on every page load before the infobox is written.
   const autoPostProcessed = new Set<string>();
+  const homepageFeaturedImageQueued = new Set<string>();
   function notifySidecar(slug: string, event: unknown) {
     const listeners = articleListeners.get(slug);
     if (!listeners) return;
@@ -1753,7 +1755,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       const workflowPromise = runArticleImageGenerationWorkflow(
         articleSlug,
         false,
-        "default",
+        "auto",
         title,
         imageOp.onNode,
       );
@@ -1769,6 +1771,57 @@ export async function createApp(options: CreateAppOptions = {}) {
       }
     });
     trackGeneration(imagePromise);
+  }
+
+  function queueHomepageFeaturedImageIfMissing(featured: { slug: string; title?: string } | null | undefined) {
+    const autoImageConfigured =
+      runtime.app.images.generation.enabled &&
+      runtime.app.images.generation.auto_generate_for_featured_article;
+    const hasHeadlineImage = featured?.slug ? Boolean(getArticleHeadlineMedia(db, featured.slug)) : false;
+    const autoCheckFields = {
+      slug: featured?.slug ?? "",
+      enabled: runtime.app.images.generation.enabled,
+      auto_generate_for_featured_article: runtime.app.images.generation.auto_generate_for_featured_article,
+      backend: runtime.app.images.generation.backend,
+      configured: autoImageConfigured,
+      has_headline_image: hasHeadlineImage,
+    };
+    if (autoImageConfigured) {
+      logger.info("homepage_featured_image.auto_check", autoCheckFields);
+    } else {
+      logger.debug("homepage_featured_image.auto_check", autoCheckFields);
+    }
+    if (!autoImageConfigured || !featured?.slug) return;
+    if (hasHeadlineImage) return;
+    if (homepageFeaturedImageQueued.has(featured.slug)) return;
+
+    homepageFeaturedImageQueued.add(featured.slug);
+    const title = getArticleByLookup(db, featured.slug)?.title ?? featured.title ?? featured.slug;
+    const imageOp = trackActiveOperation(featured.slug, title, "article.image_generate");
+    const imagePromise = runArticleImageGenerationWorkflow(
+      featured.slug,
+      false,
+      "auto",
+      title,
+      imageOp.onNode,
+    );
+    imageOp.register(imagePromise);
+    logger.info("homepage_featured_image.auto_queued", { slug: featured.slug });
+    trackGeneration(
+      imagePromise
+        .then(() => {
+          logger.info("homepage_featured_image.auto_done", { slug: featured.slug });
+        })
+        .catch((err) => {
+          logger.warn("homepage_featured_image.auto_failed", {
+            slug: featured.slug,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          homepageFeaturedImageQueued.delete(featured.slug);
+        }),
+    );
   }
 
   app.get("/api/health", (c) =>
@@ -1809,6 +1862,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         try {
           await reloadRuntime();
           const payload = await ensureHomepageCache(buildPipelineDeps());
+          queueHomepageFeaturedImageIfMissing(payload.featured);
           logger.info("homepage.refresh_done", {
             facts: payload.didYouKnow.length,
             featured: payload.featured?.slug ?? "",
@@ -1887,6 +1941,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const cached = getHomepageCache(db);
     const now = Date.now();
     if (cached && cached.generatedAt + HOMEPAGE_TTL_MS > now) {
+      queueHomepageFeaturedImageIfMissing(cached.featured);
       return c.json(withFeaturedImage({
         ...cached,
         expiresAt: cached.generatedAt + HOMEPAGE_TTL_MS,
@@ -3215,6 +3270,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         openaiModel: runtime.app.images.generation.openai.model,
         ollamaModel: runtime.app.images.generation.ollama.model,
         ollamaBaseUrl: runtime.app.images.generation.ollama.base_url,
+        autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
       },
       promptModelAssociations: Object.keys(runtime.prompts.prompts)
         .sort()
@@ -3368,6 +3424,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       imageGeneration: {
         enabled: runtime.app.images.generation.enabled,
         autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
+        autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
         backend: runtime.app.images.generation.backend,
         openai: {
           baseUrl: runtime.app.images.generation.openai.base_url,
@@ -3501,6 +3558,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       enabled?: unknown;
       autoGenerateForNewArticles?: unknown;
+      autoGenerateForFeaturedArticle?: unknown;
       backend?: unknown;
       openai?: {
         baseUrl?: unknown;
@@ -3533,6 +3591,14 @@ export async function createApp(options: CreateAppOptions = {}) {
             "images.generation",
             "auto_generate_for_new_articles",
             body.autoGenerateForNewArticles,
+          );
+        }
+        if (typeof body.autoGenerateForFeaturedArticle === "boolean") {
+          next = setTomlTableValue(
+            next,
+            "images.generation",
+            "auto_generate_for_featured_article",
+            body.autoGenerateForFeaturedArticle,
           );
         }
         if (body.backend === "openai" || body.backend === "ollama") {
@@ -4707,6 +4773,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       ...attached,
       backend: generated.backend,
       model: generated.model,
+      presetKey: imagePreset.key,
       revisedPrompt: generated.revisedPrompt,
     };
   }

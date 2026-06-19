@@ -1011,6 +1011,8 @@ export function App() {
     setRawEditOpen(true);
     setRawEditPreview(null);
     setEditError(null);
+    // Editing happens in place of the article body, so close the AI-edit panel.
+    setEditOpen(false);
   }, [page?.article.markdown]);
 
   const previewRawEdit = useCallback(async () => {
@@ -2301,96 +2303,6 @@ export function App() {
             </div>
           </section>
         ) : null}
-        {rawEditOpen ? (
-          <section className="raw-edit-panel" aria-label="Raw markdown editor">
-            <div className="raw-edit-header">
-              <span className="raw-edit-title">Raw edit</span>
-              <div className="raw-edit-header-actions">
-                <button
-                  type="button"
-                  className="edit-raw-btn"
-                  onClick={previewRawEdit}
-                  disabled={
-                    editBusy || rawEditPreviewBusy || !rawEditMarkdown.trim()
-                  }
-                >
-                  {rawEditPreviewBusy ? "Rendering…" : "Preview"}
-                </button>
-                {rawEditPreview && (
-                  <button
-                    type="button"
-                    className="edit-raw-btn"
-                    onClick={() => setRawEditPreview(null)}
-                  >
-                    Hide preview
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="edit-modal-close"
-                  onClick={() => {
-                    setRawEditOpen(false);
-                    setRawEditPreview(null);
-                    setEditError(null);
-                  }}
-                  disabled={editBusy}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            <div
-              className={`raw-edit-body${rawEditPreview ? "raw-edit-body--split" : ""}`}
-            >
-              <MarkdownEditor
-                className="raw-edit-mdedit"
-                value={rawEditMarkdown}
-                onChange={(v) => {
-                  setRawEditMarkdown(v);
-                  setRawEditPreview(null);
-                }}
-                minRows={4}
-                disabled={editBusy}
-              />
-              {rawEditPreview && (
-                <div className="raw-edit-preview-pane">
-                  <div
-                    className="raw-edit-preview-html article-body"
-                    dangerouslySetInnerHTML={{ __html: rawEditPreview.html }}
-                  />
-                  {rawEditPreview.diagnostics.length > 0 && (
-                    <div className="raw-edit-preview-diagnostics">
-                      {rawEditPreview.diagnostics.map((d, i) => (
-                        <div
-                          key={i}
-                          className={`raw-edit-diagnostic raw-edit-diagnostic--${d.severity}`}
-                        >
-                          <span className="raw-edit-diagnostic-badge">
-                            {d.severity}
-                          </span>
-                          {d.message}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            {editError ? (
-              <div className="edit-modal-error">{editError}</div>
-            ) : null}
-            <div className="edit-modal-actions">
-              <button
-                type="button"
-                className="edit-modal-submit"
-                onClick={saveRawEdit}
-                disabled={editBusy || !rawEditMarkdown.trim()}
-              >
-                {editBusy ? "Saving..." : "Save raw"}
-              </button>
-            </div>
-          </section>
-        ) : null}
         {historyOpen ? (
           <section className="history-panel" aria-label="Edit history">
             <div className="history-panel-header">
@@ -2515,6 +2427,93 @@ export function App() {
               />
             </article>
           </>
+        ) : rawEditOpen ? (
+          <article className="article article--editing">
+            <div className="article-edit-bar">
+              <span className="article-edit-bar-title">Editing in place</span>
+              <div className="article-edit-bar-actions">
+                <button
+                  type="button"
+                  className="edit-raw-btn"
+                  onClick={previewRawEdit}
+                  disabled={
+                    editBusy || rawEditPreviewBusy || !rawEditMarkdown.trim()
+                  }
+                >
+                  {rawEditPreviewBusy ? "Rendering…" : "Preview"}
+                </button>
+                {rawEditPreview && (
+                  <button
+                    type="button"
+                    className="edit-raw-btn"
+                    onClick={() => setRawEditPreview(null)}
+                  >
+                    Hide preview
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="edit-modal-submit"
+                  onClick={saveRawEdit}
+                  disabled={editBusy || !rawEditMarkdown.trim()}
+                >
+                  {editBusy ? "Saving..." : "Save"}
+                </button>
+                <button
+                  type="button"
+                  className="edit-modal-close"
+                  onClick={() => {
+                    setRawEditOpen(false);
+                    setRawEditPreview(null);
+                    setEditError(null);
+                  }}
+                  disabled={editBusy}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+            {editError ? (
+              <div className="edit-modal-error">{editError}</div>
+            ) : null}
+            <div
+              className={`raw-edit-body${rawEditPreview ? " raw-edit-body--split" : ""}`}
+            >
+              <MarkdownEditor
+                className="raw-edit-mdedit article-inplace-mdedit"
+                value={rawEditMarkdown}
+                onChange={(v) => {
+                  setRawEditMarkdown(v);
+                  setRawEditPreview(null);
+                }}
+                minRows={12}
+                disabled={editBusy}
+              />
+              {rawEditPreview && (
+                <div className="raw-edit-preview-pane">
+                  <div
+                    className="raw-edit-preview-html article-body"
+                    dangerouslySetInnerHTML={{ __html: rawEditPreview.html }}
+                  />
+                  {rawEditPreview.diagnostics.length > 0 && (
+                    <div className="raw-edit-preview-diagnostics">
+                      {rawEditPreview.diagnostics.map((d, i) => (
+                        <div
+                          key={i}
+                          className={`raw-edit-diagnostic raw-edit-diagnostic--${d.severity}`}
+                        >
+                          <span className="raw-edit-diagnostic-badge">
+                            {d.severity}
+                          </span>
+                          {d.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </article>
         ) : (
           <article
             ref={articleRef}

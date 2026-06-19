@@ -1574,6 +1574,65 @@ prosekit-inline-popover-popup.mdedit-bubble {
   color: var(--accent);
 }
 
+/* Edit-in-place: the editor stands in for the article body --------------- */
+.article--editing {
+  display: flex;
+  flex-direction: column;
+}
+
+.article-edit-bar {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.4rem 0.2rem 0.5rem;
+  border-bottom: 2px solid var(--rule);
+  background: var(--parchment);
+}
+
+.article-edit-bar-title {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.article-edit-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* The in-place editor blends into the page: no outer box, full height, and a
+   toolbar that sticks under the action bar while editing a long article. */
+.article-inplace-mdedit {
+  background: transparent;
+  border: none;
+}
+
+.article-inplace-mdedit .mdedit-toolbar {
+  position: sticky;
+  top: 3.1rem;
+  z-index: 5;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+
+.article-inplace-mdedit .mdedit-pm {
+  max-height: none;
+  padding: 0.75rem 0;
+  font-size: 1.05rem;
+}
+
+.article-inplace-mdedit .mdedit-footer {
+  border-top: 1px dotted var(--rule-dotted);
+}
+
 .mdedit-footer {
   display: flex;
   align-items: center;

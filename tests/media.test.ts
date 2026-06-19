@@ -43,6 +43,7 @@ import {
 import { readHeadlineImageNode, renderArticlePromptNode } from "../src/server/pipeline/nodes/articleGeneration";
 import { initialPipelineState } from "../src/server/pipeline/state";
 import { buildPromptRegistry } from "../src/server/pipeline/prompts/registry";
+import { articleImageGenerationWorkflow } from "../src/server/pipeline/workflows/articleImageGeneration";
 import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
 import { generateArticleImage, setImageGenerationFetchForTests } from "../src/server/imageGeneration";
@@ -63,6 +64,15 @@ function tmpDir() {
 
 function noop(): Logger {
   return { debug() {}, info() {}, warn() {}, error() {} };
+}
+
+function captureLogger(entries: Array<{ level: string; event: string; fields?: Record<string, unknown> }>): Logger {
+  return {
+    debug(event, fields) { entries.push({ level: "debug", event, fields }); },
+    info(event, fields) { entries.push({ level: "info", event, fields }); },
+    warn(event, fields) { entries.push({ level: "warn", event, fields }); },
+    error(event, fields) { entries.push({ level: "error", event, fields }); },
+  };
 }
 
 function baseMediaRecord(id = "test-img") {
@@ -91,10 +101,16 @@ function makeArticleDb(dir: string) {
 class FakeLlm implements LlmRouter {
   capturedOptions: ChatOptions[] = [];
   capturedPrompts: Array<{ role: string; system: string; user: string }> = [];
-  constructor(private readonly resp = '{"title":"T","groups":[{"label":"","rows":[]}]}') {}
+  private responseIndex = 0;
+  constructor(private readonly resp: string | string[] = '{"title":"T","groups":[{"label":"","rows":[]}]}') {}
   async chat(_r: "heavy" | "light", _s: string, _u: string, opts?: ChatOptions) {
     this.capturedOptions.push(opts ?? {});
     this.capturedPrompts.push({ role: _r, system: _s, user: _u });
+    if (Array.isArray(this.resp)) {
+      const response = this.resp[Math.min(this.responseIndex, this.resp.length - 1)] ?? "";
+      this.responseIndex += 1;
+      return response;
+    }
     return this.resp;
   }
   async streamChat(_r: "heavy" | "light", _s: string, _u: string, onChunk: (d: string, a: string) => void, opts?: ChatOptions) {
@@ -111,6 +127,7 @@ class FakeLlm implements LlmRouter {
 async function makeTestServer(
   llm: LlmRouter = new FakeLlm(),
   imageGenerationConfig: Partial<ImageGenerationConfig> = { enabled: false },
+  logger: Logger = noop(),
 ) {
   const { dir, cleanup } = tmpDir();
   const databasePath = join(dir, "articles.sqlite");
@@ -124,7 +141,7 @@ async function makeTestServer(
     mediaDatabasePath,
     skipLlmProbe: true,
     skipHomepagePrepare: true,
-    logger: noop(),
+    logger,
     llmClient: llm,
     imageGenerationConfig,
   });
@@ -945,7 +962,7 @@ describe("http", () => {
   });
 
   test("image generation admin settings default featured auto-generation off", async (t) => {
-    const s = await makeTestServer(); t.after(s.cleanup);
+    const s = await makeTestServer(new FakeLlm(), { enabled: false, auto_generate_for_featured_article: false }); t.after(s.cleanup);
     const body = await (await s.go("/api/admin/llm")).json() as any;
     assert.equal(body.imageGeneration.autoGenerateForFeaturedArticle, false);
   });
@@ -1019,7 +1036,7 @@ describe("http", () => {
     const s = await makeTestServer(); t.after(s.cleanup);
     const body = await (await s.go("/api/admin/article-image-prompts")).json() as any;
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "default"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "conceptual"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "psychedelic_editorial"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "1990s_cgi"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "analog_video_still"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "bad_phone_photo"));
@@ -1045,12 +1062,12 @@ describe("http", () => {
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "seventh_generation_console_graphics"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "anime"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "manuscript"));
-    assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
+    assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_psychedelic_editorial"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;
     assert.ok(promptList.runnable.some((prompt: any) => prompt.key === "article_image"));
     assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "1990s_cgi"), false);
-    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "article_image_conceptual"), false);
+    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "article_image_psychedelic_editorial"), false);
   });
 
   test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {
@@ -1092,7 +1109,7 @@ describe("http", () => {
     const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ presetKey: "conceptual" }),
+      body: JSON.stringify({ presetKey: "psychedelic_editorial" }),
     });
     if (res.status !== 200) {
       const b = await res.json() as any;
@@ -1114,7 +1131,7 @@ describe("http", () => {
         { headers: { "content-type": "application/json" } },
       );
     });
-    const llm = new FakeLlm('{"presetKey":"conceptual"}');
+    const llm = new FakeLlm('{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial best fits the article because it can make a neutral subject visually playful."}');
     const s = await makeTestServer(llm, enabledOpenAiImageGeneration); t.after(s.cleanup);
     const articleSlug = seedArticle(s.databasePath);
     const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
@@ -1128,17 +1145,168 @@ describe("http", () => {
       assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
     }
     const body = await res.json() as any;
-    assert.equal(body.presetKey, "conceptual");
+    assert.equal(body.presetKey, "psychedelic_editorial");
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
     assert.ok(llm.capturedPrompts.some((prompt) => prompt.user.includes("Allowed presets:")));
-    assert.ok(llm.capturedPrompts.some((prompt) => /do not pick default merely because\s+it is safe/i.test(prompt.system)));
+    assert.ok(llm.capturedPrompts.some((prompt) => /do not pick photo merely because\s+it is safe/i.test(prompt.system)));
     assert.ok(llm.capturedPrompts.some((prompt) => /favor fitting variety over the safest\s+generic answer/i.test(prompt.user)));
+    assert.ok(llm.capturedPrompts.some((prompt) => /reason\s+as one short sentence/i.test(prompt.user)));
     const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.user.includes("Allowed presets:"));
     assert.ok(selectorPrompt);
-    assert.ok(
-      selectorPrompt.user.indexOf("- default:") > selectorPrompt.user.indexOf("- conceptual:"),
-      "default should be listed after specialized presets",
+    assert.match(selectorPrompt.system, /intentionally shuffled per article/i);
+    assert.ok(selectorPrompt.user.includes("- photo:"));
+    assert.ok(selectorPrompt.user.includes("- psychedelic_editorial:"));
+    assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 1);
+  });
+
+  test("article image generation workflow keeps preset selection passes as pipeline nodes", () => {
+    assert.deepEqual(
+      articleImageGenerationWorkflow.edges.map((edge) => edge.node.name),
+      [
+        "llm.select_image_preset_initial",
+        "llm.select_image_preset_challenger",
+        "llm.select_image_preset_final",
+        "image.generate_attach",
+      ],
     );
+  });
+
+  test("POST /api/article/:slug/image/generate shuffles auto preset order by article", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    setImageGenerationFetchForTests(async (_url, init) => {
+      JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm('{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial adds variety while preserving the article subject."}');
+    const s = await makeTestServer(llm, enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlugA = seedArticle(s.databasePath, "shuffle-a");
+    const articleSlugB = seedArticle(s.databasePath, "shuffle-b");
+
+    const resA = await s.go(`/api/article/${articleSlugA}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (resA.status !== 200) {
+      const b = await resA.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(resA.status, 200, `unexpected status: ${resA.status} ${b?.error ?? ""}`);
+    }
+    await resA.json();
+
+    const resB = await s.go(`/api/article/${articleSlugB}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (resB.status !== 200) {
+      const b = await resB.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(resB.status, 200, `unexpected status: ${resB.status} ${b?.error ?? ""}`);
+    }
+    await resB.json();
+
+    const selectorPrompts = llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:"));
+    assert.equal(selectorPrompts.length, 2);
+    const presetLinesA = selectorPrompts[0].user.match(/^- [a-z0-9_]+:/gm) ?? [];
+    const presetLinesB = selectorPrompts[1].user.match(/^- [a-z0-9_]+:/gm) ?? [];
+    assert.ok(presetLinesA.includes("- photo:"));
+    assert.ok(presetLinesB.includes("- photo:"));
+    assert.notDeepEqual(presetLinesA, presetLinesB);
+  });
+
+  test("POST /api/article/:slug/image/generate lets a specialized challenger beat photo", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedPrompt = "";
+    setImageGenerationFetchForTests(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      capturedPrompt = body.prompt ?? "";
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const logEntries: Array<{ level: string; event: string; fields?: Record<string, unknown> }> = [];
+    const llm = new FakeLlm([
+      '{"presetKey":"photo","reason":"Photo is the safest literal rendering."}',
+      '{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial is the strongest specialized challenger."}',
+      '{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial adds useful visual variety without losing the subject."}',
+    ]);
+    const s = await makeTestServer(llm, enabledOpenAiImageGeneration, captureLogger(logEntries)); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "psychedelic_editorial");
+    assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
+
+    const selectorPrompts = llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:"));
+    assert.equal(selectorPrompts.length, 3);
+    assert.match(selectorPrompts[1].user, /photo is not an allowed key/i);
+    assert.equal(selectorPrompts[1].user.includes("- photo:"), false);
+    assert.ok(selectorPrompts[1].user.includes("- psychedelic_editorial:"));
+    assert.match(selectorPrompts[2].user, /strongest specialized challenger is "psychedelic_editorial"/i);
+    assert.ok(selectorPrompts[2].user.includes("- photo:"));
+    assert.ok(selectorPrompts[2].user.includes("- psychedelic_editorial:"));
+    assert.ok(logEntries.some((entry) =>
+      entry.event === "article_image.preset_final_selected" &&
+      entry.fields?.presetKey === "psychedelic_editorial" &&
+      entry.fields?.reason === "Psychedelic editorial adds useful visual variety without losing the subject."
+    ));
+  });
+
+  test("POST /api/article/:slug/image/generate can keep photo after judging a specialized challenger", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedPrompt = "";
+    setImageGenerationFetchForTests(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      capturedPrompt = body.prompt ?? "";
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const logEntries: Array<{ level: string; event: string; fields?: Record<string, unknown> }> = [];
+    const llm = new FakeLlm([
+      '{"presetKey":"photo","reason":"Photo is the safest literal rendering."}',
+      '{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial is the strongest specialized challenger."}',
+      '{"presetKey":"photo","reason":"Photo keeps the neutral article clearer than the challenger."}',
+    ]);
+    const s = await makeTestServer(llm, enabledOpenAiImageGeneration, captureLogger(logEntries)); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "default");
+    assert.match(capturedPrompt, /high-end photoreal editorial image/i);
+
+    const selectorPrompts = llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:"));
+    assert.equal(selectorPrompts.length, 3);
+    assert.match(selectorPrompts[2].user, /pick photo if "psychedelic_editorial" would distract from/i);
+    assert.ok(logEntries.some((entry) =>
+      entry.event === "article_image.preset_final_selected" &&
+      entry.fields?.presetKey === "default" &&
+      entry.fields?.reason === "Photo keeps the neutral article clearer than the challenger."
+    ));
   });
 
   test("POST /api/article/:slug/image/generate rejects non-image prompt key", async (t) => {

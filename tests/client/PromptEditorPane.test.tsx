@@ -22,12 +22,12 @@ const defaultPrompt = {
   path: "config/prompts/article_image.toml",
 };
 
-const conceptualPrompt = {
+const psychedelicEditorialPrompt = {
   ...defaultPrompt,
-  key: "conceptual",
-  system: "conceptual system",
-  user: "conceptual user",
-  path: "config/prompts/article_image_presets/conceptual.toml",
+  key: "psychedelic_editorial",
+  system: "psychedelic editorial system",
+  user: "psychedelic editorial user",
+  path: "config/prompts/article_image_presets/psychedelic_editorial.toml",
 };
 
 describe("PromptEditorPane image presets", () => {
@@ -56,34 +56,34 @@ describe("PromptEditorPane image presets", () => {
         return jsonResponse({
           prompts: [
             { key: "default", label: "default" },
-            { key: "conceptual", label: "conceptual" },
+            { key: "psychedelic_editorial", label: "psychedelic_editorial" },
             { key: "neon", label: "neon" },
           ],
         });
       }
-      if (url === "/api/admin/article-image-prompts/conceptual" && method === "GET") return jsonResponse(conceptualPrompt);
-      if (url === "/api/admin/article-image-prompts/conceptual" && method === "PUT") {
+      if (url === "/api/admin/article-image-prompts/psychedelic_editorial" && method === "GET") return jsonResponse(psychedelicEditorialPrompt);
+      if (url === "/api/admin/article-image-prompts/psychedelic_editorial" && method === "PUT") {
         return jsonResponse({
           ok: true,
-          prompt: { ...conceptualPrompt, system: "updated conceptual system" },
+          prompt: { ...psychedelicEditorialPrompt, system: "updated psychedelic editorial system" },
         });
       }
       if (url === "/api/admin/article-image-prompts/neon" && method === "GET") {
-        return jsonResponse({ ...conceptualPrompt, key: "neon", system: "neon system", path: "config/prompts/article_image_presets/neon.toml" });
+        return jsonResponse({ ...psychedelicEditorialPrompt, key: "neon", system: "neon system", path: "config/prompts/article_image_presets/neon.toml" });
       }
       if (url.endsWith("/revisions")) return jsonResponse({ revisions: [] });
       if (url === "/api/admin/article-image-prompts" && method === "POST") {
         return jsonResponse({
           ok: true,
-          prompt: { ...conceptualPrompt, key: "neon", system: "neon system", path: "config/prompts/article_image_presets/neon.toml" },
+          prompt: { ...psychedelicEditorialPrompt, key: "neon", system: "neon system", path: "config/prompts/article_image_presets/neon.toml" },
           prompts: [
             { key: "default", label: "default" },
-            { key: "conceptual", label: "conceptual" },
+            { key: "psychedelic_editorial", label: "psychedelic_editorial" },
             { key: "neon", label: "neon" },
           ],
         });
       }
-      if (url === "/api/admin/article-image-prompts/conceptual" && method === "DELETE") {
+      if (url === "/api/admin/article-image-prompts/psychedelic_editorial" && method === "DELETE") {
         return jsonResponse({ ok: true, prompts: [{ key: "default", label: "default" }] });
       }
       return jsonResponse({ error: "not found" }, 404);
@@ -98,22 +98,22 @@ describe("PromptEditorPane image presets", () => {
 
     expect(await screen.findByText("Image preset")).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Image preset" }));
-    await user.click(await screen.findByRole("option", { name: "conceptual" }));
-    expect(await screen.findByText("conceptual system")).toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: "psychedelic_editorial" }));
+    expect(await screen.findByText("psychedelic editorial system")).toBeInTheDocument();
 
     const systemLabel = screen.getByText("System").closest("label") as HTMLElement;
     await user.click(within(systemLabel).getByText("Raw text"));
-    const systemInput = within(systemLabel).getByDisplayValue("conceptual system");
+    const systemInput = within(systemLabel).getByDisplayValue("psychedelic editorial system");
     await user.clear(systemInput);
-    await user.type(systemInput, "updated conceptual system");
+    await user.type(systemInput, "updated psychedelic editorial system");
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/admin/article-image-prompts/conceptual",
+        "/api/admin/article-image-prompts/psychedelic_editorial",
         expect.objectContaining({
           method: "PUT",
-          body: JSON.stringify({ system: "updated conceptual system", user: "conceptual user" }),
+          body: JSON.stringify({ system: "updated psychedelic editorial system", user: "psychedelic editorial user" }),
         }),
       );
     });
@@ -126,7 +126,7 @@ describe("PromptEditorPane image presets", () => {
         "/api/admin/article-image-prompts",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ name: "Neon", copyFrom: "conceptual" }),
+          body: JSON.stringify({ name: "Neon", copyFrom: "psychedelic_editorial" }),
         }),
       );
     });
@@ -134,13 +134,13 @@ describe("PromptEditorPane image presets", () => {
     expect(await screen.findByText("neon system")).toBeInTheDocument();
 
     await user.click(screen.getByRole("combobox", { name: "Image preset" }));
-    await user.click(await screen.findByRole("option", { name: "conceptual" }));
+    await user.click(await screen.findByRole("option", { name: "psychedelic_editorial" }));
     const presetPanel = screen.getByText("Image preset").closest(".admin-prompt-presets");
     await user.click(within(presetPanel as HTMLElement).getByRole("button", { name: /delete preset/i }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/admin/article-image-prompts/conceptual",
+        "/api/admin/article-image-prompts/psychedelic_editorial",
         expect.objectContaining({ method: "DELETE" }),
       );
     });

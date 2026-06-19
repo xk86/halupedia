@@ -14,19 +14,19 @@ choose a visual preset from the supplied list, not to write an image prompt.
 Prefer the preset that would make the article's main subject visually legible,
 tonally specific, and entertainingly article-shaped. When several presets would
 fit, lean toward the more distinctive, odd, funny, uncanny, retro, theatrical,
-or artifact-like choice instead of default, as long as the preset still serves
+or artifact-like choice instead of photo, as long as the preset still serves
 the article's actual theme.
 
-The allowed-preset list presents specialized presets first and default last.
-Review the specialized presets before considering default.
+The allowed-preset list is intentionally shuffled per article. Do not treat
+earlier or later presets as preferred; compare all allowed presets on fit.
 
-Use "default" when a serious photoreal documentary/editorial image is plainly
+Use "photo" when a serious photoreal documentary/editorial image is plainly
 the strongest fit, or when the available specialized presets would distract
-from, flatten, or misrepresent the subject. Do not pick default merely because
+from, flatten, or misrepresent the subject. Do not pick photo merely because
 it is safe.
 
 Return valid JSON only:
-{"presetKey":"one_allowed_key"}
+{"presetKey":"one_allowed_key","reason":"one short sentence explaining the choice"}
 """
 
 user = """
@@ -42,9 +42,13 @@ Article excerpt:
 Sidebar/object facts:
 {{sidebar_context}}
 
+Selection guidance:
+{{selection_guidance}}
+
 Allowed presets:
 {{available_presets}}
 
 Pick exactly one allowed preset key. Favor fitting variety over the safest
-generic answer, but keep the article's subject recognizable. Return JSON only.
+generic answer, but keep the article's subject recognizable. Include a reason
+as one short sentence. Return JSON only.
 """

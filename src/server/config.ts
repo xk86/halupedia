@@ -136,6 +136,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
         enabled: app.images?.generation?.enabled ?? false,
         auto_generate_for_new_articles: app.images?.generation?.auto_generate_for_new_articles ?? false,
         auto_generate_for_featured_article: app.images?.generation?.auto_generate_for_featured_article ?? false,
+        auto_preset_multipass: app.images?.generation?.auto_preset_multipass ?? false,
         backend: app.images?.generation?.backend === "ollama" ? "ollama" : "openai",
         openai: {
           base_url: app.images?.generation?.openai?.base_url ?? "https://api.openai.com/v1",

@@ -251,6 +251,7 @@ export interface ImageGenerationConfig {
   enabled: boolean;
   auto_generate_for_new_articles: boolean;
   auto_generate_for_featured_article: boolean;
+  auto_preset_multipass: boolean;
   backend: ImageGenerationBackend;
   openai: OpenAIImageGenerationConfig;
   ollama: OllamaImageGenerationConfig;

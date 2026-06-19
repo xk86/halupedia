@@ -211,7 +211,7 @@ describe("HeadlineImagePanel", () => {
         return jsonResponse({
           prompts: [
             { key: "default", label: "default" },
-            { key: "conceptual", label: "conceptual" },
+            { key: "psychedelic_editorial", label: "psychedelic_editorial" },
           ],
         });
       }
@@ -232,7 +232,7 @@ describe("HeadlineImagePanel", () => {
     renderPanel();
 
     await user.click(await screen.findByRole("combobox", { name: /image preset/i }));
-    await user.click(await screen.findByRole("option", { name: "conceptual" }));
+    await user.click(await screen.findByRole("option", { name: "psychedelic_editorial" }));
     await user.click(screen.getByRole("button", { name: /generate/i }));
 
     await waitFor(() => {
@@ -241,7 +241,7 @@ describe("HeadlineImagePanel", () => {
       );
       expect(generateCall).toBeTruthy();
       expect(JSON.parse(String((generateCall?.[1] as RequestInit).body))).toEqual({
-        presetKey: "conceptual",
+        presetKey: "psychedelic_editorial",
       });
     });
   });
@@ -252,7 +252,7 @@ describe("HeadlineImagePanel", () => {
         return jsonResponse({
           prompts: [
             { key: "default", label: "default" },
-            { key: "conceptual", label: "conceptual" },
+            { key: "psychedelic_editorial", label: "psychedelic_editorial" },
           ],
         });
       }

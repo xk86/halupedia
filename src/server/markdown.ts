@@ -207,16 +207,9 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
     return defaultLinkOpen(tokens, idx, options, env, self);
   }
-  if (!href.startsWith("halu:")) {
-    if (href.startsWith("ref:")) {
-      const rawTarget = href.slice("ref:".length);
-      const refSlug = slugify(rawTarget);
-      // Resolve to wiki path just like a halu link — no special class or number.
-      const article = slugToTitle(refSlug);
-      tokens[idx].attrSet("href", `/wiki/${titleToWikiSegment(article)}`);
-      if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
-      return defaultLinkOpen(tokens, idx, options, env, self);
-    }
+  const isHalu = href.startsWith("halu:");
+  const isRef = href.startsWith("ref:");
+  if (!isHalu && !isRef) {
     tokens[idx].attrSet("href", "#");
     if (titleIndex >= 0) tokens[idx].attrs?.splice(titleIndex, 1);
     return defaultLinkOpen(tokens, idx, options, env, self);
@@ -233,8 +226,11 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     }
   }
 
-  // Extract slug from "halu:slug" or "halu:slug hint" form.
-  const rawSlug = href.slice("halu:".length).split(/["' ]/)[0];
+  // Extract the slug: halu links may carry a "halu:slug hint" suffix; ref links
+  // are just "ref:slug".
+  const rawSlug = isHalu
+    ? href.slice("halu:".length).split(/["' ]/)[0]
+    : href.slice("ref:".length);
   let decodedRawSlug = rawSlug;
   try {
     decodedRawSlug = decodeURIComponent(rawSlug);
@@ -243,6 +239,12 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   }
   const resolvedSlug = slugify(decodedRawSlug);
 
+  // Prefer the visible link text for the wiki URL. We emit [Title](ref:slug),
+  // and the title is the only place a literal hyphen survives: title-mode
+  // slugify names every "-" as "dash" (so "A-link" → "a-dash-link"), and
+  // slugToTitle can't reverse that. Using the visible title yields
+  // /wiki/A-link_to_a-thing instead of /wiki/A_dash_link_to_a_dash_thing.
+  // Fall back to the slug only when the label isn't a faithful title for it.
   const visibleTitle = visibleText.trim();
   const visibleMatchesTarget =
     visibleTitle &&

@@ -2409,8 +2409,10 @@ test("resolveRefLinks: [brief label](ref:N) keeps provided label", () => {
 
 test("renderMarkdown: ref:slug link renders as plain wiki link", () => {
   const html = renderMarkdown("[Glow Fruit](ref:glow-fruit)");
-  // Renders as a normal wiki link — no special class, no footnote
-  assert.match(html, /href="\/wiki\/Glow_fruit"/);
+  // Renders as a normal wiki link — no special class, no footnote. The wiki URL
+  // is built from the visible title (which round-trips to the slug), so its
+  // casing is preserved verbatim rather than reconstructed from the slug.
+  assert.match(html, /href="\/wiki\/Glow_Fruit"/);
   assert.doesNotMatch(html, /class="ref-link"/);
   assert.doesNotMatch(html, /class="ref-num"/);
 });
@@ -2430,7 +2432,7 @@ test("renderMarkdown: [](ref:slug) with empty label renders article title as lin
   assert.equal(body, "[Night Bloom](ref:night-bloom)");
   const html = renderMarkdown(body);
   assert.match(html, /Night Bloom/);
-  assert.match(html, /href="\/wiki\/Night_bloom"/);
+  assert.match(html, /href="\/wiki\/Night_Bloom"/);
 });
 
 /* ─────────────────────────────────────────────────────────────────

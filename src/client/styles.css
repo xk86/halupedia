@@ -1289,44 +1289,114 @@ a:hover {
   opacity: 0.6;
 }
 
-.mdedit-blocks {
+/* ProseMirror WYSIWYG surface. The mount element itself becomes the
+   contenteditable (ProseMirror adds the .ProseMirror class to it). */
+.mdedit-pm {
   flex: 1;
   overflow-y: auto;
-  padding: 0.55rem 0.65rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  padding: 0.65rem 0.75rem;
   min-height: 6rem;
   max-height: 60vh;
-}
-
-.mdedit-block {
-  padding: 0.2rem 0.35rem;
-  cursor: text;
-  border: 1px dashed transparent;
   font-family: var(--serif);
   font-size: 1rem;
+  line-height: 1.6;
   color: var(--ink);
+  outline: none;
 }
 
-.mdedit-block:hover {
-  border-color: var(--accent);
-  background: var(--accent-wash);
+.mdedit-pm:focus {
+  outline: none;
 }
 
-.mdedit-block> :first-child {
+.mdedit-pm > :first-child {
   margin-top: 0;
 }
 
-.mdedit-block> :last-child {
+.mdedit-pm > :last-child {
   margin-bottom: 0;
 }
 
-.mdedit-block a {
-  pointer-events: none;
+.mdedit-pm p {
+  margin: 0 0 0.65rem;
 }
 
-.mdedit-textarea,
+.mdedit-pm h1,
+.mdedit-pm h2,
+.mdedit-pm h3,
+.mdedit-pm h4 {
+  font-family: var(--serif);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.1rem 0 0.5rem;
+}
+
+.mdedit-pm h1 {
+  font-size: 1.6rem;
+}
+.mdedit-pm h2 {
+  font-size: 1.35rem;
+}
+.mdedit-pm h3 {
+  font-size: 1.15rem;
+}
+
+.mdedit-pm ul,
+.mdedit-pm ol {
+  margin: 0 0 0.65rem;
+  padding-left: 1.5rem;
+}
+
+.mdedit-pm li {
+  margin: 0.15rem 0;
+}
+
+.mdedit-pm blockquote {
+  margin: 0 0 0.65rem;
+  padding-left: 0.9rem;
+  border-left: 3px solid var(--rule);
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.mdedit-pm a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.mdedit-pm code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--accent-wash);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+
+.mdedit-pm pre {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: var(--input-surface-focus);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.65rem 0.75rem;
+  overflow-x: auto;
+  margin: 0 0 0.65rem;
+}
+
+.mdedit-pm pre code {
+  background: none;
+  padding: 0;
+}
+
+/* ProseKit's empty-doc placeholder hook. */
+.mdedit-pm [data-placeholder]::before {
+  content: attr(data-placeholder);
+  color: var(--ink-fade);
+  pointer-events: none;
+  height: 0;
+  float: left;
+}
+
 .mdedit-raw-textarea {
   width: 100%;
   resize: vertical;
@@ -1334,30 +1404,11 @@ a:hover {
   font-size: 0.92rem;
   line-height: 1.5;
   color: var(--ink);
-  background: var(--input-surface-focus);
-  border: 1px dashed var(--accent);
-  padding: 0.35rem 0.45rem;
-  outline: none;
-}
-
-.mdedit-raw-textarea {
   border: none;
   min-height: 12rem;
   padding: 0.65rem 0.75rem;
   background: transparent;
-}
-
-.mdedit-add {
-  cursor: text;
-  padding: 0.25rem 0.35rem;
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--ink-fade);
-  border: 1px dashed transparent;
-}
-
-.mdedit-add:hover {
-  border-color: var(--rule);
+  outline: none;
 }
 
 .mdedit-footer {

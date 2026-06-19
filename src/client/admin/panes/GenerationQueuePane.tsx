@@ -184,7 +184,7 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
                 >
                   {stateLabel(state)}
                 </Badge>
-                <span className="min-w-0 shrink-0 font-mono text-[0.7rem] tracking-wide text-muted-foreground tabular-nums">
+                <span className="admin-queue-meta min-w-0 shrink-0 font-mono text-[0.7rem] tracking-wide text-muted-foreground tabular-nums">
                   {timer} · {workflowLabel}
                   {phase ? ` · ${phase}` : ""}
                   {item.waiting > 0 && ` · ${item.waiting} waiting`}

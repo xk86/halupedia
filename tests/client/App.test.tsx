@@ -1,5 +1,6 @@
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -11,6 +12,20 @@ import { App } from "../../src/client/App";
 
 function setPath(path: string) {
   window.history.replaceState({}, "", path);
+}
+
+// The article/instruction editors are ProseKit (WYSIWYG) — its contenteditable
+// surface can't be driven in jsdom, but its "Raw markdown" footer toggle reveals
+// a plain textarea that round-trips the same value. Use that to set editor text
+// deterministically. Pass an index when more than one editor is on screen.
+async function setRichEditorMarkdown(markdown: string, editorIndex = 0) {
+  const toggles = screen.getAllByRole("button", { name: "Raw markdown" });
+  await userEvent.click(toggles[editorIndex]);
+  const textareas = document.querySelectorAll<HTMLTextAreaElement>(
+    ".mdedit-raw-textarea",
+  );
+  const textarea = textareas[textareas.length === toggles.length ? editorIndex : 0];
+  fireEvent.change(textarea, { target: { value: markdown } });
 }
 
 // Minimal well-shaped stand-ins for the homepage/top-articles endpoints —
@@ -1181,20 +1196,11 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Test Article" });
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await userEvent.click(screen.getByRole("button", { name: "Raw" }));
-    const rawPanel = screen.getByRole("region", {
-      name: "Raw markdown editor",
-    });
 
-    await userEvent.click(
-      within(rawPanel).getByText("Original body paragraph."),
+    await setRichEditorMarkdown(
+      "# Test Article\n\nRewritten in block mode.",
     );
-    const blockTextarea = rawPanel.querySelector(
-      ".mdedit-textarea",
-    ) as HTMLTextAreaElement;
-    expect(blockTextarea).toBeTruthy();
-    await userEvent.clear(blockTextarea);
-    await userEvent.type(blockTextarea, "Rewritten in block mode.");
-    await userEvent.click(screen.getByRole("button", { name: "Save raw" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       const rawCall = fetchMock.mock.calls.find(
@@ -1276,18 +1282,8 @@ describe("App", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await userEvent.click(screen.getByRole("button", { name: "Raw" }));
-    const rawPanel = screen.getByRole("region", {
-      name: "Raw markdown editor",
-    });
-    await userEvent.click(
-      within(rawPanel).getByRole("button", { name: "Raw text" }),
-    );
-    const rawTextarea = document.querySelector(
-      ".mdedit-raw-textarea",
-    ) as HTMLTextAreaElement;
-    await userEvent.clear(rawTextarea);
-    await userEvent.type(rawTextarea, "# Test Article\n\nChanged by raw save.");
-    await userEvent.click(screen.getByRole("button", { name: "Save raw" }));
+    await setRichEditorMarkdown("# Test Article\n\nChanged by raw save.");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       const rawCall = fetchMock.mock.calls.find(
@@ -1538,12 +1534,7 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Test Article" });
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
-    // The markdown editor starts empty — click the add-block area, then type.
-    await userEvent.click(screen.getByText("Describe your changes."));
-    await userEvent.type(
-      screen.getByPlaceholderText("Describe your changes."),
-      "tighten the ending",
-    );
+    await setRichEditorMarkdown("tighten the ending");
     await userEvent.click(
       screen.getByRole("button", { name: "Use last 2 edit prompts" }),
     );
@@ -1625,11 +1616,7 @@ describe("App", () => {
     ).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
-    await userEvent.click(screen.getByText("Describe your changes."));
-    await userEvent.type(
-      screen.getByPlaceholderText("Describe your changes."),
-      "make this article to be about your mom",
-    );
+    await setRichEditorMarkdown("make this article to be about your mom");
     await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
 
     expect(

@@ -6,6 +6,7 @@ import { readPromptFile, listArticleImagePresetFiles } from "../../promptEditor"
 import { stripTopLevelSections, summaryMarkdownFromArticle } from "../../markdown";
 
 const DEFAULT_PRESET_PROMPT_KEY = "photo";
+const PRESET_SELECTION_MAX_ATTEMPTS = 3;
 
 function normalizePresetKey(value: string | undefined): string {
   const key = (value ?? "").trim();
@@ -104,19 +105,54 @@ function oneSentenceReason(value: unknown): string | undefined {
 function parseSelectedPreset(raw: string, allowed: Map<string, string>): { presetKey: string; reason?: string } | null {
   const cleaned = stripJsonFences(raw).trim();
   try {
-    const parsed = JSON.parse(cleaned) as { presetKey?: unknown; key?: unknown; reason?: unknown };
-    const key = normalizePresetKey(String(parsed.presetKey ?? parsed.key ?? ""));
+    const parsed = JSON.parse(cleaned) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const obj = parsed as { presetKey?: unknown; key?: unknown; reason?: unknown };
+    const rawKey = obj.presetKey ?? obj.key;
+    if (typeof rawKey !== "string") return null;
+    const key = normalizePresetKey(rawKey);
     const presetKey = allowed.get(key);
-    return presetKey ? { presetKey, reason: oneSentenceReason(parsed.reason) } : null;
+    return presetKey ? { presetKey, reason: oneSentenceReason(obj.reason) } : null;
   } catch {
-    const tokens = cleaned.match(/[a-z0-9_]+/gi) ?? [];
-    for (const token of tokens) {
-      const key = normalizePresetKey(token);
-      const presetKey = allowed.get(key);
-      if (presetKey) return { presetKey };
-    }
     return null;
   }
+}
+
+async function selectPresetWithRetries(options: {
+  articleSlug: string;
+  deps: PipelineDeps;
+  rows: PresetPromptRow[];
+  renderSelectionPrompt: (rows: PresetPromptRow[], selectionGuidance: string) => ReturnType<PipelineDeps["prompts"]["render"]>;
+  baseSelectionGuidance: string;
+  invalidEvent: string;
+}): Promise<{ presetKey: string; reason?: string }> {
+  const allowed = allowedPresetKeys(options.rows);
+  let lastRaw = "";
+  for (let attempt = 1; attempt <= PRESET_SELECTION_MAX_ATTEMPTS; attempt += 1) {
+    const retryGuidance = attempt === 1
+      ? options.baseSelectionGuidance
+      : [
+          options.baseSelectionGuidance,
+          `Previous response was rejected because it was not valid JSON in the required shape. Return exactly {"presetKey":"one_allowed_key","reason":"one short sentence"} with no extra text. Attempt ${attempt} of ${PRESET_SELECTION_MAX_ATTEMPTS}.`,
+        ].filter(Boolean).join("\n\n");
+    const rendered = options.renderSelectionPrompt(options.rows, retryGuidance);
+    const raw = await options.deps.llm.chat(rendered.role, rendered.system, rendered.user, {
+      thinking: rendered.thinking,
+      jsonMode: rendered.json,
+    });
+    lastRaw = raw;
+    const selected = parseSelectedPreset(raw, allowed);
+    if (selected) return selected;
+    options.deps.logger.warn(options.invalidEvent, {
+      slug: options.articleSlug,
+      attempt,
+      maxAttempts: PRESET_SELECTION_MAX_ATTEMPTS,
+      raw: raw.slice(0, 500),
+    });
+  }
+  throw new Error(
+    `article image preset selection returned invalid JSON after ${PRESET_SELECTION_MAX_ATTEMPTS} attempts: ${lastRaw.slice(0, 160)}`,
+  );
 }
 
 function articleImagePresetSelectionContext(input: { slug?: string }, deps: PipelineDeps) {
@@ -165,20 +201,14 @@ export const selectArticleImagePresetNode = defineNode({
 
     const { article, seed, renderSelectionPrompt } = articleImagePresetSelectionContext(input, deps);
     const rows = imagePresetRowsForPrompt(seed);
-    const allowed = allowedPresetKeys(rows);
-    const rendered = renderSelectionPrompt(rows, "");
-    const raw = await deps.llm.chat(rendered.role, rendered.system, rendered.user, {
-      thinking: rendered.thinking,
-      jsonMode: rendered.json,
+    const selected = await selectPresetWithRetries({
+      articleSlug: article.slug,
+      deps,
+      rows,
+      renderSelectionPrompt,
+      baseSelectionGuidance: "",
+      invalidEvent: "article_image.preset_selection_invalid",
     });
-    const selected = parseSelectedPreset(raw, allowed);
-    if (!selected) {
-      deps.logger.warn("article_image.preset_selection_invalid", {
-        slug: article.slug,
-        raw: raw.slice(0, 500),
-      });
-      return { initialImagePromptKey: "default", selectedImagePromptKey: "default" };
-    }
     deps.logger.info("article_image.preset_selected", {
       slug: article.slug,
       presetKey: selected.presetKey,
@@ -205,22 +235,14 @@ export const selectSpecializedArticleImagePresetNode = defineNode({
     const { article, seed, renderSelectionPrompt } = articleImagePresetSelectionContext(input, deps);
     const rows = imagePresetRowsForPrompt(seed, { includeDefault: false });
     if (rows.length === 0) return {};
-    const rendered = renderSelectionPrompt(
+    const selected = await selectPresetWithRetries({
+      articleSlug: article.slug,
+      deps,
       rows,
-      `The previous pass chose ${DEFAULT_PRESET_PROMPT_KEY}. For this pass, ${DEFAULT_PRESET_PROMPT_KEY} is not an allowed key; choose the best fitting specialized preset from the list.`,
-    );
-    const raw = await deps.llm.chat(rendered.role, rendered.system, rendered.user, {
-      thinking: rendered.thinking,
-      jsonMode: rendered.json,
+      renderSelectionPrompt,
+      baseSelectionGuidance: `The previous pass chose ${DEFAULT_PRESET_PROMPT_KEY}. For this pass, ${DEFAULT_PRESET_PROMPT_KEY} is not an allowed key; choose the best fitting specialized preset from the list.`,
+      invalidEvent: "article_image.preset_challenger_invalid",
     });
-    const selected = parseSelectedPreset(raw, allowedPresetKeys(rows));
-    if (!selected) {
-      deps.logger.warn("article_image.preset_challenger_invalid", {
-        slug: article.slug,
-        raw: raw.slice(0, 500),
-      });
-      return {};
-    }
     deps.logger.info("article_image.preset_challenger_selected", {
       slug: article.slug,
       presetKey: selected.presetKey,
@@ -249,15 +271,14 @@ export const judgeArticleImagePresetDefaultNode = defineNode({
     const rows = imagePresetRowsForPrompt(seed, {
       onlyPresetKeys: new Set(["default", specializedImagePromptKey]),
     });
-    const rendered = renderSelectionPrompt(
+    const selected = await selectPresetWithRetries({
+      articleSlug: article.slug,
+      deps,
       rows,
-      `The first pass chose ${DEFAULT_PRESET_PROMPT_KEY}. The strongest specialized challenger is "${promptKeyForPresetKey(specializedImagePromptKey)}". Choose between only ${DEFAULT_PRESET_PROMPT_KEY} and "${promptKeyForPresetKey(specializedImagePromptKey)}". Pick "${promptKeyForPresetKey(specializedImagePromptKey)}" if it fits the article theme well enough to add useful variety; pick ${DEFAULT_PRESET_PROMPT_KEY} if "${promptKeyForPresetKey(specializedImagePromptKey)}" would distract from, flatten, or misrepresent the article.`,
-    );
-    const raw = await deps.llm.chat(rendered.role, rendered.system, rendered.user, {
-      thinking: rendered.thinking,
-      jsonMode: rendered.json,
+      renderSelectionPrompt,
+      baseSelectionGuidance: `The first pass chose ${DEFAULT_PRESET_PROMPT_KEY}. The strongest specialized challenger is "${promptKeyForPresetKey(specializedImagePromptKey)}". Choose between only ${DEFAULT_PRESET_PROMPT_KEY} and "${promptKeyForPresetKey(specializedImagePromptKey)}". Pick "${promptKeyForPresetKey(specializedImagePromptKey)}" if it fits the article theme well enough to add useful variety; pick ${DEFAULT_PRESET_PROMPT_KEY} if "${promptKeyForPresetKey(specializedImagePromptKey)}" would distract from, flatten, or misrepresent the article.`,
+      invalidEvent: "article_image.preset_final_invalid",
     });
-    const selected = parseSelectedPreset(raw, allowedPresetKeys(rows)) ?? { presetKey: "default" };
     deps.logger.info("article_image.preset_final_selected", {
       slug: article.slug,
       challengerPresetKey: specializedImagePromptKey,

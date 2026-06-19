@@ -48,6 +48,7 @@ import { formatLogLine } from "../src/server/logger";
 import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
 import { getPrompt, getSharedPrompt, stripJsonFences } from "../src/server/prompts";
 import { replaceTomlTripleQuoted } from "../src/server/promptEditor";
+import { parse as parseToml } from "smol-toml";
 import {
   recordPromptRevision,
   listPromptRevisions,
@@ -3219,34 +3220,36 @@ test("getGraphData deduplicates links", (t) => {
   assert.deepEqual(pairs, ["a→b", "b→a"]);
 });
 
-test("replaceTomlTripleQuoted replaces existing block", () => {
+test("replaceTomlTripleQuoted replaces existing block, preserving others", () => {
   const source = `model = "heavy"\nsystem = """\nold content\n"""\nuser = """\nold user\n"""\n`;
   const result = replaceTomlTripleQuoted(source, "system", "new content");
-  assert.ok(result !== null);
-  assert.ok(result!.includes('system = """\nnew content\n"""'));
-  assert.ok(result!.includes('user = """\nold user\n"""'), "user block should be untouched");
-  assert.ok(result!.includes('model = "heavy"'), "scalars should be preserved");
+  const parsed = parseToml(result) as Record<string, string>;
+  assert.equal(parsed.system.trimEnd(), "new content");
+  assert.equal(parsed.user.trimEnd(), "old user", "user block should be untouched");
+  assert.equal(parsed.model, "heavy", "scalars should be preserved");
 });
 
 test("replaceTomlTripleQuoted appends key when absent", () => {
   const source = `model = "heavy"\n`;
   const result = replaceTomlTripleQuoted(source, "system", "appended content");
-  assert.ok(result !== null);
-  assert.ok(result!.includes('system = """\nappended content\n"""'));
-  assert.ok(result!.includes('model = "heavy"'));
+  const parsed = parseToml(result) as Record<string, string>;
+  assert.equal(parsed.system.trimEnd(), "appended content");
+  assert.equal(parsed.model, "heavy");
 });
 
-test("replaceTomlTripleQuoted returns null when value contains triple-quote", () => {
-  const source = `system = """\nfoo\n"""\n`;
-  const result = replaceTomlTripleQuoted(source, "system", 'bad """ value');
-  assert.equal(result, null);
-});
-
-test("replaceTomlTripleQuoted handles empty value", () => {
-  const source = `system = """\nsome text\n"""\n`;
-  const result = replaceTomlTripleQuoted(source, "system", "");
-  assert.ok(result !== null);
-  assert.ok(result!.includes('system = """\n\n"""'));
+// Prompts are plain text: backslashes, underscores, quotes and JSON must
+// survive verbatim, and the output must always be valid TOML.
+test("replaceTomlTripleQuoted round-trips text with escapes and quotes", () => {
+  for (const value of [
+    'Return JSON: {"presetKey":"one_allowed_key"}',
+    "a back\\slash and a regex \\d+ and _under_scores_",
+    'embedded """ triple quote run',
+    "",
+  ]) {
+    const result = replaceTomlTripleQuoted(`system = """\nold\n"""\n`, "system", value);
+    const parsed = parseToml(result) as Record<string, string>;
+    assert.equal(parsed.system.trimEnd(), value.trimEnd(), `value: ${JSON.stringify(value)}`);
+  }
 });
 
 // ── Prompt revisions ─────────────────────────────────────────────────────────

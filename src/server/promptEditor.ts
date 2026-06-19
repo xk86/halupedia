@@ -2,17 +2,36 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { basename, resolve } from "node:path";
 import { parse } from "smol-toml";
 
+// Matches a `key = """…"""` OR `key = '''…'''` multiline string assignment so a
+// re-save can replace either quoting style in place.
 const TRIPLE_QUOTE_RE = (key: string) =>
-  new RegExp(`(^${key}\\s*=\\s*""")[\\s\\S]*?(""")`, "m");
+  new RegExp(`(^${key}\\s*=\\s*)("""[\\s\\S]*?"""|'''[\\s\\S]*?''')`, "m");
+
+/**
+ * Serialize an arbitrary string as a TOML multiline value. Prompts are plain
+ * text and may contain backslashes, quotes, `{{vars}}`, JSON, etc. — none of
+ * which we want TOML to reinterpret. A literal string (`'''…'''`) processes no
+ * escapes, so it round-trips the bytes exactly; it's used whenever the text has
+ * no `'''` delimiter. Otherwise we fall back to a basic string (`"""…"""`) and
+ * escape backslashes and triple-quote runs. The result is therefore *always*
+ * valid TOML regardless of the input.
+ */
+export function tomlMultilineValue(value: string): string {
+  const body = value.replace(/\n+$/, "");
+  if (!body.includes("'''")) {
+    return `'''\n${body}\n'''`;
+  }
+  const escaped = body.replace(/\\/g, "\\\\").replace(/"""/g, '""\\"');
+  return `"""\n${escaped}\n"""`;
+}
 
 export function replaceTomlTripleQuoted(
   source: string,
   key: string,
   value: string,
-): string | null {
-  if (value.includes('"""')) return null;
+): string {
   const pattern = TRIPLE_QUOTE_RE(key);
-  const replacement = `${key} = """\n${value}\n"""`;
+  const replacement = `${key} = ${tomlMultilineValue(value)}`;
   if (pattern.test(source)) {
     return source.replace(pattern, replacement);
   }
@@ -117,12 +136,9 @@ export function writePromptFile(
   if (!existsSync(path)) return { error: "prompt not found" };
 
   let source = readFileSync(path, "utf8");
-  const nextSystem = replaceTomlTripleQuoted(source, "system", system);
-  if (nextSystem === null) return { error: 'system text must not contain """' };
-  source = nextSystem;
-  const nextUser = replaceTomlTripleQuoted(source, "user", user);
-  if (nextUser === null) return { error: 'user text must not contain """' };
-  writeFileSync(path, nextUser);
+  source = replaceTomlTripleQuoted(source, "system", system);
+  source = replaceTomlTripleQuoted(source, "user", user);
+  writeFileSync(path, source);
   return null;
 }
 
@@ -175,13 +191,9 @@ function writeTomlPromptFile(
     `thinking = ${options.thinking === true ? "true" : "false"}`,
     `json = ${options.json === true ? "true" : "false"}`,
     "",
-    `system = """`,
-    system,
-    `"""`,
+    `system = ${tomlMultilineValue(system)}`,
     "",
-    `user = """`,
-    user,
-    `"""`,
+    `user = ${tomlMultilineValue(user)}`,
     "",
   ].join("\n");
   writeFileSync(path, source);
@@ -195,9 +207,6 @@ export function createArticleImagePresetFile(
 ): { error: string } | ArticleImagePresetContent {
   if (!safeKey(key)) return { error: "invalid key" };
   if (key === "default") return { error: "default preset is reserved" };
-  if (system.includes('"""') || user.includes('"""')) {
-    return { error: 'prompt text must not contain """' };
-  }
   mkdirSync(ARTICLE_IMAGE_PRESET_DIR, { recursive: true });
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (existsSync(path)) return { error: "preset already exists" };
@@ -216,12 +225,9 @@ export function writeArticleImagePresetFile(
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return { error: "preset not found" };
   let source = readFileSync(path, "utf8");
-  const nextSystem = replaceTomlTripleQuoted(source, "system", system);
-  if (nextSystem === null) return { error: 'system text must not contain """' };
-  source = nextSystem;
-  const nextUser = replaceTomlTripleQuoted(source, "user", user);
-  if (nextUser === null) return { error: 'user text must not contain """' };
-  writeFileSync(path, nextUser);
+  source = replaceTomlTripleQuoted(source, "system", system);
+  source = replaceTomlTripleQuoted(source, "user", user);
+  writeFileSync(path, source);
   return null;
 }
 

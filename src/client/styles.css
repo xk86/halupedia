@@ -1289,6 +1289,28 @@ a:hover {
   opacity: 0.6;
 }
 
+/* Plain-text mode: an auto-growing textarea that fills the .mdedit box. No
+   markdown round-trip — used for prompts and other literal text. */
+.mdedit-plain {
+  width: 100%;
+  flex: 1;
+  resize: none;
+  overflow: hidden;
+  display: block;
+  padding: 0.65rem 0.75rem;
+  border: none;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--ink);
+  outline: none;
+}
+
+.mdedit-plain::placeholder {
+  color: var(--ink-fade);
+}
+
 /* ProseMirror WYSIWYG surface. The mount element itself becomes the
    contenteditable (ProseMirror adds the .ProseMirror class to it). */
 .mdedit-pm {
@@ -1966,15 +1988,6 @@ prosekit-inline-popover-popup.mdedit-bubble {
 
 .admin-prompt-mdedit {
   margin-top: 0.3rem;
-}
-
-.admin-prompt-mdedit .mdedit-block,
-.admin-prompt-mdedit .mdedit-blocks {
-  font-size: 0.88rem;
-}
-
-.admin-prompt-mdedit .mdedit-blocks {
-  min-height: 10rem;
 }
 
 .raw-edit-preview-pane {

@@ -632,6 +632,7 @@ export function PromptEditorPane() {
             <label className="admin-prompt-label">
               System
               <MarkdownEditor
+                plainText
                 className="admin-prompt-mdedit"
                 value={system}
                 onChange={(v) => {
@@ -646,6 +647,7 @@ export function PromptEditorPane() {
             <label className="admin-prompt-label">
               User
               <MarkdownEditor
+                plainText
                 className="admin-prompt-mdedit"
                 value={user}
                 onChange={(v) => {

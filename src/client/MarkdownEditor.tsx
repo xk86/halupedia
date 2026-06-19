@@ -32,6 +32,14 @@ interface MarkdownEditorProps {
   className?: string;
   /** Rows hint for the raw-source textarea minimum height. */
   minRows?: number;
+  /**
+   * Edit the value as literal plain text instead of WYSIWYG markdown. Used for
+   * prompts and other non-markdown text: the rich editor would round-trip the
+   * content through markdown (escaping `_`, reflowing JSON/`{{vars}}`, forcing
+   * block structure) and corrupt it. In this mode the value passes through
+   * verbatim — what you type is exactly what's stored.
+   */
+  plainText?: boolean;
 }
 
 type LinkScheme = "ref" | "halu" | "url";
@@ -51,6 +59,57 @@ interface LinkDraft {
  * toggle drops to a raw markdown textarea for bulk edits.
  */
 export function MarkdownEditor(props: MarkdownEditorProps) {
+  if (props.plainText) return <PlainTextEditor {...props} />;
+  return <RichMarkdownEditor {...props} />;
+}
+
+/**
+ * Plain-text editor: an auto-growing textarea wearing the same `.mdedit` chrome
+ * as the rich editor, so prompts edit inline with no toolbar, no block model,
+ * and no markdown round-trip. The stored value is exactly the typed text.
+ */
+function PlainTextEditor({
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  className,
+  minRows = 4,
+}: MarkdownEditorProps) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  const grow = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  // Re-fit when the value changes externally (load, reset, revert).
+  useEffect(grow, [grow, value]);
+
+  return (
+    <div
+      className={`mdedit mdedit--plain${disabled ? " mdedit--disabled" : ""}${className ? ` ${className}` : ""}`}
+    >
+      <textarea
+        ref={ref}
+        className="mdedit-plain"
+        value={value}
+        spellCheck={false}
+        disabled={disabled}
+        placeholder={placeholder}
+        rows={minRows}
+        onChange={(e) => {
+          onChange(e.target.value);
+          grow();
+        }}
+      />
+    </div>
+  );
+}
+
+function RichMarkdownEditor(props: MarkdownEditorProps) {
   const { value } = props;
   const editor = useMemo<Editor>(
     () =>

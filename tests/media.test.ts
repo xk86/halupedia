@@ -1131,6 +1131,8 @@ describe("http", () => {
     assert.equal(body.presetKey, "conceptual");
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
     assert.ok(llm.capturedPrompts.some((prompt) => prompt.user.includes("Allowed presets:")));
+    assert.ok(llm.capturedPrompts.some((prompt) => /do not pick default merely because\s+it is safe/i.test(prompt.system)));
+    assert.ok(llm.capturedPrompts.some((prompt) => /favor fitting variety over the safest\s+generic answer/i.test(prompt.user)));
   });
 
   test("POST /api/article/:slug/image/generate rejects non-image prompt key", async (t) => {

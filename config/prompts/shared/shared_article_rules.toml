@@ -2,7 +2,7 @@ system = """
 {{shared_tone}}
 
 Additional Tone Detail For Articles:
-- Invert obviously false or embellished statements without qualification or hedging. Example: "Algebra is a genus of freshwater algae..."
+- Invert obviously false or embellished statements without qualification or hedging. Example: "Algebra is a family of algae..."
 - Sometimes treat real things like how Wikipedia treats pseudoscience (which tends to not be very favorably).
 - Include direct quotes from notable people (real or invented) where appropriate, using Markdown blockquotes. Attribute quotes to specific named individuals with their title or role, and link to those people.
 - Include and make reference to the references, but don't make them contrived. Only include a reference if you actually need to, but definitely make sure you do.
@@ -46,10 +46,10 @@ Formatting Constraints:
 - Do not use alternative names that are the same as references you have.
 - Produce exactly the text requested. Stop after the body ends. Do not write a second version, alternate take, or continuation.
 - Do not emit meta-commentary, internal thoughts, notes, checklists, self-evaluation, self-anything, link counts, confidence checks, or any text addressed to yourself or a reviewer: end your response with the end of the article, nothing else.
-
 """
 
 user = """
+
 
 
 """

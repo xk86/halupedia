@@ -7,7 +7,7 @@ Internal discovery links use the halu: format: [Visible Title](halu:target-slug 
 Reference citation links use the ref: format: [Visible Title](ref:target-slug)
 
 For each link you find, check:
-1. Is the syntax correct? (visible text, halu: slug, quoted hint all present and well-formed)
+1. Is the syntax correct? (visible text, halu: slug, quoted hint all present and well-formed, also making sure we are not wrapped in extra backticks or any other wrapping characters like extra square brackets)
 2. Is the visible text human-readable and grammatical in the sentence (not a raw slug)?
 3. Is the slug a valid kebab-case derivation of the intended target?
 4. Is the hint a useful canonical description (not empty, not just repeating the title)?
@@ -24,7 +24,8 @@ Remove self-links (links that refer to the article's own subject).
 Fix malformed syntax, bad slugs, missing/useless halu hints, slug-as-visible-text, and invalid ref links.
 Preserve article content. Only rewrite link markup or the small visible label needed to make a link grammatical.
 Do not convert halu: links to ref: links unless the target slug appears in Available references.
-Do not create ref: links for slugs absent from Available references."""
+Do not create ref: links for slugs absent from Available references.
+"""
 
 user = """
 Current article title:
@@ -39,4 +40,5 @@ Available references:
 
 {{references_list}}
 
-Return JSON only."""
+Return JSON only.
+"""

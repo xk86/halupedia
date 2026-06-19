@@ -1,6 +1,6 @@
 #{{shared_tone}}
 model = "light"
-thinking = false
+thinking = true
 system = """
 You are creating the name of a new title and slug that matches the existing ones presented.
 

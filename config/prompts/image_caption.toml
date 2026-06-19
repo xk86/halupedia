@@ -6,13 +6,13 @@ system = """
 {{shared_tone}}
 
 You are writing a brief, article-specific image caption. The caption is what appears
-alongside the image in a particular article — it should be contextual to that article's
+alongside the image in the top in a particular article — it should be contextual to that article's
 perspective, not a generic description of the image.
 
 Return a JSON object with one field:
 
 {
-  "caption": "Brief caption, under 12 words."
+  "caption": "Describe how the article subject relates to the image in this caption. You should highlight multiple details in the image, but they have to be relevant in-context for the article."
 }
 
 Rules:
@@ -31,4 +31,5 @@ Article context:
 {{article_excerpt}}
 
 Write a caption for this image as it appears in this article.
+
 """

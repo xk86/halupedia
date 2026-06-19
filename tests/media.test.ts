@@ -1156,9 +1156,85 @@ describe("http", () => {
     const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.user.includes("Allowed presets:"));
     assert.ok(selectorPrompt);
     assert.match(selectorPrompt.system, /intentionally shuffled per article/i);
+    assert.match(selectorPrompt.system, /Screenshots are a narrow fit/i);
     assert.ok(selectorPrompt.user.includes("- photo:"));
     assert.ok(selectorPrompt.user.includes("- psychedelic_editorial:"));
+    assert.match(selectorPrompt.user, /- screenshot: .*narrow preset/i);
     assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 1);
+  });
+
+  test("POST /api/article/:slug/image/generate retries malformed auto preset responses", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedPrompt = "";
+    setImageGenerationFetchForTests(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      capturedPrompt = body.prompt ?? "";
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const logEntries: Array<{ level: string; event: string; fields?: Record<string, unknown> }> = [];
+    const llm = new FakeLlm([
+      "I choose psychedelic_editorial because it seems right.",
+      '{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial best fits the article after retry."}',
+    ]);
+    const s = await makeTestServer(llm, enabledOpenAiImageGeneration, captureLogger(logEntries)); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "psychedelic_editorial");
+    assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
+    const selectorPrompts = llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:"));
+    assert.equal(selectorPrompts.length, 2);
+    assert.match(selectorPrompts[1].user, /Previous response was rejected/i);
+    assert.ok(logEntries.some((entry) =>
+      entry.event === "article_image.preset_selection_invalid" &&
+      entry.fields?.attempt === 1
+    ));
+  });
+
+  test("POST /api/article/:slug/image/generate rejects auto preset responses after retry exhaustion", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let imageFetchCalls = 0;
+    setImageGenerationFetchForTests(async () => {
+      imageFetchCalls += 1;
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const logEntries: Array<{ level: string; event: string; fields?: Record<string, unknown> }> = [];
+    const llm = new FakeLlm([
+      "psychedelic_editorial",
+      '{"presetKey":42,"reason":"wrong type"}',
+      '{"presetKey":"not_allowed","reason":"unknown preset"}',
+    ]);
+    const s = await makeTestServer(llm, enabledOpenAiImageGeneration, captureLogger(logEntries)); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json() as any;
+    assert.match(body.error, /preset selection returned invalid JSON/i);
+    assert.equal(imageFetchCalls, 0);
+    assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 3);
+    assert.ok(logEntries.some((entry) =>
+      entry.event === "article_image.preset_selection_invalid" &&
+      entry.fields?.attempt === 3
+    ));
   });
 
   test("article image generation workflow keeps preset selection passes as pipeline nodes", () => {

@@ -1133,6 +1133,12 @@ describe("http", () => {
     assert.ok(llm.capturedPrompts.some((prompt) => prompt.user.includes("Allowed presets:")));
     assert.ok(llm.capturedPrompts.some((prompt) => /do not pick default merely because\s+it is safe/i.test(prompt.system)));
     assert.ok(llm.capturedPrompts.some((prompt) => /favor fitting variety over the safest\s+generic answer/i.test(prompt.user)));
+    const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.user.includes("Allowed presets:"));
+    assert.ok(selectorPrompt);
+    assert.ok(
+      selectorPrompt.user.indexOf("- default:") > selectorPrompt.user.indexOf("- conceptual:"),
+      "default should be listed after specialized presets",
+    );
   });
 
   test("POST /api/article/:slug/image/generate rejects non-image prompt key", async (t) => {

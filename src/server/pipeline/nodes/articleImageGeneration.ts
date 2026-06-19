@@ -27,16 +27,16 @@ function promptSummary(text: string): string {
 function availableImagePresetsForPrompt(): string {
   const defaultPrompt = readPromptFile("runnable", "article_image");
   const rows = [
+    ...listArticleImagePresetFiles().map((preset) => ({
+      key: preset.key,
+      description: promptSummary(`${preset.system}\n${preset.user}`),
+    })),
     {
       key: "default",
       description: defaultPrompt
         ? promptSummary(`${defaultPrompt.system}\n${defaultPrompt.user}`)
         : "Default photoreal editorial/documentary article image.",
     },
-    ...listArticleImagePresetFiles().map((preset) => ({
-      key: preset.key,
-      description: promptSummary(`${preset.system}\n${preset.user}`),
-    })),
   ];
   return rows.map((row) => `- ${row.key}: ${row.description}`).join("\n");
 }

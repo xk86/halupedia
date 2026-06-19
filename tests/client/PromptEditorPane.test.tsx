@@ -102,7 +102,6 @@ describe("PromptEditorPane image presets", () => {
     expect(await screen.findByText("psychedelic editorial system")).toBeInTheDocument();
 
     const systemLabel = screen.getByText("System").closest("label") as HTMLElement;
-    await user.click(within(systemLabel).getByText("Raw text"));
     const systemInput = within(systemLabel).getByDisplayValue("psychedelic editorial system");
     await user.clear(systemInput);
     await user.type(systemInput, "updated psychedelic editorial system");

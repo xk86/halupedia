@@ -19,6 +19,12 @@ if (!Element.prototype.releasePointerCapture) {
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
+// ProseKit's inline-popover web component (via aria-ui) calls getAnimations on
+// the host element when it connects; jsdom doesn't implement the Web Animations
+// API, so stub it to an empty list.
+if (!Element.prototype.getAnimations) {
+  Element.prototype.getAnimations = () => [];
+}
 if (typeof globalThis.ResizeObserver === "undefined") {
   globalThis.ResizeObserver = class {
     observe() {}

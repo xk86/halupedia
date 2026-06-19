@@ -1,17 +1,26 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "prosekit/basic/style.css";
 import { defineBasicExtension } from "prosekit/basic";
 import { createEditor, definePasteHandler } from "prosekit/core";
+import type { Editor } from "prosekit/core";
 import { definePlaceholder } from "@prosekit/extensions/placeholder";
 import { defineReadonly } from "@prosekit/extensions/readonly";
-import { ProseKit, useDocChange, useExtension } from "prosekit/react";
-import type { Editor } from "prosekit/core";
+import {
+  ProseKit,
+  useDocChange,
+  useEditorDerivedValue,
+  useExtension,
+} from "prosekit/react";
+import {
+  InlinePopoverPopup,
+  InlinePopoverPositioner,
+  InlinePopoverRoot,
+} from "prosekit/react/inline-popover";
+import {
+  ArticleSearchDropdown,
+  SEARCH_INPUT,
+  type Suggestion,
+} from "./ArticleSearchDropdown";
 import { htmlToMarkdown, markdownToHtml } from "./markdown/mdBridge";
 
 interface MarkdownEditorProps {
@@ -25,17 +34,24 @@ interface MarkdownEditorProps {
   minRows?: number;
 }
 
+type LinkScheme = "ref" | "halu" | "url";
+interface LinkDraft {
+  scheme: LinkScheme;
+  slug: string;
+  /** Visible text to insert when there's no selection (e.g. a picked title). */
+  text: string;
+}
+
 /**
  * WYSIWYG markdown editor built on ProseKit (ProseMirror). The document is
  * edited as rich text; markdown is the storage format, round-tripped through
- * HTML on load and change. Typing markdown syntax (e.g. `## `, `**bold**`)
- * converts inline via ProseKit's input rules, and pasting a block of markdown
- * is parsed into rich content. A footer toggle drops to a raw-markdown textarea
- * for bulk edits or syntax this editor can't model.
+ * HTML on load and change. A top toolbar reflects the active block/marks and
+ * surfaces the active link's target or a heading's markdown; selecting text
+ * raises an inline popover; the link tool searches existing articles. A footer
+ * toggle drops to a raw markdown textarea for bulk edits.
  */
 export function MarkdownEditor(props: MarkdownEditorProps) {
   const { value } = props;
-  // Created once; external value changes are applied via setContent in Inner.
   const editor = useMemo<Editor>(
     () =>
       createEditor({
@@ -63,13 +79,10 @@ function Inner({
   minRows = 2,
 }: MarkdownEditorProps & { editor: Editor }) {
   const [rawMode, setRawMode] = useState(false);
-  // Canonical markdown the editor currently holds — distinguishes our own
-  // change round-trip from an external reset (parent loading new content).
+  const [linkDraft, setLinkDraft] = useState<LinkDraft | null>(null);
   const lastMd = useRef(value);
-
-  // Editor doc -> markdown. Conversion is async (remark/rehype), so we serialize
-  // through a token to drop stale results when edits arrive faster than convert.
   const convertToken = useRef(0);
+
   const emit = useCallback(() => {
     const token = ++convertToken.current;
     const html = editor.getDocHTML();
@@ -83,20 +96,17 @@ function Inner({
 
   useDocChange(emit, { editor });
 
-  // External value -> editor doc. Only fires for genuine external resets, never
-  // for our own emitted changes (which already match lastMd).
+  // External value -> editor doc (only on genuine external resets).
   useEffect(() => {
     if (value === lastMd.current) return;
     lastMd.current = value;
     editor.setContent(value ? markdownToHtml(value) : "<p></p>", "end");
   }, [editor, value]);
 
-  // Disabled <-> readonly, applied reactively.
   useExtension(
     useMemo(() => (disabled ? defineReadonly() : null), [disabled]),
     { editor },
   );
-
   useExtension(
     useMemo(
       () => (placeholder ? definePlaceholder({ placeholder }) : null),
@@ -104,18 +114,13 @@ function Inner({
     ),
     { editor },
   );
-
-  // Paste a block of raw markdown -> parse it into rich content. Only intercept
-  // plain-text pastes that actually look like markdown; rich HTML and ordinary
-  // prose fall through to ProseMirror's default handling.
   useExtension(
     useMemo(
       () =>
         definePasteHandler((view, event) => {
           const data = event.clipboardData;
           if (!data) return false;
-          const html = data.getData("text/html");
-          if (html) return false;
+          if (data.getData("text/html")) return false;
           const text = data.getData("text/plain");
           if (!text || !looksLikeMarkdown(text)) return false;
           return view.pasteHTML(markdownToHtml(text));
@@ -124,6 +129,10 @@ function Inner({
     ),
     { editor },
   );
+
+  const openLinkEditor = useCallback(() => {
+    setLinkDraft(linkDraftFromSelection(editor));
+  }, [editor]);
 
   if (rawMode) {
     return (
@@ -157,7 +166,18 @@ function Inner({
     <div
       className={`mdedit${disabled ? " mdedit--disabled" : ""}${className ? ` ${className}` : ""}`}
     >
+      {!disabled && <Toolbar editor={editor} onEditLink={openLinkEditor} />}
+      {!disabled && linkDraft && (
+        <LinkPanel
+          editor={editor}
+          initial={linkDraft}
+          onClose={() => setLinkDraft(null)}
+        />
+      )}
       <div ref={editor.mount} className="mdedit-pm" />
+      {!disabled && (
+        <SelectionPopover editor={editor} onEditLink={openLinkEditor} />
+      )}
       <div className="mdedit-footer">
         <span className="mdedit-hint">
           Type or paste markdown — it renders as you write
@@ -174,17 +194,522 @@ function Inner({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Toolbar + active-state readout
+// ---------------------------------------------------------------------------
+
+interface ToolbarState {
+  bold: { active: boolean; can: boolean };
+  italic: { active: boolean; can: boolean };
+  code: { active: boolean; can: boolean };
+  strike: { active: boolean; can: boolean };
+  bulletList: boolean;
+  orderedList: boolean;
+  blockquote: boolean;
+  headings: Array<{ level: number; active: boolean }>;
+  context: ContextInfo;
+}
+
+type ContextInfo =
+  | { kind: "heading"; level: number; markdown: string }
+  | { kind: "link"; href: string }
+  | { kind: "code" }
+  | null;
+
+function getToolbarState(editor: Editor): ToolbarState {
+  const m = editor.marks as Record<string, { isActive: (a?: any) => boolean }>;
+  const n = editor.nodes as Record<string, { isActive: (a?: any) => boolean }>;
+  const c = editor.commands as Record<
+    string,
+    { canExec: (...a: any) => boolean }
+  >;
+  const mark = (name: string, attrs?: any) => Boolean(m[name]?.isActive(attrs));
+  const node = (name: string, attrs?: any) => Boolean(n[name]?.isActive(attrs));
+
+  return {
+    bold: { active: mark("bold"), can: Boolean(c.toggleBold?.canExec()) },
+    italic: { active: mark("italic"), can: Boolean(c.toggleItalic?.canExec()) },
+    code: { active: mark("code"), can: Boolean(c.toggleCode?.canExec()) },
+    strike: { active: mark("strike"), can: Boolean(c.toggleStrike?.canExec()) },
+    bulletList: node("list", { kind: "bullet" }),
+    orderedList: node("list", { kind: "ordered" }),
+    blockquote: node("blockquote"),
+    headings: [1, 2, 3].map((level) => ({
+      level,
+      active: node("heading", { level }),
+    })),
+    context: activeContext(editor),
+  };
+}
+
+function Toolbar({
+  editor,
+  onEditLink,
+}: {
+  editor: Editor;
+  onEditLink: () => void;
+}) {
+  const s = useEditorDerivedValue(getToolbarState, { editor });
+  const cmd = editor.commands as Record<string, (...a: any) => void>;
+
+  return (
+    <div className="mdedit-toolbar">
+      <div className="mdedit-tool-group">
+        {s.headings.map(({ level, active }) => (
+          <button
+            key={level}
+            type="button"
+            className={`mdedit-tool${active ? " mdedit-tool--active" : ""}`}
+            title={`Heading ${level}`}
+            onClick={() => cmd.toggleHeading?.({ level })}
+          >
+            H{level}
+          </button>
+        ))}
+      </div>
+      <span className="mdedit-tool-sep" />
+      <div className="mdedit-tool-group">
+        <ToolButton
+          label="B"
+          title="Bold"
+          strong
+          state={s.bold}
+          onClick={() => cmd.toggleBold?.()}
+        />
+        <ToolButton
+          label="I"
+          title="Italic"
+          italic
+          state={s.italic}
+          onClick={() => cmd.toggleItalic?.()}
+        />
+        <ToolButton
+          label="S"
+          title="Strikethrough"
+          strike
+          state={s.strike}
+          onClick={() => cmd.toggleStrike?.()}
+        />
+        <ToolButton
+          label="<>"
+          title="Inline code"
+          mono
+          state={s.code}
+          onClick={() => cmd.toggleCode?.()}
+        />
+        <button
+          type="button"
+          className={`mdedit-tool${s.context?.kind === "link" ? " mdedit-tool--active" : ""}`}
+          title="Link to an article or URL"
+          onClick={onEditLink}
+        >
+          ⌘
+        </button>
+      </div>
+      <span className="mdedit-tool-sep" />
+      <div className="mdedit-tool-group">
+        <button
+          type="button"
+          className={`mdedit-tool${s.bulletList ? " mdedit-tool--active" : ""}`}
+          title="Bullet list"
+          onClick={() => cmd.toggleList?.({ kind: "bullet" })}
+        >
+          •
+        </button>
+        <button
+          type="button"
+          className={`mdedit-tool${s.orderedList ? " mdedit-tool--active" : ""}`}
+          title="Numbered list"
+          onClick={() => cmd.toggleList?.({ kind: "ordered" })}
+        >
+          1.
+        </button>
+        <button
+          type="button"
+          className={`mdedit-tool${s.blockquote ? " mdedit-tool--active" : ""}`}
+          title="Quote"
+          onClick={() => cmd.toggleBlockquote?.()}
+        >
+          ❝
+        </button>
+      </div>
+      <span className="mdedit-tool-spacer" />
+      <ContextReadout context={s.context} />
+    </div>
+  );
+}
+
+function ToolButton({
+  label,
+  title,
+  state,
+  onClick,
+  strong,
+  italic,
+  strike,
+  mono,
+}: {
+  label: string;
+  title: string;
+  state: { active: boolean; can: boolean };
+  onClick: () => void;
+  strong?: boolean;
+  italic?: boolean;
+  strike?: boolean;
+  mono?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`mdedit-tool${state.active ? " mdedit-tool--active" : ""}`}
+      title={title}
+      disabled={!state.can}
+      style={{
+        fontWeight: strong ? 700 : undefined,
+        fontStyle: italic ? "italic" : undefined,
+        textDecoration: strike ? "line-through" : undefined,
+        fontFamily: mono ? "var(--mono)" : undefined,
+      }}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ContextReadout({ context }: { context: ContextInfo }) {
+  if (!context) {
+    return (
+      <span className="mdedit-context mdedit-context--muted">Paragraph</span>
+    );
+  }
+  if (context.kind === "heading") {
+    return (
+      <span className="mdedit-context" title={`Heading ${context.level}`}>
+        <span className="mdedit-context-target">{context.markdown}</span>
+      </span>
+    );
+  }
+  if (context.kind === "link") {
+    return (
+      <span className="mdedit-context">
+        Link
+        <span className="mdedit-context-target">{context.href}</span>
+      </span>
+    );
+  }
+  return <span className="mdedit-context">Code</span>;
+}
+
+// ---------------------------------------------------------------------------
+// Selection inline popover ("a little simple edit thing that shows what it is")
+// ---------------------------------------------------------------------------
+
+function SelectionPopover({
+  editor,
+  onEditLink,
+}: {
+  editor: Editor;
+  onEditLink: () => void;
+}) {
+  const s = useEditorDerivedValue(getToolbarState, { editor });
+  const cmd = editor.commands as Record<string, (...a: any) => void>;
+
+  return (
+    <InlinePopoverRoot>
+      <InlinePopoverPositioner>
+        <InlinePopoverPopup className="mdedit-bubble">
+          <span className="mdedit-bubble-label">{selectionLabel(s)}</span>
+          <span className="mdedit-bubble-sep" />
+          <button
+            type="button"
+            className={`mdedit-bubble-btn${s.bold.active ? " is-active" : ""}`}
+            style={{ fontWeight: 700 }}
+            title="Bold"
+            onClick={() => cmd.toggleBold?.()}
+          >
+            B
+          </button>
+          <button
+            type="button"
+            className={`mdedit-bubble-btn${s.italic.active ? " is-active" : ""}`}
+            style={{ fontStyle: "italic" }}
+            title="Italic"
+            onClick={() => cmd.toggleItalic?.()}
+          >
+            I
+          </button>
+          <button
+            type="button"
+            className={`mdedit-bubble-btn${s.code.active ? " is-active" : ""}`}
+            style={{ fontFamily: "var(--mono)" }}
+            title="Inline code"
+            onClick={() => cmd.toggleCode?.()}
+          >
+            {"<>"}
+          </button>
+          <button
+            type="button"
+            className={`mdedit-bubble-btn${s.context?.kind === "link" ? " is-active" : ""}`}
+            title="Link"
+            onClick={onEditLink}
+          >
+            ⌘ Link
+          </button>
+        </InlinePopoverPopup>
+      </InlinePopoverPositioner>
+    </InlinePopoverRoot>
+  );
+}
+
+function selectionLabel(s: ToolbarState): string {
+  if (s.context?.kind === "link") return `Link → ${s.context.href}`;
+  if (s.context?.kind === "heading") return s.context.markdown;
+  const marks = [
+    s.bold.active && "Bold",
+    s.italic.active && "Italic",
+    s.code.active && "Code",
+    s.strike.active && "Strike",
+  ].filter(Boolean);
+  return marks.length ? marks.join(" + ") : "Text";
+}
+
+// ---------------------------------------------------------------------------
+// Link editor — article search + scheme + slug
+// ---------------------------------------------------------------------------
+
+const SCHEMES: Array<{ id: LinkScheme; label: string }> = [
+  { id: "ref", label: "ref:" },
+  { id: "halu", label: "halu:" },
+  { id: "url", label: "url" },
+];
+
+function LinkPanel({
+  editor,
+  initial,
+  onClose,
+}: {
+  editor: Editor;
+  initial: LinkDraft;
+  onClose: () => void;
+}) {
+  const [scheme, setScheme] = useState<LinkScheme>(initial.scheme);
+  const [slug, setSlug] = useState(initial.slug);
+  const [query, setQuery] = useState("");
+
+  const apply = useCallback(
+    (over?: Partial<LinkDraft>) => {
+      const sc = over?.scheme ?? scheme;
+      const raw = (over?.slug ?? slug).trim();
+      if (!raw) return;
+      const href = sc === "url" ? raw : `${sc}:${slugify(raw)}`;
+      applyLink(editor, href, over?.text ?? initial.text);
+      onClose();
+    },
+    [editor, scheme, slug, initial.text, onClose],
+  );
+
+  const pick = useCallback(
+    (s: Suggestion) =>
+      apply({
+        scheme: scheme === "url" ? "ref" : scheme,
+        slug: s.slug,
+        text: initial.text || s.title,
+      }),
+    [apply, scheme, initial.text],
+  );
+
+  return (
+    <div className="mdedit-linkpanel">
+      <div className="mdedit-linkpanel-row">
+        <div className="mdedit-tool-group">
+          {SCHEMES.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`mdedit-tool${scheme === s.id ? " mdedit-tool--active" : ""}`}
+              onClick={() => setScheme(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {scheme === "url" ? (
+          <input
+            className={SEARCH_INPUT}
+            value={slug}
+            autoFocus
+            placeholder="https://…"
+            onChange={(e) => setSlug(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") apply();
+              if (e.key === "Escape") onClose();
+            }}
+          />
+        ) : (
+          <ArticleSearchDropdown
+            query={query}
+            onQueryChange={setQuery}
+            onPick={pick}
+            placeholder="Search an article to link…"
+            wrapClassName="flex-1"
+            autoFocus
+          />
+        )}
+      </div>
+      <div className="mdedit-linkpanel-row">
+        <span className="mdedit-linkpanel-prefix">
+          {scheme === "url" ? "target" : `${scheme}:`}
+        </span>
+        <input
+          className={SEARCH_INPUT}
+          value={slug}
+          placeholder={scheme === "url" ? "https://…" : "slug"}
+          onChange={(e) => setSlug(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") apply();
+            if (e.key === "Escape") onClose();
+          }}
+        />
+        <button type="button" className="mdedit-mode-btn" onClick={() => apply()}>
+          Apply
+        </button>
+        <button
+          type="button"
+          className="mdedit-mode-btn"
+          onClick={() => {
+            (editor.commands as Record<string, () => void>).removeLink?.();
+            onClose();
+          }}
+        >
+          Remove
+        </button>
+        <button type="button" className="mdedit-mode-btn" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ProseMirror state helpers
+// ---------------------------------------------------------------------------
+
+function activeContext(editor: Editor): ContextInfo {
+  const href = activeLinkHref(editor);
+  if (href) return { kind: "link", href };
+  const heading = activeHeading(editor);
+  if (heading) return { kind: "heading", ...heading };
+  const marks = editor.marks as Record<string, { isActive: () => boolean }>;
+  if (marks.code?.isActive()) return { kind: "code" };
+  return null;
+}
+
+function activeLinkHref(editor: Editor): string | null {
+  const { state } = editor;
+  const linkType = state.schema.marks.link;
+  if (!linkType) return null;
+  const { selection } = state;
+  if (selection.empty) {
+    const $pos = selection.$from;
+    const marks = state.storedMarks ?? $pos.marks();
+    const stored = marks.find((mk) => mk.type === linkType);
+    if (stored) return String(stored.attrs.href ?? "");
+    const around = ($pos.nodeBefore ?? $pos.nodeAfter)?.marks.find(
+      (mk) => mk.type === linkType,
+    );
+    return around ? String(around.attrs.href ?? "") : null;
+  }
+  let href: string | null = null;
+  state.doc.nodesBetween(selection.from, selection.to, (node) => {
+    const mk = node.marks.find((x) => x.type === linkType);
+    if (mk) href = String(mk.attrs.href ?? "");
+  });
+  return href;
+}
+
+function activeHeading(
+  editor: Editor,
+): { level: number; markdown: string } | null {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth);
+    if (node.type.name === "heading") {
+      const level = Number(node.attrs.level ?? 1);
+      return { level, markdown: `${"#".repeat(level)} ${node.textContent}` };
+    }
+  }
+  return null;
+}
+
+function selectedText(editor: Editor): string {
+  const { state } = editor;
+  const { from, to, empty } = state.selection;
+  return empty ? "" : state.doc.textBetween(from, to, " ");
+}
+
+function linkDraftFromSelection(editor: Editor): LinkDraft {
+  const text = selectedText(editor);
+  const href = activeLinkHref(editor);
+  if (href) return { ...parseHref(href), text };
+  return { scheme: "ref", slug: "", text };
+}
+
+function parseHref(href: string): { scheme: LinkScheme; slug: string } {
+  if (href.startsWith("ref:")) return { scheme: "ref", slug: href.slice(4) };
+  if (href.startsWith("halu:")) {
+    // halu links may carry a `halu:slug hint` suffix — keep just the slug.
+    return { scheme: "halu", slug: href.slice(5).split(/["' ]/)[0] };
+  }
+  return { scheme: "url", slug: href };
+}
+
+/** Apply a link: re-mark an existing link, wrap a selection, or insert text. */
+function applyLink(editor: Editor, href: string, text: string): void {
+  const view = editor.view;
+  const state = view.state;
+  const linkType = state.schema.marks.link;
+  const cmd = editor.commands as Record<
+    string,
+    ((a?: any) => void) & { canExec?: (a?: any) => boolean }
+  >;
+
+  if (!state.selection.empty) {
+    cmd.addLink?.({ href });
+  } else if (cmd.expandLink?.canExec?.()) {
+    // Caret inside an existing link — select the whole link, then re-mark.
+    cmd.expandLink();
+    cmd.addLink?.({ href });
+  } else if (text && linkType) {
+    const from = state.selection.from;
+    const tr = state.tr.insertText(text, from);
+    tr.addMark(from, from + text.length, linkType.create({ href }));
+    view.dispatch(tr);
+  }
+  view.focus();
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
 /** Conservative test: does this plain-text paste contain markdown syntax? */
 function looksLikeMarkdown(text: string): boolean {
   return (
-    /^#{1,6}\s/m.test(text) || // heading
-    /\*\*[^*]+\*\*|__[^_]+__/.test(text) || // bold
-    /(^|\s)[*_][^*_\s][^*_]*[*_](\s|$)/.test(text) || // emphasis
-    /\[[^\]]+\]\([^)]+\)/.test(text) || // link
-    /^\s*[-*+]\s/m.test(text) || // bullet list
-    /^\s*\d+\.\s/m.test(text) || // ordered list
-    /^>\s/m.test(text) || // blockquote
-    /```|~~~/.test(text) || // fenced code
-    /\n\s*\n/.test(text) // multiple paragraphs
+    /^#{1,6}\s/m.test(text) ||
+    /\*\*[^*]+\*\*|__[^_]+__/.test(text) ||
+    /(^|\s)[*_][^*_\s][^*_]*[*_](\s|$)/.test(text) ||
+    /\[[^\]]+\]\([^)]+\)/.test(text) ||
+    /^\s*[-*+]\s/m.test(text) ||
+    /^\s*\d+\.\s/m.test(text) ||
+    /^>\s/m.test(text) ||
+    /```|~~~/.test(text) ||
+    /\n\s*\n/.test(text)
   );
 }

@@ -1411,6 +1411,169 @@ a:hover {
   outline: none;
 }
 
+/* Toolbar -------------------------------------------------------------- */
+.mdedit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--blockquote-bg, color-mix(in srgb, var(--bg) 92%, var(--ink) 8%));
+}
+
+.mdedit-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.mdedit-tool-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.15rem 0.25rem;
+  background: var(--rule);
+}
+
+.mdedit-tool-spacer {
+  flex: 1;
+}
+
+.mdedit-tool {
+  min-width: 1.7rem;
+  height: 1.7rem;
+  padding: 0 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.mdedit-tool:hover:not(:disabled) {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
+
+.mdedit-tool--active {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.mdedit-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.mdedit-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  padding-right: 0.2rem;
+  max-width: 55%;
+  overflow: hidden;
+}
+
+.mdedit-context--muted {
+  color: var(--ink-fade);
+}
+
+.mdedit-context-target {
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Link editor panel ---------------------------------------------------- */
+.mdedit-linkpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.55rem;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--accent) 8%, var(--blockquote-bg));
+}
+
+.mdedit-linkpanel-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mdedit-linkpanel-prefix {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--accent);
+  min-width: 3rem;
+}
+
+/* Selection inline popover --------------------------------------------- */
+.mdedit-bubble,
+prosekit-inline-popover-popup.mdedit-bubble {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.25rem 0.35rem;
+  background: var(--blockquote-bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
+}
+
+.mdedit-bubble-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--ink-fade);
+  padding: 0 0.35rem;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdedit-bubble-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.1rem 0.15rem;
+  background: var(--rule);
+}
+
+.mdedit-bubble-btn {
+  min-width: 1.7rem;
+  height: 1.7rem;
+  padding: 0 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mdedit-bubble-btn:hover {
+  background: var(--accent-wash);
+}
+
+.mdedit-bubble-btn.is-active {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .mdedit-footer {
   display: flex;
   align-items: center;

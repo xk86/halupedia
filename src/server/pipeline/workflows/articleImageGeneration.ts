@@ -14,11 +14,15 @@ export const articleImageGenerationWorkflow: WorkflowDefinition<PipelineDeps> = 
     { node: selectArticleImagePresetNode },
     {
       node: selectSpecializedArticleImagePresetNode,
-      when: (state) => state.input.imagePromptKey === "auto" && state.initialImagePromptKey === "default",
+      when: (state, deps) =>
+        deps.runtime.app.images.generation.auto_preset_multipass &&
+        state.input.imagePromptKey === "auto" &&
+        state.initialImagePromptKey === "default",
     },
     {
       node: judgeArticleImagePresetDefaultNode,
-      when: (state) =>
+      when: (state, deps) =>
+        deps.runtime.app.images.generation.auto_preset_multipass &&
         state.input.imagePromptKey === "auto" &&
         state.initialImagePromptKey === "default" &&
         Boolean(state.specializedImagePromptKey),

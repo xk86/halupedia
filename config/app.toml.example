@@ -92,6 +92,7 @@ allow_private_hosts = false
 enabled = false
 auto_generate_for_new_articles = false
 auto_generate_for_featured_article = false
+auto_preset_multipass = false
 backend = "openai" # openai | ollama
 
 [images.generation.openai]

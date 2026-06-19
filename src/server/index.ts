@@ -3263,14 +3263,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       promptConfigPath: "config/prompts",
       ragMode: runtime.app.rag.mode,
       modelConfigs,
-      imageGeneration: {
-        enabled: runtime.app.images.generation.enabled,
-        autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
-        backend: runtime.app.images.generation.backend,
-        openaiModel: runtime.app.images.generation.openai.model,
-        ollamaModel: runtime.app.images.generation.ollama.model,
-        ollamaBaseUrl: runtime.app.images.generation.ollama.base_url,
-        autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
+        imageGeneration: {
+          enabled: runtime.app.images.generation.enabled,
+          autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
+          autoPresetMultipass: runtime.app.images.generation.auto_preset_multipass,
+          backend: runtime.app.images.generation.backend,
+          openaiModel: runtime.app.images.generation.openai.model,
+          ollamaModel: runtime.app.images.generation.ollama.model,
+          ollamaBaseUrl: runtime.app.images.generation.ollama.base_url,
+          autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
       },
       promptModelAssociations: Object.keys(runtime.prompts.prompts)
         .sort()
@@ -3425,6 +3426,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         enabled: runtime.app.images.generation.enabled,
         autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
         autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
+        autoPresetMultipass: runtime.app.images.generation.auto_preset_multipass,
         backend: runtime.app.images.generation.backend,
         openai: {
           baseUrl: runtime.app.images.generation.openai.base_url,
@@ -3559,6 +3561,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       enabled?: unknown;
       autoGenerateForNewArticles?: unknown;
       autoGenerateForFeaturedArticle?: unknown;
+      autoPresetMultipass?: unknown;
       backend?: unknown;
       openai?: {
         baseUrl?: unknown;
@@ -3599,6 +3602,14 @@ export async function createApp(options: CreateAppOptions = {}) {
             "images.generation",
             "auto_generate_for_featured_article",
             body.autoGenerateForFeaturedArticle,
+          );
+        }
+        if (typeof body.autoPresetMultipass === "boolean") {
+          next = setTomlTableValue(
+            next,
+            "images.generation",
+            "auto_preset_multipass",
+            body.autoPresetMultipass,
           );
         }
         if (body.backend === "openai" || body.backend === "ollama") {

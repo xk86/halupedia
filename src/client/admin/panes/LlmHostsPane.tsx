@@ -82,6 +82,7 @@ interface ImageGenerationInfo {
   enabled: boolean;
   autoGenerateForNewArticles: boolean;
   autoGenerateForFeaturedArticle: boolean;
+  autoPresetMultipass: boolean;
   backend: "openai" | "ollama";
   openai: {
     baseUrl: string;
@@ -271,6 +272,9 @@ function ImageGenerationCard({
   const [autoGenerateFeatured, setAutoGenerateFeatured] = useState(
     info.autoGenerateForFeaturedArticle,
   );
+  const [autoPresetMultipass, setAutoPresetMultipass] = useState(
+    info.autoPresetMultipass,
+  );
   const [backend, setBackend] = useState<"openai" | "ollama">(info.backend);
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState(info.openai.baseUrl);
   const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -320,6 +324,13 @@ function ImageGenerationCard({
             onCheckedChange={(c) => setAutoGenerateFeatured(c === true)}
           />{" "}
           auto for featured
+        </label>
+        <label className="admin-thinking-toggle flex items-center gap-1.5">
+          <Checkbox
+            checked={autoPresetMultipass}
+            onCheckedChange={(c) => setAutoPresetMultipass(c === true)}
+          />{" "}
+          multipass auto preset
         </label>
       </div>
 
@@ -481,6 +492,7 @@ function ImageGenerationCard({
             enabled,
             autoGenerateForNewArticles: autoGenerate,
             autoGenerateForFeaturedArticle: autoGenerateFeatured,
+            autoPresetMultipass,
             backend,
             openai: {
               baseUrl: openaiBaseUrl,

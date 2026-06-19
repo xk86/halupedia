@@ -39,12 +39,12 @@ import {
 } from "./trace";
 
 /** Optional skip predicate — if it returns false, the node is skipped. */
-export type SkipPredicate = (state: PipelineState) => boolean;
+export type SkipPredicate<Deps> = (state: PipelineState, deps: Deps) => boolean;
 
 export interface WorkflowEdge<Deps> {
   node: CompiledNode<Deps>;
   /** Node is skipped when this returns false. */
-  when?: SkipPredicate;
+  when?: SkipPredicate<Deps>;
   /**
    * Nodes to run concurrently with `node`. All nodes in this group (including
    * `node` itself) start with the same input state and their patches are merged
@@ -109,7 +109,7 @@ export async function runWorkflow<Deps>(
 
   try {
     for (const edge of workflow.edges) {
-      if (edge.when && !edge.when(state)) {
+      if (edge.when && !edge.when(state, options.deps)) {
         options.logger?.debug("pipeline.node.skip", {
           workflow: workflow.name,
           run_id: runId,

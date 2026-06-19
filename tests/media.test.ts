@@ -179,6 +179,7 @@ const defaultIngestConfig = {
 
 const enabledOpenAiImageGeneration: Partial<ImageGenerationConfig> = {
   enabled: true,
+  auto_preset_multipass: true,
   backend: "openai",
   openai: {
     base_url: "https://api.openai.test/v1",
@@ -965,6 +966,7 @@ describe("http", () => {
     const s = await makeTestServer(new FakeLlm(), { enabled: false, auto_generate_for_featured_article: false }); t.after(s.cleanup);
     const body = await (await s.go("/api/admin/llm")).json() as any;
     assert.equal(body.imageGeneration.autoGenerateForFeaturedArticle, false);
+    assert.equal(body.imageGeneration.autoPresetMultipass, false);
   });
 
   test("POST /api/article/:slug/image/generate rejects when disabled", async (t) => {
@@ -1216,6 +1218,42 @@ describe("http", () => {
     assert.ok(presetLinesA.includes("- photo:"));
     assert.ok(presetLinesB.includes("- photo:"));
     assert.notDeepEqual(presetLinesA, presetLinesB);
+  });
+
+  test("POST /api/article/:slug/image/generate skips challenger pass when multipass is disabled", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedPrompt = "";
+    setImageGenerationFetchForTests(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      capturedPrompt = body.prompt ?? "";
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm([
+      '{"presetKey":"photo","reason":"Photo is the safest literal rendering."}',
+      '{"presetKey":"psychedelic_editorial","reason":"This response should not be used."}',
+    ]);
+    const s = await makeTestServer(
+      llm,
+      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
+    ); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "default");
+    assert.match(capturedPrompt, /high-end photoreal editorial image/i);
+    assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 1);
   });
 
   test("POST /api/article/:slug/image/generate lets a specialized challenger beat photo", async (t) => {

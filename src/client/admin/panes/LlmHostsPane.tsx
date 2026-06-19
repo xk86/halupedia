@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
@@ -118,12 +118,18 @@ export function LlmHostsPane() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Polled once a second; only re-render when the payload actually changes so an
+  // idle hosts pane doesn't reconcile every second.
+  const lastJson = useRef<string>("");
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/llm");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData((await res.json()) as LlmConfigResponse);
+      const json = await res.text();
       setError(null);
+      if (json === lastJson.current) return;
+      lastJson.current = json;
+      setData(JSON.parse(json) as LlmConfigResponse);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }

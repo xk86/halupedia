@@ -147,15 +147,25 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
     }
   }, []);
 
+  // The queue is polled once a second. Skip the state update (and the
+  // whole-tree re-render it triggers) when the payload is unchanged, so an idle
+  // admin page doesn't re-render every second — that re-render was the source of
+  // the scroll jank, since it reconciles all panes including the editors.
+  const lastQueueJson = useRef<string>("[]");
   const loadGenerationQueue = useCallback(async () => {
+    let next: GenerationQueueItem[] = [];
     try {
       const res = await fetch("/api/admin/generation-queue");
       if (!res.ok) throw new Error(`error ${res.status}`);
       const payload = await res.json();
-      setGenerationQueue(payload.items ?? []);
+      next = payload.items ?? [];
     } catch {
-      setGenerationQueue([]);
+      next = [];
     }
+    const json = JSON.stringify(next);
+    if (json === lastQueueJson.current) return;
+    lastQueueJson.current = json;
+    setGenerationQueue(next);
   }, []);
 
   const loadPipelineStatus = useCallback(async () => {

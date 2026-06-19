@@ -10,7 +10,7 @@ import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
 import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
 import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
 import { Button } from "@/components/ui/button";
-import { COUNT_LABEL, TOOLBAR } from "./admin/ui";
+import { Badge } from "@/components/ui/badge";
 
 interface AdminOverview {
   articleCount: number;
@@ -422,36 +422,58 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
   if (!overview) return null;
 
   return (
-    <div className="max-w-[67dvw] font-serif text-ink">
-      <header className="mb-[1.4rem] pb-[0.75rem] [border-bottom:2px_solid_var(--rule)]">
-        <h1 className="mx-0 mt-0 mb-[0.4rem] font-serif text-[2.2rem] font-medium tracking-[-0.005em] max-[600px]:text-[1.7rem]">
-          Admin
-        </h1>
-        <p className="m-0 text-[0.98rem] leading-[1.5] text-ink-soft italic">
-          Database, entry, link, server, and prompt surgery surface for local
-          tweaking and reloads.
-        </p>
-        <p className="mx-0 mt-[0.6rem] mb-0 font-mono text-[0.78rem] tracking-[0.12em] text-accent uppercase">
-          {overview.articleCount} articles • {overview.linkCount} links •{" "}
-          {overview.aliasCount} aliases
-        </p>
+    <div className="font-sans text-foreground">
+      <header className="mb-6 border-b border-border pb-5">
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <h1 className="m-0 font-serif text-[2.1rem] leading-none font-medium tracking-[-0.01em] max-[600px]:text-[1.6rem]">
+              Admin
+            </h1>
+            <p className="mt-2 mb-0 max-w-prose text-[0.92rem] leading-relaxed text-muted-foreground">
+              Database, entry, link, server, and prompt surgery surface for
+              local tweaking and reloads.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="gap-1.5 font-mono tabular-nums">
+              <span className="font-semibold text-foreground">
+                {overview.articleCount.toLocaleString()}
+              </span>
+              articles
+            </Badge>
+            <Badge variant="outline" className="gap-1.5 font-mono tabular-nums">
+              <span className="font-semibold text-foreground">
+                {overview.linkCount.toLocaleString()}
+              </span>
+              links
+            </Badge>
+            <Badge variant="outline" className="gap-1.5 font-mono tabular-nums">
+              <span className="font-semibold text-foreground">
+                {overview.aliasCount.toLocaleString()}
+              </span>
+              aliases
+            </Badge>
+            <Badge variant="secondary" className="gap-1.5 font-mono uppercase">
+              {overview.model}
+            </Badge>
+          </div>
+        </div>
       </header>
 
-      <div className={TOOLBAR}>
+      <div className="mb-6 flex flex-wrap items-center gap-2.5">
         <Button variant="default" onClick={reloadRuntime} disabled={reloading}>
           {reloading ? "Reloading..." : "Reload config and prompts"}
         </Button>
         <Button
-          variant="default"
+          variant="outline"
           onClick={resetFeaturedArticle}
           disabled={resettingFeatured}
         >
           {resettingFeatured ? "Resetting..." : "Reset featured article"}
         </Button>
-        <span className={COUNT_LABEL}>Model: {overview.model}</span>
       </div>
 
-      <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] items-start gap-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-4 [grid-auto-flow:row_dense]">
         <PipelinesPane
           workflows={pipelineWorkflows}
           runs={pipelineRuns}

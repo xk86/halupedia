@@ -2810,10 +2810,16 @@ export function App() {
       </header>
 
       <section
-        className={`layout${route.kind === "graph" ? "layout--graph" : ""}`}
+        className={`layout${
+          route.kind === "graph"
+            ? " layout--graph"
+            : route.kind === "admin"
+              ? " layout--admin"
+              : ""
+        }`}
       >
         <main className="layout-main">{mainView}</main>
-        {route.kind !== "graph" && (
+        {route.kind !== "graph" && route.kind !== "admin" && (
           <Sidebar
             articleSlug={articleSlug}
             articleTitle={articleTitle}

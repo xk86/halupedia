@@ -1,10 +1,12 @@
 import { ReactNode, useCallback, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { COUNT_LABEL } from "./ui";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface Props {
   id: string;
@@ -48,32 +50,40 @@ export function Pane({
   );
 
   return (
-    <Collapsible
-      open={!collapsed}
-      onOpenChange={(open) => setCollapsedPersist(!open)}
-      className="overflow-hidden rounded-[6px] bg-[var(--bg)] [border:1px_solid_var(--rule)] data-[span=wide]:col-[1/-1]"
+    <Card
       data-span={wide ? "wide" : undefined}
+      className="gap-0 overflow-hidden py-0 font-sans data-[span=wide]:col-[1/-1]"
     >
-      <div className="flex items-center justify-between gap-[0.5rem] bg-blockquote-bg px-[0.85rem] py-[0.6rem] [border-bottom:1px_solid_var(--rule)] hover:bg-[var(--hover-bg,color-mix(in_srgb,var(--blockquote-bg)_85%,var(--ink)_15%))]">
-        <CollapsibleTrigger className="group flex min-w-0 flex-1 cursor-pointer items-center gap-[0.5rem] text-left select-none">
-          <span
-            className="shrink-0 text-[0.75rem] text-ink-soft [transition:rotate_140ms_ease] group-not-data-[panel-open]:-rotate-90"
-            aria-hidden
-          >
-            ▾
-          </span>
-          <h3 className="sb-heading m-0! text-[0.85rem]!">{title}</h3>
-          {count !== undefined && <span className={COUNT_LABEL}>{count}</span>}
-        </CollapsibleTrigger>
-        {actions && (
-          <div className="flex shrink-0 items-center gap-[0.4rem]">
-            {actions}
-          </div>
-        )}
-      </div>
-      <CollapsibleContent>
-        <div className="p-[0.85rem]">{children}</div>
-      </CollapsibleContent>
-    </Collapsible>
+      <Collapsible
+        open={!collapsed}
+        onOpenChange={(open) => setCollapsedPersist(!open)}
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2.5 transition-colors hover:bg-muted/70">
+          <CollapsibleTrigger className="group/trigger flex min-w-0 flex-1 cursor-pointer appearance-none items-center gap-2 border-0 bg-transparent p-0 text-left select-none">
+            <ChevronDown
+              aria-hidden
+              className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-not-data-[panel-open]/trigger:-rotate-90"
+            />
+            <h3 className="m-0 truncate text-[0.92rem] leading-none font-semibold tracking-tight text-foreground">
+              {title}
+            </h3>
+            {count !== undefined && (
+              <Badge
+                variant="secondary"
+                className="ml-1 shrink-0 font-mono text-[0.68rem] font-normal tracking-wide text-muted-foreground tabular-nums uppercase"
+              >
+                {count}
+              </Badge>
+            )}
+          </CollapsibleTrigger>
+          {actions && (
+            <div className="flex shrink-0 items-center gap-1.5">{actions}</div>
+          )}
+        </div>
+        <CollapsibleContent>
+          <CardContent className="min-w-0 px-4 py-4">{children}</CardContent>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
   );
 }

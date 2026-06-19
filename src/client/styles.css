@@ -2186,7 +2186,8 @@ prosekit-inline-popover-popup.mdedit-bubble {
   grid-row: 1;
 }
 
-.layout--graph .layout-main {
+.layout--graph .layout-main,
+.layout--admin .layout-main {
   grid-column: 1 / -1;
   max-width: none;
 }

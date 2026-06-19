@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Pane } from "../Pane";
+import { Badge } from "@/components/ui/badge";
 import { toWikiSegment } from "../../wikiPath";
 
 interface QueueItem {
@@ -68,10 +69,10 @@ function LiveCot({ text }: { text: string }) {
   }, [text, open]);
 
   return (
-    <div className="mt-[0.2rem] flex-[1_1_100%]">
+    <div className="mt-1 w-full min-w-0 basis-full">
       <button
         type="button"
-        className="cursor-pointer border-none bg-none p-0 font-mono text-[0.72rem] tracking-[0.06em] text-ink-fade hover:text-ink"
+        className="cursor-pointer border-none bg-none p-0 font-mono text-[0.72rem] tracking-[0.06em] text-muted-foreground hover:text-foreground"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -80,7 +81,7 @@ function LiveCot({ text }: { text: string }) {
       {open && (
         <pre
           ref={boxRef}
-          className="mx-0 mt-[0.35rem] mb-0 max-h-[14rem] overflow-y-auto rounded-[4px] bg-[var(--surface-sunken,rgba(0,0,0,0.04))] px-[0.7rem] py-[0.55rem] font-mono text-[0.72rem] leading-[1.5] break-words whitespace-pre-wrap text-ink-fade [border:1px_solid_var(--rule)]"
+          className="mx-0 mt-1.5 mb-0 max-h-[14rem] max-w-full overflow-x-hidden overflow-y-auto rounded-md border border-border bg-muted/50 px-2.5 py-2 font-mono text-[0.72rem] leading-[1.5] break-words whitespace-pre-wrap text-muted-foreground"
           onScroll={(e) => {
             const el = e.currentTarget;
             pinnedToBottom.current =
@@ -125,9 +126,18 @@ function stateLabel(state: "queued" | "processing" | "llm"): string {
 }
 
 const STATE_CLASSES: Record<"queued" | "processing" | "llm", string> = {
-  queued: "[border-left:3px_solid_#a87d2a] bg-[rgba(168,125,42,0.08)]",
-  processing: "[border-left:3px_solid_#4d7f93] bg-[rgba(77,127,147,0.08)]",
-  llm: "[border-left:3px_solid_var(--accent)] bg-accent-wash",
+  queued: "border-l-[3px] border-l-[#a87d2a] bg-[rgba(168,125,42,0.07)]",
+  processing: "border-l-[3px] border-l-[#4d7f93] bg-[rgba(77,127,147,0.07)]",
+  llm: "border-l-[3px] border-l-[var(--accent)] bg-accent-wash",
+};
+
+const STATE_BADGE: Record<
+  "queued" | "processing" | "llm",
+  "secondary" | "outline" | "default"
+> = {
+  queued: "outline",
+  processing: "secondary",
+  llm: "default",
 };
 
 export function GenerationQueuePane({ items, onNavigate }: Props) {
@@ -140,7 +150,7 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
       count={`${active} active · ${queued} queued`}
     >
       {items.length ? (
-        <ul className="mx-0 mt-[0.85rem] mb-0 flex list-none flex-col gap-[0.55rem] p-0">
+        <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {items.map((item) => {
             const phase = formatPhase(item.phase);
             const workflowLabel = formatWorkflow(item.workflow);
@@ -153,22 +163,29 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
               <li
                 key={`${item.slug}-${item.seq}`}
                 className={clsx(
-                  "flex flex-wrap items-center justify-between gap-x-4 gap-y-[0.4rem] px-[0.7rem] py-[0.65rem] [border-top:1px_solid_var(--rule)] max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-1",
+                  "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-3 py-2.5",
                   STATE_CLASSES[state],
                 )}
               >
                 <a
-                  className="font-semibold text-[var(--link)] [text-decoration-thickness:1px] [text-underline-offset:0.18em]"
+                  className="min-w-0 flex-1 truncate font-semibold text-[var(--link)] [text-decoration-thickness:1px] [text-underline-offset:0.18em]"
                   href={`/wiki/${toWikiSegment(item.title)}`}
                   onClick={(e) => {
                     e.preventDefault();
                     onNavigate(toWikiSegment(item.title));
                   }}
+                  title={item.title}
                 >
                   {item.title}
                 </a>
-                <span className="admin-queue-meta shrink-0 font-mono text-[0.72rem] tracking-[0.08em] text-ink-fade uppercase">
-                  {stateLabel(state)} · {timer} · {workflowLabel}
+                <Badge
+                  variant={STATE_BADGE[state]}
+                  className="shrink-0 font-mono text-[0.66rem] tracking-wide uppercase"
+                >
+                  {stateLabel(state)}
+                </Badge>
+                <span className="min-w-0 shrink-0 font-mono text-[0.7rem] tracking-wide text-muted-foreground tabular-nums">
+                  {timer} · {workflowLabel}
                   {phase ? ` · ${phase}` : ""}
                   {item.waiting > 0 && ` · ${item.waiting} waiting`}
                 </span>
@@ -178,7 +195,9 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
           })}
         </ul>
       ) : (
-        <p className="sb-copy">No active article generations.</p>
+        <p className="m-0 text-sm text-muted-foreground italic">
+          No active article generations.
+        </p>
       )}
     </Pane>
   );

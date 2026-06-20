@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { Pane } from "../Pane";
 import { Badge } from "@/components/ui/badge";
@@ -98,9 +99,25 @@ const STATE_BADGE: Record<
   llm: "default",
 };
 
+/**
+ * Live wall-clock tick, local to this pane. Elapsed timers are derived from the
+ * stable startedAt/queuedAt timestamps so the parent's queue payload no longer
+ * needs to carry (and re-render the whole admin on) a ticking activeMs.
+ */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [active]);
+  return now;
+}
+
 export function GenerationQueuePane({ items, onNavigate }: Props) {
   const queued = items.filter((item) => queueState(item) === "queued").length;
   const active = items.length - queued;
+  const now = useNow(items.length > 0);
   return (
     <Pane
       id="generation-queue"
@@ -116,8 +133,10 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
             const state = queueState(item);
             const timer =
               state === "queued"
-                ? `${formatDuration(item.queuedMs)} queued`
-                : `${formatDuration(item.activeMs)} active`;
+                ? `${formatDuration(now - item.queuedAt)} queued`
+                : item.startedAt
+                  ? `${formatDuration(now - item.startedAt)} active`
+                  : `${formatDuration(item.activeMs)} active`;
             return (
               <li
                 key={`${item.slug}-${item.seq}`}

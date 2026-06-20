@@ -219,9 +219,16 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
     );
     lastActiveRunKeys.current = activeKeys;
 
-    const json = JSON.stringify(next);
-    if (json !== lastQueueJson.current) {
-      lastQueueJson.current = json;
+    // Dedupe on the *stable* payload: activeMs/queuedMs are server-computed
+    // (now - startedAt) and tick on every poll, so including them would force a
+    // full re-render of every admin pane once a second whenever anything is in
+    // the queue. The live elapsed timers are derived client-side in
+    // GenerationQueuePane from the stable startedAt/queuedAt instead.
+    const stableJson = JSON.stringify(
+      next.map(({ activeMs: _a, queuedMs: _q, ...rest }) => rest),
+    );
+    if (stableJson !== lastQueueJson.current) {
+      lastQueueJson.current = stableJson;
       setGenerationQueue(next);
     }
     if (completed) void loadPipelineStatus();

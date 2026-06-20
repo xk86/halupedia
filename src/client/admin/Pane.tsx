@@ -62,7 +62,9 @@ export function Pane({
     <Card
       size="sm"
       data-span={wide ? "wide" : undefined}
-      className="gap-0 overflow-hidden py-0 font-sans data-[span=wide]:col-[1/-1]"
+      // contain:content isolates each pane's layout & paint, so a re-render or
+      // repaint in one pane can't invalidate the rest of this long admin page.
+      className="gap-0 overflow-hidden py-0 font-sans [contain:content] data-[span=wide]:col-[1/-1]"
     >
       <Collapsible
         open={!collapsed}

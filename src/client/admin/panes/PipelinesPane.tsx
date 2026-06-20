@@ -1338,7 +1338,7 @@ const PromptSection = memo(function PromptSection({
             <div
               data-testid="markdown-trace"
               className={cn(
-                "prose-halu prose prose-sm max-h-80 max-w-none overflow-auto font-serif",
+                "prose-halu prose prose-sm max-h-80 max-w-none overflow-auto overscroll-contain [contain:content] font-serif",
                 variant === "cot" && "italic",
               )}
               dangerouslySetInnerHTML={{ __html: html }}
@@ -1351,7 +1351,7 @@ const PromptSection = memo(function PromptSection({
             <pre
               data-testid="trace-source"
               aria-label={`${label} source`}
-              className="max-h-80 overflow-auto rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre-wrap"
+              className="max-h-80 overflow-auto overscroll-contain [contain:content] rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre-wrap"
             >{text}</pre>
           </TabsContent>
         </Tabs>

@@ -159,8 +159,16 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Day preview")).toBeInTheDocument();
     expect(screen.getByText("Night preview")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Day colors" })).toBeVisible();
-    expect(screen.getByRole("tab", { name: "Night colors" })).toBeVisible();
+    // Day and night palettes render side by side, not behind tabs.
+    expect(
+      screen.getByRole("heading", { name: "Day colors" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Night colors" }),
+    ).toBeVisible();
+    expect(
+      screen.getByLabelText("dark Background HEX value"),
+    ).toBeInTheDocument();
 
     const backgroundHex = screen.getByLabelText(
       "light Background HEX value",

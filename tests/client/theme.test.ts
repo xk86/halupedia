@@ -99,4 +99,14 @@ describe("theme settings", () => {
     expect(variables["--shadow-soft"]).toBe("transparent");
     expect(variables["--shadow-strong"]).toBe("transparent");
   });
+
+  it("mirrors source tokens as --color-* so utilities theme scoped containers", () => {
+    const variables = themeVariables(DEFAULT_THEME_SETTINGS, "dark");
+    // Tailwind utilities compile to var(--color-*); the mirror re-points them
+    // at the per-element source token so a nested preview renders its variant.
+    expect(variables["--color-card"]).toBe("var(--card)");
+    expect(variables["--color-background"]).toBe("var(--background)");
+    expect(variables["--color-primary"]).toBe("var(--primary)");
+    expect(variables["--card"]).toBe(DEFAULT_THEME_SETTINGS.dark.surface);
+  });
 });

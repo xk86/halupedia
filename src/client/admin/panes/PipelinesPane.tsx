@@ -7,6 +7,7 @@ import {
   type MouseEvent,
 } from "react";
 import { ChevronDown, LoaderCircle } from "lucide-react";
+import { encoding_for_model } from "js-tiktoken";
 import { cn, ERROR_BOX } from "@/lib/utils";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
@@ -677,6 +678,18 @@ function fmtK(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
+function countTokens(text: string | null | undefined): number {
+  if (!text) return 0;
+  try {
+    const enc = encoding_for_model("gpt-3.5-turbo");
+    const tokens = enc.encode(text);
+    enc.free();
+    return tokens.length;
+  } catch {
+    return 0;
+  }
+}
+
 // The homepage-refresh workflow runs under this reserved pseudo-slug. It is not
 // a real article — the homepage lives at "/", so its slug must not be rendered
 // as a /wiki/ link.
@@ -816,7 +829,7 @@ function NodeBreakdown({
                 {pct}%
               </span>
               <span className="flex justify-end">
-                {node.prompt_chars != null ? (
+                {node.prompt_text ? (
                   hasPrompt ? (
                     <Button
                       type="button"
@@ -826,14 +839,14 @@ function NodeBreakdown({
                       title="Show prompt, reasoning, and output"
                       onClick={() => togglePanel(promptKey)}
                     >
-                      {fmtK(node.prompt_chars)}c
+                      {fmtK(countTokens(node.prompt_text))}t
                       <ChevronDown
                         data-icon="inline-end"
                         className={cn(!promptOpen && "-rotate-90")}
                       />
                     </Button>
                   ) : (
-                    <Badge variant="outline">{fmtK(node.prompt_chars)}c</Badge>
+                    <Badge variant="outline">{fmtK(countTokens(node.prompt_text))}t</Badge>
                   )
                 ) : null}
               </span>

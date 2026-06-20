@@ -298,17 +298,27 @@ export function PipelinesPane({
       {totalRows ? (
         <>
           <Table
-            containerClassName="mt-3 rounded-lg border border-border"
-            className="min-w-[46rem] table-fixed font-mono text-xs tabular-nums [&_td]:px-1.5 [&_td]:py-1 [&_th]:h-7 [&_th]:px-1.5"
+            containerClassName="mt-3 rounded-lg border border-border max-[700px]:overflow-x-hidden"
+            className="w-full table-fixed font-mono text-xs tabular-nums max-[700px]:text-[0.7rem] [&_td]:px-1.5 [&_td]:py-1 [&_th]:h-7 [&_th]:px-1.5"
           >
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="h-8 w-24">Started</TableHead>
-                <TableHead className="w-[28%]">Workflow</TableHead>
-                <TableHead>Article</TableHead>
-                <TableHead className="w-24">Status</TableHead>
-                <TableHead className="w-16 text-right">Nodes</TableHead>
-                <TableHead className="w-24 text-right">Duration</TableHead>
+                <TableHead className="h-8 w-24 max-[700px]:hidden">
+                  Started
+                </TableHead>
+                <TableHead className="w-[28%] max-[700px]:w-[48%]">
+                  Workflow
+                </TableHead>
+                <TableHead className="max-[700px]:w-[32%]">Article</TableHead>
+                <TableHead className="w-24 max-[700px]:w-[20%]">
+                  Status
+                </TableHead>
+                <TableHead className="w-16 text-right max-[700px]:hidden">
+                  Nodes
+                </TableHead>
+                <TableHead className="w-24 text-right max-[700px]:hidden">
+                  Duration
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -330,15 +340,18 @@ export function PipelinesPane({
                   return (
                     <Fragment key={`active:${activeKey}`}>
                       <TableRow className="bg-primary/5 hover:bg-primary/10">
-                        <TableCell title={fmtFullTimestamp(active.startedAt)}>
+                        <TableCell
+                          className="max-[700px]:hidden"
+                          title={fmtFullTimestamp(active.startedAt)}
+                        >
                           {fmtTimestamp(active.startedAt)}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="min-w-0">
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-auto max-w-full justify-start gap-1.5 p-0 font-mono text-xs hover:bg-transparent"
+                            className="h-auto w-full max-w-full justify-start gap-1.5 p-0 font-mono text-xs hover:bg-transparent max-[700px]:text-[0.7rem]"
                             aria-expanded={open}
                             onClick={() =>
                               setExpandedActiveRun(open ? null : activeKey)
@@ -355,6 +368,10 @@ export function PipelinesPane({
                               {active.workflow ?? "Active pipeline"}
                             </span>
                           </Button>
+                          <span className="mt-0.5 hidden truncate text-[0.65rem] font-normal text-muted-foreground max-[700px]:block">
+                            {fmtTimestamp(active.startedAt)} ·{" "}
+                            {formatActivePhase(active.phase)}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <SlugCell
@@ -367,10 +384,12 @@ export function PipelinesPane({
                         <TableCell>
                           <Badge>In progress</Badge>
                         </TableCell>
-                        <TableCell className="truncate text-right">
+                        <TableCell className="truncate text-right max-[700px]:hidden">
                           {formatActivePhase(active.phase)}
                         </TableCell>
-                        <TableCell className="text-right">Running</TableCell>
+                        <TableCell className="text-right max-[700px]:hidden">
+                          Running
+                        </TableCell>
                       </TableRow>
                       {open ? (
                         <TableRow className="hover:bg-transparent">
@@ -394,15 +413,18 @@ export function PipelinesPane({
                       className={cn(open && "bg-muted/60 font-semibold")}
                       title={run.error_message ?? "Expand node timing"}
                     >
-                      <TableCell title={fmtFullTimestamp(run.started_at)}>
+                      <TableCell
+                        className="max-[700px]:hidden"
+                        title={fmtFullTimestamp(run.started_at)}
+                      >
                         {fmtTimestamp(run.started_at)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="min-w-0">
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="h-auto max-w-full justify-start gap-1.5 p-0 font-mono text-xs hover:bg-transparent"
+                          className="h-auto w-full max-w-full justify-start gap-1.5 p-0 font-mono text-xs hover:bg-transparent max-[700px]:text-[0.7rem]"
                           aria-expanded={open}
                           onClick={() => void toggleRun(run.run_id)}
                         >
@@ -415,6 +437,14 @@ export function PipelinesPane({
                           />
                           <span className="truncate">{run.workflow}</span>
                         </Button>
+                        <span
+                          className="mt-0.5 hidden truncate text-[0.65rem] font-normal text-muted-foreground max-[700px]:block"
+                          data-testid="run-mobile-metadata"
+                        >
+                          {fmtTimestamp(run.started_at)} · {run.nodes_executed}{" "}
+                          {run.nodes_executed === 1 ? "node" : "nodes"} ·{" "}
+                          {run.duration_ms} ms
+                        </span>
                       </TableCell>
                       <TableCell>
                         {run.slug ? (
@@ -437,10 +467,10 @@ export function PipelinesPane({
                           {run.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right max-[700px]:hidden">
                         {run.nodes_executed}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right max-[700px]:hidden">
                         {run.duration_ms} ms
                       </TableCell>
                     </TableRow>
@@ -750,7 +780,7 @@ function NodeBreakdown({
         return (
           <Fragment key={i}>
             <div
-              className="grid grid-cols-[minmax(9rem,14rem)_5rem_minmax(5rem,1fr)_4.5rem_2.5rem_auto_auto] items-center gap-2 py-0.5 font-mono text-xs tabular-nums max-lg:grid-cols-[minmax(8rem,1fr)_minmax(5rem,1fr)_4.5rem_auto_auto]"
+              className="grid grid-cols-[minmax(9rem,14rem)_5rem_minmax(5rem,1fr)_4.5rem_2.5rem_auto_auto] items-center gap-2 py-0.5 font-mono text-xs tabular-nums max-[700px]:grid-cols-[minmax(0,1fr)_4.5rem_auto_auto] max-[700px]:gap-1 max-[700px]:text-[0.7rem] max-lg:grid-cols-[minmax(8rem,1fr)_minmax(5rem,1fr)_4.5rem_auto_auto]"
               data-testid="node-timing-row"
               data-node-kind={node.node_kind ?? "unknown"}
             >
@@ -775,7 +805,7 @@ function NodeBreakdown({
               >
                 {node.started_at ? fmtTimestamp(node.started_at) : ""}
               </span>
-              <span className="h-1.5 overflow-hidden rounded-sm bg-muted">
+              <span className="h-1.5 overflow-hidden rounded-sm bg-muted max-[700px]:hidden">
                 <span
                   className={cn(
                     "block h-full min-w-px rounded-sm",
@@ -788,7 +818,9 @@ function NodeBreakdown({
               <span className="text-right text-foreground">
                 {node.duration_ms} ms
               </span>
-              <span className="text-right text-muted-foreground">{pct}%</span>
+              <span className="text-right text-muted-foreground max-[700px]:hidden">
+                {pct}%
+              </span>
               <span className="flex justify-end">
                 {node.prompt_chars != null ? (
                   hasPrompt ? (

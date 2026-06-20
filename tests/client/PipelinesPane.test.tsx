@@ -259,6 +259,45 @@ describe("PipelinesPane", () => {
     ).toHaveClass("shrink-0");
   });
 
+  it("fits run summaries to constrained screens without a wide table", () => {
+    render(
+      <PipelinesPane
+        workflows={[]}
+        runs={[
+          {
+            run_id: "run-mobile",
+            workflow: "homepage.refresh",
+            slug: "homepage",
+            started_at: 1,
+            duration_ms: 17256,
+            status: "ok",
+            nodes_executed: 1,
+            error_message: null,
+          },
+        ]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    const table = screen.getByRole("table");
+    expect(table).not.toHaveClass("min-w-[46rem]");
+    expect(table).toHaveClass("w-full", "table-fixed");
+    expect(screen.getByRole("columnheader", { name: "Started" })).toHaveClass(
+      "max-[700px]:hidden",
+    );
+    expect(screen.getByRole("columnheader", { name: "Nodes" })).toHaveClass(
+      "max-[700px]:hidden",
+    );
+    expect(screen.getByRole("columnheader", { name: "Duration" })).toHaveClass(
+      "max-[700px]:hidden",
+    );
+    expect(screen.getByTestId("run-mobile-metadata")).toHaveTextContent(
+      "1 node · 17256 ms",
+    );
+  });
+
   it("renders retrieved RAG context in a prompt-style dropdown", async () => {
     vi.stubGlobal(
       "fetch",

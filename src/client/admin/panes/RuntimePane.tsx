@@ -1,5 +1,7 @@
 import { memo } from "react";
 import { Pane } from "../Pane";
+import { buttonVariants } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
 interface Props {
   databasePath: string;
@@ -18,17 +20,37 @@ function RuntimePaneComponent({
       title="Runtime"
       description="Database, prompt, and retrieval configuration."
     >
-      <p className="sb-copy">Database: {databasePath}</p>
-      <p className="sb-copy">Prompts: {promptConfigPath}</p>
-      <p className="sb-copy">RAG mode: {ragMode}</p>
+      <Table
+        containerClassName="rounded-md border border-border"
+        className="table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5"
+      >
+        <TableBody>
+          <RuntimeRow label="Database" value={databasePath} />
+          <RuntimeRow label="Prompts" value={promptConfigPath} />
+          <RuntimeRow label="RAG mode" value={ragMode} />
+        </TableBody>
+      </Table>
       <a
-        className="mt-[0.5rem] inline-flex cursor-pointer items-center gap-[0.3rem] rounded-[3px] bg-ink px-[0.65rem] py-[0.28rem] font-mono text-[0.8rem] text-parchment no-underline [border:1px_solid_var(--ink)] hover:[border-color:var(--accent)] hover:bg-accent hover:text-parchment"
+        className={buttonVariants({ className: "mt-3", size: "sm" })}
         href="/api/admin/db-backup/latest"
         download
       >
         Download latest DB backup
       </a>
     </Pane>
+  );
+}
+
+function RuntimeRow({ label, value }: { label: string; value: string }) {
+  return (
+    <TableRow>
+      <TableCell className="w-24 font-medium text-muted-foreground">
+        {label}
+      </TableCell>
+      <TableCell className="truncate font-mono" title={value}>
+        {value}
+      </TableCell>
+    </TableRow>
   );
 }
 

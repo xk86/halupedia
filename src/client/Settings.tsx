@@ -23,6 +23,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -39,6 +40,7 @@ import {
 } from "@/components/ui/toggle-group";
 import {
   DEFAULT_THEME_SETTINGS,
+  FONT_CATEGORIES,
   FONT_OPTIONS,
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
@@ -122,13 +124,18 @@ function FontSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent alignItemWithTrigger={false}>
-          <SelectGroup>
-            {FONT_OPTIONS.map((font) => (
-              <SelectItem key={font.value} value={font.value}>
-                <span style={{ fontFamily: font.stack }}>{font.label}</span>
-              </SelectItem>
-            ))}
-          </SelectGroup>
+          {FONT_CATEGORIES.map((category) => (
+            <SelectGroup key={category}>
+              <SelectLabel>{category}</SelectLabel>
+              {FONT_OPTIONS.filter((font) => font.category === category).map(
+                (font) => (
+                  <SelectItem key={font.value} value={font.value}>
+                    <span style={{ fontFamily: font.stack }}>{font.label}</span>
+                  </SelectItem>
+                ),
+              )}
+            </SelectGroup>
+          ))}
         </SelectContent>
       </Select>
     </Field>

@@ -42,40 +42,105 @@ export interface ThemePreset {
 
 export const THEME_STORAGE_KEY = "halupedia-user-settings";
 
-export const FONT_OPTIONS = [
+export type FontCategory = "Serif" | "Sans" | "Mono";
+
+export interface FontOption {
+  value: string;
+  label: string;
+  category: FontCategory;
+  stack: string;
+}
+
+// Real, named font families. Stacks fall back gracefully, but the first entry
+// is the family actually shown so the picker label matches what renders.
+export const FONT_OPTIONS: readonly FontOption[] = [
   {
-    value: "editorial-serif",
-    label: "Editorial serif",
-    stack:
-      '"EB Garamond", "Iowan Old Style", "Palatino Linotype", Georgia, serif',
+    value: "eb-garamond",
+    label: "EB Garamond",
+    category: "Serif",
+    stack: '"EB Garamond", "Iowan Old Style", Palatino, Georgia, serif',
   },
   {
-    value: "system-serif",
-    label: "System serif",
-    stack: 'ui-serif, Georgia, Cambria, "Times New Roman", serif',
+    value: "georgia",
+    label: "Georgia",
+    category: "Serif",
+    stack: 'Georgia, "Times New Roman", serif',
+  },
+  {
+    value: "palatino",
+    label: "Palatino",
+    category: "Serif",
+    stack: '"Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif',
+  },
+  {
+    value: "baskerville",
+    label: "Baskerville",
+    category: "Serif",
+    stack: 'Baskerville, "Baskerville Old Face", Georgia, serif',
+  },
+  {
+    value: "times-new-roman",
+    label: "Times New Roman",
+    category: "Serif",
+    stack: '"Times New Roman", Times, serif',
   },
   {
     value: "inter",
-    label: "Inter / system sans",
-    stack: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+    label: "Inter",
+    category: "Sans",
+    stack: 'Inter, ui-sans-serif, system-ui, sans-serif',
   },
   {
-    value: "humanist-sans",
-    label: "Humanist sans",
-    stack: '"Avenir Next", Avenir, "Segoe UI", ui-sans-serif, sans-serif',
+    value: "system-ui",
+    label: "System UI",
+    category: "Sans",
+    stack: 'system-ui, -apple-system, "Segoe UI", sans-serif',
   },
   {
-    value: "system-mono",
-    label: "System monospace",
-    stack:
-      'ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace',
+    value: "helvetica-neue",
+    label: "Helvetica Neue",
+    category: "Sans",
+    stack: '"Helvetica Neue", Helvetica, Arial, sans-serif',
   },
   {
-    value: "classic-mono",
-    label: "Classic monospace",
-    stack: '"IBM Plex Mono", "Courier New", Courier, monospace',
+    value: "avenir-next",
+    label: "Avenir Next",
+    category: "Sans",
+    stack: '"Avenir Next", Avenir, "Segoe UI", sans-serif',
+  },
+  {
+    value: "verdana",
+    label: "Verdana",
+    category: "Sans",
+    stack: 'Verdana, Geneva, sans-serif',
+  },
+  {
+    value: "sf-mono",
+    label: "SF Mono",
+    category: "Mono",
+    stack: '"SF Mono", "SFMono-Regular", ui-monospace, monospace',
+  },
+  {
+    value: "menlo",
+    label: "Menlo",
+    category: "Mono",
+    stack: 'Menlo, Monaco, monospace',
+  },
+  {
+    value: "monaco",
+    label: "Monaco",
+    category: "Mono",
+    stack: 'Monaco, Menlo, monospace',
+  },
+  {
+    value: "courier-new",
+    label: "Courier New",
+    category: "Mono",
+    stack: '"Courier New", Courier, monospace',
   },
 ] as const;
+
+export const FONT_CATEGORIES: FontCategory[] = ["Serif", "Sans", "Mono"];
 
 const halupediaLight: ThemePalette = {
   background: "oklch(0.943 0.027 90.9)",
@@ -212,9 +277,9 @@ export function settingsFromPreset(
     version: 1,
     mode: current?.mode ?? "system",
     presetId: preset.id,
-    articleFont: current?.articleFont ?? "editorial-serif",
+    articleFont: current?.articleFont ?? "eb-garamond",
     uiFont: current?.uiFont ?? "inter",
-    fixedFont: current?.fixedFont ?? "system-mono",
+    fixedFont: current?.fixedFont ?? "sf-mono",
     radius: current?.radius ?? 3,
     fontScale: current?.fontScale ?? 1,
     light: clonePalette(preset.light),

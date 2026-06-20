@@ -30,13 +30,13 @@ describe("theme settings", () => {
     const normalized = normalizeThemeSettings({
       mode: "dark",
       radius: 999,
-      articleFont: "system-mono",
+      articleFont: "sf-mono",
       light: { accent: "oklch(0.7 0.2 30)" },
     });
 
     expect(normalized.mode).toBe("dark");
     expect(normalized.radius).toBe(24);
-    expect(normalized.articleFont).toBe("system-mono");
+    expect(normalized.articleFont).toBe("sf-mono");
     expect(normalized.light.accent).toBe("oklch(0.7 0.2 30)");
     expect(normalized.light.background).toBe(
       DEFAULT_THEME_SETTINGS.light.background,
@@ -60,7 +60,7 @@ describe("theme settings", () => {
     const settings = {
       ...DEFAULT_THEME_SETTINGS,
       mode: "dark" as const,
-      articleFont: "system-mono",
+      articleFont: "sf-mono",
       radius: 11,
     };
 

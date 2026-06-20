@@ -12,6 +12,7 @@ import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardAction,
@@ -298,7 +299,7 @@ export function PipelinesPane({
         <>
           <Table
             containerClassName="mt-3 rounded-lg border border-border"
-            className="min-w-[46rem] table-fixed font-mono text-xs tabular-nums"
+            className="min-w-[46rem] table-fixed font-mono text-xs tabular-nums [&_td]:px-1.5 [&_td]:py-1 [&_th]:h-7 [&_th]:px-1.5"
           >
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -375,7 +376,7 @@ export function PipelinesPane({
                         <TableRow className="hover:bg-transparent">
                           <TableCell
                             colSpan={6}
-                            className="p-3 whitespace-normal"
+                            className="p-2 whitespace-normal"
                           >
                             <LiveLlmViews views={views} />
                           </TableCell>
@@ -447,7 +448,7 @@ export function PipelinesPane({
                       <TableRow className="hover:bg-transparent">
                         <TableCell
                           colSpan={6}
-                          className="p-3 whitespace-normal"
+                          className="p-2 whitespace-normal"
                         >
                           {loadingRun === run.run_id ? (
                             <span className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -707,7 +708,7 @@ function NodeBreakdown({
     });
   }
   return (
-    <div className="flex flex-col gap-2" data-testid="node-breakdown">
+    <div className="flex flex-col gap-0.5" data-testid="node-breakdown">
       {nodes.map((node, i) => {
         const pct = Math.round((node.duration_ms / Math.max(totalMs, 1)) * 100);
         const barPct = Math.max(
@@ -778,6 +779,7 @@ function NodeBreakdown({
                       type="button"
                       variant={promptOpen ? "secondary" : "outline"}
                       size="sm"
+                      className="h-6 px-1.5 text-[0.68rem]"
                       title="Show prompt, reasoning, and output"
                       onClick={() => togglePanel(promptKey)}
                     >
@@ -798,6 +800,7 @@ function NodeBreakdown({
                     type="button"
                     variant={ragOpen ? "secondary" : "outline"}
                     size="sm"
+                    className="h-6 px-1.5 text-[0.68rem]"
                     title="Show retrieved RAG context and selected source segments"
                     onClick={() => togglePanel(ragKey)}
                   >
@@ -811,7 +814,7 @@ function NodeBreakdown({
               </span>
             </div>
             {promptOpen && hasPrompt && (
-              <div className="flex flex-col gap-2" data-testid="trace-detail">
+              <div className="flex flex-col gap-1" data-testid="trace-detail">
                 {hasMetadata && <LlmMetadata node={node} />}
                 {node.prompt_text && (
                   <PromptTraceSections text={node.prompt_text} />
@@ -982,14 +985,7 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
 
   return (
     <div className="flex flex-col gap-2" data-testid="trace-detail">
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg bg-muted/50 p-3 font-mono text-xs">
-        {rows.map(([label, value]) => (
-          <Fragment key={label}>
-            <dt className="text-muted-foreground">{label}</dt>
-            <dd className="m-0 min-w-0 break-words text-foreground">{value}</dd>
-          </Fragment>
-        ))}
-      </dl>
+      <TraceMetadata rows={rows} />
       {detail.promptContext && (
         <PromptSection
           label="RAG context in prompt"
@@ -1270,13 +1266,19 @@ function LlmMetadata({ node }: { node: NodeSpan }) {
   ].filter((row): row is [string, string] => Boolean(row[1]));
 
   if (rows.length === 0) return null;
+  return <TraceMetadata rows={rows} />;
+}
+
+function TraceMetadata({ rows }: { rows: Array<[string, string]> }) {
   return (
-    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg bg-muted/50 p-3 font-mono text-xs">
+    <dl className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-x-3 gap-y-1 rounded-md bg-muted/50 px-2 py-1.5 font-mono text-[0.7rem]">
       {rows.map(([label, value]) => (
-        <Fragment key={label}>
-          <dt className="text-muted-foreground">{label}</dt>
-          <dd className="m-0 min-w-0 break-words text-foreground">{value}</dd>
-        </Fragment>
+        <div key={label} className="flex min-w-0 gap-1.5">
+          <dt className="shrink-0 text-muted-foreground">{label}</dt>
+          <dd className="m-0 min-w-0 truncate text-foreground" title={value}>
+            {value}
+          </dd>
+        </div>
       ))}
     </dl>
   );
@@ -1291,24 +1293,54 @@ const PromptSection = memo(function PromptSection({
   text: string;
   variant?: "cot" | "output";
 }) {
+  const [mode, setMode] = useState<"source" | "rendered">("source");
   const copy = () => {
     void navigator.clipboard?.writeText(text).catch(() => {});
   };
-  const html = useMemo(() => md.render(text), [text]);
+  const html = useMemo(
+    () => (mode === "rendered" ? md.render(text) : ""),
+    [mode, text],
+  );
+  const lineCount = text.split("\n").length;
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
+    <Card size="sm" className="gap-0 rounded-md py-0 shadow-none">
+      <CardHeader className="grid-cols-[minmax(0,1fr)_auto] px-3 py-1.5">
+        <CardTitle className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-xs">
           <span>{label}</span>
-          <Badge variant={variant === "output" ? "default" : "secondary"}>
+          <Badge
+            variant={variant === "output" ? "default" : "secondary"}
+            className="h-5 px-1.5 font-mono text-[0.65rem] font-normal"
+          >
             {text.length.toLocaleString()} chars
           </Badge>
+          <span className="text-[0.65rem] font-normal text-muted-foreground">
+            {lineCount.toLocaleString()} lines
+          </span>
         </CardTitle>
-        <CardAction>
+        <CardAction className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant={mode === "source" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-6 px-1.5 text-[0.68rem]"
+            onClick={() => setMode("source")}
+          >
+            Source
+          </Button>
+          <Button
+            type="button"
+            variant={mode === "rendered" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-6 px-1.5 text-[0.68rem]"
+            onClick={() => setMode("rendered")}
+          >
+            Rendered
+          </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="h-6 px-1.5 text-[0.68rem]"
             onClick={copy}
             title="Copy to clipboard"
           >
@@ -1316,16 +1348,28 @@ const PromptSection = memo(function PromptSection({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent>
+      {mode === "source" ? (
+        <Textarea
+          data-testid="trace-source"
+          value={text}
+          readOnly
+          spellCheck={false}
+          aria-label={`${label} source`}
+          className={cn(
+            "max-h-80 min-h-20 resize-y rounded-none border-x-0 border-b-0 bg-muted/10 px-3 py-2 font-mono text-[0.72rem] leading-[1.4] shadow-none focus-visible:ring-0",
+            variant === "cot" && "text-muted-foreground italic",
+          )}
+        />
+      ) : (
         <div
           data-testid="markdown-trace"
           className={cn(
-            "prose prose-sm max-w-none font-mono text-xs leading-relaxed wrap-break-word text-foreground [contain-intrinsic-size:auto_24rem] [content-visibility:auto]",
+            "prose-halu prose max-w-none border-t border-border px-3 py-2 font-mono text-[0.72rem] leading-[1.4] wrap-break-word text-foreground [contain-intrinsic-size:auto_24rem] [content-visibility:auto] [&_h1]:mt-3 [&_h1]:mb-1 [&_h1]:text-lg [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-base [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-sm [&_li]:my-0 [&_ol]:my-1.5 [&_p]:my-1.5 [&_pre]:my-2 [&_ul]:my-1.5",
             variant === "cot" && "text-muted-foreground italic",
           )}
           dangerouslySetInnerHTML={{ __html: html }}
         />
-      </CardContent>
+      )}
     </Card>
   );
 });

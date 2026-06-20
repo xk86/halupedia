@@ -17,11 +17,10 @@ import {
 // --rule-strong is intentionally undefined upstream, so these borders render
 // transparent — preserved verbatim to keep the existing look.
 const LLM_CARD =
-  "my-2 mx-0 bg-input-surface px-[0.8rem] py-[0.7rem] [border:1px_solid_var(--rule-strong)]";
-const LLM_CARD_HEAD =
-  "mb-2 flex items-center gap-[0.8rem] font-mono text-[0.85rem]";
+  "my-1.5 mx-0 bg-input-surface px-2.5 py-2 [border:1px_solid_var(--rule-strong)]";
+const LLM_CARD_HEAD = "mb-1.5 flex items-center gap-2 font-mono text-xs";
 const LLM_CARD_GRID =
-  "mb-2 grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-x-[0.8rem] gap-y-2";
+  "mb-1.5 grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-x-2 gap-y-1.5";
 const LLM_FIELD =
   "flex flex-col gap-[0.2rem] font-mono text-[0.72rem] uppercase opacity-85 [&_input]:normal-case";
 const LLM_FIELD_WIDE = `${LLM_FIELD} col-[1/-1]`;

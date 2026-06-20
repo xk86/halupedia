@@ -519,7 +519,7 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         </Button>
       </div>
 
-      <div className="grid [grid-auto-flow:row_dense] grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-4">
+      <div className="grid [grid-auto-flow:row_dense] grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-3">
         <PipelinesPane
           workflows={pipelineWorkflows}
           runs={pipelineRuns}

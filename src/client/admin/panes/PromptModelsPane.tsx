@@ -31,7 +31,11 @@ interface Props {
   onUpdate: (key: string, model: "heavy" | "light", thinking: boolean) => void;
 }
 
-function PromptModelsPaneComponent({ associations, savingKey, onUpdate }: Props) {
+function PromptModelsPaneComponent({
+  associations,
+  savingKey,
+  onUpdate,
+}: Props) {
   return (
     <Pane
       id="prompt-models"
@@ -40,7 +44,7 @@ function PromptModelsPaneComponent({ associations, savingKey, onUpdate }: Props)
       wide
     >
       {associations.length ? (
-        <Table>
+        <Table className="text-xs [&_td]:px-1.5 [&_td]:py-1 [&_th]:h-7 [&_th]:px-1.5">
           <TableHeader>
             <TableRow>
               <TableHead>Prompt</TableHead>

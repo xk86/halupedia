@@ -35,9 +35,9 @@ describe("PipelinesPane", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Pipelines" }).closest(
-        '[data-slot="card"]',
-      ),
+      screen
+        .getByRole("button", { name: "Pipelines" })
+        .closest('[data-slot="card"]'),
     ).toHaveClass("[content-visibility:auto]");
     expect(screen.queryByText("Live reasoning tokens")).not.toBeInTheDocument();
     await userEvent.click(screen.getByText("article.generate"));
@@ -119,6 +119,19 @@ describe("PipelinesPane", () => {
       .getByText("System prompt")
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
+    const sourceViews = within(detail as HTMLElement).getAllByTestId(
+      "trace-source",
+    );
+    expect(sourceViews).toHaveLength(4);
+    expect(sourceViews[0]).toHaveValue(
+      "Use **bold** [Alpha](ref:alpha) rules.",
+    );
+    expect(screen.getAllByText("1 lines").length).toBeGreaterThan(0);
+    for (const button of within(detail as HTMLElement).getAllByRole("button", {
+      name: "Rendered",
+    })) {
+      await userEvent.click(button);
+    }
     const markdownTraces = within(detail as HTMLElement).getAllByTestId(
       "markdown-trace",
     );
@@ -287,17 +300,15 @@ describe("PipelinesPane", () => {
       .getByText("Retrieved source segments")
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
-    expect(
-      within(detail as HTMLElement).getByText(
-        /slug: source-topic .* score: 0\.812/,
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(detail as HTMLElement).getByText("Selected source segment text."),
-    ).toBeInTheDocument();
-    expect(
-      within(detail as HTMLElement).getByText(/Backlink Topic/),
-    ).toBeInTheDocument();
+    const sourceSegments = within(detail as HTMLElement).getByRole("textbox", {
+      name: "Retrieved source segments source",
+    }) as HTMLTextAreaElement;
+    expect(sourceSegments.value).toContain("Selected source segment text.");
+    expect(sourceSegments.value).toMatch(/slug: source-topic .* score: 0\.812/);
+    const backlinks = within(detail as HTMLElement).getByRole("textbox", {
+      name: "Backlinks source",
+    }) as HTMLTextAreaElement;
+    expect(backlinks.value).toContain("Backlink Topic");
 
     await userEvent.click(ragButtons[1]);
     expect(screen.getByText("Retrieved source segments")).toBeInTheDocument();
@@ -399,12 +410,24 @@ describe("PipelinesPane", () => {
     const ragButtons = await screen.findAllByRole("button", { name: /RAG 2/ });
     await userEvent.click(ragButtons[0]);
     expect(screen.getByText("Reference list after step")).toBeInTheDocument();
-    expect(screen.getByText("Alpha summary.")).toBeInTheDocument();
+    const referenceList = screen.getByRole("textbox", {
+      name: "Reference list after step source",
+    }) as HTMLTextAreaElement;
+    expect(referenceList.value).toContain("Alpha summary.");
 
     await userEvent.click(ragButtons[1]);
     expect(screen.getByText("Reference list after step")).toBeInTheDocument();
     expect(screen.getByText("Reference context in prompt")).toBeInTheDocument();
     expect(screen.getAllByText("Prompt refs").length).toBeGreaterThan(0);
+    const promptRefCard = screen
+      .getByText("Reference context in prompt")
+      .closest('[data-slot="card"]');
+    expect(promptRefCard).toBeTruthy();
+    await userEvent.click(
+      within(promptRefCard as HTMLElement).getByRole("button", {
+        name: "Rendered",
+      }),
+    );
     expect(screen.getByRole("link", { name: "Alpha" })).toHaveAttribute(
       "href",
       "/wiki/Alpha",

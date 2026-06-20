@@ -58,7 +58,7 @@ export function Pane({
         open={!collapsed}
         onOpenChange={(open) => setCollapsedPersist(!open)}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2.5 transition-colors hover:bg-muted/70">
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2 transition-colors hover:bg-muted/70">
           <CollapsibleTrigger className="group/trigger flex min-w-0 flex-1 cursor-pointer appearance-none items-center gap-2 border-0 bg-transparent p-0 text-left select-none">
             <ChevronDown
               aria-hidden
@@ -70,7 +70,7 @@ export function Pane({
             {count !== undefined && (
               <Badge
                 variant="secondary"
-                className="ml-1 shrink-0 font-mono text-[0.68rem] font-normal tracking-wide text-muted-foreground tabular-nums uppercase"
+                className="ml-1 shrink-0 font-mono text-[0.68rem] font-normal tracking-wide text-muted-foreground uppercase tabular-nums"
               >
                 {count}
               </Badge>
@@ -81,7 +81,7 @@ export function Pane({
           )}
         </div>
         <CollapsibleContent>
-          <CardContent className="min-w-0 px-4 py-4">{children}</CardContent>
+          <CardContent className="min-w-0 px-3 py-3">{children}</CardContent>
         </CollapsibleContent>
       </Collapsible>
     </Card>

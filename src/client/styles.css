@@ -2597,28 +2597,42 @@ a:hover {
 }
 
 .sb-fellow-dot {
+  position: relative;
   display: inline-block;
   width: 0.42rem;
   height: 0.42rem;
   border-radius: 50%;
   background: var(--success);
-  box-shadow: 0 0 0 0 var(--success-glow);
-  animation: sb-fellow-pulse 2.4s ease-out infinite;
   flex: 0 0 auto;
   transform: translateY(-1px);
 }
 
+/* Expanding ring drawn on a pseudo-element so the pulse runs on the
+ * compositor (transform + opacity) instead of repainting box-shadow each
+ * frame — the box-shadow form pegged Firefox's main thread. */
+.sb-fellow-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--success-glow);
+  animation: sb-fellow-pulse 2.4s ease-out infinite;
+}
+
 @keyframes sb-fellow-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--success-glow);
+    transform: scale(1);
+    opacity: 1;
   }
 
   70% {
-    box-shadow: 0 0 0 6px var(--success-glow-fade);
+    transform: scale(2.8);
+    opacity: 0;
   }
 
   100% {
-    box-shadow: 0 0 0 0 var(--success-glow-fade);
+    transform: scale(2.8);
+    opacity: 0;
   }
 }
 

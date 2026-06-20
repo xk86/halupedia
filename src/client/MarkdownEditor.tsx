@@ -362,7 +362,7 @@ function Toolbar({
           title="Link to an article or URL"
           onClick={onEditLink}
         >
-          ⌘
+          🔗
         </button>
       </div>
       <span className="mdedit-tool-sep" />
@@ -510,10 +510,10 @@ function SelectionPopover({
           <button
             type="button"
             className={`mdedit-bubble-btn${s.context?.kind === "link" ? " is-active" : ""}`}
-            title="Link"
+            title={s.context?.kind === "link" ? "Edit link" : "Add link"}
             onClick={onEditLink}
           >
-            ⌘ Link
+            🔗 {s.context?.kind === "link" ? "Edit link" : "Link"}
           </button>
         </InlinePopoverPopup>
       </InlinePopoverPositioner>

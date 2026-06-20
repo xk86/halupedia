@@ -130,8 +130,11 @@ describe("PipelinesPane", () => {
     );
     expect(markdownTraces[0]).toHaveClass("prose-halu");
     expect(markdownTraces[0]).toHaveClass("font-serif");
-    // Nested scroll box (requested) — also clips the rasterized area.
-    expect(markdownTraces[0]).toHaveClass("overflow-auto");
+    expect(markdownTraces[0]).toHaveClass(
+      "overflow-x-auto",
+      "overflow-y-auto",
+      "max-[600px]:text-xs",
+    );
     expect(screen.getAllByText(/1 lines/).length).toBeGreaterThan(0);
     // Markdown headings come from the rendered (default) view.
     expect(
@@ -206,10 +209,54 @@ describe("PipelinesPane", () => {
       "trace-source",
     );
     expect(sourceViews).toHaveLength(4);
-    expect(sourceViews[0]).toHaveClass("font-mono");
+    expect(sourceViews[0]).toHaveClass(
+      "font-mono",
+      "overflow-x-auto",
+      "whitespace-pre",
+      "max-[600px]:text-[0.7rem]",
+    );
     expect(sourceViews[0]).toHaveTextContent(
       "Use **bold** [Alpha](ref:alpha) rules.",
     );
+  });
+
+  it("keeps workflow labels readable in a horizontal mobile flow", async () => {
+    render(
+      <PipelinesPane
+        workflows={[
+          {
+            name: "article.generate",
+            summary: "Generate and persist an article.",
+            nodes: [
+              {
+                name: "read.retrieve_context",
+                kind: "read",
+                conditional: false,
+              },
+              {
+                name: "llm.generate_article",
+                kind: "llm",
+                conditional: false,
+              },
+            ],
+          },
+        ]}
+        runs={[]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    await userEvent.click(screen.getByText("article.generate"));
+    expect(screen.getByTestId("workflow-flow")).toHaveClass("overflow-x-auto");
+    expect(screen.getByTestId("workflow-flow-track")).toHaveClass(
+      "w-max",
+      "min-w-full",
+    );
+    expect(
+      screen.getByText("read.retrieve_context").closest("[data-slot='badge']"),
+    ).toHaveClass("shrink-0");
   });
 
   it("renders retrieved RAG context in a prompt-style dropdown", async () => {

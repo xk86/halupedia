@@ -537,62 +537,75 @@ export function PipelinesPane({
                     <p className="m-0 text-sm text-muted-foreground">
                       {workflow.summary}
                     </p>
-                    <div className="flex flex-wrap items-start gap-2">
-                      {segmentNodes(workflow.nodes).map((seg, si, all) => {
-                        const isLast = si === all.length - 1;
-                        if (seg.type === "linear") {
+                    <div
+                      className="max-w-full overflow-x-auto pb-1"
+                      data-testid="workflow-flow"
+                    >
+                      <div
+                        className="flex w-max min-w-full items-start gap-2"
+                        data-testid="workflow-flow-track"
+                      >
+                        {segmentNodes(workflow.nodes).map((seg, si, all) => {
+                          const isLast = si === all.length - 1;
+                          if (seg.type === "linear") {
+                            return (
+                              <span
+                                key={si}
+                                className="flex shrink-0 items-center gap-1.5"
+                              >
+                                {seg.nodes.map((node, ni) => (
+                                  <Fragment key={node.name}>
+                                    <WorkflowNodeBadge node={node} />
+                                    {ni < seg.nodes.length - 1 ? (
+                                      <span className="text-muted-foreground">
+                                        →
+                                      </span>
+                                    ) : null}
+                                  </Fragment>
+                                ))}
+                                {!isLast ? (
+                                  <span className="text-muted-foreground">
+                                    →
+                                  </span>
+                                ) : null}
+                              </span>
+                            );
+                          }
+                          const branchEntries = [...seg.branches.entries()];
                           return (
-                            <span
+                            <div
                               key={si}
-                              className="flex flex-wrap items-center gap-1.5"
+                              className="flex shrink-0 items-center gap-2"
                             >
-                              {seg.nodes.map((node, ni) => (
-                                <Fragment key={node.name}>
-                                  <WorkflowNodeBadge node={node} />
-                                  {ni < seg.nodes.length - 1 ? (
-                                    <span className="text-muted-foreground">
-                                      →
-                                    </span>
-                                  ) : null}
-                                </Fragment>
-                              ))}
+                              <div className="flex flex-col gap-1.5 border-l border-border pl-2">
+                                {branchEntries.map(([label, nodes]) => (
+                                  <div
+                                    key={label}
+                                    className="flex items-center gap-1.5"
+                                  >
+                                    <Badge variant="outline" title={label}>
+                                      {label}
+                                    </Badge>
+                                    {nodes.map((node, ni) => (
+                                      <Fragment key={node.name}>
+                                        <WorkflowNodeBadge node={node} />
+                                        {ni < nodes.length - 1 ? (
+                                          <span className="text-muted-foreground">
+                                            →
+                                          </span>
+                                        ) : null}
+                                      </Fragment>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
                               {!isLast ? (
                                 <span className="text-muted-foreground">→</span>
                               ) : null}
-                            </span>
-                          );
-                        }
-                        const branchEntries = [...seg.branches.entries()];
-                        return (
-                          <div key={si} className="flex items-center gap-2">
-                            <div className="flex flex-col gap-1.5 border-l border-border pl-2">
-                              {branchEntries.map(([label, nodes]) => (
-                                <div
-                                  key={label}
-                                  className="flex flex-wrap items-center gap-1.5"
-                                >
-                                  <Badge variant="outline" title={label}>
-                                    {label}
-                                  </Badge>
-                                  {nodes.map((node, ni) => (
-                                    <Fragment key={node.name}>
-                                      <WorkflowNodeBadge node={node} />
-                                      {ni < nodes.length - 1 ? (
-                                        <span className="text-muted-foreground">
-                                          →
-                                        </span>
-                                      ) : null}
-                                    </Fragment>
-                                  ))}
-                                </div>
-                              ))}
                             </div>
-                            {!isLast ? (
-                              <span className="text-muted-foreground">→</span>
-                            ) : null}
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
                   </CardContent>
                 </CollapsibleContent>
@@ -615,7 +628,11 @@ function WorkflowNodeBadge({ node }: { node: WorkflowNode }) {
           ? "secondary"
           : "outline";
   return (
-    <Badge variant={variant} title={node.description ?? node.name}>
+    <Badge
+      className="shrink-0"
+      variant={variant}
+      title={node.description ?? node.name}
+    >
       <span className="max-w-56 truncate font-mono">{node.name}</span>
     </Badge>
   );
@@ -1303,7 +1320,7 @@ const PromptSection = memo(function PromptSection({
   );
   const lineCount = text.split("\n").length;
   return (
-    <Card size="sm" data-testid="prompt-section">
+    <Card className="min-w-0" size="sm" data-testid="prompt-section">
       <CardHeader>
         <CardTitle>{label}</CardTitle>
         <CardDescription>
@@ -1322,7 +1339,7 @@ const PromptSection = memo(function PromptSection({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         <Tabs
           value={mode}
           onValueChange={(value) => setMode(value as "source" | "rendered")}
@@ -1338,7 +1355,7 @@ const PromptSection = memo(function PromptSection({
             <div
               data-testid="markdown-trace"
               className={cn(
-                "prose-halu prose prose-sm max-h-80 max-w-none overflow-auto font-serif",
+                "prose-halu prose prose-sm max-h-80 max-w-none overflow-x-auto overflow-y-auto font-serif max-[600px]:text-xs",
                 variant === "cot" && "italic",
               )}
               dangerouslySetInnerHTML={{ __html: html }}
@@ -1348,8 +1365,10 @@ const PromptSection = memo(function PromptSection({
             <pre
               data-testid="trace-source"
               aria-label={`${label} source`}
-              className="max-h-80 overflow-auto rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre-wrap"
-            >{text}</pre>
+              className="max-h-80 max-w-full overflow-x-auto overflow-y-auto rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre max-[600px]:text-[0.7rem]"
+            >
+              {text}
+            </pre>
           </TabsContent>
         </Tabs>
       </CardContent>

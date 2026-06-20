@@ -110,7 +110,7 @@ function LiveText({ text }: { text: string }) {
   return (
     <pre
       ref={ref}
-      className="m-0 max-h-80 max-w-full overflow-auto rounded-lg bg-muted/50 p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-foreground"
+      className="m-0 max-h-80 max-w-full overflow-x-auto overflow-y-auto rounded-lg bg-muted/50 p-3 font-mono text-xs leading-relaxed whitespace-pre text-foreground max-[600px]:text-[0.7rem]"
       onScroll={(event) => {
         const element = event.currentTarget;
         pinnedToBottom.current =

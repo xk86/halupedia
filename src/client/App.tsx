@@ -509,14 +509,14 @@ export function App() {
         const res =
           pendingTitle && pendingTitle.slug === route.slug
             ? // HTTP header values must be ASCII/Latin-1 — titles with emoji or
-              // other non-Latin1 characters (e.g. "Banana 🍌") would make fetch
-              // throw synchronously ("invalid header value") if sent raw. Percent
-              // -encode for transport; the server decodes it back to the literal.
-              await fetch(apiUrl, {
-                headers: {
-                  "x-requested-title": encodeURIComponent(pendingTitle.title),
-                },
-              })
+            // other non-Latin1 characters (e.g. "Banana 🍌") would make fetch
+            // throw synchronously ("invalid header value") if sent raw. Percent
+            // -encode for transport; the server decodes it back to the literal.
+            await fetch(apiUrl, {
+              headers: {
+                "x-requested-title": encodeURIComponent(pendingTitle.title),
+              },
+            })
             : await fetch(apiUrl);
         if (!res.ok) {
           const body: any = await res.json().catch(() => ({}));
@@ -627,22 +627,22 @@ export function App() {
             if (!line) continue;
             const event = JSON.parse(line) as
               | {
-                  type: "start";
-                  slug: string;
-                  cached: boolean;
-                  joined?: boolean;
-                }
+                type: "start";
+                slug: string;
+                cached: boolean;
+                joined?: boolean;
+              }
               | { type: "status"; message: string }
               | { type: "progress"; html: string; markdown?: string }
               | {
-                  type: "done";
-                  cached: boolean;
-                  redirectedFrom?: string;
-                  article: PageData["article"];
-                  sections?: ArticleSection[];
-                  backlinks: PageData["backlinks"];
-                  canonicalPath?: string;
-                }
+                type: "done";
+                cached: boolean;
+                redirectedFrom?: string;
+                article: PageData["article"];
+                sections?: ArticleSection[];
+                backlinks: PageData["backlinks"];
+                canonicalPath?: string;
+              }
               | { type: "error"; message: string };
             if (cancelled) return;
             if (event.type === "start") {
@@ -692,13 +692,13 @@ export function App() {
               setPage((current) =>
                 current
                   ? {
-                      ...current,
-                      article: {
-                        ...current.article,
-                        html: streamedHtml,
-                        markdown: event.markdown ?? current.article.markdown,
-                      },
-                    }
+                    ...current,
+                    article: {
+                      ...current.article,
+                      html: streamedHtml,
+                      markdown: event.markdown ?? current.article.markdown,
+                    },
+                  }
                   : current,
               );
               setLoading(false);
@@ -873,7 +873,7 @@ export function App() {
           return data;
         });
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const interceptArticleLinks = useCallback(
@@ -974,7 +974,7 @@ export function App() {
           setEditBlacklist(body.blacklist ?? []);
         },
       )
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   useEffect(() => {
@@ -989,14 +989,14 @@ export function App() {
         prev.some((r) => r.slug === ref.slug)
           ? prev
           : [
-              ...prev,
-              {
-                slug: ref.slug,
-                title: ref.title,
-                summaryMarkdown: ref.summary ?? "",
-                pinned: false,
-              },
-            ],
+            ...prev,
+            {
+              slug: ref.slug,
+              title: ref.title,
+              summaryMarkdown: ref.summary ?? "",
+              pinned: false,
+            },
+          ],
       );
       setEditRefSearchDraft("");
     },
@@ -1136,15 +1136,15 @@ export function App() {
             markdown: rawEditMarkdown,
             ...(editRefsEnabled && editRefs.length > 0
               ? {
-                  referenceSlugs: editRefs.map((r) => r.slug),
-                  ...(editRefs.some((r) => r.pinned)
-                    ? {
-                        pinnedSlugs: editRefs
-                          .filter((r) => r.pinned)
-                          .map((r) => r.slug),
-                      }
-                    : {}),
-                }
+                referenceSlugs: editRefs.map((r) => r.slug),
+                ...(editRefs.some((r) => r.pinned)
+                  ? {
+                    pinnedSlugs: editRefs
+                      .filter((r) => r.pinned)
+                      .map((r) => r.slug),
+                  }
+                  : {}),
+              }
               : {}),
           }),
         },
@@ -1209,15 +1209,15 @@ export function App() {
               ? { selectedText: editSelectedText }
               : { sectionId: editSectionId || undefined }),
             ...(editRefsEnabled &&
-            (editRefs.length > 0 || editInitialRefSlugs.length > 0)
+              (editRefs.length > 0 || editInitialRefSlugs.length > 0)
               ? {
-                  // Sent even when emptied: the panel state is authoritative, so
-                  // an empty array means "remove all refs" / "unpin all".
-                  referenceSlugs: editRefs.map((r) => r.slug),
-                  pinnedSlugs: editRefs
-                    .filter((r) => r.pinned)
-                    .map((r) => r.slug),
-                }
+                // Sent even when emptied: the panel state is authoritative, so
+                // an empty array means "remove all refs" / "unpin all".
+                referenceSlugs: editRefs.map((r) => r.slug),
+                pinnedSlugs: editRefs
+                  .filter((r) => r.pinned)
+                  .map((r) => r.slug),
+              }
               : {}),
             // Always sent: the panel state is authoritative, so an empty array
             // means "clear all persisted blocks" (it was loaded from the server
@@ -1281,14 +1281,14 @@ export function App() {
             setPage((current) =>
               current?.article.slug === targetSlug
                 ? {
-                    ...current,
-                    cached: false,
-                    article: {
-                      ...current.article,
-                      html: streamedHtml,
-                      markdown: event.markdown ?? current.article.markdown,
-                    },
-                  }
+                  ...current,
+                  cached: false,
+                  article: {
+                    ...current.article,
+                    html: streamedHtml,
+                    markdown: event.markdown ?? current.article.markdown,
+                  },
+                }
                 : current,
             );
           } else if (event.type === "done") {
@@ -1429,14 +1429,14 @@ export function App() {
             setPage((current) =>
               current?.article.slug === targetSlug
                 ? {
-                    ...current,
-                    cached: false,
-                    article: {
-                      ...current.article,
-                      html: event.html,
-                      markdown: event.markdown ?? current.article.markdown,
-                    },
-                  }
+                  ...current,
+                  cached: false,
+                  article: {
+                    ...current.article,
+                    html: event.html,
+                    markdown: event.markdown ?? current.article.markdown,
+                  },
+                }
                 : current,
             );
           } else if (event.type === "done") {
@@ -1794,8 +1794,8 @@ export function App() {
           </div>
         ) : null}
         {page.referenceStatus?.missing?.length ||
-        page.referenceStatus?.unformatted?.length ||
-        page.referenceStatus?.hasReferencesSection ? (
+          page.referenceStatus?.unformatted?.length ||
+          page.referenceStatus?.hasReferencesSection ? (
           <div className="linkless-notice">
             This article seems to cite references that are not listed or not in
             the current reference format. Run the refresh references button to
@@ -2544,7 +2544,7 @@ export function App() {
                   }}
                   disabled={editBusy}
                 >
-                  Done
+                  Close
                 </button>
               </div>
             </div>
@@ -2612,53 +2612,53 @@ export function App() {
         {/* Backlinks — moved to bottom of article column */}
         {(page.backlinks.existing.length > 0 ||
           page.backlinks.unwritten.length > 0) && (
-          <section
-            className="mt-8 max-w-[87dvw] border-t border-rule-soft pt-3"
-            aria-label="Referenced by"
-          >
-            <h4 className="m-0 mb-[0.4rem] text-[0.78rem] font-semibold tracking-[0.06em] text-ink-fade uppercase">
-              Referenced by{" "}
-              <span className="font-normal">
-                (
-                {page.backlinks.existing.length +
-                  page.backlinks.unwritten.length}
-                )
-              </span>
-            </h4>
-            <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-1 p-0 [&_li]:text-[0.85rem] [&_li]:[word-break:break-all] [&_li]:[hyphens:manual]">
-              {page.backlinks.existing.map((b) => (
-                <li key={b.slug}>
-                  <a
-                    href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigateToArticle(b.title.replace(/\s+/g, "_"));
-                    }}
-                  >
-                    {b.title}
-                  </a>
-                </li>
-              ))}
-              {page.backlinks.unwritten.map((b) => (
-                <li key={b.slug}>
-                  <a
-                    href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigateToArticle(b.title.replace(/\s+/g, "_"));
-                    }}
-                  >
-                    {b.title}
-                  </a>
-                  <span className="text-[0.8rem] text-ink-fade">
-                    {" "}
-                    (unwritten)
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+            <section
+              className="mt-8 max-w-[87dvw] border-t border-rule-soft pt-3"
+              aria-label="Referenced by"
+            >
+              <h4 className="m-0 mb-[0.4rem] text-[0.78rem] font-semibold tracking-[0.06em] text-ink-fade uppercase">
+                Referenced by{" "}
+                <span className="font-normal">
+                  (
+                  {page.backlinks.existing.length +
+                    page.backlinks.unwritten.length}
+                  )
+                </span>
+              </h4>
+              <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-1 p-0 [&_li]:text-[0.85rem] [&_li]:[word-break:break-all] [&_li]:[hyphens:manual]">
+                {page.backlinks.existing.map((b) => (
+                  <li key={b.slug}>
+                    <a
+                      href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigateToArticle(b.title.replace(/\s+/g, "_"));
+                      }}
+                    >
+                      {b.title}
+                    </a>
+                  </li>
+                ))}
+                {page.backlinks.unwritten.map((b) => (
+                  <li key={b.slug}>
+                    <a
+                      href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigateToArticle(b.title.replace(/\s+/g, "_"));
+                      }}
+                    >
+                      {b.title}
+                    </a>
+                    <span className="text-[0.8rem] text-ink-fade">
+                      {" "}
+                      (unwritten)
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
       </>
     );
   }, [
@@ -2885,13 +2885,12 @@ export function App() {
       </header>
 
       <section
-        className={`layout${
-          route.kind === "graph"
+        className={`layout${route.kind === "graph"
             ? " layout--graph"
             : route.kind === "admin"
               ? " layout--admin"
               : ""
-        }`}
+          }`}
       >
         <main className="layout-main">{mainView}</main>
         {route.kind !== "graph" && route.kind !== "admin" && (

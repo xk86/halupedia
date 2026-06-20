@@ -62,9 +62,11 @@ export function Pane({
     <Card
       size="sm"
       data-span={wide ? "wide" : undefined}
-      // contain:content isolates each pane's layout & paint, so a re-render or
-      // repaint in one pane can't invalidate the rest of this long admin page.
-      className="gap-0 overflow-hidden py-0 font-sans [contain:content] data-[span=wide]:col-[1/-1]"
+      // Flat border instead of the Card's default shadow-xs + ring-1: Firefox
+      // (WebRender) rasterizes every box-shadow into a GPU texture, and with a
+      // shadowed card per pane that thrashes the GPU on scroll. A plain border
+      // costs nothing to composite.
+      className="gap-0 overflow-hidden border border-border py-0 font-sans shadow-none ring-0 data-[span=wide]:col-[1/-1]"
     >
       <Collapsible
         open={!collapsed}

@@ -130,9 +130,8 @@ describe("PipelinesPane", () => {
     );
     expect(markdownTraces[0]).toHaveClass("prose-halu");
     expect(markdownTraces[0]).toHaveClass("font-serif");
-    // Flows inline (no inner scroll box) so it pans with the page, not the
-    // main thread — see PromptSection.
-    expect(markdownTraces[0]).not.toHaveClass("overflow-auto");
+    // Nested scroll box (requested) — also clips the rasterized area.
+    expect(markdownTraces[0]).toHaveClass("overflow-auto");
     expect(screen.getAllByText(/1 lines/).length).toBeGreaterThan(0);
     // Markdown headings come from the rendered (default) view.
     expect(
@@ -198,7 +197,7 @@ describe("PipelinesPane", () => {
     );
 
     // Switching to Source reveals the raw monospace <pre> blocks.
-    for (const button of within(detail as HTMLElement).getAllByRole("tab", {
+    for (const button of within(detail as HTMLElement).getAllByRole("button", {
       name: "Source",
     })) {
       await userEvent.click(button);
@@ -314,7 +313,7 @@ describe("PipelinesPane", () => {
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
     // Sections render markdown by default; switch each to Source to read raw text.
-    for (const button of within(detail as HTMLElement).getAllByRole("tab", {
+    for (const button of within(detail as HTMLElement).getAllByRole("button", {
       name: "Source",
     })) {
       await userEvent.click(button);
@@ -436,7 +435,7 @@ describe("PipelinesPane", () => {
       .closest('[data-slot="card"]') as HTMLElement;
     // Renders markdown by default; switch to Source to read the raw value.
     await userEvent.click(
-      within(referenceCard).getByRole("tab", { name: "Source" }),
+      within(referenceCard).getByRole("button", { name: "Source" }),
     );
     const referenceList = within(referenceCard).getByLabelText(
       "Reference list after step source",
@@ -447,18 +446,13 @@ describe("PipelinesPane", () => {
     expect(screen.getByText("Reference list after step")).toBeInTheDocument();
     expect(screen.getByText("Reference context in prompt")).toBeInTheDocument();
     expect(screen.getAllByText("Prompt refs").length).toBeGreaterThan(0);
-    const promptRefCard = screen
+    const promptRefSection = screen
       .getByText("Reference context in prompt")
-      .closest('[data-slot="card"]');
-    expect(promptRefCard).toBeTruthy();
-    await userEvent.click(
-      within(promptRefCard as HTMLElement).getByRole("tab", {
-        name: "Rendered",
-      }),
-    );
-    expect(screen.getByRole("link", { name: "Alpha" })).toHaveAttribute(
-      "href",
-      "/wiki/Alpha",
-    );
+      .closest('[data-testid="prompt-section"]') as HTMLElement;
+    expect(promptRefSection).toBeTruthy();
+    // Rendered is the default; the markdown link is present without toggling.
+    expect(
+      within(promptRefSection).getByRole("link", { name: "Alpha" }),
+    ).toHaveAttribute("href", "/wiki/Alpha");
   });
 });

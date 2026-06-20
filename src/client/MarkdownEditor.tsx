@@ -39,6 +39,11 @@ interface MarkdownEditorProps {
   /** Rows hint for the raw-source textarea minimum height. */
   minRows?: number;
   /**
+   * Cap the plain-text editor's auto-grow at this many rows; past it the
+   * textarea scrolls instead of growing the page. Omit for unbounded growth.
+   */
+  maxRows?: number;
+  /**
    * Edit the value as literal plain text instead of WYSIWYG markdown. Used for
    * prompts and other non-markdown text: the rich editor would round-trip the
    * content through markdown (escaping `_`, reflowing JSON/`{{vars}}`, forcing
@@ -81,6 +86,7 @@ function PlainTextEditor({
   placeholder,
   className,
   minRows = 4,
+  maxRows,
 }: MarkdownEditorProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -88,8 +94,19 @@ function PlainTextEditor({
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, []);
+    let target = el.scrollHeight;
+    if (maxRows) {
+      const cs = getComputedStyle(el);
+      const line =
+        parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5 || 20;
+      const pad =
+        parseFloat(cs.paddingTop || "0") + parseFloat(cs.paddingBottom || "0");
+      const max = Math.round(line * maxRows + pad);
+      if (target > max) target = max;
+      el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+    }
+    el.style.height = `${target}px`;
+  }, [maxRows]);
 
   // Re-fit when the value changes externally (load, reset, revert).
   useEffect(grow, [grow, value]);

@@ -647,6 +647,7 @@ function PromptEditorPaneComponent() {
                   setPreviewingId(null);
                 }}
                 minRows={10}
+                maxRows={24}
               />
             </label>
 
@@ -662,6 +663,7 @@ function PromptEditorPaneComponent() {
                   setPreviewingId(null);
                 }}
                 minRows={6}
+                maxRows={16}
               />
             </label>
 

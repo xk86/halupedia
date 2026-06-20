@@ -1338,7 +1338,7 @@ a:hover {
 }
 
 .mdedit-pm p {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.35rem;
 }
 
 .mdedit-pm h1,
@@ -1363,7 +1363,7 @@ a:hover {
 
 .mdedit-pm ul,
 .mdedit-pm ol {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.35rem;
   padding-left: 1.5rem;
 }
 
@@ -1372,7 +1372,7 @@ a:hover {
 }
 
 .mdedit-pm blockquote {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.35rem;
   padding-left: 0.9rem;
   border-left: 3px solid var(--rule);
   color: var(--ink-soft);
@@ -1401,7 +1401,7 @@ a:hover {
   border-radius: 4px;
   padding: 0.65rem 0.75rem;
   overflow-x: auto;
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.35rem;
 }
 
 .mdedit-pm pre code {

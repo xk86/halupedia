@@ -2288,9 +2288,82 @@ test("buildReferenceList adds recursive sidecar refs within configured depth", (
     refs.map((ref) => ref.source),
     ["body", "recursive", "recursive"],
   );
+  // The body seed has no vector score, so its recursive descendants fall to the
+  // reference_min_score floor (0.4) — NOT the children's own stored relevance
+  // (which would surface as an unrelated 1.000).
+  assert.deepEqual(
+    refs.map((ref) => ref.score),
+    [undefined, 0.4, 0.4],
+  );
   const built = logger.entries.find((entry) => entry.event === "references.built");
   assert.equal(built?.fields.recursive_candidates, 2, "recursive candidate count");
   assert.equal(built?.fields.recursive_max_per_article, 1, "recursive max per article config");
+});
+
+test("buildReferenceList recursive refs inherit the parent RAG score, not their own", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-recursive-score-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const saveRefArticle = (slug: string, title: string, generatedAt: number) => {
+    const markdown = `# ${title}\n\nReference body.`;
+    saveArticle(
+      db,
+      {
+        slug,
+        canonicalSlug: slug,
+        title,
+        markdown,
+        html: renderMarkdown(markdown),
+        summaryMarkdown: `${title} summary.`,
+        plain_text: markdownToPlainText(markdown),
+        generated_at: generatedAt,
+      },
+      [],
+      [slug],
+    );
+  };
+  saveRefArticle("rag-parent", "Rag Parent", 1);
+  saveRefArticle("recursive-child", "Recursive Child", 2);
+  // The child's OWN sidecar relevance is a perfect 1.0 — this must NOT leak
+  // through onto the recursive entry's score.
+  saveArticleReferences(db, "rag-parent", 1, [
+    {
+      slug: "recursive-child",
+      title: "Recursive Child",
+      content: "Child summary.",
+      kind: "summary",
+      pinned: false,
+      revisionId: "initial",
+      source: "rag",
+      score: 1.0,
+    },
+  ]);
+
+  const refs = buildReferenceList(db, {
+    articleSlug: "current-entry",
+    userAdditions: [],
+    priorReferences: [],
+    ragSources: [{ slug: "rag-parent", title: "Rag Parent", content: "", score: 0.62 }],
+    revisionId: "current",
+    config: {
+      reference_max_results: 8,
+      reference_min_score: 0.4,
+      max_references: 10,
+      reference_recursive_depth: 1,
+      reference_recursive_max_per_article: 1,
+      reference_cull_min_score: 0,
+      reference_cull_top_k: 0,
+    },
+  });
+
+  const child = refs.find((r) => r.slug === "recursive-child");
+  assert.ok(child, "recursive child is included");
+  assert.equal(child!.source, "recursive");
+  // Impacted by the parent's RAG score (0.62), not the child's own 1.0.
+  assert.equal(child!.score, 0.62, "recursive score inherits the parent, never the child's own 1.0");
 });
 
 test("linkMentionedReferencesInBody wraps exact unlinked reference title mentions", () => {

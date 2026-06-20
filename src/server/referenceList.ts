@@ -342,10 +342,14 @@ export function buildReferenceList(
       for (const ref of sidecarRefs) {
         if (blacklist.has(ref.slug)) continue;
         recursiveCandidateCount += 1;
-        // Propagate the parent seed's real RAG score when available.
-        // If the seed was body/user/prior/pinned its rankScore is +Inf —
-        // those aren't vector-ranked, so fall back to reference_min_score
-        // (the floor) rather than inflating recursive entries to +Inf.
+        // A recursive ref's relevance is derived from the PARENT seed, never
+        // from the child's own stored score (that score measures the child's
+        // relevance to a different article, not to this one — using it let a
+        // recursive entry surface with an unrelated 1.000). When the parent has
+        // a real score (RAG, or a reranked prior) the child inherits it; when
+        // the parent is a trusted non-vector seed (body/user/pinned, rankScore
+        // +Inf) the child falls to the reference_min_score floor rather than
+        // being inflated to +Inf.
         const seedHasRagScore = Number.isFinite(seed.score);
         const inheritedScore = seedHasRagScore ? seed.score : config.reference_min_score;
         add(
@@ -355,7 +359,7 @@ export function buildReferenceList(
             content: ref.content,
             kind: ref.kind,
             pinned: false,
-            score: seedHasRagScore ? seed.score : ref.score,
+            score: inheritedScore,
             source: "recursive",
             explicitRevisionId: ref.revisionId,
           },

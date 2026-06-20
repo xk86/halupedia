@@ -5,12 +5,20 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 interface Props {
   id: string;
   title: string;
+  description?: string;
   count?: string;
   actions?: ReactNode;
   defaultCollapsed?: boolean;
@@ -20,7 +28,7 @@ interface Props {
 
 function readCollapsed(id: string, defaultCollapsed: boolean): boolean {
   try {
-    const stored = localStorage.getItem(`admin:pane:${id}`);
+    const stored = localStorage.getItem(`admin:pane:v2:${id}`);
     if (stored !== null) return stored === "true";
   } catch {}
   return defaultCollapsed;
@@ -29,6 +37,7 @@ function readCollapsed(id: string, defaultCollapsed: boolean): boolean {
 export function Pane({
   id,
   title,
+  description,
   count,
   actions,
   defaultCollapsed = false,
@@ -43,7 +52,7 @@ export function Pane({
     (next: boolean) => {
       setCollapsed(next);
       try {
-        localStorage.setItem(`admin:pane:${id}`, String(next));
+        localStorage.setItem(`admin:pane:v2:${id}`, String(next));
       } catch {}
     },
     [id],
@@ -51,37 +60,45 @@ export function Pane({
 
   return (
     <Card
+      size="sm"
       data-span={wide ? "wide" : undefined}
-      className="gap-0 overflow-hidden py-0 font-sans [contain-intrinsic-size:auto_20rem] [content-visibility:auto] data-[span=wide]:col-[1/-1]"
+      className="gap-0 overflow-hidden py-0 font-sans data-[span=wide]:col-[1/-1]"
     >
       <Collapsible
         open={!collapsed}
         onOpenChange={(open) => setCollapsedPersist(!open)}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2 transition-colors hover:bg-muted/70">
-          <CollapsibleTrigger className="group/trigger flex min-w-0 flex-1 cursor-pointer appearance-none items-center gap-2 border-0 bg-transparent p-0 text-left select-none">
+        <CardHeader className="grid-cols-[minmax(0,1fr)_auto] border-b py-(--card-spacing)">
+          <CollapsibleTrigger className="group/trigger flex min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left">
             <ChevronDown
+              data-icon="inline-start"
               aria-hidden
-              className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-not-data-[panel-open]/trigger:-rotate-90"
+              className="shrink-0 text-muted-foreground transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
             />
-            <h3 className="m-0 truncate text-[0.92rem] leading-none font-semibold tracking-tight text-foreground">
-              {title}
-            </h3>
-            {count !== undefined && (
-              <Badge
-                variant="secondary"
-                className="ml-1 shrink-0 font-mono text-[0.68rem] font-normal tracking-wide text-muted-foreground uppercase tabular-nums"
-              >
-                {count}
-              </Badge>
-            )}
+            <div className="min-w-0">
+              <CardTitle>
+                <h3 className="font:inherit m-0 truncate">{title}</h3>
+              </CardTitle>
+              {description ? (
+                <CardDescription className="truncate">
+                  {description}
+                </CardDescription>
+              ) : null}
+            </div>
           </CollapsibleTrigger>
-          {actions && (
-            <div className="flex shrink-0 items-center gap-1.5">{actions}</div>
-          )}
-        </div>
+          {count !== undefined || actions ? (
+            <CardAction className="flex items-center gap-2">
+              {count !== undefined && (
+                <Badge variant="secondary">{count}</Badge>
+              )}
+              {actions}
+            </CardAction>
+          ) : null}
+        </CardHeader>
         <CollapsibleContent>
-          <CardContent className="min-w-0 px-3 py-3">{children}</CardContent>
+          <CardContent className="min-w-0 py-(--card-spacing)">
+            {children}
+          </CardContent>
         </CollapsibleContent>
       </Collapsible>
     </Card>

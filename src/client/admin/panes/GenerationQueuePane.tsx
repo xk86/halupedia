@@ -105,6 +105,7 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
     <Pane
       id="generation-queue"
       title="Generation Queue"
+      description="Queued and active article generation work."
       count={`${active} active · ${queued} queued`}
     >
       {items.length ? (

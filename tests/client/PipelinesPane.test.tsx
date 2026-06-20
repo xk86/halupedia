@@ -34,12 +34,17 @@ describe("PipelinesPane", () => {
       />,
     );
 
-    expect(
-      screen
-        .getByRole("button", { name: "Pipelines" })
-        .closest('[data-slot="card"]'),
-    ).toHaveClass("[content-visibility:auto]");
+    const paneTrigger = screen.getByRole("button", { name: /Pipelines/ });
+    expect(paneTrigger).toHaveClass("text-foreground");
+    const paneCard = paneTrigger.closest('[data-slot="card"]');
+    expect(paneCard).toBeTruthy();
+    expect(paneCard?.querySelector('[data-slot="card-header"]')).toBeTruthy();
+    expect(paneCard?.querySelector('[data-slot="card-content"]')).toBeTruthy();
     expect(screen.queryByText("Live reasoning tokens")).not.toBeInTheDocument();
+    expect(screen.getByText("article.generate").closest("button")).toHaveClass(
+      "bg-transparent",
+      "text-foreground",
+    );
     await userEvent.click(screen.getByText("article.generate"));
     expect(screen.getByText("Live reasoning tokens")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: /Response/ }));
@@ -123,11 +128,12 @@ describe("PipelinesPane", () => {
       "trace-source",
     );
     expect(sourceViews).toHaveLength(4);
+    expect(sourceViews[0]).toHaveClass("text-foreground");
     expect(sourceViews[0]).toHaveValue(
       "Use **bold** [Alpha](ref:alpha) rules.",
     );
-    expect(screen.getAllByText("1 lines").length).toBeGreaterThan(0);
-    for (const button of within(detail as HTMLElement).getAllByRole("button", {
+    expect(screen.getAllByText(/1 lines/).length).toBeGreaterThan(0);
+    for (const button of within(detail as HTMLElement).getAllByRole("tab", {
       name: "Rendered",
     })) {
       await userEvent.click(button);
@@ -135,8 +141,8 @@ describe("PipelinesPane", () => {
     const markdownTraces = within(detail as HTMLElement).getAllByTestId(
       "markdown-trace",
     );
-    expect(markdownTraces[0]).toHaveClass("[content-visibility:auto]");
-    expect(markdownTraces[0]).not.toHaveClass("overflow-auto", "max-h-96");
+    expect(markdownTraces[0]).toHaveClass("prose-halu");
+    expect(markdownTraces[0]).not.toHaveClass("overflow-auto");
     expect(
       within(detail as HTMLElement).getByText("System prompt"),
     ).toBeInTheDocument();
@@ -424,7 +430,7 @@ describe("PipelinesPane", () => {
       .closest('[data-slot="card"]');
     expect(promptRefCard).toBeTruthy();
     await userEvent.click(
-      within(promptRefCard as HTMLElement).getByRole("button", {
+      within(promptRefCard as HTMLElement).getByRole("tab", {
         name: "Rendered",
       }),
     );

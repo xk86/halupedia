@@ -13,6 +13,7 @@ import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
   CardAction,
@@ -34,7 +35,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { COUNT_LABEL } from "../ui";
 import { toWikiSegment } from "../../wikiPath";
 import { LiveLlmViews, type LiveLlmView } from "../LiveLlmViews";
 
@@ -277,9 +277,10 @@ export function PipelinesPane({
     <Pane
       id="pipelines"
       title="Pipelines"
+      description="Recent runs, node timings, and workflow traces."
       wide
       actions={
-        <Button variant="outline" onClick={onRefresh}>
+        <Button variant="outline" size="sm" onClick={onRefresh}>
           Refresh
         </Button>
       }
@@ -290,10 +291,10 @@ export function PipelinesPane({
           collapsed reference material. In-progress articles lead the list. */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <h4 className="m-0 text-sm font-semibold">Recent runs</h4>
-        <span className={COUNT_LABEL}>
+        <Badge variant="outline">
           {activeRuns.length > 0 && `${activeRuns.length} active · `}
           {traceEnabled ? `${runs.length} recorded` : "trace off"}
-        </span>
+        </Badge>
       </div>
       {totalRows ? (
         <>
@@ -483,9 +484,9 @@ export function PipelinesPane({
               >
                 ← Prev
               </Button>
-              <span className={COUNT_LABEL}>
+              <Badge variant="secondary">
                 Page {page + 1} of {pageCount}
-              </span>
+              </Badge>
               <Button
                 variant="outline"
                 size="sm"
@@ -1303,44 +1304,18 @@ const PromptSection = memo(function PromptSection({
   );
   const lineCount = text.split("\n").length;
   return (
-    <Card size="sm" className="gap-0 rounded-md py-0 shadow-none">
-      <CardHeader className="grid-cols-[minmax(0,1fr)_auto] px-3 py-1.5">
-        <CardTitle className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-xs">
-          <span>{label}</span>
-          <Badge
-            variant={variant === "output" ? "default" : "secondary"}
-            className="h-5 px-1.5 font-mono text-[0.65rem] font-normal"
-          >
-            {text.length.toLocaleString()} chars
-          </Badge>
-          <span className="text-[0.65rem] font-normal text-muted-foreground">
-            {lineCount.toLocaleString()} lines
-          </span>
-        </CardTitle>
-        <CardAction className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant={mode === "source" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-6 px-1.5 text-[0.68rem]"
-            onClick={() => setMode("source")}
-          >
-            Source
-          </Button>
-          <Button
-            type="button"
-            variant={mode === "rendered" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-6 px-1.5 text-[0.68rem]"
-            onClick={() => setMode("rendered")}
-          >
-            Rendered
-          </Button>
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+        <CardDescription>
+          {text.length.toLocaleString()} chars · {lineCount.toLocaleString()}
+          {" lines"}
+        </CardDescription>
+        <CardAction>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-6 px-1.5 text-[0.68rem]"
             onClick={copy}
             title="Copy to clipboard"
           >
@@ -1348,28 +1323,38 @@ const PromptSection = memo(function PromptSection({
           </Button>
         </CardAction>
       </CardHeader>
-      {mode === "source" ? (
-        <Textarea
-          data-testid="trace-source"
-          value={text}
-          readOnly
-          spellCheck={false}
-          aria-label={`${label} source`}
-          className={cn(
-            "max-h-80 min-h-20 resize-y rounded-none border-x-0 border-b-0 bg-muted/10 px-3 py-2 font-mono text-[0.72rem] leading-[1.4] shadow-none focus-visible:ring-0",
-            variant === "cot" && "text-muted-foreground italic",
-          )}
-        />
-      ) : (
-        <div
-          data-testid="markdown-trace"
-          className={cn(
-            "prose-halu prose max-w-none border-t border-border px-3 py-2 font-mono text-[0.72rem] leading-[1.4] wrap-break-word text-foreground [contain-intrinsic-size:auto_24rem] [content-visibility:auto] [&_h1]:mt-3 [&_h1]:mb-1 [&_h1]:text-lg [&_h2]:mt-3 [&_h2]:mb-1 [&_h2]:text-base [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-sm [&_li]:my-0 [&_ol]:my-1.5 [&_p]:my-1.5 [&_pre]:my-2 [&_ul]:my-1.5",
-            variant === "cot" && "text-muted-foreground italic",
-          )}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      )}
+      <CardContent>
+        <Tabs
+          value={mode}
+          onValueChange={(value) => setMode(value as "source" | "rendered")}
+        >
+          <TabsList variant="line">
+            <TabsTrigger value="source">Source</TabsTrigger>
+            <TabsTrigger value="rendered">Rendered</TabsTrigger>
+          </TabsList>
+          <TabsContent value="source">
+            <Textarea
+              data-testid="trace-source"
+              value={text}
+              readOnly
+              spellCheck={false}
+              aria-label={`${label} source`}
+              rows={Math.min(Math.max(lineCount, 4), 14)}
+              className="max-h-80 resize-y"
+            />
+          </TabsContent>
+          <TabsContent value="rendered">
+            <div
+              data-testid="markdown-trace"
+              className={cn(
+                "prose-halu prose prose-sm max-w-none",
+                variant === "cot" && "italic",
+              )}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          </TabsContent>
+        </Tabs>
+      </CardContent>
     </Card>
   );
 });

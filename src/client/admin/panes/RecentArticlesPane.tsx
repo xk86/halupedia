@@ -19,6 +19,7 @@ function RecentArticlesPaneComponent({ articles, onNavigate }: Props) {
     <Pane
       id="recent-articles"
       title="Recent Articles"
+      description="Latest stored article revisions."
       count={`${articles.length}`}
     >
       <ul className="m-0 list-none p-0">

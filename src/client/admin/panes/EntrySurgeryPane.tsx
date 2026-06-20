@@ -28,7 +28,11 @@ function EntrySurgeryPaneComponent({
   summaryResult,
 }: Props) {
   return (
-    <Pane id="entry-surgery" title="Entry Surgery">
+    <Pane
+      id="entry-surgery"
+      title="Entry Surgery"
+      description="Delete articles or rebuild generated summaries."
+    >
       <div className={TOOLBAR}>
         <ArticleSearchDropdown
           wrapClassName="flex-1"

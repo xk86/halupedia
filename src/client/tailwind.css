@@ -210,6 +210,7 @@
  * prose stylesheet. Used as `prose prose-halu max-w-none` on the body wrapper.
  */
 .prose-halu {
+  color: var(--ink);
   --tw-prose-body: var(--ink);
   --tw-prose-headings: var(--ink-soft);
   --tw-prose-lead: var(--ink-soft);

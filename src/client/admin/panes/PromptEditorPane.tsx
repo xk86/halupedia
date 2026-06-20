@@ -479,7 +479,13 @@ function PromptEditorPaneComponent() {
   }, [loadContent, selected, selectedImagePreset, selectedPresetKey]);
 
   return (
-    <Pane id="prompt-editor" title="Prompt Editor" wide defaultCollapsed>
+    <Pane
+      id="prompt-editor"
+      title="Prompt Editor"
+      description="Edit TOML-backed prompt templates and revisions."
+      wide
+      defaultCollapsed
+    >
       {listError && <p className={ERROR_BOX}>{listError}</p>}
 
       <div className="admin-prompt-editor">

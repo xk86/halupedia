@@ -40,8 +40,10 @@ function PromptModelsPaneComponent({
     <Pane
       id="prompt-models"
       title="Prompt Models"
+      description="Model role and thinking mode per prompt."
       count={`${associations.length} prompts`}
       wide
+      defaultCollapsed
     >
       {associations.length ? (
         <Table className="text-xs [&_td]:px-1.5 [&_td]:py-1 [&_th]:h-7 [&_th]:px-1.5">

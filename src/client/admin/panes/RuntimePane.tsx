@@ -13,7 +13,11 @@ function RuntimePaneComponent({
   ragMode,
 }: Props) {
   return (
-    <Pane id="runtime" title="Runtime">
+    <Pane
+      id="runtime"
+      title="Runtime"
+      description="Database, prompt, and retrieval configuration."
+    >
       <p className="sb-copy">Database: {databasePath}</p>
       <p className="sb-copy">Prompts: {promptConfigPath}</p>
       <p className="sb-copy">RAG mode: {ragMode}</p>

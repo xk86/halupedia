@@ -25,7 +25,8 @@ async function setRichEditorMarkdown(markdown: string, editorIndex = 0) {
   const textareas = document.querySelectorAll<HTMLTextAreaElement>(
     ".mdedit-raw-textarea",
   );
-  const textarea = textareas[textareas.length === toggles.length ? editorIndex : 0];
+  const textarea =
+    textareas[textareas.length === toggles.length ? editorIndex : 0];
   fireEvent.change(textarea, { target: { value: markdown } });
 }
 
@@ -420,6 +421,9 @@ describe("App", () => {
           /3 waiting/.test(el.textContent ?? ""),
       ),
     ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Prompt Models/ }),
+    );
     expect(screen.getByText("article_summary")).toBeInTheDocument();
     expect(screen.getByText("light-model")).toBeInTheDocument();
     expect(screen.getByText("on")).toBeInTheDocument();
@@ -1274,9 +1278,7 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await userEvent.click(screen.getByRole("button", { name: "Raw" }));
 
-    await setRichEditorMarkdown(
-      "# Test Article\n\nRewritten in block mode.",
-    );
+    await setRichEditorMarkdown("# Test Article\n\nRewritten in block mode.");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {

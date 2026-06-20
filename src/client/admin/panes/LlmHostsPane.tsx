@@ -173,8 +173,10 @@ function LlmHostsPaneComponent() {
     <Pane
       id="llm-hosts"
       title="LLM Hosts & Roles"
+      description="Host queues, model routing, and generation roles."
       count={`${data?.hosts.length ?? 0} hosts`}
       wide
+      defaultCollapsed
     >
       {error && <div className={ERROR_BOX}>{error}</div>}
       {!data ? (

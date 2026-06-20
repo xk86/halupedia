@@ -1,19 +1,32 @@
-import { Fragment, useEffect, useState, type MouseEvent } from "react";
-import clsx from "clsx";
-import { ERROR_BOX } from "@/lib/utils";
+import {
+  Fragment,
+  useEffect,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import { ChevronDown, LoaderCircle } from "lucide-react";
+import { cn, ERROR_BOX } from "@/lib/utils";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { COUNT_LABEL } from "../ui";
 import { toWikiSegment } from "../../wikiPath";
+import { LiveLlmViews, type LiveLlmView } from "../LiveLlmViews";
 
 const RUNS_PER_PAGE = 10;
 
@@ -148,6 +161,8 @@ interface ActiveRun {
   workflow?: string;
   phase?: string;
   startedAt: number;
+  reasoning?: string;
+  views?: LiveLlmView[];
 }
 
 interface Props {
@@ -260,8 +275,8 @@ export function PipelinesPane({
 
       {/* Run history is the primary view; the workflow diagrams below are
           collapsed reference material. In-progress articles lead the list. */}
-      <div className="admin-section-title-row admin-pipeline-runs-heading">
-        <h4 className="sb-heading">Recent Runs</h4>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="m-0 text-sm font-semibold">Recent runs</h4>
         <span className={COUNT_LABEL}>
           {activeRuns.length > 0 && `${activeRuns.length} active · `}
           {traceEnabled ? `${runs.length} recorded` : "trace off"}
@@ -269,123 +284,150 @@ export function PipelinesPane({
       </div>
       {totalRows ? (
         <>
-          <Table
-            containerClassName="overflow-x-visible"
-            className="admin-pipeline-runs-table"
-          >
-            <TableHeader>
-              <TableRow>
-                <TableHead>Started</TableHead>
-                <TableHead>Workflow</TableHead>
-                <TableHead>Slug</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Nodes</TableHead>
-                <TableHead>Duration</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pageRows.map((row) => {
-                if (row.kind === "active") {
-                  const a = row.item;
-                  return (
-                    <TableRow
-                      key={`active:${a.slug}`}
-                      className="admin-pipeline-run-row admin-pipeline-run-row--active"
-                    >
-                      <TableCell
-                        className="admin-pipeline-run-time"
-                        title={fmtFullTimestamp(a.startedAt)}
-                      >
-                        {fmtTimestamp(a.startedAt)}
-                      </TableCell>
-                      <TableCell>{a.workflow ?? "—"}</TableCell>
-                      <TableCell>
-                        <SlugCell
-                          slug={a.slug}
-                          segment={toWikiSegment(a.title || a.slug)}
-                          onNavigate={navigateTo}
-                          onNavigateHome={onNavigateHome}
-                        />
-                      </TableCell>
-                      <TableCell className="admin-pipeline-run-inprogress">
-                        in progress
-                      </TableCell>
-                      <TableCell>
-                        {a.phase && a.phase !== "starting"
-                          ? a.phase.replace(/^[^.]+\./, "")
-                          : "…"}
-                      </TableCell>
-                      <TableCell>—</TableCell>
-                    </TableRow>
-                  );
-                }
-                const run = row.item;
+          <div className="mt-3 flex flex-col gap-2">
+            {pageRows.map((row) => {
+              if (row.kind === "active") {
+                const active = row.item;
                 return (
-                  <Fragment key={run.run_id}>
-                    <TableRow
-                      className={clsx(
-                        "admin-pipeline-run-row",
-                        expandedRun === run.run_id &&
-                          "admin-pipeline-run-row--expanded",
-                      )}
-                      onClick={() => void toggleRun(run.run_id)}
-                      title={run.error_message ?? "Click to see node breakdown"}
-                    >
-                      <TableCell
-                        className="admin-pipeline-run-time"
-                        title={fmtFullTimestamp(run.started_at)}
-                      >
-                        {fmtTimestamp(run.started_at)}
-                      </TableCell>
-                      <TableCell>{run.workflow}</TableCell>
-                      <TableCell>
-                        {run.slug ? (
-                          <SlugCell
-                            slug={run.slug}
-                            segment={toWikiSegment(run.slug)}
-                            onNavigate={navigateTo}
-                            onNavigateHome={onNavigateHome}
-                          />
-                        ) : (
-                          ""
-                        )}
-                      </TableCell>
-                      <TableCell
-                        className={
-                          run.status === "error"
-                            ? "admin-pipeline-run-error"
-                            : ""
-                        }
-                      >
-                        {run.status}
-                      </TableCell>
-                      <TableCell>{run.nodes_executed}</TableCell>
-                      <TableCell>{run.duration_ms} ms</TableCell>
-                    </TableRow>
-                    {expandedRun === run.run_id && (
-                      <TableRow className="admin-pipeline-run-detail-row">
-                        <TableCell colSpan={6}>
-                          {loadingRun === run.run_id ? (
-                            <span className="admin-pipeline-run-loading">
-                              Loading…
+                  <Card key={`active:${active.slug}`} size="sm">
+                    <Collapsible defaultOpen>
+                      <CardHeader>
+                        <CollapsibleTrigger className="group/trigger flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left">
+                          <CardTitle className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                            <span className="truncate font-mono">
+                              {active.workflow ?? "Active pipeline"}
                             </span>
-                          ) : runNodes[run.run_id] ? (
-                            <NodeBreakdown
-                              nodes={runNodes[run.run_id]}
-                              totalMs={run.duration_ms}
-                              runStartedAt={run.started_at}
-                            />
-                          ) : null}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </Fragment>
+                            <Badge>In progress</Badge>
+                          </CardTitle>
+                          <ChevronDown
+                            aria-hidden
+                            className="shrink-0 text-muted-foreground transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
+                          />
+                        </CollapsibleTrigger>
+                        <CardDescription className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+                          <RunDatum
+                            label="Started"
+                            value={fmtTimestamp(active.startedAt)}
+                            title={fmtFullTimestamp(active.startedAt)}
+                          />
+                          <RunDatum
+                            label="Article"
+                            value={
+                              <SlugCell
+                                slug={active.slug}
+                                segment={toWikiSegment(
+                                  active.title || active.slug,
+                                )}
+                                onNavigate={navigateTo}
+                                onNavigateHome={onNavigateHome}
+                              />
+                            }
+                          />
+                          <RunDatum
+                            label="Current node"
+                            value={formatActivePhase(active.phase)}
+                          />
+                          <RunDatum label="Duration" value="Running" />
+                        </CardDescription>
+                      </CardHeader>
+                      <CollapsibleContent>
+                        <CardContent className="pt-3">
+                          <LiveLlmViews
+                            views={
+                              active.views?.length
+                                ? active.views
+                                : active.reasoning
+                                  ? [
+                                      {
+                                        node: active.phase ?? "Current model",
+                                        reasoning: active.reasoning,
+                                      },
+                                    ]
+                                  : []
+                            }
+                          />
+                        </CardContent>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </Card>
                 );
-              })}
-            </TableBody>
-          </Table>
+              }
+
+              const run = row.item;
+              const open = expandedRun === run.run_id;
+              return (
+                <Card key={run.run_id} size="sm">
+                  <Collapsible
+                    open={open}
+                    onOpenChange={() => void toggleRun(run.run_id)}
+                  >
+                    <CardHeader>
+                      <CollapsibleTrigger className="group/trigger flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left">
+                        <CardTitle className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                          <span className="truncate font-mono">
+                            {run.workflow}
+                          </span>
+                          <RunStatusBadge status={run.status} />
+                        </CardTitle>
+                        <ChevronDown
+                          aria-hidden
+                          className="shrink-0 text-muted-foreground transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
+                        />
+                      </CollapsibleTrigger>
+                      <CardDescription className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+                        <RunDatum
+                          label="Started"
+                          value={fmtTimestamp(run.started_at)}
+                          title={fmtFullTimestamp(run.started_at)}
+                        />
+                        <RunDatum
+                          label="Article"
+                          value={
+                            run.slug ? (
+                              <SlugCell
+                                slug={run.slug}
+                                segment={toWikiSegment(run.slug)}
+                                onNavigate={navigateTo}
+                                onNavigateHome={onNavigateHome}
+                              />
+                            ) : (
+                              "—"
+                            )
+                          }
+                        />
+                        <RunDatum label="Nodes" value={run.nodes_executed} />
+                        <RunDatum
+                          label="Duration"
+                          value={`${run.duration_ms} ms`}
+                        />
+                      </CardDescription>
+                    </CardHeader>
+                    <CollapsibleContent>
+                      <CardContent className="pt-3">
+                        {loadingRun === run.run_id ? (
+                          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <LoaderCircle
+                              data-icon="inline-start"
+                              className="animate-spin"
+                            />
+                            Loading trace…
+                          </span>
+                        ) : runNodes[run.run_id] ? (
+                          <NodeBreakdown
+                            nodes={runNodes[run.run_id]}
+                            totalMs={run.duration_ms}
+                            runStartedAt={run.started_at}
+                          />
+                        ) : null}
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </Card>
+              );
+            })}
+          </div>
           {pageCount > 1 && (
-            <div className="admin-pipeline-runs-pager">
+            <div className="mt-3 flex items-center gap-3">
               <Button
                 variant="outline"
                 size="sm"
@@ -409,105 +451,159 @@ export function PipelinesPane({
           )}
         </>
       ) : (
-        <p className="sb-copy">
+        <p className="mt-3 mb-0 text-sm text-muted-foreground italic">
           {traceEnabled
             ? "No recorded pipeline runs."
             : "Pipeline trace storage is disabled."}
         </p>
       )}
 
-      <div
-        className="admin-section-title-row"
-        style={{ marginTop: "1.5rem", marginBottom: "0.5rem" }}
-      >
-        <h4 className="sb-heading">Workflows</h4>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="m-0 text-sm font-semibold">Workflows</h4>
         <Button variant="outline" size="sm" onClick={toggleAllWorkflows}>
           {allExpanded ? "Collapse all" : "Expand all"}
         </Button>
       </div>
 
-      <div className="admin-pipeline-grid">
+      <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
         {workflows.map((workflow) => {
-          const collapsed = !expandedWorkflows.has(workflow.name);
+          const open = expandedWorkflows.has(workflow.name);
           return (
-            <div key={workflow.name} className="admin-pipeline-workflow">
-              <button
-                type="button"
-                className="admin-pipeline-name admin-pipeline-name--toggle"
-                onClick={() => toggleWorkflow(workflow.name)}
-                aria-expanded={!collapsed}
+            <Card key={workflow.name} size="sm">
+              <Collapsible
+                open={open}
+                onOpenChange={() => toggleWorkflow(workflow.name)}
               >
-                <span>{workflow.name}</span>
-                <span className="admin-pipeline-toggle-icon">
-                  {collapsed ? "▸" : "▾"}
-                </span>
-              </button>
-              {!collapsed && (
-                <>
-                  <div className="admin-pipeline-summary">
-                    {workflow.summary}
-                  </div>
-                  <div className="admin-pipeline-flow">
+                <CardHeader>
+                  <CollapsibleTrigger className="group/trigger flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left">
+                    <CardTitle className="min-w-0 flex-1 truncate font-mono">
+                      {workflow.name}
+                    </CardTitle>
+                    <ChevronDown
+                      aria-hidden
+                      className="shrink-0 text-muted-foreground transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
+                    />
+                  </CollapsibleTrigger>
+                </CardHeader>
+                <CollapsibleContent>
+                  <CardContent className="flex flex-col gap-3 pt-2">
+                    <p className="m-0 text-sm text-muted-foreground">
+                      {workflow.summary}
+                    </p>
+                    <div className="flex flex-wrap items-start gap-2">
                     {segmentNodes(workflow.nodes).map((seg, si, all) => {
                       const isLast = si === all.length - 1;
                       if (seg.type === "linear") {
                         return (
                           <span
                             key={si}
-                            className={`admin-pipeline-segment${isLast ? "" : "admin-pipeline-segment--arrow"}`}
+                            className="flex flex-wrap items-center gap-1.5"
                           >
                             {seg.nodes.map((node, ni) => (
-                              <span
-                                key={node.name}
-                                className={`admin-pipeline-node admin-pipeline-node--${node.kind}${ni < seg.nodes.length - 1 ? "admin-pipeline-node--arrow" : ""}`}
-                                title={node.description ?? node.name}
-                              >
-                                {node.name}
-                              </span>
+                              <Fragment key={node.name}>
+                                <WorkflowNodeBadge node={node} />
+                                {ni < seg.nodes.length - 1 ? (
+                                  <span className="text-muted-foreground">→</span>
+                                ) : null}
+                              </Fragment>
                             ))}
+                            {!isLast ? (
+                              <span className="text-muted-foreground">→</span>
+                            ) : null}
                           </span>
                         );
                       }
                       const branchEntries = [...seg.branches.entries()];
                       return (
-                        <span
+                        <div
                           key={si}
-                          className={`admin-pipeline-branch${isLast ? "" : "admin-pipeline-segment--arrow"}`}
+                          className="flex items-center gap-2"
                         >
-                          {branchEntries.map(([label, nodes]) => (
-                            <span
-                              key={label}
-                              className="admin-pipeline-branch-row"
-                            >
-                              <span
-                                className="admin-pipeline-branch-label"
-                                title={label}
+                          <div className="flex flex-col gap-1.5 border-l border-border pl-2">
+                            {branchEntries.map(([label, nodes]) => (
+                              <div
+                                key={label}
+                                className="flex flex-wrap items-center gap-1.5"
                               >
-                                {label}
-                              </span>
-                              {nodes.map((node, ni) => (
-                                <span
-                                  key={node.name}
-                                  className={`admin-pipeline-node admin-pipeline-node--${node.kind}${ni < nodes.length - 1 ? "admin-pipeline-node--arrow" : ""}`}
-                                  title={node.description ?? node.name}
-                                >
-                                  {node.name}
-                                </span>
-                              ))}
-                            </span>
-                          ))}
-                        </span>
+                                <Badge variant="outline" title={label}>
+                                  {label}
+                                </Badge>
+                                {nodes.map((node, ni) => (
+                                  <Fragment key={node.name}>
+                                    <WorkflowNodeBadge node={node} />
+                                    {ni < nodes.length - 1 ? (
+                                      <span className="text-muted-foreground">
+                                        →
+                                      </span>
+                                    ) : null}
+                                  </Fragment>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                          {!isLast ? (
+                            <span className="text-muted-foreground">→</span>
+                          ) : null}
+                        </div>
                       );
                     })}
-                  </div>
-                </>
-              )}
-            </div>
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
+            </Card>
           );
         })}
       </div>
     </Pane>
   );
+}
+
+function WorkflowNodeBadge({ node }: { node: WorkflowNode }) {
+  const variant =
+    node.kind === "llm"
+      ? "warn"
+      : node.kind === "write"
+        ? "destructive"
+        : node.kind === "read"
+          ? "secondary"
+          : "outline";
+  return (
+    <Badge variant={variant} title={node.description ?? node.name}>
+      <span className="max-w-56 truncate font-mono">{node.name}</span>
+    </Badge>
+  );
+}
+
+function RunDatum({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: ReactNode;
+  title?: string;
+}) {
+  return (
+    <span className="min-w-0" title={title}>
+      <span className="block text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </span>
+      <span className="block truncate font-mono text-xs text-foreground tabular-nums">
+        {value}
+      </span>
+    </span>
+  );
+}
+
+function RunStatusBadge({ status }: { status: string }) {
+  const variant = status === "error" ? "destructive" : "secondary";
+  return <Badge variant={variant}>{status}</Badge>;
+}
+
+function formatActivePhase(phase?: string): string {
+  if (!phase || phase === "starting") return "Starting";
+  return phase.replace(/^[^.]+\./, "").replaceAll("_", " ");
 }
 
 function fmtK(n: number): string {
@@ -537,7 +633,7 @@ function SlugCell({
   if (slug === HOMEPAGE_PSEUDO_SLUG) {
     return (
       <a
-        className="admin-pipeline-run-slug"
+        className="font-mono text-xs text-primary underline underline-offset-4"
         href="/"
         onClick={(e) => {
           e.preventDefault();
@@ -551,7 +647,7 @@ function SlugCell({
   }
   return (
     <a
-      className="admin-pipeline-run-slug"
+      className="font-mono text-xs text-primary underline underline-offset-4"
       href={`/wiki/${segment}`}
       onClick={(e) => onNavigate(e, segment)}
     >
@@ -581,7 +677,6 @@ function NodeBreakdown({
   totalMs: number;
   runStartedAt?: number;
 }) {
-  const maxMs = Math.max(...nodes.map((n) => n.duration_ms), 1);
   const [openPanels, setOpenPanels] = useState<Set<string>>(new Set());
   function togglePanel(key: string) {
     setOpenPanels((prev) => {
@@ -592,10 +687,9 @@ function NodeBreakdown({
     });
   }
   return (
-    <div className="admin-pipeline-node-breakdown">
+    <div className="flex flex-col gap-2" data-testid="node-breakdown">
       {nodes.map((node, i) => {
         const pct = Math.round((node.duration_ms / Math.max(totalMs, 1)) * 100);
-        const barPct = Math.round((node.duration_ms / maxMs) * 100);
         const hasMetadata = Boolean(
           node.llm_role || node.llm_model || node.llm_config_key,
         );
@@ -613,76 +707,85 @@ function NodeBreakdown({
         const ragOpen = openPanels.has(ragKey);
         return (
           <Fragment key={i}>
-            <div
-              className={`admin-pipeline-node-row admin-pipeline-node-row--${node.node_kind ?? "unknown"}`}
-            >
-              <span
-                className="admin-pipeline-node-name"
-                title={node.error_message ?? node.node_name}
-              >
-                {node.node_name}
-                {node.status === "error" && (
-                  <span className="admin-pipeline-node-err"> ✕</span>
-                )}
-              </span>
-              {node.started_at ? (
-                <span
-                  className="admin-pipeline-node-time"
-                  title={
-                    runStartedAt
-                      ? `${fmtFullTimestamp(node.started_at)} (+${node.started_at - runStartedAt} ms)`
-                      : fmtFullTimestamp(node.started_at)
-                  }
-                >
-                  {fmtTimestamp(node.started_at)}
-                </span>
-              ) : null}
-              <span className="admin-pipeline-node-bar-wrap">
-                <span
-                  className="admin-pipeline-node-bar"
-                  style={{ width: `${barPct}%` }}
-                />
-              </span>
-              <span className="admin-pipeline-node-ms">
-                {node.duration_ms} ms
-              </span>
-              <span className="admin-pipeline-node-pct">{pct}%</span>
-              {node.prompt_chars != null ? (
-                hasPrompt ? (
-                  <button
-                    type="button"
-                    className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${promptOpen ? "admin-pipeline-node-ctx--open" : ""}`}
-                    title="Show prompt, chain-of-thought, and output"
-                    onClick={() => togglePanel(promptKey)}
-                  >
-                    {fmtK(node.prompt_chars)}c {promptOpen ? "▾" : "▸"}
-                  </button>
-                ) : (
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
                   <span
-                    className="admin-pipeline-node-ctx"
-                    title="prompt chars (system + user)"
+                    className="min-w-0 flex-1 truncate font-mono"
+                    title={node.error_message ?? node.node_name}
                   >
-                    {fmtK(node.prompt_chars)}c
+                    {node.node_name}
                   </span>
-                )
-              ) : (
-                <span className="admin-pipeline-node-ctx" />
-              )}
-              {hasRag ? (
-                <button
-                  type="button"
-                  className={`admin-pipeline-node-ctx admin-pipeline-node-ctx--btn${ragOpen ? "admin-pipeline-node-ctx--open" : ""}`}
-                  title="Show retrieved RAG context and selected source segments"
-                  onClick={() => togglePanel(ragKey)}
-                >
-                  RAG {ragDetail?.displayCount ?? 0} {ragOpen ? "▾" : "▸"}
-                </button>
-              ) : (
-                <span className="admin-pipeline-node-ctx" />
-              )}
-            </div>
+                  <Badge
+                    variant={
+                      node.status === "error" ? "destructive" : "outline"
+                    }
+                  >
+                    {node.status}
+                  </Badge>
+                  <Badge variant="secondary">
+                    {node.node_kind ?? "unknown"}
+                  </Badge>
+                </CardTitle>
+                <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs tabular-nums">
+                  {node.started_at ? (
+                    <span
+                      title={
+                        runStartedAt
+                          ? `${fmtFullTimestamp(node.started_at)} (+${node.started_at - runStartedAt} ms)`
+                          : fmtFullTimestamp(node.started_at)
+                      }
+                    >
+                      {fmtTimestamp(node.started_at)}
+                    </span>
+                  ) : null}
+                  <span>{node.duration_ms} ms</span>
+                  <span>{pct}% of run</span>
+                </CardDescription>
+                {node.prompt_chars != null || hasRag ? (
+                  <CardAction className="flex flex-wrap gap-1.5">
+                    {node.prompt_chars != null ? (
+                      hasPrompt ? (
+                        <Button
+                          type="button"
+                          variant={promptOpen ? "secondary" : "outline"}
+                          size="sm"
+                          title="Show prompt, reasoning, and output"
+                          onClick={() => togglePanel(promptKey)}
+                        >
+                          {fmtK(node.prompt_chars)} chars
+                          <ChevronDown
+                            data-icon="inline-end"
+                            className={cn(!promptOpen && "-rotate-90")}
+                          />
+                        </Button>
+                      ) : (
+                        <Badge variant="outline">
+                          {fmtK(node.prompt_chars)} chars
+                        </Badge>
+                      )
+                    ) : null}
+                    {hasRag ? (
+                      <Button
+                        type="button"
+                        variant={ragOpen ? "secondary" : "outline"}
+                        size="sm"
+                        title="Show retrieved RAG context and selected source segments"
+                        onClick={() => togglePanel(ragKey)}
+                      >
+                        RAG {ragDetail?.displayCount ?? 0}
+                        <ChevronDown
+                          data-icon="inline-end"
+                          className={cn(!ragOpen && "-rotate-90")}
+                        />
+                      </Button>
+                    ) : null}
+                  </CardAction>
+                ) : null}
+              </CardHeader>
+            </Card>
             {promptOpen && hasPrompt && (
-              <div className="admin-prompt-detail">
+              <div className="flex flex-col gap-2" data-testid="trace-detail">
                 {hasMetadata && <LlmMetadata node={node} />}
                 {node.prompt_text && (
                   <PromptTraceSections text={node.prompt_text} />
@@ -835,12 +938,12 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
   ].filter((row): row is [string, string] => Boolean(row[1]));
 
   return (
-    <div className="admin-prompt-detail">
-      <dl className="admin-prompt-meta-grid">
+    <div className="flex flex-col gap-2" data-testid="trace-detail">
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg bg-muted/50 p-3 font-mono text-xs">
         {rows.map(([label, value]) => (
           <Fragment key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="m-0 min-w-0 break-words text-foreground">{value}</dd>
           </Fragment>
         ))}
       </dl>
@@ -1125,11 +1228,11 @@ function LlmMetadata({ node }: { node: NodeSpan }) {
 
   if (rows.length === 0) return null;
   return (
-    <dl className="admin-prompt-meta-grid">
+    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg bg-muted/50 p-3 font-mono text-xs">
       {rows.map(([label, value]) => (
         <Fragment key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
+          <dt className="text-muted-foreground">{label}</dt>
+          <dd className="m-0 min-w-0 break-words text-foreground">{value}</dd>
         </Fragment>
       ))}
     </dl>
@@ -1150,27 +1253,35 @@ function PromptSection({
   };
   const html = md.render(text);
   return (
-    <section
-      className={`admin-prompt-section${variant ? ` admin-prompt-section--${variant}` : ""}`}
-    >
-      <header className="admin-prompt-section-head">
-        <span className="admin-prompt-section-label">{label}</span>
-        <span className="admin-prompt-section-meta">
-          {text.length.toLocaleString()} chars
-        </span>
-        <button
-          type="button"
-          className="admin-prompt-section-copy"
-          onClick={copy}
-          title="Copy to clipboard"
-        >
-          Copy
-        </button>
-      </header>
-      <div
-        className="admin-prompt-section-body"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    </section>
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          <span>{label}</span>
+          <Badge variant={variant === "output" ? "default" : "secondary"}>
+            {text.length.toLocaleString()} chars
+          </Badge>
+        </CardTitle>
+        <CardAction>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={copy}
+            title="Copy to clipboard"
+          >
+            Copy
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <div
+          className={cn(
+            "prose prose-sm max-h-96 max-w-none overflow-auto font-mono text-xs leading-relaxed wrap-break-word text-foreground",
+            variant === "cot" && "text-muted-foreground italic",
+          )}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </CardContent>
+    </Card>
   );
 }

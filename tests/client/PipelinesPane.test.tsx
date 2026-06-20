@@ -7,6 +7,34 @@ import { PipelinesPane } from "../../src/client/admin/panes/PipelinesPane";
 describe("PipelinesPane", () => {
   afterEach(() => cleanup());
 
+  it("shows toggleable live reasoning and response views", async () => {
+    render(
+      <PipelinesPane
+        workflows={[]}
+        runs={[]}
+        activeRuns={[{
+          slug: "live-article",
+          title: "Live Article",
+          workflow: "article.generate",
+          phase: "llm.generate_article",
+          startedAt: Date.now(),
+          views: [{
+            node: "llm.generate_article",
+            reasoning: "Live reasoning tokens",
+            response: "Live response tokens",
+          }],
+        }]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Live reasoning tokens")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: /Response/ }));
+    expect(screen.getByText("Live response tokens")).toBeInTheDocument();
+  });
+
   it("renders captured prompt, chain-of-thought, and output as markdown", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(JSON.stringify({
@@ -59,9 +87,9 @@ describe("PipelinesPane", () => {
     );
 
     await userEvent.click(screen.getByText("test.workflow"));
-    await userEvent.click(await screen.findByRole("button", { name: /123c/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /123 chars/ }));
 
-    const detail = screen.getByText("System prompt").closest(".admin-prompt-detail");
+    const detail = screen.getByText("System prompt").closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
     expect(within(detail as HTMLElement).getByText("System prompt")).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByText("User prompt")).toBeInTheDocument();
@@ -169,7 +197,7 @@ describe("PipelinesPane", () => {
     const ragButtons = await screen.findAllByRole("button", { name: /RAG 1/ });
     await userEvent.click(ragButtons[0]);
 
-    const detail = screen.getByText("Retrieved source segments").closest(".admin-prompt-detail");
+    const detail = screen.getByText("Retrieved source segments").closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
     expect(within(detail as HTMLElement).getByText(/slug: source-topic .* score: 0\.812/)).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByText("Selected source segment text.")).toBeInTheDocument();

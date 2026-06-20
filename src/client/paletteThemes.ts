@@ -1,7 +1,7 @@
 // AUTO-GENERATED from https://www.paletteui.xyz (registry:theme items).
 // Curated OKLCH light/dark palettes (brands, TV/film, and country themes
-// excluded) mapped onto our ThemePreset shape: surface←card, accent←ring.
-// Do not hand-edit; regenerate via the fetch script. See theme.ts for merge.
+// excluded) mapped onto our ThemePreset shape: surface<-card, accent<-ring.
+// Do not hand-edit; regenerate via scripts/fetch-palette-themes.ts.
 import type { ThemePreset } from "./theme";
 
 export const PALETTE_UI_PRESETS: ThemePreset[] = [

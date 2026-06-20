@@ -12,7 +12,6 @@ import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
@@ -1329,33 +1328,31 @@ const PromptSection = memo(function PromptSection({
           onValueChange={(value) => setMode(value as "source" | "rendered")}
         >
           <TabsList variant="line">
-            <TabsTrigger value="source">Source</TabsTrigger>
             <TabsTrigger value="rendered">Rendered</TabsTrigger>
+            <TabsTrigger value="source">Source</TabsTrigger>
           </TabsList>
-          <TabsContent value="source">
-            <Textarea
-              data-testid="trace-source"
-              value={text}
-              readOnly
-              spellCheck={false}
-              aria-label={`${label} source`}
-              rows={Math.min(Math.max(lineCount, 4), 14)}
-              // field-sizing-content (textarea base) makes Firefox re-measure the
-              // full content on every scroll frame; rows are explicit here, so pin
-              // the height with field-sizing-fixed for cheap native scrolling.
-              // font-sans: textareas fall back to UA monospace without Preflight.
-              className="max-h-80 resize-y font-sans field-sizing-fixed"
-            />
-          </TabsContent>
           <TabsContent value="rendered">
+            {/* font-serif: this lives inside a font-mono trace table, so the
+                rendered prose would otherwise inherit monospace. max-h/overflow:
+                scroll the rendered body in its own box like the source view. */}
             <div
               data-testid="markdown-trace"
               className={cn(
-                "prose-halu prose prose-sm max-w-none",
+                "prose-halu prose prose-sm max-h-80 max-w-none overflow-auto font-serif",
                 variant === "cot" && "italic",
               )}
               dangerouslySetInnerHTML={{ __html: html }}
             />
+          </TabsContent>
+          <TabsContent value="source">
+            {/* A read-only <pre> (not <textarea>): textareas are heavy editable
+                controls that scroll sluggishly in Firefox at this size; a <pre>
+                scrolls natively. Monospace is intentional for raw source. */}
+            <pre
+              data-testid="trace-source"
+              aria-label={`${label} source`}
+              className="max-h-80 overflow-auto rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre-wrap"
+            >{text}</pre>
           </TabsContent>
         </Tabs>
       </CardContent>

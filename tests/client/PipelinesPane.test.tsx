@@ -129,7 +129,8 @@ describe("PipelinesPane", () => {
       "markdown-trace",
     );
     expect(markdownTraces[0]).toHaveClass("prose-halu");
-    expect(markdownTraces[0]).not.toHaveClass("overflow-auto");
+    expect(markdownTraces[0]).toHaveClass("font-serif");
+    expect(markdownTraces[0]).toHaveClass("overflow-auto");
     expect(screen.getAllByText(/1 lines/).length).toBeGreaterThan(0);
     // Markdown headings come from the rendered (default) view.
     expect(
@@ -194,7 +195,7 @@ describe("PipelinesPane", () => {
       "STRONG",
     );
 
-    // Switching to Source reveals the raw textareas (theme font, not mono).
+    // Switching to Source reveals the raw monospace <pre> blocks.
     for (const button of within(detail as HTMLElement).getAllByRole("tab", {
       name: "Source",
     })) {
@@ -204,9 +205,8 @@ describe("PipelinesPane", () => {
       "trace-source",
     );
     expect(sourceViews).toHaveLength(4);
-    expect(sourceViews[0]).toHaveClass("text-foreground");
-    expect(sourceViews[0]).toHaveClass("font-sans");
-    expect(sourceViews[0]).toHaveValue(
+    expect(sourceViews[0]).toHaveClass("font-mono");
+    expect(sourceViews[0]).toHaveTextContent(
       "Use **bold** [Alpha](ref:alpha) rules.",
     );
   });
@@ -317,15 +317,17 @@ describe("PipelinesPane", () => {
     })) {
       await userEvent.click(button);
     }
-    const sourceSegments = within(detail as HTMLElement).getByRole("textbox", {
-      name: "Retrieved source segments source",
-    }) as HTMLTextAreaElement;
-    expect(sourceSegments.value).toContain("Selected source segment text.");
-    expect(sourceSegments.value).toMatch(/slug: source-topic .* score: 0\.812/);
-    const backlinks = within(detail as HTMLElement).getByRole("textbox", {
-      name: "Backlinks source",
-    }) as HTMLTextAreaElement;
-    expect(backlinks.value).toContain("Backlink Topic");
+    const sourceSegments = within(detail as HTMLElement).getByLabelText(
+      "Retrieved source segments source",
+    );
+    expect(sourceSegments).toHaveTextContent("Selected source segment text.");
+    expect(sourceSegments.textContent).toMatch(
+      /slug: source-topic .* score: 0\.812/,
+    );
+    const backlinks = within(detail as HTMLElement).getByLabelText(
+      "Backlinks source",
+    );
+    expect(backlinks).toHaveTextContent("Backlink Topic");
 
     await userEvent.click(ragButtons[1]);
     expect(screen.getByText("Retrieved source segments")).toBeInTheDocument();
@@ -434,10 +436,10 @@ describe("PipelinesPane", () => {
     await userEvent.click(
       within(referenceCard).getByRole("tab", { name: "Source" }),
     );
-    const referenceList = within(referenceCard).getByRole("textbox", {
-      name: "Reference list after step source",
-    }) as HTMLTextAreaElement;
-    expect(referenceList.value).toContain("Alpha summary.");
+    const referenceList = within(referenceCard).getByLabelText(
+      "Reference list after step source",
+    );
+    expect(referenceList).toHaveTextContent("Alpha summary.");
 
     await userEvent.click(ragButtons[1]);
     expect(screen.getByText("Reference list after step")).toBeInTheDocument();

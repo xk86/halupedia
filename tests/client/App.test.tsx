@@ -157,8 +157,11 @@ describe("App", () => {
     expect(
       screen.getByRole("heading", { name: "Appearance" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Day preview")).toBeInTheDocument();
-    expect(screen.getByText("Night preview")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Live preview" }),
+    ).toBeInTheDocument();
+    // The real MarkdownEditor renders the shared sample in both panels.
+    expect(screen.getAllByText(/cartographer/i).length).toBeGreaterThan(0);
     // Day and night palettes render side by side, not behind tabs.
     expect(
       screen.getByRole("heading", { name: "Day colors" }),

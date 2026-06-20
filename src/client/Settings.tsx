@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useState } from "react";
 import { RotateCcwIcon } from "lucide-react";
+import { MarkdownEditor } from "./MarkdownEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -83,6 +84,27 @@ const paletteFields: Array<{
     description: "Dangerous actions",
   },
 ];
+
+const PREVIEW_MARKDOWN_KEY = "halupedia-theme-preview-md";
+const DEFAULT_PREVIEW_MARKDOWN = `# The cartographer's quiet index
+
+An article font should stay comfortable over long passages. An [accent link](https://example.com) stays distinct without overwhelming the body text.
+
+## Surfaces and controls
+
+- Muted surfaces, borders, and rules
+- Secondary text in the softer foreground
+- Inline \`fixed-width: atlas_entry_04\`
+
+> A short quotation shows muted surfaces, borders, and secondary text together.`;
+
+function loadPreviewMarkdown(): string {
+  try {
+    return window.localStorage.getItem(PREVIEW_MARKDOWN_KEY) ?? DEFAULT_PREVIEW_MARKDOWN;
+  } catch {
+    return DEFAULT_PREVIEW_MARKDOWN;
+  }
+}
 
 const fontItems = FONT_OPTIONS.map(({ label, value }) => ({ label, value }));
 const presetItems = THEME_PRESETS.map(({ id, name }) => ({
@@ -238,68 +260,68 @@ function ColorField({
 const ThemePreview = memo(function ThemePreview({
   settings,
   variant,
+  markdown,
+  onMarkdownChange,
 }: {
   settings: ThemeSettings;
   variant: ThemeVariant;
+  markdown: string;
+  onMarkdownChange: (value: string) => void;
 }) {
+  // A scoped, themed slice of the real app: the actual MarkdownEditor renders
+  // the shared sample, flanked by a sidebar of real controls. data-theme +
+  // the mirrored --color-* tokens (themePreviewStyle) make this render in its
+  // own variant without touching the document root.
   return (
-    <Card size="sm" style={themePreviewStyle(settings, variant)}>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle>
-            {variant === "light" ? "Day" : "Night"} preview
-          </CardTitle>
-          <Badge variant="outline">{settings.radius}px radius</Badge>
-        </div>
-        <CardDescription>
-          Every editable token appears in this sample.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <article className="flex flex-col gap-2 font-serif">
-          <header className="flex flex-col gap-1">
-            <p className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
-              Demonstration article
-            </p>
-            <h2 className="text-2xl leading-tight font-semibold">
-              The cartographer&apos;s quiet index
-            </h2>
-          </header>
-          <p>
-            An article font should remain comfortable over long passages. The
-            <a href="#preview-link" className="ml-1 text-accent underline">
-              accent link
-            </a>{" "}
-            remains distinct without overwhelming the text.
-          </p>
-          <blockquote className="rounded-md border-l-4 border-primary bg-muted p-3 text-muted-foreground">
-            A compact quotation demonstrates muted surfaces, borders, and
-            secondary text.
-          </blockquote>
-          <code className="rounded-md border border-border bg-muted px-2 py-1 font-mono text-sm">
-            fixed-width: atlas_entry_04
-          </code>
-        </article>
-        <Field>
-          <FieldLabel htmlFor={`${variant}-preview-input`}>
-            Interface sample
-          </FieldLabel>
-          <Input
-            id={`${variant}-preview-input`}
-            placeholder="Surface and border tokens"
-          />
-        </Field>
-        <div className="flex flex-wrap gap-2 font-sans">
-          <Button size="sm">Primary action</Button>
-          <Button size="sm" variant="secondary">
-            Secondary
-          </Button>
-          <Button size="sm" variant="destructive">
-            Destructive
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    <div
+      data-theme={variant}
+      style={themePreviewStyle(settings, variant)}
+      className="overflow-hidden rounded-lg border border-border bg-background text-foreground"
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-3 py-2">
+        <span className="text-sm font-semibold">
+          {variant === "light" ? "Day" : "Night"}
+        </span>
+        <Badge variant="outline">{settings.radius}px radius</Badge>
+      </div>
+      <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_13rem]">
+        <MarkdownEditor
+          value={markdown}
+          onChange={onMarkdownChange}
+          minRows={8}
+          placeholder="Edit this sample to test your theme…"
+        />
+        <aside className="flex flex-col gap-2">
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle className="text-base">Sidebar</CardTitle>
+              <CardDescription>Surfaces and controls</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2.5">
+              <Input placeholder="Search…" />
+              <div className="flex flex-wrap gap-1.5">
+                <Badge>Primary</Badge>
+                <Badge variant="secondary">Muted</Badge>
+                <Badge variant="outline">Outline</Badge>
+              </div>
+              <Separator />
+              <div className="grid grid-cols-2 gap-1.5">
+                <Button size="sm">Primary</Button>
+                <Button size="sm" variant="secondary">
+                  Secondary
+                </Button>
+                <Button size="sm" variant="outline">
+                  Outline
+                </Button>
+                <Button size="sm" variant="destructive">
+                  Delete
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
+    </div>
   );
 });
 
@@ -342,6 +364,20 @@ export function Settings({ settings, onChange }: SettingsProps) {
     },
     [onChange, settings],
   );
+
+  // Editable sample content shared by both preview panels, persisted locally so
+  // experiments survive reloads.
+  const [previewMarkdown, setPreviewMarkdown] = useState(loadPreviewMarkdown);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(PREVIEW_MARKDOWN_KEY, previewMarkdown);
+      } catch {
+        // Storage may be disabled; the in-memory sample still works.
+      }
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [previewMarkdown]);
 
   const selectedPreset = THEME_PRESETS.find(
     (preset) => preset.id === settings.presetId,
@@ -603,15 +639,26 @@ export function Settings({ settings, onChange }: SettingsProps) {
       <section className="flex flex-col gap-3" aria-labelledby="theme-previews">
         <div>
           <h2 id="theme-previews" className="text-2xl font-semibold">
-            Paired preview
+            Live preview
           </h2>
           <p className="text-muted-foreground">
-            Day and night render together. Editing never hides the other half.
+            The real editor and controls, rendered in day and night together.
+            Edit the sample to test your theme — it saves locally.
           </p>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
-          <ThemePreview settings={settings} variant="light" />
-          <ThemePreview settings={settings} variant="dark" />
+          <ThemePreview
+            settings={settings}
+            variant="light"
+            markdown={previewMarkdown}
+            onMarkdownChange={setPreviewMarkdown}
+          />
+          <ThemePreview
+            settings={settings}
+            variant="dark"
+            markdown={previewMarkdown}
+            onMarkdownChange={setPreviewMarkdown}
+          />
         </div>
       </section>
     </section>

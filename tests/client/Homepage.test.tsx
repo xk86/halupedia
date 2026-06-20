@@ -17,6 +17,14 @@ describe("Homepage", () => {
     cleanup();
   });
 
+  it("uses the configured article font as its default", () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({}))));
+
+    const { container } = render(<Homepage onNavigate={vi.fn()} />);
+
+    expect(container.querySelector("article")).toHaveClass("font-serif");
+  });
+
   it("renders thumbnails for the featured article when imageId is present", async () => {
     const now = Date.now();
     const fetchMock = vi.fn((input: RequestInfo | URL) => {

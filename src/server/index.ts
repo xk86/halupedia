@@ -216,6 +216,7 @@ const RESERVED_PATHS = new Set([
   "search",
   "all-entries",
   "admin",
+  "settings",
   "random",
   "Random",
   "graph",
@@ -5066,6 +5067,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       path === "/search" ||
       path === "/all-entries" ||
       path === "/admin" ||
+      path === "/settings" ||
       path === "/graph" ||
       path === "/media" ||
       path.startsWith("/media/") ||

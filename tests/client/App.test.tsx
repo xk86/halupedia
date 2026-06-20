@@ -10,6 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/client/App";
+import { hexToOklch } from "../../src/client/theme";
 
 function setPath(path: string) {
   window.history.replaceState({}, "", path);
@@ -115,6 +116,7 @@ function ndjsonResponse(events: unknown[]) {
 describe("App", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -146,6 +148,40 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/homepage");
     expect(document.title).toBe("Halupedia");
+  });
+
+  it("renders persistent appearance settings at /settings", async () => {
+    setPath("/settings");
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", { name: "Appearance" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Day preview")).toBeInTheDocument();
+    expect(screen.getByText("Night preview")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Day colors" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Night colors" })).toBeVisible();
+
+    const backgroundHex = screen.getByLabelText(
+      "light Background HEX value",
+    );
+    fireEvent.change(backgroundHex, { target: { value: "112233" } });
+    fireEvent.blur(backgroundHex);
+    expect(backgroundHex).toHaveValue("#112233");
+    expect(
+      screen.getByLabelText("light Background OKLCH value"),
+    ).toHaveValue(hexToOklch("#112233"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Night" }));
+
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          window.localStorage.getItem("halupedia-user-settings") ?? "{}",
+        ).mode,
+      ).toBe("dark");
+    });
+    expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
   it("random nav asks the server for a random page and redirects to it", async () => {
@@ -2044,7 +2080,7 @@ describe("App", () => {
 
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(
-      screen.getByRole("button", { name: "Use automatic theme" }),
+      screen.getByRole("button", { name: "Use day mode" }),
     ).toBeInTheDocument();
   });
 

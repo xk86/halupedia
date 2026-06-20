@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
+import { MoonIcon, SunIcon } from "lucide-react";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
 import { GraphView } from "./GraphView";
@@ -8,6 +16,7 @@ import { Homepage } from "./Homepage";
 import { MediaPage } from "./MediaPage";
 import { MediaListPage } from "./MediaListPage";
 import { SearchResults } from "./SearchResults";
+import { Settings } from "./Settings";
 import { Sidebar } from "./Sidebar";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
@@ -32,6 +41,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { renderInlineHtml } from "./summaryHtml";
+import {
+  applyThemeSettings,
+  loadThemeSettings,
+  persistThemeSettings,
+  resolveThemeMode,
+  type ThemeSettings,
+} from "./theme";
 import { articleInputToWikiSegment, toWikiSegment } from "./wikiPath";
 import {
   slugify,
@@ -44,6 +60,7 @@ type Route =
   | { kind: "search"; query: string }
   | { kind: "index" }
   | { kind: "admin" }
+  | { kind: "settings" }
   | { kind: "random" }
   | { kind: "graph" }
   | { kind: "article"; slug: string; title?: string }
@@ -130,18 +147,25 @@ function countInternalLinks(markdown: string): number {
   return matches?.length ?? 0;
 }
 
-type ThemeMode = "auto" | "dark";
-
 const articleFailureMessage =
   "This article could not be generated right now. Adjust prompts or retry from the admin panel.";
 
-function initialThemeMode(): ThemeMode {
+function systemPrefersDark(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+}
+
+function initialThemeSettings(): ThemeSettings {
+  return loadThemeSettings();
+}
+
+function persistTheme(settings: ThemeSettings): void {
   try {
-    return window.localStorage.getItem("halupedia-theme") === "dark"
-      ? "dark"
-      : "auto";
+    persistThemeSettings(settings);
   } catch {
-    return "auto";
+    // Storage can be disabled. The in-memory theme still remains usable.
   }
 }
 
@@ -152,6 +176,7 @@ function parseRoute(): Route {
     return { kind: "random" };
   if (pathname === "/all-entries") return { kind: "index" };
   if (pathname === "/admin") return { kind: "admin" };
+  if (pathname === "/settings") return { kind: "settings" };
   if (pathname === "/graph") return { kind: "graph" };
   if (pathname === "/search") {
     return {
@@ -259,9 +284,9 @@ export function App() {
   const [refreshBusy, setRefreshBusy] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [copySlugMessage, setCopySlugMessage] = useState<string | null>(null);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
-    initialThemeMode(),
-  );
+  const [themeSettings, setThemeSettings] =
+    useState<ThemeSettings>(initialThemeSettings);
+  const [systemDark, setSystemDark] = useState(systemPrefersDark);
   const articleRef = useRef<HTMLElement | null>(null);
   const editTrayRef = useRef<HTMLElement | null>(null);
   const inFlightSlugRef = useRef<string | null>(null);
@@ -288,20 +313,23 @@ export function App() {
     (editRefs.length !== editInitialRefSlugs.length ||
       editRefs.some((r) => !editInitialRefSlugSet.has(r.slug)));
 
+  useLayoutEffect(() => {
+    applyThemeSettings(themeSettings, systemDark);
+  }, [systemDark, themeSettings]);
+
   useEffect(() => {
-    if (themeMode === "dark") {
-      document.documentElement.dataset.theme = "dark";
-    } else {
-      delete document.documentElement.dataset.theme;
-    }
-    try {
-      if (themeMode === "dark")
-        window.localStorage.setItem("halupedia-theme", "dark");
-      else window.localStorage.removeItem("halupedia-theme");
-    } catch {
-      // Ignore storage failures; the visible theme toggle still works.
-    }
-  }, [themeMode]);
+    const timeout = window.setTimeout(() => persistTheme(themeSettings), 150);
+    return () => window.clearTimeout(timeout);
+  }, [themeSettings]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const sync = () => setSystemDark(query.matches);
+    sync();
+    query.addEventListener?.("change", sync);
+    return () => query.removeEventListener?.("change", sync);
+  }, []);
 
   // --- Unsaved-edit navigation guard -------------------------------------
   // Navigating away always closes the in-place / AI edit panes. If the in-place
@@ -432,6 +460,8 @@ export function App() {
             : "Search - Halupedia"
           : route.kind === "admin"
             ? "Admin - Halupedia"
+            : route.kind === "settings"
+              ? "Settings - Halupedia"
             : route.kind === "index"
               ? "All entries - Halupedia"
               : "Halupedia";
@@ -811,6 +841,14 @@ export function App() {
       window.history.pushState({}, "", "/admin");
       window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
       setRoute({ kind: "admin" });
+    });
+  }, [guardNav]);
+
+  const navigateToSettings = useCallback(() => {
+    guardNav(() => {
+      window.history.pushState({}, "", "/settings");
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setRoute({ kind: "settings" });
     });
   }, [guardNav]);
 
@@ -1707,6 +1745,12 @@ export function App() {
     if (route.kind === "admin") {
       return (
         <Admin onNavigate={navigateToArticle} onNavigateHome={navigateHome} />
+      );
+    }
+
+    if (route.kind === "settings") {
+      return (
+        <Settings settings={themeSettings} onChange={setThemeSettings} />
       );
     }
 
@@ -2720,7 +2764,10 @@ export function App() {
     editTitleBusy,
     editTitleError,
     protectionBusy,
+    themeSettings,
   ]);
+
+  const activeTheme = resolveThemeMode(themeSettings.mode, systemDark);
 
   return (
     <div className="site">
@@ -2736,29 +2783,24 @@ export function App() {
           Halupedia
         </a>
 
-        <button
-          type="button"
-          className="theme-toggle"
-          aria-label={
-            themeMode === "dark" ? "Use automatic theme" : "Use night mode"
-          }
-          title={
-            themeMode === "dark" ? "Use automatic theme" : "Use night mode"
-          }
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label={activeTheme === "dark" ? "Use day mode" : "Use night mode"}
+          title={activeTheme === "dark" ? "Use day mode" : "Use night mode"}
           onClick={() =>
-            setThemeMode((mode) => (mode === "dark" ? "auto" : "dark"))
+            setThemeSettings((current) => ({
+              ...current,
+              mode: activeTheme === "dark" ? "light" : "dark",
+            }))
           }
         >
-          {themeMode === "dark" ? (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 4a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V5a1 1 0 0 1 1-1Zm0 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7-5h-2a1 1 0 1 0 0 2h2a1 1 0 1 0 0-2ZM7 12a1 1 0 0 0-1-1H4a1 1 0 1 0 0 2h2a1 1 0 0 0 1-1Zm9.95-6.36a1 1 0 0 1 1.41 1.41l-1.41 1.41a1 1 0 1 1-1.41-1.41l1.41-1.41ZM8.46 16.95a1 1 0 0 0-1.41-1.41l-1.41 1.41a1 1 0 0 0 1.41 1.41l1.41-1.41Zm9.9 0a1 1 0 0 0-1.41-1.41l-1.41 1.41a1 1 0 0 0 1.41 1.41l1.41-1.41ZM8.46 7.05 7.05 5.64a1 1 0 0 0-1.41 1.41l1.41 1.41a1 1 0 0 0 1.41-1.41ZM12 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1Z" />
-            </svg>
+          {activeTheme === "dark" ? (
+            <SunIcon />
           ) : (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M21 14.6A8.1 8.1 0 0 1 9.4 3a7.9 7.9 0 1 0 11.6 11.6Z" />
-            </svg>
+            <MoonIcon />
           )}
-        </button>
+        </Button>
 
         <nav className="nav">
           <a
@@ -2814,6 +2856,15 @@ export function App() {
             }}
           >
             Admin
+          </a>
+          <a
+            href="/settings"
+            onClick={(e) => {
+              e.preventDefault();
+              navigateToSettings();
+            }}
+          >
+            Settings
           </a>
           <a
             href="/graph"
@@ -2885,15 +2936,16 @@ export function App() {
       </header>
 
       <section
-        className={`layout${route.kind === "graph"
-            ? " layout--graph"
-            : route.kind === "admin"
-              ? " layout--admin"
-              : ""
-          }`}
+        className={clsx("layout", {
+          "layout--graph": route.kind === "graph",
+          "layout--admin":
+            route.kind === "admin" || route.kind === "settings",
+        })}
       >
         <main className="layout-main">{mainView}</main>
-        {route.kind !== "graph" && route.kind !== "admin" && (
+        {route.kind !== "graph" &&
+          route.kind !== "admin" &&
+          route.kind !== "settings" && (
           <Sidebar
             articleSlug={articleSlug}
             articleTitle={articleTitle}

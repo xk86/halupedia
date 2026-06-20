@@ -50,8 +50,12 @@
   --success-glow: rgba(47, 122, 47, 0.55);
   --success-glow-fade: rgba(47, 122, 47, 0);
   --sidebar-accent-border: rgba(88, 101, 242, 0.4);
-  --serif: "EB Garamond", "Iowan Old Style", Georgia, "Times New Roman", serif;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --article-font: "EB Garamond", "Iowan Old Style", Georgia, "Times New Roman", serif;
+  --ui-font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fixed-font: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --serif: var(--article-font);
+  --sans: var(--ui-font);
+  --mono: var(--fixed-font);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -168,8 +172,8 @@ body {
   padding: 0;
   background: var(--parchment);
   color: var(--ink);
-  font-family: var(--serif);
-  font-size: 16px;
+  font-family: var(--ui-font);
+  font-size: 1rem;
   line-height: 1.6;
 }
 
@@ -228,31 +232,6 @@ a:hover {
   color: var(--accent);
   font-style: normal;
   margin: 0 0.15rem;
-}
-
-.theme-toggle {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.2rem;
-  height: 2.2rem;
-  border: 1px solid var(--control-border);
-  background: var(--control-surface);
-  color: var(--accent);
-  cursor: pointer;
-}
-
-.theme-toggle:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-wash);
-}
-
-.theme-toggle svg {
-  width: 1.08rem;
-  height: 1.08rem;
-  fill: currentColor;
 }
 
 .nav {
@@ -3638,4 +3617,3 @@ a:hover {
   color: var(--ink);
   max-width: 40rem;
 }
-

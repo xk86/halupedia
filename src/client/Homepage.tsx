@@ -153,7 +153,7 @@ export function Homepage({ onNavigate }: Props) {
       : data;
 
   return (
-    <article className="article">
+    <article className="article font-serif">
       <div className="mb-3 flex items-center gap-2">
         <div className="inline-flex min-h-[1.6rem] items-center rounded border border-rule bg-parchment-deep px-2 py-[0.2rem] font-mono text-xs text-ink-fade">
           {timerText}

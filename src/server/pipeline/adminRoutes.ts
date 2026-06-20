@@ -33,6 +33,7 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { encoding_for_model } from "tiktoken";
 import type { PipelineTraceConfig } from "../types";
 import type { PipelineDeps } from "./deps";
 import { ALL_WORKFLOWS, findWorkflow } from "./registry";
@@ -146,6 +147,7 @@ export function registerPipelineAdminRoutes(
         patch: safeParse(n.patch_json),
         diff: safeParse(n.diff_json),
         warnings: safeParse(n.warnings_json),
+        prompt_tokens: countTokens(n.prompt_text as string | null),
       })),
     });
   });
@@ -216,6 +218,7 @@ export function registerPipelineAdminRoutes(
           patch: safeParse(n.patch_json),
           diff: safeParse(n.diff_json),
           warnings: safeParse(n.warnings_json),
+          prompt_tokens: countTokens(n.prompt_text as string | null),
         })),
       },
     });
@@ -254,4 +257,16 @@ function clampInt(
   const n = raw ? Number.parseInt(raw, 10) : def;
   if (!Number.isFinite(n)) return def;
   return Math.min(Math.max(n, min), max);
+}
+
+function countTokens(text: string | null | undefined): number {
+  if (!text) return 0;
+  try {
+    const enc = encoding_for_model("gpt-3.5-turbo");
+    const tokens = enc.encode(text);
+    enc.free();
+    return tokens.length;
+  } catch {
+    return 0;
+  }
 }

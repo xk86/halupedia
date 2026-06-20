@@ -140,6 +140,9 @@ importers:
       three:
         specifier: ^0.184.0
         version: 0.184.0
+      tiktoken:
+        specifier: ^1.0.15
+        version: 1.0.22
       toml:
         specifier: ^4.1.1
         version: 4.1.1
@@ -2964,6 +2967,9 @@ packages:
 
   three@0.184.0:
     resolution: {integrity: sha512-wtTRjG92pM5eUg/KuUnHsqSAlPM296brTOcLgMRqEeylYTh/CdtvKUvCyyCQTzFuStieWxvZb8mVTMvdPyUpxg==}
+
+  tiktoken@1.0.22:
+    resolution: {integrity: sha512-PKvy1rVF1RibfF3JlXBSP0Jrcw2uq3yXdgcEXtKTYn3QJ/cBRBHDnrJ5jHky+MENZ6DIPwNUGWpkVx+7joCpNA==}
 
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
@@ -6156,6 +6162,8 @@ snapshots:
       three: 0.184.0
 
   three@0.184.0: {}
+
+  tiktoken@1.0.22: {}
 
   tinybench@2.9.0: {}
 

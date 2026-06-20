@@ -178,7 +178,7 @@ export function AllEntries({ onNavigate }: Props) {
       <div className="mb-[1.5rem] flex flex-wrap items-center gap-[1rem]">
         <input
           type="search"
-          className="min-w-[12rem] flex-1 rounded-[2px] bg-control-surface-soft px-[0.8rem] py-[0.55rem] font-serif text-[1rem] text-ink [border:1px_solid_var(--rule)] focus:[border-color:var(--accent)] focus:bg-input-surface-strong focus:outline-none"
+          className="min-w-[12rem] flex-1 rounded-sm bg-control-surface-soft px-[0.8rem] py-[0.55rem] font-serif text-[1rem] text-ink [border:1px_solid_var(--rule)] focus:[border-color:var(--accent)] focus:bg-input-surface-strong focus:outline-none"
           placeholder="Filter by title or slug…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}

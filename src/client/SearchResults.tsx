@@ -169,7 +169,7 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
       </form>
 
       {q && (
-        <div className="search-goto mb-[1.2em] rounded-[4px] bg-blockquote-bg px-[0.8em] py-[0.6em] text-[0.95rem] [border:1px_solid_var(--rule)]">
+        <div className="search-goto mb-[1.2em] rounded-lg bg-blockquote-bg px-[0.8em] py-[0.6em] text-[0.95rem] [border:1px_solid_var(--rule)]">
           Go to{" "}
           <a
             className="font-semibold text-accent no-underline hover:text-accent-hover hover:underline"

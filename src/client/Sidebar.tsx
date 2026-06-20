@@ -4,16 +4,16 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import type { InfoboxData, HeadlineMedia } from "@/types";
+import type { InfoboxData, InfoboxGroup, HeadlineMedia } from "@/types";
 
 // Compact field styling for the dense sidebar infobox editor — shrinks the
 // shadcn Input/Textarea defaults (height, padding, font) to sidebar scale.
 const EDIT_LABEL =
   "mt-[0.4rem] mb-[0.15rem] block text-[0.72rem] font-semibold uppercase tracking-[0.04em] text-ink-fade";
 const EDIT_FIELD =
-  "h-auto max-h-32 min-h-[1.6rem] rounded-[3px] px-[0.4rem] py-[0.3rem] text-[0.72rem] shadow-none";
+  "h-auto max-h-32 min-h-[1.6rem] rounded-md px-[0.4rem] py-[0.3rem] text-[0.72rem] shadow-none";
 const ROW_FIELD =
-  "h-auto max-h-28 min-h-[1.5rem] min-w-0 rounded-[2px] px-[0.3rem] py-[0.2rem] text-[0.72rem] shadow-none";
+  "h-auto max-h-28 min-h-[1.5rem] min-w-0 rounded-sm px-[0.3rem] py-[0.2rem] text-[0.72rem] shadow-none";
 // Small square delete (×) button used per section/row.
 const DEL_BTN = "size-5 shrink-0 p-0 text-[0.75rem] hover:text-danger";
 
@@ -627,6 +627,90 @@ const GENERATING_LABEL =
 const GENERATING_PARTIAL =
   "mt-[0.3rem] text-[0.78rem] text-ink-soft leading-[1.4] italic opacity-80";
 
+/**
+ * Presentational infobox — the title / subtitle / grouped label-value table that
+ * makes up the article right-rail. Styling lives in styles.css (.infobox*). The
+ * live Sidebar wraps this with edit/image/streaming chrome through the slots;
+ * the theme preview renders it standalone so themes are tested against the real
+ * component rather than a stand-in. Fields are pre-rendered HTML (hence the
+ * dangerouslySetInnerHTML), matching what the server emits.
+ */
+export function InfoboxView({
+  title,
+  subtitle,
+  groups,
+  collapsed = false,
+  titleAction,
+  beforeTable,
+  footer,
+}: {
+  title?: string;
+  subtitle?: string;
+  groups: InfoboxGroup[];
+  /** Mobile collapse state — toggles the group-data-driven hide rules. */
+  collapsed?: boolean;
+  /** Action rendered alongside the title (e.g. the edit button). */
+  titleAction?: React.ReactNode;
+  /** Content between the subtitle and the table (edit panel, headline image). */
+  beforeTable?: React.ReactNode;
+  /** Content after the table (e.g. the streaming status row). */
+  footer?: React.ReactNode;
+}) {
+  return (
+    <div className="infobox group/sb" data-collapsed={collapsed}>
+      <div className="flex items-start justify-between gap-[0.25rem] bg-accent-wash-strong [border-bottom:1px_solid_var(--panel-border)]">
+        {title && (
+          <div
+            className="infobox-title"
+            dangerouslySetInnerHTML={{ __html: title }}
+          />
+        )}
+        {titleAction}
+      </div>
+      {subtitle && (
+        <div
+          className="infobox-subtitle max-[680px]:group-data-[collapsed=true]/sb:hidden"
+          dangerouslySetInnerHTML={{ __html: subtitle }}
+        />
+      )}
+
+      {beforeTable}
+
+      {groups.length > 0 && (
+        <table className="infobox-table max-[680px]:group-data-[collapsed=true]/sb:hidden">
+          {groups.map((group, gi) => (
+            <tbody key={gi}>
+              {group.label && (
+                <tr>
+                  <th
+                    className="infobox-group-header"
+                    colSpan={2}
+                    dangerouslySetInnerHTML={{ __html: group.label }}
+                  />
+                </tr>
+              )}
+              {group.rows.map((row, ri) => (
+                <tr key={ri}>
+                  <th
+                    className="infobox-label"
+                    dangerouslySetInnerHTML={{ __html: row.label }}
+                  />
+                  <td
+                    className="infobox-value"
+                    dangerouslySetInnerHTML={{ __html: row.value }}
+                  />
+                </tr>
+              ))}
+            </tbody>
+          ))}
+        </table>
+      )}
+
+      {footer}
+    </div>
+  );
+}
+
 export function Sidebar({
   articleSlug,
   infobox: infoboxProp,
@@ -834,15 +918,13 @@ export function Sidebar({
           {mobileCollapsed ? "▸" : "▾"}
         </span>
       </button>
-      <div className="infobox group/sb" data-collapsed={mobileCollapsed}>
-        <div className="flex items-start justify-between gap-[0.25rem] bg-accent-wash-strong [border-bottom:1px_solid_var(--panel-border)]">
-          {title && (
-            <div
-              className="infobox-title"
-              dangerouslySetInnerHTML={{ __html: title }}
-            />
-          )}
-          {articleSlug && (
+      <InfoboxView
+        title={title}
+        subtitle={subtitle}
+        groups={groups}
+        collapsed={mobileCollapsed}
+        titleAction={
+          articleSlug && (
             <Button
               type="button"
               variant="outline"
@@ -858,122 +940,91 @@ export function Sidebar({
             >
               ✏
             </Button>
-          )}
-        </div>
-        {subtitle && (
-          <div
-            className="infobox-subtitle max-[680px]:group-data-[collapsed=true]/sb:hidden"
-            dangerouslySetInnerHTML={{ __html: subtitle }}
-          />
-        )}
-
-        {editOpen && articleSlug && (
-          <div
-            className="my-2 border-t border-rule pt-2 max-[680px]:group-data-[collapsed=true]/sb:hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Tabs
-              value={editTab}
-              onValueChange={(v) => setEditTab(v as EditTab)}
-            >
-              <TabsList className="w-full">
-                <TabsTrigger value="edit">Edit</TabsTrigger>
-                <TabsTrigger value="ai">AI</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="edit">
-                <InfoboxStructuredEditor
-                  articleSlug={articleSlug}
-                  onSaved={handleEditSaved}
-                  onCancel={() => setEditOpen(false)}
-                />
-              </TabsContent>
-              <TabsContent value="ai">
-                <InfoboxAiEditor
-                  articleSlug={articleSlug}
-                  onSaved={handleAiSaved}
-                  onCancel={() => setEditOpen(false)}
-                />
-              </TabsContent>
-              <TabsContent value="history">
-                <InfoboxHistory
-                  articleSlug={articleSlug}
-                  onRestored={handleRestored}
-                  onCancel={() => setEditOpen(false)}
-                />
-              </TabsContent>
-            </Tabs>
-          </div>
-        )}
-
-        {headlineMedia && (
+          )
+        }
+        beforeTable={
           <>
-            <a
-              href={`/media/${encodeURIComponent(headlineMedia.mediaId)}`}
-              className="infobox-image-link max-[680px]:group-data-[collapsed=true]/sb:hidden"
-              onClick={(e) => {
-                e.preventDefault();
-                onNavigateToMedia(headlineMedia.mediaId);
-              }}
-            >
-              <img
-                src={`/api/media/${encodeURIComponent(headlineMedia.mediaId)}`}
-                alt={caption || headlineMedia.mediaId}
-                className="infobox-image"
-              />
-            </a>
-            {caption && (
-              <p
-                className="infobox-caption max-[680px]:group-data-[collapsed=true]/sb:hidden"
-                dangerouslySetInnerHTML={{ __html: caption }}
-              />
+            {editOpen && articleSlug && (
+              <div
+                className="my-2 border-t border-rule pt-2 max-[680px]:group-data-[collapsed=true]/sb:hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Tabs
+                  value={editTab}
+                  onValueChange={(v) => setEditTab(v as EditTab)}
+                >
+                  <TabsList className="w-full">
+                    <TabsTrigger value="edit">Edit</TabsTrigger>
+                    <TabsTrigger value="ai">AI</TabsTrigger>
+                    <TabsTrigger value="history">History</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="edit">
+                    <InfoboxStructuredEditor
+                      articleSlug={articleSlug}
+                      onSaved={handleEditSaved}
+                      onCancel={() => setEditOpen(false)}
+                    />
+                  </TabsContent>
+                  <TabsContent value="ai">
+                    <InfoboxAiEditor
+                      articleSlug={articleSlug}
+                      onSaved={handleAiSaved}
+                      onCancel={() => setEditOpen(false)}
+                    />
+                  </TabsContent>
+                  <TabsContent value="history">
+                    <InfoboxHistory
+                      articleSlug={articleSlug}
+                      onRestored={handleRestored}
+                      onCancel={() => setEditOpen(false)}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </div>
+            )}
+
+            {headlineMedia && (
+              <>
+                <a
+                  href={`/media/${encodeURIComponent(headlineMedia.mediaId)}`}
+                  className="infobox-image-link max-[680px]:group-data-[collapsed=true]/sb:hidden"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onNavigateToMedia(headlineMedia.mediaId);
+                  }}
+                >
+                  <img
+                    src={`/api/media/${encodeURIComponent(headlineMedia.mediaId)}`}
+                    alt={caption || headlineMedia.mediaId}
+                    className="infobox-image"
+                  />
+                </a>
+                {caption && (
+                  <p
+                    className="infobox-caption max-[680px]:group-data-[collapsed=true]/sb:hidden"
+                    dangerouslySetInnerHTML={{ __html: caption }}
+                  />
+                )}
+              </>
             )}
           </>
-        )}
-
-        {groups.length > 0 && (
-          <table className="infobox-table max-[680px]:group-data-[collapsed=true]/sb:hidden">
-            {groups.map((group, gi) => (
-              <tbody key={gi}>
-                {group.label && (
-                  <tr>
-                    <th
-                      className="infobox-group-header"
-                      colSpan={2}
-                      dangerouslySetInnerHTML={{ __html: group.label }}
-                    />
-                  </tr>
+        }
+        footer={
+          generatingNode && (
+            <div className="px-[0.5rem] py-[0.4rem] [border-top:1px_solid_var(--rule-soft)]">
+              <span className={GENERATING_LABEL}>
+                <span className="inline-block size-[6px] animate-[sidebar-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent" />
+                {GENERATING_LABELS[generatingNode] ?? "Updating…"}
+              </span>
+              {generatingPartial &&
+                generatingNode === "llm.regenerate_summary" && (
+                  <p className={GENERATING_PARTIAL}>{generatingPartial}</p>
                 )}
-                {group.rows.map((row, ri) => (
-                  <tr key={ri}>
-                    <th
-                      className="infobox-label"
-                      dangerouslySetInnerHTML={{ __html: row.label }}
-                    />
-                    <td
-                      className="infobox-value"
-                      dangerouslySetInnerHTML={{ __html: row.value }}
-                    />
-                  </tr>
-                ))}
-              </tbody>
-            ))}
-          </table>
-        )}
-        {generatingNode && (
-          <div className="px-[0.5rem] py-[0.4rem] [border-top:1px_solid_var(--rule-soft)]">
-            <span className={GENERATING_LABEL}>
-              <span className="inline-block size-[6px] animate-[sidebar-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent" />
-              {GENERATING_LABELS[generatingNode] ?? "Updating…"}
-            </span>
-            {generatingPartial &&
-              generatingNode === "llm.regenerate_summary" && (
-                <p className={GENERATING_PARTIAL}>{generatingPartial}</p>
-              )}
-          </div>
-        )}
-      </div>
+            </div>
+          )
+        }
+      />
     </aside>
   );
 }

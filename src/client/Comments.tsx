@@ -379,7 +379,7 @@ export function Comments({ slug }: Props) {
               role="tab"
               aria-selected={sort === mode}
               className={clsx(
-                "rounded-[2px] bg-transparent px-[0.55rem] py-[0.15rem] font-[inherit] text-[length:inherit] tracking-[0.05em] uppercase [border:1px_solid_transparent] [transition:color_.15s,border-color_.15s,background_.15s]",
+                "rounded-sm bg-transparent px-[0.55rem] py-[0.15rem] font-[inherit] text-[length:inherit] tracking-[0.05em] uppercase [border:1px_solid_transparent] [transition:color_.15s,border-color_.15s,background_.15s]",
                 sort === mode
                   ? "cursor-default [border-color:var(--ink-soft)] text-ink"
                   : "cursor-pointer text-ink-fade hover:[border-color:var(--rule)] hover:text-ink",
@@ -699,7 +699,7 @@ function CommentComposer({
       )}
     >
       <textarea
-        className="min-h-[4.5rem] w-full resize-y rounded-[2px] bg-control-surface-soft px-[0.8rem] py-[0.65rem] font-serif text-[1rem] leading-[1.5] text-ink [border:1px_solid_var(--rule)] focus:[border-color:var(--accent)] focus:bg-input-surface-strong focus:outline-none"
+        className="min-h-[4.5rem] w-full resize-y rounded-sm bg-control-surface-soft px-[0.8rem] py-[0.65rem] font-serif text-[1rem] leading-[1.5] text-ink [border:1px_solid_var(--rule)] focus:[border-color:var(--accent)] focus:bg-input-surface-strong focus:outline-none"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -718,7 +718,7 @@ function CommentComposer({
           {remaining} chars left
         </span>
         <button
-          className="cursor-pointer rounded-[1px] bg-ink px-[0.95rem] py-[0.45rem] font-mono text-[0.78rem] tracking-[0.1em] text-parchment uppercase [border:1px_solid_var(--ink)] [transition:background_120ms_ease,color_120ms_ease] hover:not-disabled:[border-color:var(--accent)] hover:not-disabled:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+          className="cursor-pointer rounded-sm bg-ink px-[0.95rem] py-[0.45rem] font-mono text-[0.78rem] tracking-[0.1em] text-parchment uppercase [border:1px_solid_var(--ink)] [transition:background_120ms_ease,color_120ms_ease] hover:not-disabled:[border-color:var(--accent)] hover:not-disabled:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
           onClick={onSubmit}
           disabled={submitting || value.trim().length === 0}
         >

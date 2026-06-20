@@ -21,6 +21,8 @@ export interface ThemeSettings {
   version: 1;
   mode: ThemeMode;
   presetId: string;
+  /** User-authored, editable themes. Stock presets stay read-only. */
+  customThemes: ThemePreset[];
   articleFont: string;
   uiFont: string;
   fixedFont: string;
@@ -91,7 +93,7 @@ export const FONT_OPTIONS: readonly FontOption[] = [
     value: "inter",
     label: "Inter",
     category: "Sans",
-    stack: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    stack: "Inter, ui-sans-serif, system-ui, sans-serif",
   },
   {
     value: "system-ui",
@@ -115,7 +117,7 @@ export const FONT_OPTIONS: readonly FontOption[] = [
     value: "verdana",
     label: "Verdana",
     category: "Sans",
-    stack: 'Verdana, Geneva, sans-serif',
+    stack: "Verdana, Geneva, sans-serif",
   },
   {
     value: "sf-mono",
@@ -127,13 +129,13 @@ export const FONT_OPTIONS: readonly FontOption[] = [
     value: "menlo",
     label: "Menlo",
     category: "Mono",
-    stack: 'Menlo, Monaco, monospace',
+    stack: "Menlo, Monaco, monospace",
   },
   {
     value: "monaco",
     label: "Monaco",
     category: "Mono",
-    stack: 'Monaco, Menlo, monospace',
+    stack: "Monaco, Menlo, monospace",
   },
   {
     value: "courier-new",
@@ -307,6 +309,7 @@ export function settingsFromPreset(
     version: 1,
     mode: current?.mode ?? "system",
     presetId: preset.id,
+    customThemes: current?.customThemes ?? [],
     articleFont: current?.articleFont ?? "eb-garamond",
     uiFont: current?.uiFont ?? "inter",
     fixedFont: current?.fixedFont ?? "sf-mono",
@@ -314,6 +317,211 @@ export function settingsFromPreset(
     fontScale: current?.fontScale ?? 1,
     light: clonePalette(preset.light),
     dark: clonePalette(preset.dark),
+  };
+}
+
+/** True when `id` names a built-in (read-only) preset. */
+export function isStockPreset(id: string): boolean {
+  return THEME_PRESETS.some((preset) => preset.id === id);
+}
+
+/** Stock presets followed by the user's custom themes. */
+export function allPresets(settings: ThemeSettings): ThemePreset[] {
+  return [...THEME_PRESETS, ...settings.customThemes];
+}
+
+export function findPreset(
+  settings: ThemeSettings,
+  id: string,
+): ThemePreset | undefined {
+  return allPresets(settings).find((preset) => preset.id === id);
+}
+
+function nextCustomId(settings: ThemeSettings): string {
+  const taken = new Set(allPresets(settings).map((preset) => preset.id));
+  let n = settings.customThemes.length + 1;
+  let id = `custom-${n}`;
+  while (taken.has(id)) id = `custom-${++n}`;
+  return id;
+}
+
+/**
+ * Fork the current palette into a new, editable custom theme and select it.
+ * Returns the updated settings plus the new theme's id.
+ */
+export function createCustomTheme(
+  settings: ThemeSettings,
+  name: string,
+  description: string,
+): { settings: ThemeSettings; id: string } {
+  const id = nextCustomId(settings);
+  const theme: ThemePreset = {
+    id,
+    name,
+    description,
+    category: "Custom",
+    light: clonePalette(settings.light),
+    dark: clonePalette(settings.dark),
+  };
+  return {
+    id,
+    settings: {
+      ...settings,
+      presetId: id,
+      customThemes: [...settings.customThemes, theme],
+    },
+  };
+}
+
+/**
+ * Ensure the active theme is an editable custom. If a stock preset is selected,
+ * copy it into a new custom theme first (matching the "edit forks a copy"
+ * behavior). Returns settings whose `presetId` points at a custom theme.
+ */
+export function ensureEditableCustom(settings: ThemeSettings): ThemeSettings {
+  if (settings.customThemes.some((theme) => theme.id === settings.presetId)) {
+    return settings;
+  }
+  const base = THEME_PRESETS.find((preset) => preset.id === settings.presetId);
+  return createCustomTheme(
+    settings,
+    base ? `${base.name} (custom)` : "Custom theme",
+    base?.description ?? "Your custom palette.",
+  ).settings;
+}
+
+/** Apply a single color change, forking to a custom theme when needed. */
+export function withColorChange(
+  settings: ThemeSettings,
+  variant: ThemeVariant,
+  key: keyof ThemePalette,
+  value: string,
+): ThemeSettings {
+  const base = ensureEditableCustom(settings);
+  const palette = { ...base[variant], [key]: value };
+  return writeActivePalette(base, variant, palette);
+}
+
+/** Replace a whole variant palette, forking to a custom theme when needed. */
+export function withPaletteReset(
+  settings: ThemeSettings,
+  variant: ThemeVariant,
+  palette: ThemePalette,
+): ThemeSettings {
+  const base = ensureEditableCustom(settings);
+  return writeActivePalette(base, variant, clonePalette(palette));
+}
+
+function writeActivePalette(
+  settings: ThemeSettings,
+  variant: ThemeVariant,
+  palette: ThemePalette,
+): ThemeSettings {
+  return {
+    ...settings,
+    [variant]: palette,
+    customThemes: settings.customThemes.map((theme) =>
+      theme.id === settings.presetId ? { ...theme, [variant]: palette } : theme,
+    ),
+  };
+}
+
+/** Update the selected custom theme's name and/or description. */
+export function updateCustomMeta(
+  settings: ThemeSettings,
+  patch: { name?: string; description?: string },
+): ThemeSettings {
+  return {
+    ...settings,
+    customThemes: settings.customThemes.map((theme) =>
+      theme.id === settings.presetId ? { ...theme, ...patch } : theme,
+    ),
+  };
+}
+
+/** Delete a custom theme; if it was selected, fall back to the first stock preset. */
+export function deleteCustomTheme(
+  settings: ThemeSettings,
+  id: string,
+): ThemeSettings {
+  const customThemes = settings.customThemes.filter((theme) => theme.id !== id);
+  if (settings.presetId !== id) return { ...settings, customThemes };
+  return { ...settingsFromPreset(THEME_PRESETS[0], settings), customThemes };
+}
+
+/** The JSON envelope used to share a single theme. */
+export interface SharedTheme {
+  halupedia: "theme";
+  version: 1;
+  name: string;
+  description: string;
+  light: ThemePalette;
+  dark: ThemePalette;
+}
+
+export function serializeTheme(
+  name: string,
+  description: string,
+  light: ThemePalette,
+  dark: ThemePalette,
+): string {
+  const shared: SharedTheme = {
+    halupedia: "theme",
+    version: 1,
+    name,
+    description,
+    light: clonePalette(light),
+    dark: clonePalette(dark),
+  };
+  return JSON.stringify(shared, null, 2);
+}
+
+/** Parse and validate shared-theme JSON. Returns null when unrecognizable. */
+export function parseSharedTheme(text: string): SharedTheme | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isRecord(value) || value.halupedia !== "theme") return null;
+  if (!isRecord(value.light) || !isRecord(value.dark)) return null;
+  const name = typeof value.name === "string" ? value.name : "Imported theme";
+  const description =
+    typeof value.description === "string" ? value.description : "";
+  return {
+    halupedia: "theme",
+    version: 1,
+    name,
+    description,
+    light: validPalette(value.light, DEFAULT_THEME_SETTINGS.light),
+    dark: validPalette(value.dark, DEFAULT_THEME_SETTINGS.dark),
+  };
+}
+
+/** Add an imported theme as a new custom theme and select it. */
+export function importSharedTheme(
+  settings: ThemeSettings,
+  shared: SharedTheme,
+): { settings: ThemeSettings; id: string } {
+  const id = nextCustomId(settings);
+  const theme: ThemePreset = {
+    id,
+    name: shared.name,
+    description: shared.description,
+    category: "Custom",
+    light: clonePalette(shared.light),
+    dark: clonePalette(shared.dark),
+  };
+  return {
+    id,
+    settings: {
+      ...settings,
+      presetId: id,
+      customThemes: [...settings.customThemes, theme],
+      light: clonePalette(shared.light),
+      dark: clonePalette(shared.dark),
+    },
   };
 }
 
@@ -335,9 +543,7 @@ function validPalette(value: unknown, fallback: ThemePalette): ThemePalette {
   return Object.fromEntries(
     Object.entries(fallback).map(([key, defaultValue]) => [
       key,
-      typeof value[key] === "string" && value[key]
-        ? value[key]
-        : defaultValue,
+      typeof value[key] === "string" && value[key] ? value[key] : defaultValue,
     ]),
   ) as unknown as ThemePalette;
 }
@@ -348,13 +554,41 @@ export function normalizeThemeSettings(value: unknown): ThemeSettings {
     value.mode === "light" || value.mode === "dark" || value.mode === "system"
       ? value.mode
       : DEFAULT_THEME_SETTINGS.mode;
+  const customThemes = Array.isArray(value.customThemes)
+    ? value.customThemes.filter(isRecord).map((theme, index) => ({
+        id: typeof theme.id === "string" ? theme.id : `custom-${index + 1}`,
+        name: typeof theme.name === "string" ? theme.name : "Custom theme",
+        description:
+          typeof theme.description === "string" ? theme.description : "",
+        category: "Custom",
+        light: validPalette(theme.light, DEFAULT_THEME_SETTINGS.light),
+        dark: validPalette(theme.dark, DEFAULT_THEME_SETTINGS.dark),
+      }))
+    : [];
+  // Migrate the legacy single "custom" marker into a real, named custom theme
+  // so older saves keep their edited palette as something editable.
+  let presetId =
+    typeof value.presetId === "string"
+      ? value.presetId
+      : DEFAULT_THEME_SETTINGS.presetId;
+  if (
+    presetId === "custom" &&
+    !customThemes.some((theme) => theme.id === "custom")
+  ) {
+    customThemes.push({
+      id: "custom",
+      name: "Custom theme",
+      description: "Your custom palette.",
+      category: "Custom",
+      light: validPalette(value.light, DEFAULT_THEME_SETTINGS.light),
+      dark: validPalette(value.dark, DEFAULT_THEME_SETTINGS.dark),
+    });
+  }
   return {
     version: 1,
     mode,
-    presetId:
-      typeof value.presetId === "string"
-        ? value.presetId
-        : DEFAULT_THEME_SETTINGS.presetId,
+    presetId,
+    customThemes,
     articleFont: validFont(
       value.articleFont,
       DEFAULT_THEME_SETTINGS.articleFont,
@@ -545,9 +779,7 @@ export function hexToOklch(hex: string): string {
     (offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255,
   );
   const [r, g, b] = srgb.map((value) =>
-    value <= 0.04045
-      ? value / 12.92
-      : ((value + 0.055) / 1.055) ** 2.4,
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
   );
   const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
   const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
@@ -582,9 +814,7 @@ export function oklchToHex(color: string): string {
   return `#${linear
     .map((value) => {
       const srgb =
-        value <= 0.0031308
-          ? 12.92 * value
-          : 1.055 * value ** (1 / 2.4) - 0.055;
+        value <= 0.0031308 ? 12.92 * value : 1.055 * value ** (1 / 2.4) - 0.055;
       return Math.round(Math.min(1, Math.max(0, srgb)) * 255)
         .toString(16)
         .padStart(2, "0");

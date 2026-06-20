@@ -52,7 +52,7 @@ export function MediaListPage({ onNavigateToMedia, initialQuery = "" }: Props) {
         <div className="flex items-center gap-[0.5rem]">
           <input
             ref={inputRef}
-            className="flex-1 rounded-[3px] bg-control-surface px-[0.7rem] py-[0.4rem] text-[0.95rem] text-ink [border:1px_solid_var(--control-border)]"
+            className="flex-1 rounded-md bg-control-surface px-[0.7rem] py-[0.4rem] text-[0.95rem] text-ink [border:1px_solid_var(--control-border)]"
             type="search"
             placeholder="Search the register..."
             value={query}
@@ -60,7 +60,7 @@ export function MediaListPage({ onNavigateToMedia, initialQuery = "" }: Props) {
           />
           <button
             type="button"
-            className="cursor-pointer rounded-[3px] bg-control-surface px-[1rem] py-[0.4rem] text-[0.9rem] [border:1px_solid_var(--control-border)]"
+            className="cursor-pointer rounded-md bg-control-surface px-[1rem] py-[0.4rem] text-[0.9rem] [border:1px_solid_var(--control-border)]"
             onClick={() => inputRef.current?.focus()}
           >
             Go
@@ -84,7 +84,7 @@ export function MediaListPage({ onNavigateToMedia, initialQuery = "" }: Props) {
           {items.map((item) => (
             <a
               key={item.id}
-              className="block overflow-hidden rounded-[4px] text-inherit no-underline [border:1px_solid_var(--rule-soft)] [transition:border-color_120ms,box-shadow_120ms] hover:[border-color:var(--accent)] hover:bg-accent-wash-soft hover:[box-shadow:0_2px_8px_rgba(0,0,0,0.08)]"
+              className="block overflow-hidden rounded-lg text-inherit no-underline [border:1px_solid_var(--rule-soft)] [transition:border-color_120ms,box-shadow_120ms] hover:[border-color:var(--accent)] hover:bg-accent-wash-soft hover:[box-shadow:0_2px_8px_rgba(0,0,0,0.08)]"
               href={`/media/${encodeURIComponent(item.id)}`}
               onClick={(e) => {
                 e.preventDefault();

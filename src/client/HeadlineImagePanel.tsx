@@ -272,7 +272,7 @@ export function HeadlineImagePanel({
   }, [articleSlug, onArticleUpdate, loadImagePrompts]);
 
   return (
-    <div className="mb-[0.75rem] grid w-full min-w-0 rounded-[4px] bg-panel-surface px-[0.65rem] py-[0.5rem] [border:1px_solid_var(--panel-border)]">
+    <div className="mb-[0.75rem] grid w-full min-w-0 rounded-lg bg-panel-surface px-[0.65rem] py-[0.5rem] [border:1px_solid_var(--panel-border)]">
       <div className="mb-[0.4rem] flex items-center justify-between">
         <span className="text-[0.82rem] font-semibold tracking-[0.02em] text-ink-soft">
           Headline image
@@ -280,7 +280,7 @@ export function HeadlineImagePanel({
         {imageInfo && (
           <button
             type="button"
-            className="cursor-pointer rounded-[3px] bg-transparent px-[0.4rem] py-[0.1rem] font-serif text-[0.75rem] text-danger [border:1px_solid_var(--danger)] hover:bg-danger hover:text-danger-text"
+            className="cursor-pointer rounded-md bg-transparent px-[0.4rem] py-[0.1rem] font-serif text-[0.75rem] text-danger [border:1px_solid_var(--danger)] hover:bg-danger hover:text-danger-text"
             onClick={remove}
           >
             Remove
@@ -301,7 +301,7 @@ export function HeadlineImagePanel({
             <img
               src={`/api/media/${encodeURIComponent(imageInfo.mediaId)}`}
               alt={imageInfo.caption || imageInfo.description}
-              className="block h-auto max-h-[72px] max-w-[96px] rounded-[2px] object-cover [border:1px_solid_var(--rule)]"
+              className="block h-auto max-h-[72px] max-w-[96px] rounded-sm object-cover [border:1px_solid_var(--rule)]"
             />
           </a>
           <div className="min-w-0">
@@ -348,7 +348,7 @@ export function HeadlineImagePanel({
 
           {/* Search results */}
           {searchResults !== null && (
-            <div className="col-[1/-1] rounded-[3px] bg-[var(--surface-accent,var(--panel-surface))] p-[0.4rem] [border:1px_solid_var(--rule-soft)]">
+            <div className="col-[1/-1] rounded-md bg-[var(--surface-accent,var(--panel-surface))] p-[0.4rem] [border:1px_solid_var(--rule-soft)]">
               {searchResults.length === 0 ? (
                 <p className="m-0 text-[0.8rem] text-ink-soft">
                   No existing images match. Upload one below.
@@ -359,13 +359,13 @@ export function HeadlineImagePanel({
                     <button
                       key={r.id}
                       type="button"
-                      className="flex max-w-[80px] cursor-pointer flex-col items-center gap-[0.2rem] rounded-[4px] bg-transparent p-[0.2rem] [border:2px_solid_transparent] [transition:border-color_100ms] hover:[border-color:var(--accent)]"
+                      className="flex max-w-[80px] cursor-pointer flex-col items-center gap-[0.2rem] rounded-lg bg-transparent p-[0.2rem] [border:2px_solid_transparent] [transition:border-color_100ms] hover:[border-color:var(--accent)]"
                       onClick={() => void attachExisting(r.id)}
                       disabled={busy}
                       title={r.description}
                     >
                       <img
-                        className="h-[52px] w-[72px] rounded-[2px] object-cover"
+                        className="h-[52px] w-[72px] rounded-sm object-cover"
                         src={`/api/media/${encodeURIComponent(r.id)}`}
                         alt={r.description}
                       />

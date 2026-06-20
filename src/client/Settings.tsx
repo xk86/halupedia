@@ -1,6 +1,14 @@
-import { memo, useCallback, useEffect, useState } from "react";
-import { RotateCcwIcon } from "lucide-react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  CopyPlusIcon,
+  DownloadIcon,
+  RotateCcwIcon,
+  Trash2Icon,
+  UploadIcon,
+} from "lucide-react";
 import { MarkdownEditor } from "./MarkdownEditor";
+import { InfoboxView } from "./Sidebar";
+import type { InfoboxData } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,12 +35,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/components/ui/toggle-group";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   DEFAULT_THEME_SETTINGS,
   FONT_CATEGORIES,
@@ -41,10 +52,20 @@ import {
   MIN_FONT_SCALE,
   THEME_PRESETS,
   THEME_PRESET_GROUPS,
+  createCustomTheme,
+  deleteCustomTheme,
+  findPreset,
   hexToOklch,
+  importSharedTheme,
+  isStockPreset,
   oklchToHex,
+  parseSharedTheme,
+  serializeTheme,
   settingsFromPreset,
   themePreviewStyle,
+  updateCustomMeta,
+  withColorChange,
+  withPaletteReset,
   type ThemeMode,
   type ThemePalette,
   type ThemeSettings,
@@ -98,9 +119,41 @@ An article font should stay comfortable over long passages. An [accent link](htt
 
 > A short quotation shows muted surfaces, borders, and secondary text together.`;
 
+// Sample data for the preview's right-rail. Mirrors the real article infobox so
+// themes are tested against the actual component. Values are plain text rendered
+// through the same markup the server-rendered HTML flows into; the accent link
+// exercises the link color against the panel surface.
+const PREVIEW_INFOBOX: InfoboxData = {
+  title: "The cartographer's quiet index",
+  subtitle: "Reference compendium",
+  groups: [
+    {
+      label: "Overview",
+      rows: [
+        { label: "Type", value: "Atlas supplement" },
+        { label: "Edition", value: "Fourth" },
+        {
+          label: "Subject",
+          value: '<a href="/wiki/Cartography">Cartography</a>',
+        },
+      ],
+    },
+    {
+      label: "Details",
+      rows: [
+        { label: "Pages", value: "412" },
+        { label: "Entries", value: "atlas_entry_04" },
+      ],
+    },
+  ],
+};
+
 function loadPreviewMarkdown(): string {
   try {
-    return window.localStorage.getItem(PREVIEW_MARKDOWN_KEY) ?? DEFAULT_PREVIEW_MARKDOWN;
+    return (
+      window.localStorage.getItem(PREVIEW_MARKDOWN_KEY) ??
+      DEFAULT_PREVIEW_MARKDOWN
+    );
   } catch {
     return DEFAULT_PREVIEW_MARKDOWN;
   }
@@ -291,34 +344,12 @@ const ThemePreview = memo(function ThemePreview({
           minRows={8}
           placeholder="Edit this sample to test your theme…"
         />
-        <aside className="flex flex-col gap-2">
-          <Card size="sm">
-            <CardHeader>
-              <CardTitle className="text-base">Sidebar</CardTitle>
-              <CardDescription>Surfaces and controls</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2.5">
-              <Input placeholder="Search…" />
-              <div className="flex flex-wrap gap-1.5">
-                <Badge>Primary</Badge>
-                <Badge variant="secondary">Muted</Badge>
-                <Badge variant="outline">Outline</Badge>
-              </div>
-              <Separator />
-              <div className="grid grid-cols-2 gap-1.5">
-                <Button size="sm">Primary</Button>
-                <Button size="sm" variant="secondary">
-                  Secondary
-                </Button>
-                <Button size="sm" variant="outline">
-                  Outline
-                </Button>
-                <Button size="sm" variant="destructive">
-                  Delete
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+        <aside className="flex flex-col gap-2 font-serif">
+          <InfoboxView
+            title={PREVIEW_INFOBOX.title}
+            subtitle={PREVIEW_INFOBOX.subtitle}
+            groups={PREVIEW_INFOBOX.groups}
+          />
         </aside>
       </div>
     </div>
@@ -335,11 +366,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
 
   const updateColor = useCallback(
     (variant: ThemeVariant, key: keyof ThemePalette, value: string) => {
-      onChange({
-        ...settings,
-        presetId: "custom",
-        [variant]: { ...settings[variant], [key]: value },
-      });
+      onChange(withColorChange(settings, variant, key, value));
     },
     [onChange, settings],
   );
@@ -356,11 +383,9 @@ export function Settings({ settings, onChange }: SettingsProps) {
 
   const resetPalette = useCallback(
     (variant: ThemeVariant) => {
-      onChange({
-        ...settings,
-        presetId: "custom",
-        [variant]: { ...DEFAULT_THEME_SETTINGS[variant] },
-      });
+      onChange(
+        withPaletteReset(settings, variant, DEFAULT_THEME_SETTINGS[variant]),
+      );
     },
     [onChange, settings],
   );
@@ -379,15 +404,73 @@ export function Settings({ settings, onChange }: SettingsProps) {
     return () => window.clearTimeout(timeout);
   }, [previewMarkdown]);
 
-  const selectedPreset = THEME_PRESETS.find(
-    (preset) => preset.id === settings.presetId,
+  const selectedPreset = findPreset(settings, settings.presetId);
+  const selectedIsCustom = !isStockPreset(settings.presetId);
+  // The `items` prop feeds the trigger's label lookup; include the user's
+  // custom themes so a selected custom shows its name rather than a blank
+  // trigger.
+  const presetSelectItems = [
+    ...presetItems,
+    ...settings.customThemes.map((theme) => ({
+      label: theme.name,
+      value: theme.id,
+    })),
+  ];
+
+  const duplicateAsCustom = useCallback(() => {
+    const base = selectedPreset;
+    const name = base ? `${base.name} copy` : "Custom theme";
+    onChange(
+      createCustomTheme(
+        settings,
+        name,
+        base?.description ?? "Your custom palette.",
+      ).settings,
+    );
+  }, [onChange, selectedPreset, settings]);
+
+  const deleteCurrentCustom = useCallback(() => {
+    onChange(deleteCustomTheme(settings, settings.presetId));
+  }, [onChange, settings]);
+
+  const exportCurrentTheme = useCallback(() => {
+    const name = selectedPreset?.name ?? "Custom theme";
+    const json = serializeTheme(
+      name,
+      selectedPreset?.description ?? "",
+      settings.light,
+      settings.dark,
+    );
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${name.replace(/[^\w.-]+/g, "-").toLowerCase() || "theme"}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, [selectedPreset, settings]);
+
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const runImport = useCallback(
+    (text: string) => {
+      const shared = parseSharedTheme(text);
+      if (!shared) {
+        setImportError("That doesn't look like an exported Halupedia theme.");
+        return;
+      }
+      onChange(importSharedTheme(settings, shared).settings);
+      setImportText("");
+      setImportError(null);
+      setImportOpen(false);
+    },
+    [onChange, settings],
   );
-  // The `items` prop feeds the trigger's label lookup; include "Custom" so a
-  // modified palette shows a label rather than a blank trigger.
-  const presetSelectItems =
-    settings.presetId === "custom"
-      ? [{ label: "Custom", value: "custom" }, ...presetItems]
-      : presetItems;
 
   return (
     <section className="mx-auto flex w-full max-w-7xl flex-col gap-3 font-sans">
@@ -422,10 +505,26 @@ export function Settings({ settings, onChange }: SettingsProps) {
                   items={presetSelectItems}
                   value={settings.presetId}
                   onValueChange={(value) => {
-                    const preset = THEME_PRESETS.find(
+                    if (value == null) return;
+                    const stock = THEME_PRESETS.find(
                       (candidate) => candidate.id === value,
                     );
-                    if (preset) onChange(settingsFromPreset(preset, settings));
+                    if (stock) {
+                      onChange(settingsFromPreset(stock, settings));
+                      return;
+                    }
+                    // A custom theme: load its stored palette into the active slot.
+                    const custom = settings.customThemes.find(
+                      (theme) => theme.id === value,
+                    );
+                    if (custom) {
+                      onChange({
+                        ...settings,
+                        presetId: custom.id,
+                        light: { ...custom.light },
+                        dark: { ...custom.dark },
+                      });
+                    }
                   }}
                 >
                   <SelectTrigger id="theme-preset" className="w-full">
@@ -435,9 +534,14 @@ export function Settings({ settings, onChange }: SettingsProps) {
                     alignItemWithTrigger={false}
                     className="max-h-80"
                   >
-                    {settings.presetId === "custom" && (
+                    {settings.customThemes.length > 0 && (
                       <SelectGroup>
-                        <SelectItem value="custom">Custom</SelectItem>
+                        <SelectLabel>Custom</SelectLabel>
+                        {settings.customThemes.map((theme) => (
+                          <SelectItem key={theme.id} value={theme.id}>
+                            {theme.name}
+                          </SelectItem>
+                        ))}
                       </SelectGroup>
                     )}
                     {THEME_PRESET_GROUPS.map((group) => (
@@ -452,6 +556,146 @@ export function Settings({ settings, onChange }: SettingsProps) {
                     ))}
                   </SelectContent>
                 </Select>
+                {selectedIsCustom && (
+                  <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-2.5">
+                    <Field>
+                      <FieldLabel htmlFor="custom-theme-name">Name</FieldLabel>
+                      <Input
+                        id="custom-theme-name"
+                        value={selectedPreset?.name ?? ""}
+                        onChange={(event) =>
+                          onChange(
+                            updateCustomMeta(settings, {
+                              name: event.currentTarget.value,
+                            }),
+                          )
+                        }
+                        placeholder="My theme"
+                        className="h-8"
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="custom-theme-description">
+                        Description
+                      </FieldLabel>
+                      <Textarea
+                        id="custom-theme-description"
+                        value={selectedPreset?.description ?? ""}
+                        onChange={(event) =>
+                          onChange(
+                            updateCustomMeta(settings, {
+                              description: event.currentTarget.value,
+                            }),
+                          )
+                        }
+                        placeholder="A short note about this theme."
+                        rows={2}
+                        className="min-h-0 resize-none text-sm"
+                      />
+                    </Field>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={duplicateAsCustom}
+                  >
+                    <CopyPlusIcon />
+                    Duplicate
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={exportCurrentTheme}
+                  >
+                    <DownloadIcon />
+                    Export
+                  </Button>
+                  <Popover open={importOpen} onOpenChange={setImportOpen}>
+                    <PopoverTrigger
+                      render={
+                        <Button type="button" variant="outline" size="sm">
+                          <UploadIcon />
+                          Import
+                        </Button>
+                      }
+                    />
+                    <PopoverContent className="flex w-80 flex-col gap-2">
+                      <p className="text-sm font-medium">Import a theme</p>
+                      <FieldDescription>
+                        Paste exported theme JSON, or load a .json file. It's
+                        added as a new custom theme.
+                      </FieldDescription>
+                      <Textarea
+                        value={importText}
+                        onChange={(event) => {
+                          setImportText(event.currentTarget.value);
+                          setImportError(null);
+                        }}
+                        placeholder='{ "halupedia": "theme", … }'
+                        rows={5}
+                        className="resize-none font-mono text-xs"
+                        aria-invalid={importError != null}
+                      />
+                      {importError && (
+                        <p className="text-xs text-destructive">
+                          {importError}
+                        </p>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="application/json,.json"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          event.currentTarget.value = "";
+                          if (!file) return;
+                          file
+                            .text()
+                            .then((text) => runImport(text))
+                            .catch(() =>
+                              setImportError("Couldn't read that file."),
+                            );
+                        }}
+                      />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          Choose file…
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={!importText.trim()}
+                          onClick={() => runImport(importText)}
+                        >
+                          Import
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  {selectedIsCustom && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Delete custom theme"
+                      title="Delete custom theme"
+                      className="ml-auto text-muted-foreground"
+                      onClick={deleteCurrentCustom}
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  )}
+                </div>
               </Field>
               <Field>
                 <div>
@@ -518,13 +762,17 @@ export function Settings({ settings, onChange }: SettingsProps) {
                     <FieldLabel htmlFor="theme-radius">
                       Component radius
                     </FieldLabel>
-                    <FieldDescription>0px square to 24px round.</FieldDescription>
+                    <FieldDescription>
+                      0px square to 24px round.
+                    </FieldDescription>
                   </div>
                   <div className="flex items-center gap-1">
                     <Badge variant="secondary">{settings.radius}px</Badge>
                     <ResetButton
                       label="Reset component radius"
-                      disabled={settings.radius === DEFAULT_THEME_SETTINGS.radius}
+                      disabled={
+                        settings.radius === DEFAULT_THEME_SETTINGS.radius
+                      }
                       onReset={() =>
                         onChange({
                           ...settings,

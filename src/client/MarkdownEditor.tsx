@@ -515,7 +515,7 @@ function ContextReadout({ context }: { context: ContextInfo }) {
 // No Preflight in this project, so a bare <button> keeps its UA chrome (grey
 // fill, black border) — zero it explicitly with border-0 bg-transparent.
 const BUBBLE_BTN =
-  "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center gap-1 rounded border-0 bg-transparent px-2 text-sm text-primary-foreground hover:bg-primary-foreground/15";
+  "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center gap-1 rounded-md border-0 bg-transparent px-2 text-sm text-primary-foreground hover:bg-primary-foreground/15";
 
 function SelectionPopover({
   editor,

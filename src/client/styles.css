@@ -526,7 +526,7 @@ a:hover {
   margin: 1.25rem 0;
   padding: 0.75rem 1rem;
   background: var(--panel-surface-soft);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   text-align: center;
 }
@@ -538,7 +538,7 @@ a:hover {
   width: 100%;
   background: var(--panel-surface-strong);
   border: 1px solid var(--panel-border);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   font-size: 0.83rem;
   line-height: 1.45;
 }
@@ -653,7 +653,7 @@ a:hover {
   width: clamp(200px, 30%, 300px);
   background: var(--panel-surface-strong);
   border: 1px solid var(--panel-border);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   font-size: 0.85rem;
 }
 
@@ -694,7 +694,7 @@ a:hover {
   max-width: 100%;
   height: auto;
   border: 1px solid var(--rule);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 /* Inline media: references render as plain article links (image is in sidebar) */
@@ -769,7 +769,7 @@ a:hover {
   max-width: 100%;
   height: auto;
   border: 1px solid var(--rule);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .media-page-meta {
@@ -827,7 +827,7 @@ a:hover {
 .media-page-edit-btn {
   background: var(--control-surface);
   border: 1px solid var(--control-border);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   color: var(--ink-soft);
   cursor: pointer;
   font-family: var(--serif);
@@ -876,7 +876,7 @@ a:hover {
 .media-desc-edit-panel {
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
   padding: 0.65rem 0.75rem;
   margin-bottom: 0.5rem;
 }
@@ -897,7 +897,7 @@ a:hover {
 .media-desc-textarea {
   background: var(--input-surface);
   border: 1px solid var(--control-border);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   color: var(--ink);
   font-family: var(--serif);
   font-size: 0.9rem;
@@ -917,7 +917,7 @@ a:hover {
 .media-desc-preview {
   background: var(--blockquote-bg);
   border-left: 3px solid var(--accent);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
   font-style: italic;
   line-height: 1.6;
@@ -928,7 +928,7 @@ a:hover {
 .media-desc-renamed-notice {
   background: var(--warning-bg);
   border: 1px solid var(--warning-border);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   color: var(--ink-soft);
   font-size: 0.82rem;
   margin: 0 0 0.4rem;
@@ -1081,7 +1081,7 @@ a:hover {
   border: 1px solid var(--accent);
   background: var(--accent-wash);
   color: var(--accent);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .linkless-notice {
@@ -1369,7 +1369,7 @@ a:hover {
   font-size: 0.88em;
   background: var(--accent-wash);
   padding: 0.05rem 0.3rem;
-  border-radius: 3px;
+  border-radius: var(--radius-md);
 }
 
 .mdedit-pm pre {
@@ -1377,7 +1377,7 @@ a:hover {
   font-size: 0.85rem;
   background: var(--input-surface-focus);
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
   padding: 0.65rem 0.75rem;
   overflow-x: auto;
   margin: 0 0 0.35rem;
@@ -1451,7 +1451,7 @@ a:hover {
   color: var(--ink-soft);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 
@@ -1540,7 +1540,7 @@ a:hover {
   top: 3.1rem;
   z-index: 5;
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: var(--radius-xl);
 }
 
 .article-inplace-mdedit .mdedit-pm {
@@ -1789,7 +1789,7 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: var(--radius-md);
 }
 
 .edit-raw-btn:hover:not(:disabled) {
@@ -2473,7 +2473,7 @@ a:hover {
   text-align: left;
   background: var(--accent-surface-soft);
   border: 1px dashed var(--accent-border-strong);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
@@ -2517,7 +2517,7 @@ a:hover {
   border: 1px solid var(--ink);
   padding: 0.45rem 0.9rem;
   cursor: pointer;
-  border-radius: 1px;
+  border-radius: var(--radius-sm);
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
@@ -2697,7 +2697,7 @@ a:hover {
   padding: 0.35rem 0.25rem;
   background: transparent;
   border: 1px solid var(--ink-soft);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--ink-soft);
   font-family: var(--mono);
@@ -2811,7 +2811,7 @@ a:hover {
 .disambiguation-notice {
   background: var(--blockquote-bg);
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
   padding: 0.5em 0.8em;
   margin-bottom: 1em;
   font-size: 0.9rem;
@@ -2845,7 +2845,7 @@ a:hover {
   padding: 0.6rem;
   background: rgba(139, 32, 32, 0.07);
   border: 1px solid rgba(139, 32, 32, 0.25);
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
 }
 
 .edit-blacklist-tags {
@@ -2893,7 +2893,7 @@ a:hover {
   font-size: 0.8rem;
   border: 1px solid rgba(139, 32, 32, 0.35);
   background: rgba(255, 255, 255, 0.6);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
 }
 
 /* ====================== Sidebar count ===================== */
@@ -2914,7 +2914,7 @@ a:hover {
   height: calc(100dvh - 2rem);
   min-height: 500px;
   background: var(--parchment-deep);
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -2943,7 +2943,7 @@ a:hover {
   letter-spacing: 0.08em;
   padding: 0.25rem 0.6rem;
   border: 1px solid var(--rule);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink-soft);
   cursor: pointer;
@@ -3090,7 +3090,7 @@ a:hover {
   letter-spacing: 0.08em;
   padding: 0.25rem 0.6rem;
   border: 1px solid var(--rule);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink-soft);
   cursor: pointer;
@@ -3207,7 +3207,7 @@ a:hover {
 
 .grs-bg-swatch {
   padding: 0.2rem 0.55rem;
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   border: 2px solid transparent;
   cursor: pointer;
   font-size: 0.7rem;
@@ -3234,7 +3234,7 @@ a:hover {
   font-size: 0.72rem;
   padding: 0.22rem 0.5rem;
   border: 1px solid var(--rule);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink-soft);
   cursor: pointer;
@@ -3276,7 +3276,7 @@ a:hover {
   letter-spacing: 0.06em;
   padding: 0.25rem 0.6rem;
   border: 1px solid var(--rule);
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--ink-fade);
   cursor: pointer;
@@ -3349,7 +3349,7 @@ a:hover {
   display: inline-block;
   width: 0.7rem;
   height: 0.7rem;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
   border: 1px solid rgba(0, 0, 0, 0.25);
 }
@@ -3434,7 +3434,7 @@ a:hover {
 .admin-prompt-modes-warn {
   background: var(--color-warn-bg, #fff3cd);
   border: 1px solid var(--color-warn, #f0ad4e);
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
   padding: 0.5rem 0.75rem;
   font-size: 0.82rem;
 }
@@ -3457,7 +3457,7 @@ a:hover {
   resize: vertical;
   padding: 0.5rem 0.6rem;
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
   background: var(--bg);
   color: var(--ink);
   line-height: 1.5;
@@ -3593,7 +3593,7 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 0.1em 0.45em;
-  border-radius: 3px;
+  border-radius: var(--radius-md);
   background: var(--control-surface);
   color: var(--ink-soft);
 }

@@ -139,7 +139,7 @@ function SlugAliasPaneComponent({
       {aliasResults.map((r) => (
         <div
           key={r.slug}
-          className="mb-[0.5rem] rounded-[6px] p-[0.75rem] [border:1px_solid_var(--rule)]"
+          className="mb-[0.5rem] rounded-xl p-[0.75rem] [border:1px_solid_var(--rule)]"
         >
           <strong>{r.title}</strong>{" "}
           <code className="text-[0.8rem]">{r.slug}</code>

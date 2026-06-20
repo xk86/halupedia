@@ -1516,29 +1516,6 @@ a:hover {
   white-space: nowrap;
 }
 
-/* Link editor panel ---------------------------------------------------- */
-.mdedit-linkpanel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.5rem 0.55rem;
-  border-bottom: 1px solid var(--rule);
-  background: color-mix(in srgb, var(--accent) 8%, var(--blockquote-bg));
-}
-
-.mdedit-linkpanel-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.mdedit-linkpanel-prefix {
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--accent);
-  min-width: 3rem;
-}
-
 /* Selection inline popover — a dark floating toolbar that reads clearly over
    the parchment article body (the old light surface vanished into the page). */
 .mdedit-bubble,

@@ -21,6 +21,11 @@ import {
   SEARCH_INPUT,
   type Suggestion,
 } from "./ArticleSearchDropdown";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { htmlToMarkdown, markdownToHtml } from "./markdown/mdBridge";
 
 interface MarkdownEditorProps {
@@ -225,12 +230,12 @@ function Inner({
     <div
       className={`mdedit${disabled ? " mdedit--disabled" : ""}${className ? ` ${className}` : ""}`}
     >
-      {!disabled && <Toolbar editor={editor} onEditLink={openLinkEditor} />}
-      {!disabled && linkDraft && (
-        <LinkPanel
+      {!disabled && (
+        <Toolbar
           editor={editor}
-          initial={linkDraft}
-          onClose={() => setLinkDraft(null)}
+          linkDraft={linkDraft}
+          onOpenLink={openLinkEditor}
+          onCloseLink={() => setLinkDraft(null)}
         />
       )}
       <div ref={editor.mount} className="mdedit-pm" />
@@ -303,10 +308,14 @@ function getToolbarState(editor: Editor): ToolbarState {
 
 function Toolbar({
   editor,
-  onEditLink,
+  linkDraft,
+  onOpenLink,
+  onCloseLink,
 }: {
   editor: Editor;
-  onEditLink: () => void;
+  linkDraft: LinkDraft | null;
+  onOpenLink: () => void;
+  onCloseLink: () => void;
 }) {
   const s = useEditorDerivedValue(getToolbarState, { editor });
   const cmd = editor.commands as Record<string, (...a: any) => void>;
@@ -356,14 +365,31 @@ function Toolbar({
           state={s.code}
           onClick={() => cmd.toggleCode?.()}
         />
-        <button
-          type="button"
-          className={`mdedit-tool${s.context?.kind === "link" ? " mdedit-tool--active" : ""}`}
-          title="Link to an article or URL"
-          onClick={onEditLink}
+        <Popover
+          open={linkDraft !== null}
+          onOpenChange={(open) => (open ? onOpenLink() : onCloseLink())}
         >
-          🔗
-        </button>
+          <PopoverTrigger
+            type="button"
+            className={`mdedit-tool${linkDraft || s.context?.kind === "link" ? " mdedit-tool--active" : ""}`}
+            title="Link to an article or URL"
+          >
+            🔗
+          </PopoverTrigger>
+          {linkDraft && (
+            <PopoverContent
+              align="start"
+              sideOffset={6}
+              className="w-[22rem] max-w-[90vw] gap-2 p-2.5"
+            >
+              <LinkPopoverBody
+                editor={editor}
+                initial={linkDraft}
+                onClose={onCloseLink}
+              />
+            </PopoverContent>
+          )}
+        </Popover>
       </div>
       <span className="mdedit-tool-sep" />
       <div className="mdedit-tool-group">
@@ -543,7 +569,7 @@ const SCHEMES: Array<{ id: LinkScheme; label: string }> = [
   { id: "url", label: "url" },
 ];
 
-function LinkPanel({
+function LinkPopoverBody({
   editor,
   initial,
   onClose,
@@ -555,6 +581,13 @@ function LinkPanel({
   const [scheme, setScheme] = useState<LinkScheme>(initial.scheme);
   const [slug, setSlug] = useState(initial.slug);
   const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Focus the active field without scrolling: a native autoFocus on a portaled
+  // popup fires before it's positioned and yanks the page to the top.
+  useEffect(() => {
+    rootRef.current?.querySelector("input")?.focus({ preventScroll: true });
+  }, [scheme]);
 
   const apply = useCallback(
     (over?: Partial<LinkDraft>) => {
@@ -579,8 +612,8 @@ function LinkPanel({
   );
 
   return (
-    <div className="mdedit-linkpanel">
-      <div className="mdedit-linkpanel-row">
+    <div ref={rootRef} className="flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
         <div className="mdedit-tool-group">
           {SCHEMES.map((s) => (
             <button
@@ -597,7 +630,6 @@ function LinkPanel({
           <input
             className={SEARCH_INPUT}
             value={slug}
-            autoFocus
             placeholder="https://…"
             onChange={(e) => setSlug(e.target.value)}
             onKeyDown={(e) => {
@@ -612,12 +644,11 @@ function LinkPanel({
             onPick={pick}
             placeholder="Search an article to link…"
             wrapClassName="flex-1"
-            autoFocus
           />
         )}
       </div>
-      <div className="mdedit-linkpanel-row">
-        <span className="mdedit-linkpanel-prefix">
+      <div className="flex items-center gap-1.5">
+        <span className="min-w-[3rem] font-mono text-[0.78rem] text-accent">
           {scheme === "url" ? "target" : `${scheme}:`}
         </span>
         <input
@@ -630,6 +661,8 @@ function LinkPanel({
             if (e.key === "Escape") onClose();
           }}
         />
+      </div>
+      <div className="flex items-center justify-end gap-1.5">
         <button type="button" className="mdedit-mode-btn" onClick={() => apply()}>
           Apply
         </button>

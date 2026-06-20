@@ -26,6 +26,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { htmlToMarkdown, markdownToHtml } from "./markdown/mdBridge";
 
 interface MarkdownEditorProps {
@@ -490,6 +491,15 @@ function ContextReadout({ context }: { context: ContextInfo }) {
 // Selection inline popover ("a little simple edit thing that shows what it is")
 // ---------------------------------------------------------------------------
 
+// ProseKit's <InlinePopoverPopup> does NOT forward `className` to its host
+// element, so the toolbar surface is styled on an inner wrapper. Base UI / shadcn
+// tokens only (dark popover surface = primary, so it reads over the parchment
+// body); no bespoke CSS.
+// No Preflight in this project, so a bare <button> keeps its UA chrome (grey
+// fill, black border) — zero it explicitly with border-0 bg-transparent.
+const BUBBLE_BTN =
+  "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center gap-1 rounded border-0 bg-transparent px-2 text-sm text-primary-foreground hover:bg-primary-foreground/15";
+
 function SelectionPopover({
   editor,
   onEditLink,
@@ -503,44 +513,51 @@ function SelectionPopover({
   return (
     <InlinePopoverRoot>
       <InlinePopoverPositioner>
-        <InlinePopoverPopup className="mdedit-bubble">
-          <span className="mdedit-bubble-label">{selectionLabel(s)}</span>
-          <span className="mdedit-bubble-sep" />
-          <button
-            type="button"
-            className={`mdedit-bubble-btn${s.bold.active ? " is-active" : ""}`}
-            style={{ fontWeight: 700 }}
-            title="Bold"
-            onClick={() => cmd.toggleBold?.()}
-          >
-            B
-          </button>
-          <button
-            type="button"
-            className={`mdedit-bubble-btn${s.italic.active ? " is-active" : ""}`}
-            style={{ fontStyle: "italic" }}
-            title="Italic"
-            onClick={() => cmd.toggleItalic?.()}
-          >
-            I
-          </button>
-          <button
-            type="button"
-            className={`mdedit-bubble-btn${s.code.active ? " is-active" : ""}`}
-            style={{ fontFamily: "var(--mono)" }}
-            title="Inline code"
-            onClick={() => cmd.toggleCode?.()}
-          >
-            {"<>"}
-          </button>
-          <button
-            type="button"
-            className={`mdedit-bubble-btn${s.context?.kind === "link" ? " is-active" : ""}`}
-            title={s.context?.kind === "link" ? "Edit link" : "Add link"}
-            onClick={onEditLink}
-          >
-            🔗 {s.context?.kind === "link" ? "Edit link" : "Link"}
-          </button>
+        <InlinePopoverPopup>
+          <div className="flex items-center gap-0.5 rounded-md bg-primary p-1 text-primary-foreground shadow-md ring-1 ring-primary-foreground/15">
+            <span className="max-w-[16rem] truncate px-1.5 font-mono text-[0.7rem] text-primary-foreground/70">
+              {selectionLabel(s)}
+            </span>
+            <span className="mx-0.5 h-4 w-px bg-primary-foreground/25" />
+            <button
+              type="button"
+              className={cn(BUBBLE_BTN, s.bold.active && "bg-accent")}
+              style={{ fontWeight: 700 }}
+              title="Bold"
+              onClick={() => cmd.toggleBold?.()}
+            >
+              B
+            </button>
+            <button
+              type="button"
+              className={cn(BUBBLE_BTN, s.italic.active && "bg-accent")}
+              style={{ fontStyle: "italic" }}
+              title="Italic"
+              onClick={() => cmd.toggleItalic?.()}
+            >
+              I
+            </button>
+            <button
+              type="button"
+              className={cn(BUBBLE_BTN, s.code.active && "bg-accent")}
+              style={{ fontFamily: "var(--mono)" }}
+              title="Inline code"
+              onClick={() => cmd.toggleCode?.()}
+            >
+              {"<>"}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                BUBBLE_BTN,
+                s.context?.kind === "link" && "bg-accent",
+              )}
+              title={s.context?.kind === "link" ? "Edit link" : "Add link"}
+              onClick={onEditLink}
+            >
+              🔗 {s.context?.kind === "link" ? "Edit link" : "Link"}
+            </button>
+          </div>
         </InlinePopoverPopup>
       </InlinePopoverPositioner>
     </InlinePopoverRoot>

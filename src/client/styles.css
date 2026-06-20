@@ -1516,66 +1516,6 @@ a:hover {
   white-space: nowrap;
 }
 
-/* Selection inline popover — a dark floating toolbar that reads clearly over
-   the parchment article body (the old light surface vanished into the page). */
-.mdedit-bubble,
-prosekit-inline-popover-popup.mdedit-bubble {
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  padding: 0.25rem 0.3rem;
-  background: var(--ink);
-  color: var(--parchment);
-  border: 1px solid color-mix(in srgb, var(--parchment) 20%, var(--ink));
-  border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
-}
-
-.mdedit-bubble-label {
-  font-family: var(--mono);
-  font-size: 0.66rem;
-  color: color-mix(in srgb, var(--parchment) 68%, transparent);
-  padding: 0 0.4rem;
-  max-width: 18rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mdedit-bubble-sep {
-  width: 1px;
-  align-self: stretch;
-  margin: 0.2rem 0.1rem;
-  background: color-mix(in srgb, var(--parchment) 24%, transparent);
-}
-
-.mdedit-bubble-btn {
-  min-width: 1.85rem;
-  height: 1.85rem;
-  padding: 0 0.5rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  font-size: 0.82rem;
-  color: var(--parchment);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.mdedit-bubble-btn:hover {
-  background: color-mix(in srgb, var(--parchment) 16%, transparent);
-}
-
-.mdedit-bubble-btn.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--parchment);
-}
-
 /* Edit-in-place: the editor stands in for the article body --------------- */
 .article--editing {
   display: flex;

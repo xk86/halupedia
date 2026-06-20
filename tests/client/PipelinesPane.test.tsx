@@ -124,36 +124,25 @@ describe("PipelinesPane", () => {
       .getByText("System prompt")
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
-    const sourceViews = within(detail as HTMLElement).getAllByTestId(
-      "trace-source",
-    );
-    expect(sourceViews).toHaveLength(4);
-    expect(sourceViews[0]).toHaveClass("text-foreground");
-    expect(sourceViews[0]).toHaveValue(
-      "Use **bold** [Alpha](ref:alpha) rules.",
-    );
-    expect(screen.getAllByText(/1 lines/).length).toBeGreaterThan(0);
-    for (const button of within(detail as HTMLElement).getAllByRole("tab", {
-      name: "Rendered",
-    })) {
-      await userEvent.click(button);
-    }
+    // Rendered markdown is shown by default.
     const markdownTraces = within(detail as HTMLElement).getAllByTestId(
       "markdown-trace",
     );
     expect(markdownTraces[0]).toHaveClass("prose-halu");
     expect(markdownTraces[0]).not.toHaveClass("overflow-auto");
-    expect(
-      within(detail as HTMLElement).getByText("System prompt"),
-    ).toBeInTheDocument();
-    expect(
-      within(detail as HTMLElement).getByText("User prompt"),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText(/1 lines/).length).toBeGreaterThan(0);
+    // Markdown headings come from the rendered (default) view.
     expect(
       within(detail as HTMLElement).getByRole("heading", { name: "Thought" }),
     ).toBeInTheDocument();
     expect(
       within(detail as HTMLElement).getByRole("heading", { name: "Output" }),
+    ).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getByText("System prompt"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getByText("User prompt"),
     ).toBeInTheDocument();
     expect(
       within(detail as HTMLElement).getByText("llm.light"),
@@ -203,6 +192,22 @@ describe("PipelinesPane", () => {
     );
     expect(within(detail as HTMLElement).getByText("answer").tagName).toBe(
       "STRONG",
+    );
+
+    // Switching to Source reveals the raw textareas (theme font, not mono).
+    for (const button of within(detail as HTMLElement).getAllByRole("tab", {
+      name: "Source",
+    })) {
+      await userEvent.click(button);
+    }
+    const sourceViews = within(detail as HTMLElement).getAllByTestId(
+      "trace-source",
+    );
+    expect(sourceViews).toHaveLength(4);
+    expect(sourceViews[0]).toHaveClass("text-foreground");
+    expect(sourceViews[0]).toHaveClass("font-sans");
+    expect(sourceViews[0]).toHaveValue(
+      "Use **bold** [Alpha](ref:alpha) rules.",
     );
   });
 
@@ -306,6 +311,12 @@ describe("PipelinesPane", () => {
       .getByText("Retrieved source segments")
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
+    // Sections render markdown by default; switch each to Source to read raw text.
+    for (const button of within(detail as HTMLElement).getAllByRole("tab", {
+      name: "Source",
+    })) {
+      await userEvent.click(button);
+    }
     const sourceSegments = within(detail as HTMLElement).getByRole("textbox", {
       name: "Retrieved source segments source",
     }) as HTMLTextAreaElement;
@@ -416,7 +427,14 @@ describe("PipelinesPane", () => {
     const ragButtons = await screen.findAllByRole("button", { name: /RAG 2/ });
     await userEvent.click(ragButtons[0]);
     expect(screen.getByText("Reference list after step")).toBeInTheDocument();
-    const referenceList = screen.getByRole("textbox", {
+    const referenceCard = screen
+      .getByText("Reference list after step")
+      .closest('[data-slot="card"]') as HTMLElement;
+    // Renders markdown by default; switch to Source to read the raw value.
+    await userEvent.click(
+      within(referenceCard).getByRole("tab", { name: "Source" }),
+    );
+    const referenceList = within(referenceCard).getByRole("textbox", {
       name: "Reference list after step source",
     }) as HTMLTextAreaElement;
     expect(referenceList.value).toContain("Alpha summary.");

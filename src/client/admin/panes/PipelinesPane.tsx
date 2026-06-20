@@ -1294,7 +1294,7 @@ const PromptSection = memo(function PromptSection({
   text: string;
   variant?: "cot" | "output";
 }) {
-  const [mode, setMode] = useState<"source" | "rendered">("source");
+  const [mode, setMode] = useState<"source" | "rendered">("rendered");
   const copy = () => {
     void navigator.clipboard?.writeText(text).catch(() => {});
   };
@@ -1340,7 +1340,11 @@ const PromptSection = memo(function PromptSection({
               spellCheck={false}
               aria-label={`${label} source`}
               rows={Math.min(Math.max(lineCount, 4), 14)}
-              className="max-h-80 resize-y"
+              // field-sizing-content (textarea base) makes Firefox re-measure the
+              // full content on every scroll frame; rows are explicit here, so pin
+              // the height with field-sizing-fixed for cheap native scrolling.
+              // font-sans: textareas fall back to UA monospace without Preflight.
+              className="max-h-80 resize-y font-sans field-sizing-fixed"
             />
           </TabsContent>
           <TabsContent value="rendered">

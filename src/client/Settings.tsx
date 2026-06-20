@@ -390,21 +390,18 @@ export function Settings({ settings, onChange }: SettingsProps) {
       : presetItems;
 
   return (
-    <section className="mx-auto flex w-full max-w-7xl flex-col gap-4 font-sans">
-      <header className="flex flex-col gap-1">
-        <Badge variant="outline" className="w-fit">
-          Local user settings
-        </Badge>
-        <h1 className="font-serif text-4xl leading-tight font-semibold">
+    <section className="mx-auto flex w-full max-w-7xl flex-col gap-3 font-sans">
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="font-serif text-2xl leading-tight font-semibold">
           Appearance
         </h1>
-        <p className="max-w-3xl text-muted-foreground">
-          Choose type, radius, and paired day/night colors. Changes apply
-          immediately and persist in this browser.
+        <p className="text-sm text-muted-foreground">
+          Type, radius, and paired day/night colors — applied immediately and
+          saved in this browser.
         </p>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
         <Card size="sm">
           <CardHeader>
             <CardTitle>Theme</CardTitle>
@@ -413,7 +410,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <FieldGroup className="gap-4">
+            <FieldGroup className="gap-3">
               <Field>
                 <div>
                   <FieldLabel htmlFor="theme-preset">Preset</FieldLabel>
@@ -490,7 +487,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <FieldGroup className="grid gap-4 md:grid-cols-2">
+            <FieldGroup className="grid gap-3 md:grid-cols-2">
               <FontSelect
                 id="article-font"
                 label="Article font"
@@ -603,7 +600,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-x-6 gap-y-5 lg:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-4 lg:grid-cols-2">
             {(["light", "dark"] as const).map((variant) => (
               <div key={variant} className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
@@ -636,17 +633,17 @@ export function Settings({ settings, onChange }: SettingsProps) {
         </CardContent>
       </Card>
 
-      <section className="flex flex-col gap-3" aria-labelledby="theme-previews">
-        <div>
-          <h2 id="theme-previews" className="text-2xl font-semibold">
+      <section className="flex flex-col gap-2" aria-labelledby="theme-previews">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 id="theme-previews" className="text-lg font-semibold">
             Live preview
           </h2>
-          <p className="text-muted-foreground">
-            The real editor and controls, rendered in day and night together.
-            Edit the sample to test your theme — it saves locally.
+          <p className="text-sm text-muted-foreground">
+            The real editor and controls in day and night together. Edit the
+            sample to test your theme — it saves locally.
           </p>
         </div>
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-3 lg:grid-cols-2">
           <ThemePreview
             settings={settings}
             variant="light"

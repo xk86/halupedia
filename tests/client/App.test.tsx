@@ -1215,6 +1215,93 @@ describe("App", () => {
     });
   });
 
+  it("confirms before leaving a page with unsaved in-place edits", async () => {
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      const body = url.includes("/api/homepage")
+        ? emptyHomepagePayload()
+        : url.includes("/api/top-articles")
+          ? emptyTopArticlesPayload()
+          : url.includes("/api/page/")
+            ? pagePayload()
+            : url.includes("/references")
+              ? { references: [] }
+              : { image: null };
+      return new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Test Article" });
+    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+    await userEvent.click(screen.getByRole("button", { name: "Raw" }));
+    await setRichEditorMarkdown("# Test Article\n\nUnsaved local change.");
+
+    // Leaving via the home link raises the discard confirm; the page stays.
+    await userEvent.click(screen.getByRole("link", { name: "Halupedia" }));
+    expect(
+      await screen.findByText("Discard unsaved edits?"),
+    ).toBeInTheDocument();
+    // Navigation is held: still in the in-place editor.
+    expect(document.querySelector(".article--editing")).toBeTruthy();
+
+    // "Stay on page" dismisses the dialog and keeps the editor open.
+    await userEvent.click(screen.getByRole("button", { name: "Stay on page" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Discard unsaved edits?"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(document.querySelector(".article--editing")).toBeTruthy();
+
+    // "Discard changes" closes the editor and follows the navigation.
+    await userEvent.click(screen.getByRole("link", { name: "Halupedia" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Discard changes" }),
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".article--editing")).toBeNull(),
+    );
+  });
+
+  it("closes the editor without confirming when leaving with no unsaved edits", async () => {
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      const body = url.includes("/api/homepage")
+        ? emptyHomepagePayload()
+        : url.includes("/api/top-articles")
+          ? emptyTopArticlesPayload()
+          : url.includes("/api/page/")
+            ? pagePayload()
+            : url.includes("/references")
+              ? { references: [] }
+              : { image: null };
+      return new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Test Article" });
+    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+    await userEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(document.querySelector(".article--editing")).toBeTruthy();
+
+    // No edits made → navigating away just closes the editor, no dialog.
+    await userEvent.click(screen.getByRole("link", { name: "Halupedia" }));
+    expect(
+      screen.queryByText("Discard unsaved edits?"),
+    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector(".article--editing")).toBeNull(),
+    );
+  });
+
   it("raw edit applies markdown and refreshes an already-open revision history", async () => {
     const original = pagePayload();
     const updated = pagePayload({

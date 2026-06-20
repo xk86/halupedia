@@ -303,15 +303,53 @@ export function App() {
     }
   }, [themeMode]);
 
+  // --- Unsaved-edit navigation guard -------------------------------------
+  // Navigating away always closes the in-place / AI edit panes. If the in-place
+  // editor has unsaved changes, a confirm dialog first lets the user discard or
+  // stay. dirtyRef keeps guardNav stable so the navigate* callbacks don't churn.
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const pendingNavRef = useRef<(() => void) | null>(null);
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    dirtyRef.current =
+      rawEditOpen && page != null && rawEditMarkdown !== page.article.markdown;
+  }, [rawEditOpen, rawEditMarkdown, page]);
+
+  const closeEditors = useCallback(() => {
+    setEditOpen(false);
+    setRawEditOpen(false);
+    setRawEditPreview(null);
+    setEditError(null);
+  }, []);
+
+  const guardNav = useCallback(
+    (proceed: () => void) => {
+      if (dirtyRef.current) {
+        pendingNavRef.current = () => {
+          closeEditors();
+          proceed();
+        };
+        setDiscardConfirmOpen(true);
+        return;
+      }
+      closeEditors();
+      proceed();
+    },
+    [closeEditors],
+  );
+
   useEffect(() => {
     const onPop = () => {
+      // Back/forward already changed the URL, so just close the editor and
+      // follow it (the dirty confirm only guards in-app navigations).
+      closeEditors();
       const next = parseRoute();
       setRoute(next);
       setHeaderSearchDraft(next.kind === "search" ? next.query : "");
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, []);
+  }, [closeEditors]);
 
   useEffect(() => {
     if (route.kind === "random") {
@@ -711,80 +749,117 @@ export function App() {
   }, [route]);
 
   const navigateHome = useCallback(() => {
-    window.history.pushState({}, "", "/");
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "home" });
-  }, []);
+    guardNav(() => {
+      window.history.pushState({}, "", "/");
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setRoute({ kind: "home" });
+    });
+  }, [guardNav]);
 
   const navigateToArticle = useCallback(
     (slugOrTitleSegment: string, explicitTitle?: string) => {
       const clean = articleInputToWikiSegment(slugOrTitleSegment);
       if (!clean) return;
-      // The URL is title-shaped when the caller has a title. Keep that title
-      // out-of-band too, so punctuation that cannot survive the path still
-      // reaches the server exactly.
-      const title = explicitTitle?.trim();
-      if (title) pendingRequestedTitleRef.current = { slug: clean, title };
-      window.history.pushState({}, "", `/wiki/${clean}`);
-      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-      setRoute({ kind: "article", slug: clean });
+      guardNav(() => {
+        // The URL is title-shaped when the caller has a title. Keep that title
+        // out-of-band too, so punctuation that cannot survive the path still
+        // reaches the server exactly.
+        const title = explicitTitle?.trim();
+        if (title) pendingRequestedTitleRef.current = { slug: clean, title };
+        window.history.pushState({}, "", `/wiki/${clean}`);
+        window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+        setRoute({ kind: "article", slug: clean });
+      });
     },
-    [],
+    [guardNav],
   );
 
-  const navigateToSearch = useCallback((query: string) => {
-    const trimmed = query.trim();
-    const url = trimmed
-      ? `/search?q=${encodeURIComponent(trimmed)}`
-      : "/search";
-    window.history.pushState({}, "", url);
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setHeaderSearchDraft(trimmed);
-    setRoute({ kind: "search", query: trimmed });
-  }, []);
+  const navigateToSearch = useCallback(
+    (query: string) => {
+      guardNav(() => {
+        const trimmed = query.trim();
+        const url = trimmed
+          ? `/search?q=${encodeURIComponent(trimmed)}`
+          : "/search";
+        window.history.pushState({}, "", url);
+        window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+        setHeaderSearchDraft(trimmed);
+        setRoute({ kind: "search", query: trimmed });
+      });
+    },
+    [guardNav],
+  );
 
   const navigateToIndex = useCallback(() => {
-    window.history.pushState({}, "", "/all-entries");
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "index" });
-  }, []);
+    guardNav(() => {
+      window.history.pushState({}, "", "/all-entries");
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setRoute({ kind: "index" });
+    });
+  }, [guardNav]);
 
   const navigateToRandom = useCallback(() => {
-    window.history.pushState({}, "", "/Random");
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "random" });
-  }, []);
+    guardNav(() => {
+      window.history.pushState({}, "", "/Random");
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setRoute({ kind: "random" });
+    });
+  }, [guardNav]);
 
   const navigateToAdmin = useCallback(() => {
-    window.history.pushState({}, "", "/admin");
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "admin" });
-  }, []);
+    guardNav(() => {
+      window.history.pushState({}, "", "/admin");
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setRoute({ kind: "admin" });
+    });
+  }, [guardNav]);
 
   const navigateToGraph = useCallback(() => {
-    window.history.pushState({}, "", "/graph");
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "graph" });
-  }, []);
+    guardNav(() => {
+      window.history.pushState({}, "", "/graph");
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setRoute({ kind: "graph" });
+    });
+  }, [guardNav]);
 
-  const navigateToDisambiguation = useCallback((titleSegment: string) => {
-    const clean = titleSegment.replace(/^\/+|\/+$/g, "");
-    window.history.pushState({}, "", `/wiki/Special:Disambiguation/${clean}`);
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "disambiguation", slug: clean });
-  }, []);
+  const navigateToDisambiguation = useCallback(
+    (titleSegment: string) => {
+      guardNav(() => {
+        const clean = titleSegment.replace(/^\/+|\/+$/g, "");
+        window.history.pushState(
+          {},
+          "",
+          `/wiki/Special:Disambiguation/${clean}`,
+        );
+        window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+        setRoute({ kind: "disambiguation", slug: clean });
+      });
+    },
+    [guardNav],
+  );
 
-  const navigateToMedia = useCallback((imageSlug: string) => {
-    window.history.pushState({}, "", `/media/${encodeURIComponent(imageSlug)}`);
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "media", imageSlug });
-  }, []);
+  const navigateToMedia = useCallback(
+    (imageSlug: string) => {
+      guardNav(() => {
+        window.history.pushState(
+          {},
+          "",
+          `/media/${encodeURIComponent(imageSlug)}`,
+        );
+        window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+        setRoute({ kind: "media", imageSlug });
+      });
+    },
+    [guardNav],
+  );
 
   const navigateToMediaList = useCallback(() => {
-    window.history.pushState({}, "", "/media");
-    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-    setRoute({ kind: "media-list" });
-  }, []);
+    guardNav(() => {
+      window.history.pushState({}, "", "/media");
+      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      setRoute({ kind: "media-list" });
+    });
+  }, [guardNav]);
 
   // Called by Sidebar when the live stream emits an {type:"article"} event.
   // Refetches the page once and applies it only if the user is still on that slug.
@@ -2869,6 +2944,40 @@ export function App() {
       {linkMenuError ? (
         <div className="selection-link-error">{linkMenuError}</div>
       ) : null}
+
+      <AlertDialog
+        open={discardConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDiscardConfirmOpen(false);
+            pendingNavRef.current = null;
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved edits?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes in the editor. Leaving this page will
+              discard them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay on page</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const proceed = pendingNavRef.current;
+                pendingNavRef.current = null;
+                setDiscardConfirmOpen(false);
+                proceed?.();
+              }}
+            >
+              Discard changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <footer className="site-footer">
         Local-first fictional canon engine

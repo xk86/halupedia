@@ -86,13 +86,16 @@ export interface BuildReferenceListInput {
  * Why a candidate has its ranking score — used only for logging.
  *
  * - "pinned"    : user-pinned, score is +Inf
- * - "trusted"   : body/user/prior ref, no RAG score, rank is also +Inf
+ * - "trusted"   : body/user ref the user supplied this build, rank is +Inf
+ * - "prior"     : carried-over ref from a previous save — reranked by its
+ *                 stored score (or the floor when it never had one) and
+ *                 discardable, NOT trusted
  * - "rag"       : from vector search, score is cosine similarity
  * - "inherited" : recursive ref whose parent seed had a real RAG score
- * - "floor"     : recursive ref whose parent seed was non-RAG (body/user/prior/pinned),
+ * - "floor"     : recursive ref whose parent seed was non-RAG (body/user/pinned),
  *                 so score falls back to reference_min_score
  */
-type ScoreTag = "pinned" | "trusted" | "rag" | "inherited" | "floor";
+type ScoreTag = "pinned" | "trusted" | "prior" | "rag" | "inherited" | "floor";
 
 interface InternalCandidate {
   entry: ReferenceListEntry;
@@ -128,9 +131,14 @@ function addRecursiveSeed(
  *
  * Sources are merged in this order of trust (highest first):
  *   1. user-pinned entries     (always survive, never count toward cap)
- *   2. user-added entries      (always survive, count toward cap)
- *   3. prior-save entries      (preserved by default; can be displaced)
+ *   2. user-added entries      (added THIS build; always survive, count toward cap)
+ *   3. prior-save entries      (RERANKED by score; discardable unless pinned)
  *   4. RAG sources             (subject to score threshold and cap)
+ *
+ * Only pinned entries and references the user supplied for THIS build survive
+ * unconditionally. Prior-save entries — including ones a user added by hand in
+ * an earlier run — are reranked alongside RAG results and can be displaced or
+ * culled, so the reference list does not silently accrete stale entries.
  *
  * Each unique slug appears at most once in the result. The first source to
  * supply a slug wins, so a pinned entry will never be overwritten by a
@@ -260,11 +268,21 @@ export function buildReferenceList(
     }
   }
 
-  // (3) prior-save carry-over — preserve before adding new RAG references.
-  // Existing references are part of the article's sidecar state; they should
-  // not be displaced just because a refresh found more than reference_max_results
-  // new chunks.
+  // (3) prior-save carry-over — RERANKED, not preserved unconditionally.
+  // A prior reference is not trusted just because it survived an earlier build.
+  // Only pinned priors bypass ranking; every other prior competes on its stored
+  // score (or the reference_min_score floor when it never had one — e.g. an old
+  // hand-added ref) and can be displaced or culled exactly like a RAG result.
+  // This is what lets a ref the user added by hand in a previous run get
+  // reranked and potentially discarded unless they pin it. Refs the user added
+  // THIS build arrive via userAdditions above and are deduped out here.
   for (const ref of priorReferences) {
+    const hasScore = typeof ref.score === "number" && Number.isFinite(ref.score);
+    const rankScore = ref.pinned
+      ? Number.POSITIVE_INFINITY
+      : hasScore
+        ? (ref.score as number)
+        : config.reference_min_score;
     add(
       {
         slug: ref.slug,
@@ -276,11 +294,11 @@ export function buildReferenceList(
         source: ref.source,
         explicitRevisionId: ref.revisionId,
       },
-      Number.POSITIVE_INFINITY,
+      rankScore,
       ref.pinned ? "pinned" : "prior",
-      ref.pinned ? "pinned" : "trusted",
+      ref.pinned ? "pinned" : "prior",
     );
-    addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, ref.slug, Number.POSITIVE_INFINITY);
+    addRecursiveSeed(recursiveSeeds, recursiveSeedSeen, ref.slug, rankScore);
   }
 
   // (4) new RAG sources — apply the reference-specific score floor.
@@ -379,36 +397,46 @@ export function buildReferenceList(
 
   // Apply count caps to the culled pool:
   //   - pinned entries are FREE (never count toward any cap).
-  //   - user/body/prior entries are capped only by max_references — they are
-  //     never squeezed out by the RAG budget.
-  //   - rag entries are capped first by reference_max_results (the per-build
-  //     budget for newly-discovered vector-search results), then by whatever
-  //     remains of max_references after the above are placed.
+  //   - user/body refs supplied for THIS build, plus recursive refs (already
+  //     vetted by the cull stage), are carried — capped only by max_references
+  //     and never squeezed out by the score budget.
+  //   - rag results AND reranked prior refs share the score budget: they are
+  //     ranked together by score and only the top reference_max_results (within
+  //     whatever remains of max_references) survive. A prior is kept only if it
+  //     out-scores the RAG competition; otherwise it is discarded.
   //
-  // reference_max_results strictly limits direct RAG additions only.
+  // reference_max_results limits the combined score-ranked pool (fresh RAG +
+  // reranked priors), so stale priors can no longer accrete past the budget.
   const pinned = afterCull.filter((c) => c.entry.pinned);
-  const carried = afterCull.filter((c) => !c.entry.pinned && c.source !== "rag");
-  const rag = afterCull
-    .filter((c) => !c.entry.pinned && c.source === "rag")
+  const carried = afterCull.filter(
+    (c) =>
+      !c.entry.pinned &&
+      (c.source === "user" || c.source === "body" || c.source === "recursive"),
+  );
+  const scored = afterCull
+    .filter((c) => !c.entry.pinned && (c.source === "rag" || c.source === "prior"))
     .sort((a, b) => b.rankScore - a.rankScore);
   const keptCarried = carried.slice(0, Math.max(0, config.max_references));
-  const ragBudget = Math.min(
+  const scoreBudget = Math.min(
     config.reference_max_results,
     Math.max(0, config.max_references - keptCarried.length),
   );
-  const kept = [...pinned, ...keptCarried, ...rag.slice(0, ragBudget)];
+  const kept = [...pinned, ...keptCarried, ...scored.slice(0, scoreBudget)];
 
   // Format each kept entry as: slug[source:score-annotation]
   // Score annotations:
-  //   (no annotation)   — body/user/prior: trusted, not vector-ranked
+  //   (no annotation)   — body/user: trusted this build, not vector-ranked
   //   pinned            — user-pinned, always included
+  //   prior:0.642       — carried-over ref, reranked on its stored score
+  //   prior:floor       — carried-over ref with no stored score (floor-ranked)
   //   rag:0.656         — cosine similarity from vector search
   //   recursive:0.598   — inherited from a RAG-scored parent seed
-  //   recursive:floor   — parent seed was body/user/prior (not vector-ranked)
+  //   recursive:floor   — parent seed was body/user/pinned (not vector-ranked)
   const formatEntry = (c: InternalCandidate): string => {
     switch (c.scoreTag) {
       case "pinned":    return `${c.entry.slug}[pinned]`;
       case "trusted":   return `${c.entry.slug}[${c.source}]`;
+      case "prior":     return `${c.entry.slug}[prior:${c.entry.score !== undefined ? c.entry.score.toFixed(3) : "floor"}]`;
       case "rag":       return `${c.entry.slug}[rag:${(c.entry.score ?? 0).toFixed(3)}]`;
       case "inherited": return `${c.entry.slug}[recursive:${(c.entry.score ?? 0).toFixed(3)}]`;
       case "floor":     return `${c.entry.slug}[recursive:floor]`;

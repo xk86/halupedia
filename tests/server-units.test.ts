@@ -2004,7 +2004,7 @@ test("references render as ordered footnote targets, not markdown bullets", () =
   assert.doesNotMatch(html, /<ul>/);
 });
 
-test("buildReferenceList preserves carried refs before applying RAG cap", (t) => {
+test("buildReferenceList reranks prior refs against RAG within the score budget", (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-ref-cap-"));
   t.after(() => {
     rmSync(root, { recursive: true, force: true });
@@ -2104,26 +2104,89 @@ test("buildReferenceList preserves carried refs before applying RAG cap", (t) =>
     logger,
   );
 
+  // Body refs supplied this build are protected. The two scoreless priors are
+  // reranked (they fall to the score floor) and must compete with RAG for the
+  // 2-slot score budget; both higher-scoring RAG refs win, so the priors are
+  // discarded rather than carried forward unconditionally.
   assert.deepEqual(
     refs.map((ref) => ref.slug),
     [
       "body-ref-a",
       "body-ref-b",
-      "prior-ref-a",
-      "prior-ref-b",
       "rag-ref-a",
       "rag-ref-b",
     ],
   );
   assert.deepEqual(
     refs.map((ref) => ref.source),
-    ["body", "body", "prior", "prior", "rag", "rag"],
+    ["body", "body", "rag", "rag"],
   );
   const built = logger.entries.find((entry) => entry.event === "references.built");
   assert.equal(built?.fields.body, 2, "body ref count in log");
   assert.equal(built?.fields.user, 0, "user-added ref count in log");
   // refs field contains formatted entries; body refs appear as slug[body]
   assert.match(String(built?.fields.refs ?? ""), /\[body\]/);
+});
+
+test("buildReferenceList keeps a high-scoring prior over a low-scoring RAG ref", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-ref-rerank-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const saveRefArticle = (slug: string, title: string) => {
+    const markdown = `# ${title}\n\nReference body.`;
+    saveArticle(
+      db,
+      {
+        slug,
+        canonicalSlug: slug,
+        title,
+        markdown,
+        html: renderMarkdown(markdown),
+        summaryMarkdown: `${title} summary.`,
+        plain_text: markdownToPlainText(markdown),
+        generated_at: 1,
+      },
+      [],
+      [slug],
+    );
+  };
+  for (const [slug, title] of [
+    ["strong-prior", "Strong Prior"],
+    ["pinned-prior", "Pinned Prior"],
+    ["weak-rag", "Weak Rag"],
+  ] as const) {
+    saveRefArticle(slug, title);
+  }
+
+  const refs = buildReferenceList(db, {
+    articleSlug: "current-entry",
+    userAdditions: [],
+    priorReferences: [
+      // A previously-RAG-scored prior that out-scores the new weak RAG hit.
+      { slug: "strong-prior", title: "Strong Prior", content: "", kind: "summary", pinned: false, revisionId: "initial", source: "rag", score: 0.95 },
+      // Pinned priors always survive regardless of score or budget.
+      { slug: "pinned-prior", title: "Pinned Prior", content: "", kind: "summary", pinned: true, revisionId: "initial", source: "pinned" },
+    ],
+    ragSources: [{ slug: "weak-rag", title: "Weak Rag", content: "", score: 0.55 }],
+    revisionId: "current",
+    config: {
+      reference_max_results: 1,
+      reference_min_score: 0.4,
+      max_references: 10,
+      reference_recursive_depth: 0,
+      reference_recursive_max_per_article: 0,
+      reference_cull_min_score: 0,
+      reference_cull_top_k: 0,
+    },
+  });
+
+  // Only one score-budget slot: the strong prior (0.95) beats the weak RAG ref
+  // (0.55). The pinned prior is free and always present.
+  assert.deepEqual(refs.map((r) => r.slug).sort(), ["pinned-prior", "strong-prior"]);
+  assert.equal(refs.find((r) => r.slug === "weak-rag"), undefined, "weak RAG ref loses to the higher-scoring prior");
 });
 
 test("buildReferenceList adds recursive sidecar refs within configured depth", (t) => {

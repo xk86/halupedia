@@ -784,15 +784,18 @@ function NodeBreakdown({
               data-testid="node-timing-row"
               data-node-kind={node.node_kind ?? "unknown"}
             >
-              <span
-                className="truncate text-muted-foreground"
-                title={node.error_message ?? node.node_name}
-              >
-                {node.node_name}
-                {node.status === "error" ? (
-                  <span className="text-destructive"> ✕</span>
-                ) : null}
-              </span>
+              <div className="min-w-0">
+                <span
+                  className="block truncate text-muted-foreground"
+                  title={node.error_message ?? node.node_name}
+                >
+                  {node.node_name}
+                  {node.status === "error" ? (
+                    <span className="text-destructive"> ✕</span>
+                  ) : null}
+                </span>
+                <NodeTimingBar barPct={barPct} kind={node.node_kind} mobile />
+              </div>
               <span
                 className="text-muted-foreground max-lg:hidden"
                 title={
@@ -805,16 +808,7 @@ function NodeBreakdown({
               >
                 {node.started_at ? fmtTimestamp(node.started_at) : ""}
               </span>
-              <span className="h-1.5 overflow-hidden rounded-sm bg-muted max-[700px]:hidden">
-                <span
-                  className={cn(
-                    "block h-full min-w-px rounded-sm",
-                    nodeBarClass(node.node_kind),
-                  )}
-                  data-testid="node-timing-bar"
-                  style={{ width: `${barPct}%` }}
-                />
-              </span>
+              <NodeTimingBar barPct={barPct} kind={node.node_kind} />
               <span className="text-right text-foreground">
                 {node.duration_ms} ms
               </span>
@@ -889,6 +883,31 @@ function NodeBreakdown({
         );
       })}
     </div>
+  );
+}
+
+function NodeTimingBar({
+  barPct,
+  kind,
+  mobile = false,
+}: {
+  barPct: number;
+  kind: string;
+  mobile?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "h-1.5 overflow-hidden rounded-sm bg-muted",
+        mobile ? "mt-1 hidden max-[700px]:block" : "max-[700px]:hidden",
+      )}
+    >
+      <span
+        className={cn("block h-full min-w-px rounded-sm", nodeBarClass(kind))}
+        data-testid={mobile ? "node-timing-bar-mobile" : "node-timing-bar"}
+        style={{ width: `${barPct}%` }}
+      />
+    </span>
   );
 }
 

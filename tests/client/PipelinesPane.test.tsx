@@ -118,6 +118,15 @@ describe("PipelinesPane", () => {
     expect(screen.getByTestId("node-timing-bar")).toHaveStyle({
       width: "100%",
     });
+    expect(screen.getByTestId("node-timing-bar-mobile")).toHaveStyle({
+      width: "100%",
+    });
+    expect(screen.getByTestId("node-timing-bar-mobile")).toHaveClass(
+      "bg-orange-500",
+    );
+    expect(
+      screen.getByTestId("node-timing-bar-mobile").parentElement,
+    ).toHaveClass("max-[700px]:block");
     await userEvent.click(await screen.findByRole("button", { name: /123c/ }));
 
     const detail = screen

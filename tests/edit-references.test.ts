@@ -20,6 +20,7 @@ import { buildReferenceList } from "../src/server/referenceList";
 import { formatRagContextForPrompt, retrieveDirectArticleContext } from "../src/server/retrieval";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "../src/server/referenceEdits";
 import { rebuildReferenceListNode } from "../src/server/pipeline/nodes/postProcess";
+import { buildReferenceListNode } from "../src/server/pipeline/nodes/articleGeneration";
 
 const RAG_CONFIG = {
   reference_max_results: 8,
@@ -219,6 +220,79 @@ test("post-process reference rebuild keeps pins for slugs that are also body ref
   const pinnedRef = rebuilt.find((r) => r.slug === "pinned-ref");
   assert.ok(pinnedRef, "pinned ref must survive the rebuild");
   assert.equal(pinnedRef!.pinned, true, "pin must not be demoted by the body-ref addition");
+});
+
+test("buildReferenceListNode treats re-sent prior slugs as priors, not fresh user adds", async (t) => {
+  const db = makeDb(t);
+  save(db, "alpha", "Alpha");
+  save(db, "old-prior", "Old Prior");
+  save(db, "fresh-add", "Fresh Add");
+  // A prior the user hand-added in an earlier run, saved with a low score.
+  saveArticleReferences(db, "alpha", 200, [
+    { slug: "old-prior", title: "Old Prior", content: "", kind: "summary", pinned: false, revisionId: "current", source: "user", score: 0.1 },
+  ]);
+
+  const deps = {
+    db,
+    llm: {},
+    logger: undefined,
+    runtime: { app: { rag: { ...RAG_CONFIG, reference_cull_min_score: 0.3 } } },
+  };
+  // The editor panel re-sends the whole list, so both slugs arrive as
+  // userReferenceSlugs even though the user only just added "fresh-add".
+  const out = await buildReferenceListNode.run(
+    {
+      input: {
+        requestId: "t",
+        workflow: "article.generate",
+        slug: "alpha",
+        userReferenceSlugs: ["old-prior", "fresh-add"],
+        pinnedSlugs: [],
+      },
+      retrievedContext: undefined,
+    } as never,
+    deps as never,
+  );
+  const refs = (out as { references: Array<{ slug: string; source?: string }> }).references;
+  const fresh = refs.find((r) => r.slug === "fresh-add");
+  assert.ok(fresh, "a genuinely new selection is kept as a user addition");
+  assert.equal(fresh!.source, "user", "fresh add counts as user-added");
+  // The re-sent prior is reranked on its stored score (0.1) and culled below
+  // reference_cull_min_score (0.3) — it does NOT survive as a trusted user ref.
+  assert.equal(refs.find((r) => r.slug === "old-prior"), undefined, "re-sent prior is reranked and discarded, not trusted");
+});
+
+test("buildReferenceListNode re-applies a pin to a re-sent prior slug", async (t) => {
+  const db = makeDb(t);
+  save(db, "alpha", "Alpha");
+  save(db, "old-prior", "Old Prior");
+  saveArticleReferences(db, "alpha", 200, [
+    { slug: "old-prior", title: "Old Prior", content: "", kind: "summary", pinned: false, revisionId: "current", source: "user", score: 0.1 },
+  ]);
+
+  const deps = {
+    db,
+    llm: {},
+    logger: undefined,
+    runtime: { app: { rag: { ...RAG_CONFIG, reference_cull_min_score: 0.3 } } },
+  };
+  const out = await buildReferenceListNode.run(
+    {
+      input: {
+        requestId: "t",
+        workflow: "article.generate",
+        slug: "alpha",
+        userReferenceSlugs: ["old-prior"],
+        pinnedSlugs: ["old-prior"],
+      },
+      retrievedContext: undefined,
+    } as never,
+    deps as never,
+  );
+  const refs = (out as { references: Array<{ slug: string; pinned: boolean }> }).references;
+  const pinned = refs.find((r) => r.slug === "old-prior");
+  assert.ok(pinned, "pinning a prior keeps it even when its score would be culled");
+  assert.equal(pinned!.pinned, true, "the new pin is applied to the prior slug");
 });
 
 // ── robust-slug back-compat (alias backfill + auto legacy alias) ─────────────

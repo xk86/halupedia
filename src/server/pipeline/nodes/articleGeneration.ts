@@ -235,17 +235,24 @@ export const buildReferenceListNode = defineNode({
       ? priorRefsRaw.filter((r) => selectedReferenceSet.has(r.slug) || r.pinned)
       : priorRefsRaw;
 
+    // Only slugs the user added in THIS request count as user additions. The
+    // editor panel re-sends the whole reference list, so a selected slug that is
+    // already a saved prior ref was added in an earlier run — it flows through
+    // priorReferences and gets reranked. Pinned slugs are always kept here so
+    // their pin is (re)applied even when they were already a prior ref.
+    const priorSlugSet = new Set(priorRefs.map((r) => r.slug));
+    const freshUserSlugs = (input.userReferenceSlugs ?? []).filter((raw) => {
+      const s = slugify(raw);
+      return pinnedSet.has(s) || !priorSlugSet.has(s);
+    });
+
     const refs: ReferenceList = buildReferenceList(
       deps.db,
       {
         articleSlug: slug,
         ragSources,
         priorReferences: priorRefs,
-        userAdditions: slugsToUserAdditions(
-          deps.db,
-          input.userReferenceSlugs ?? [],
-          pinnedSet,
-        ),
+        userAdditions: slugsToUserAdditions(deps.db, freshUserSlugs, pinnedSet),
         blacklistSlugs: input.blacklistSlugs ?? [],
         revisionId: "current",
         config: deps.runtime.app.rag,

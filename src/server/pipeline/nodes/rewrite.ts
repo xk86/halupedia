@@ -273,9 +273,14 @@ export const buildRewriteReferenceListNode = defineNode({
     const priorRefs = loadPriorReferenceList(deps.db, slug) ?? [];
     const priorSlugs = priorRefs.map((r) => r.slug);
     const newExplicit = explicitSlugs.filter((s) => !priorSlugs.includes(s));
+    // For a full rewrite, only refs the user added THIS request (or pinned)
+    // count as user additions — already-saved priors flow through
+    // priorReferences and get reranked. Partial (section/selection) edits keep
+    // the full prior set so refs anchored outside the edited region survive.
+    const newOrPinned = explicitSlugs.filter((s) => pinnedSet.has(s) || !priorSlugs.includes(s));
     const effectiveExplicit = isPartial
       ? [...new Set([...priorSlugs, ...newExplicit])]
-      : explicitSlugs;
+      : newOrPinned;
 
     const refs = buildReferenceList(
       deps.db,

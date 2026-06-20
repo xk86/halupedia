@@ -197,7 +197,7 @@ describe("PipelinesPane", () => {
     );
 
     // Switching to Source reveals the raw monospace <pre> blocks.
-    for (const button of within(detail as HTMLElement).getAllByRole("button", {
+    for (const button of within(detail as HTMLElement).getAllByRole("tab", {
       name: "Source",
     })) {
       await userEvent.click(button);
@@ -313,7 +313,7 @@ describe("PipelinesPane", () => {
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
     // Sections render markdown by default; switch each to Source to read raw text.
-    for (const button of within(detail as HTMLElement).getAllByRole("button", {
+    for (const button of within(detail as HTMLElement).getAllByRole("tab", {
       name: "Source",
     })) {
       await userEvent.click(button);
@@ -435,7 +435,7 @@ describe("PipelinesPane", () => {
       .closest('[data-slot="card"]') as HTMLElement;
     // Renders markdown by default; switch to Source to read the raw value.
     await userEvent.click(
-      within(referenceCard).getByRole("button", { name: "Source" }),
+      within(referenceCard).getByRole("tab", { name: "Source" }),
     );
     const referenceList = within(referenceCard).getByLabelText(
       "Reference list after step source",

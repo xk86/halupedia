@@ -12,6 +12,7 @@ import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Card,
   CardAction,
@@ -1301,67 +1302,57 @@ const PromptSection = memo(function PromptSection({
     [mode, text],
   );
   const lineCount = text.split("\n").length;
-  // Deliberately a "dumb" component: no shadcn Card/Tabs, no box-shadows, rings,
-  // or transitions — those rasterize into GPU textures that thrash Firefox's
-  // WebRender compositor on scroll. Plain borders + a flat toggle only.
   return (
-    <div data-testid="prompt-section" className="rounded-md border border-border">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-2.5 py-1.5">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">{label}</div>
-          <div className="text-xs text-muted-foreground">
-            {text.length.toLocaleString()} chars ·{" "}
-            {lineCount.toLocaleString()} lines
-          </div>
-        </div>
-        <div className="flex items-center gap-1 text-xs">
-          <button
+    <Card size="sm" data-testid="prompt-section">
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+        <CardDescription>
+          {text.length.toLocaleString()} chars · {lineCount.toLocaleString()}
+          {" lines"}
+        </CardDescription>
+        <CardAction>
+          <Button
             type="button"
-            onClick={() => setMode("rendered")}
-            aria-pressed={mode === "rendered"}
-            className="rounded px-2 py-0.5 aria-pressed:bg-muted aria-pressed:font-medium"
-          >
-            Rendered
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("source")}
-            aria-pressed={mode === "source"}
-            className="rounded px-2 py-0.5 aria-pressed:bg-muted aria-pressed:font-medium"
-          >
-            Source
-          </button>
-          <button
-            type="button"
+            variant="outline"
+            size="sm"
             onClick={copy}
             title="Copy to clipboard"
-            className="rounded border border-border px-2 py-0.5"
           >
             Copy
-          </button>
-        </div>
-      </div>
-      <div className="p-2.5">
-        {mode === "rendered" ? (
-          // font-serif: this lives inside a font-mono trace table, so the prose
-          // would otherwise inherit monospace. max-h/overflow: nested scroll
-          // (requested) also clips the rasterized area to one screenful.
-          <div
-            data-testid="markdown-trace"
-            className={cn(
-              "prose-halu prose prose-sm max-h-80 max-w-none overflow-auto font-serif",
-              variant === "cot" && "italic",
-            )}
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        ) : (
-          <pre
-            data-testid="trace-source"
-            aria-label={`${label} source`}
-            className="max-h-80 overflow-auto rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre-wrap"
-          >{text}</pre>
-        )}
-      </div>
-    </div>
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <Tabs
+          value={mode}
+          onValueChange={(value) => setMode(value as "source" | "rendered")}
+        >
+          <TabsList variant="line">
+            <TabsTrigger value="rendered">Rendered</TabsTrigger>
+            <TabsTrigger value="source">Source</TabsTrigger>
+          </TabsList>
+          <TabsContent value="rendered">
+            {/* font-serif: this lives inside a font-mono trace table, so the
+                prose would otherwise inherit monospace. max-h/overflow: nested
+                scroll (requested), which also clips the rasterized area. */}
+            <div
+              data-testid="markdown-trace"
+              className={cn(
+                "prose-halu prose prose-sm max-h-80 max-w-none overflow-auto font-serif",
+                variant === "cot" && "italic",
+              )}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          </TabsContent>
+          <TabsContent value="source">
+            <pre
+              data-testid="trace-source"
+              aria-label={`${label} source`}
+              className="max-h-80 overflow-auto rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre-wrap"
+            >{text}</pre>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
   );
 });

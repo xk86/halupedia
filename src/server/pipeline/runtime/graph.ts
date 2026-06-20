@@ -457,6 +457,18 @@ function wrapLlmDeps<Deps>(
   const d = deps as Record<string, unknown>;
   if (!d || typeof d !== "object" || typeof d.llm !== "object" || !d.llm) return deps;
   const origLlm = d.llm as Record<string, (...a: unknown[]) => unknown>;
+  const onLlmUpdate = typeof d.onLlmUpdate === "function"
+    ? d.onLlmUpdate as (update: { workflow?: string; slug?: string; node: string; reasoning?: string; response?: string }) => void
+    : undefined;
+  const emitLive = (update: { reasoning?: string; response?: string }) => {
+    if (!onLlmUpdate || !dispatchContext?.node) return;
+    onLlmUpdate({
+      workflow: dispatchContext.workflow,
+      slug: dispatchContext.slug,
+      node: dispatchContext.node,
+      ...update,
+    });
+  };
   // Augment the caller's options at `optsIndex` with an onReasoning hook so the
   // client can hand back chain-of-thought without changing its return contract.
   // chat(role, system, user, options) → options at index 0 of `rest`;
@@ -464,7 +476,22 @@ function wrapLlmDeps<Deps>(
   const withReasoning = (rest: unknown[], optsIndex: number, onReasoning: (r: string) => void): unknown[] => {
     const args = [...rest];
     const opts = (args[optsIndex] ?? {}) as Record<string, unknown>;
-    args[optsIndex] = { ...opts, onReasoning, dispatchContext };
+    const previousReasoning = opts.onReasoning;
+    const previousReasoningDelta = opts.onReasoningDelta;
+    args[optsIndex] = {
+      ...opts,
+      onReasoning: (reasoning: string) => {
+        onReasoning(reasoning);
+        if (typeof previousReasoning === "function") previousReasoning(reasoning);
+        emitLive({ reasoning });
+      },
+      onReasoningDelta: (delta: string, accumulated: string) => {
+        onReasoning(accumulated);
+        if (typeof previousReasoningDelta === "function") previousReasoningDelta(delta, accumulated);
+        emitLive({ reasoning: accumulated });
+      },
+      dispatchContext,
+    };
     return args;
   };
   const charsOf = (system: unknown, user: unknown) =>
@@ -519,11 +546,13 @@ function wrapLlmDeps<Deps>(
           const options = (args[0] ?? {}) as { thinking?: boolean; jsonMode?: boolean; images?: unknown[] };
           try {
             const response = (await target.chat(role, system, user, ...args)) as string;
+            if (typeof response === "string") emitLive({ response });
             captureWith(role, system, user, options, cot, typeof response === "string" ? response : "");
             return response;
           } catch (err) {
             const partial = (err as { partialContent?: string }).partialContent ?? "";
             const partialCot = (err as { partialReasoning?: string }).partialReasoning ?? "";
+            if (partial) emitLive({ response: partial });
             captureWith(role, system, user, options, cot || partialCot, partial);
             throw err;
           }
@@ -539,6 +568,7 @@ function wrapLlmDeps<Deps>(
           if (typeof onChunk === "function") {
             args[0] = (delta: unknown, accumulated: unknown) => {
               if (ttftMs === undefined) ttftMs = Date.now() - streamStartedAt;
+              if (typeof accumulated === "string") emitLive({ response: accumulated });
               return onChunk(delta, accumulated);
             };
           }
@@ -559,6 +589,7 @@ function wrapLlmDeps<Deps>(
             // Interrupted stream: llm.streamChat attaches what it received.
             const partial = (err as { partialContent?: string }).partialContent ?? "";
             const partialCot = (err as { partialReasoning?: string }).partialReasoning ?? "";
+            if (partial) emitLive({ response: partial });
             captureWith(role, system, user, options, cot || partialCot, partial, ttftMs);
             throw err;
           }

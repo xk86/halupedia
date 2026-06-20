@@ -11,6 +11,7 @@ import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
 import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import type { LiveLlmView } from "./admin/LiveLlmViews";
 
 interface AdminOverview {
   articleCount: number;
@@ -49,6 +50,7 @@ interface GenerationQueueItem {
   phase?: string;
   state?: "queued" | "processing" | "llm";
   reasoning?: string;
+  views?: LiveLlmView[];
 }
 
 interface PipelineWorkflowSummary {
@@ -147,27 +149,6 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
     }
   }, []);
 
-  // The queue is polled once a second. Skip the state update (and the
-  // whole-tree re-render it triggers) when the payload is unchanged, so an idle
-  // admin page doesn't re-render every second — that re-render was the source of
-  // the scroll jank, since it reconciles all panes including the editors.
-  const lastQueueJson = useRef<string>("[]");
-  const loadGenerationQueue = useCallback(async () => {
-    let next: GenerationQueueItem[] = [];
-    try {
-      const res = await fetch("/api/admin/generation-queue");
-      if (!res.ok) throw new Error(`error ${res.status}`);
-      const payload = await res.json();
-      next = payload.items ?? [];
-    } catch {
-      next = [];
-    }
-    const json = JSON.stringify(next);
-    if (json === lastQueueJson.current) return;
-    lastQueueJson.current = json;
-    setGenerationQueue(next);
-  }, []);
-
   const loadPipelineStatus = useCallback(async () => {
     setPipelineError(null);
     try {
@@ -190,6 +171,43 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
       setPipelineTraceEnabled(false);
     }
   }, []);
+
+  // The queue is polled once a second. Skip unchanged payloads to avoid
+  // reconciling every admin pane. If an active item disappears, refresh the
+  // trace immediately so its terminal status replaces the live card.
+  const lastQueueJson = useRef<string>("[]");
+  const lastActiveRunKeys = useRef<Set<string>>(new Set());
+  const loadGenerationQueue = useCallback(async () => {
+    let next: GenerationQueueItem[] = [];
+    try {
+      const res = await fetch("/api/admin/generation-queue");
+      if (!res.ok) throw new Error(`error ${res.status}`);
+      const payload = await res.json();
+      next = payload.items ?? [];
+    } catch {
+      next = [];
+    }
+
+    const activeKeys = new Set(
+      next
+        .filter(
+          (item) =>
+            item.state !== "queued" && typeof item.startedAt === "number",
+        )
+        .map((item) => `${item.slug}:${item.seq}:${item.workflow ?? ""}`),
+    );
+    const completed = [...lastActiveRunKeys.current].some(
+      (key) => !activeKeys.has(key),
+    );
+    lastActiveRunKeys.current = activeKeys;
+
+    const json = JSON.stringify(next);
+    if (json !== lastQueueJson.current) {
+      lastQueueJson.current = json;
+      setGenerationQueue(next);
+    }
+    if (completed) void loadPipelineStatus();
+  }, [loadPipelineStatus]);
 
   useEffect(() => {
     document.title = "Admin - Halupedia";
@@ -483,7 +501,7 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         </Button>
       </div>
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-4 [grid-auto-flow:row_dense]">
+      <div className="grid [grid-auto-flow:row_dense] grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-4">
         <PipelinesPane
           workflows={pipelineWorkflows}
           runs={pipelineRuns}
@@ -498,6 +516,8 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
               workflow: item.workflow,
               phase: item.phase,
               startedAt: item.startedAt!,
+              reasoning: item.reasoning,
+              views: item.views,
             }))}
           traceEnabled={pipelineTraceEnabled}
           error={pipelineError}

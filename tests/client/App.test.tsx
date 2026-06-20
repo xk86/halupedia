@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -439,6 +440,82 @@ describe("App", () => {
         }),
       });
     });
+  });
+
+  it("refreshes pipeline runs immediately when an active run disappears", async () => {
+    const polls: Array<() => void | Promise<void>> = [];
+    vi.spyOn(window, "setInterval").mockImplementation((handler) => {
+      polls.push(handler as () => void | Promise<void>);
+      return {} as ReturnType<typeof setInterval>;
+    });
+    vi.spyOn(window, "clearInterval").mockImplementation(() => {});
+
+    let active = true;
+    let runRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/admin/overview") {
+        return new Response(
+          JSON.stringify({
+            articleCount: 0,
+            linkCount: 0,
+            aliasCount: 0,
+            latestArticles: [],
+            model: "test-model",
+            databasePath: "test.sqlite",
+            promptConfigPath: "config/prompts",
+            ragMode: "full",
+            promptModelAssociations: [],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === "/api/admin/generation-queue") {
+        return new Response(
+          JSON.stringify({
+            items: active
+              ? [
+                  {
+                    slug: "live-article",
+                    title: "Live Article",
+                    seq: 1,
+                    startedAt: 100,
+                    state: "llm",
+                    workflow: "article.generate",
+                    waiting: 0,
+                  },
+                ]
+              : [],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url === "/api/admin/pipeline/workflows") {
+        return new Response(JSON.stringify({ workflows: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/admin/pipeline/runs?limit=100") {
+        runRequests += 1;
+        return new Response(JSON.stringify({ traceEnabled: true, runs: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/admin");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Admin" });
+    await waitFor(() => expect(runRequests).toBe(1));
+    expect(screen.getByText("Live Article")).toBeInTheDocument();
+
+    active = false;
+    await act(async () => {
+      await Promise.all(polls.map((poll) => poll()));
+    });
+    await waitFor(() => expect(runRequests).toBe(2));
   });
 
   it("admin can reset the featured article, forcing a regenerate of featured/DYK/timer together", async () => {

@@ -43,6 +43,9 @@ export interface PipelineDeps {
    * article rendering.
    */
   onReasoningDelta?: (delta: string, accumulated: string) => void;
+  /** Streams every LLM node's reasoning and response into admin-only live
+   * views. Non-streaming calls emit their response when the call completes. */
+  onLlmUpdate?: (update: LiveLlmUpdate) => void;
   /**
    * Optional sidecar push callback. Called by post-process write nodes when
    * they update sidecar data (infobox, caption, summary, see-also) so any
@@ -69,6 +72,14 @@ export interface PipelineDeps {
     presetKey?: string;
     revisedPrompt?: string;
   }>;
+}
+
+export interface LiveLlmUpdate {
+  workflow?: string;
+  slug?: string;
+  node: string;
+  reasoning?: string;
+  response?: string;
 }
 
 export type SidecarUpdateEvent =

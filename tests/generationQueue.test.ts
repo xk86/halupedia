@@ -23,9 +23,14 @@ class GatedLlmClient implements LlmRouter {
     _system: string,
     _user: string,
     onChunk: (delta: string, accumulated: string) => void,
+    options?: {
+      onReasoningDelta?: (delta: string, accumulated: string) => void;
+    },
   ): Promise<{ content: string; finishReason: string }> {
     this.streamCallCount++;
     this.generationStarted.resolve();
+    options?.onReasoningDelta?.("Inspecting context.", "Inspecting context.");
+    onChunk("# Gated", "# Gated");
     await this.gate.promise;
     const content = [
       "# Gated Article\n\n",
@@ -79,6 +84,9 @@ test("article generation queue waits before starting additional LLM work", async
   const first = queue.items.find((item: any) => item.slug === "first-queued-article");
   const second = queue.items.find((item: any) => item.slug === "second-queued-article");
   assert.equal(first.state, "llm");
+  assert.equal(first.views[0].node, "llm.generate_article");
+  assert.equal(first.views[0].reasoning, "Inspecting context.");
+  assert.equal(first.views[0].response, "# Gated");
   assert.equal(typeof first.startedAt, "number");
   assert.ok(first.activeMs >= 0);
   assert.equal(second.state, "queued");

@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Pane } from "../Pane";
 import { Badge } from "@/components/ui/badge";
 import { toWikiSegment } from "../../wikiPath";
+import { LiveLlmViews, type LiveLlmView } from "../LiveLlmViews";
 
 interface QueueItem {
   slug: string;
@@ -18,6 +18,7 @@ interface QueueItem {
   state?: "queued" | "processing" | "llm";
   /** Live chain-of-thought streamed from the model (admin-only). */
   reasoning?: string;
+  views?: LiveLlmView[];
 }
 
 interface Props {
@@ -51,49 +52,6 @@ const NODE_LABELS: Record<string, string> = {
   "read.load_article": "Loading",
   "read.retrieve_context": "Retrieving context",
 };
-
-/**
- * Live model chain-of-thought for the currently-generating item. Admin-only —
- * this pane lives entirely behind the admin panel. Auto-scrolls to follow the
- * stream unless the user has scrolled up to read earlier reasoning.
- */
-function LiveCot({ text }: { text: string }) {
-  const [open, setOpen] = useState(true);
-  const boxRef = useRef<HTMLPreElement>(null);
-  const pinnedToBottom = useRef(true);
-
-  useEffect(() => {
-    const box = boxRef.current;
-    if (!box || !open || !pinnedToBottom.current) return;
-    box.scrollTop = box.scrollHeight;
-  }, [text, open]);
-
-  return (
-    <div className="mt-1 w-full min-w-0 basis-full">
-      <button
-        type="button"
-        className="cursor-pointer border-none bg-none p-0 font-mono text-[0.72rem] tracking-[0.06em] text-muted-foreground hover:text-foreground"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        {open ? "▾" : "▸"} thinking ({text.length.toLocaleString()} chars)
-      </button>
-      {open && (
-        <pre
-          ref={boxRef}
-          className="mx-0 mt-1.5 mb-0 max-h-[14rem] max-w-full overflow-x-hidden overflow-y-auto rounded-md border border-border bg-muted/50 px-2.5 py-2 font-mono text-[0.72rem] leading-[1.5] break-words whitespace-pre-wrap text-muted-foreground"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            pinnedToBottom.current =
-              el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-          }}
-        >
-          {text}
-        </pre>
-      )}
-    </div>
-  );
-}
 
 function formatPhase(phase?: string): string {
   if (!phase || phase === "starting") return "";
@@ -189,7 +147,22 @@ export function GenerationQueuePane({ items, onNavigate }: Props) {
                   {phase ? ` · ${phase}` : ""}
                   {item.waiting > 0 && ` · ${item.waiting} waiting`}
                 </span>
-                {item.reasoning ? <LiveCot text={item.reasoning} /> : null}
+                {item.views?.length || item.reasoning ? (
+                  <div className="mt-1 w-full min-w-0 basis-full">
+                    <LiveLlmViews
+                      views={
+                        item.views?.length
+                          ? item.views
+                          : [
+                              {
+                                node: item.phase ?? "Current model",
+                                reasoning: item.reasoning,
+                              },
+                            ]
+                      }
+                    />
+                  </div>
+                ) : null}
               </li>
             );
           })}

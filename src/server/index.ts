@@ -208,7 +208,7 @@ import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
 import { regenerateSummaryWorkflow } from "./pipeline/workflows/utilities";
 import { randomPageWorkflow } from "./pipeline/workflows/randomPage";
 import { articleImageGenerationWorkflow } from "./pipeline/workflows/articleImageGeneration";
-import type { PipelineDeps } from "./pipeline/deps";
+import type { LiveLlmUpdate, PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
 
 const RESERVED_PATHS = new Set([
@@ -960,6 +960,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     /** Live model chain-of-thought, accumulated as the LLM streams it. Surfaced
      *  only in the admin generation queue. */
     reasoning?: string;
+    llmViews: Map<string, LiveLlmView>;
     /** Active stream subscribers — receives every progress/status event. */
     progressListeners: Set<(event: unknown) => void>;
   }
@@ -975,6 +976,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     startedAt: number;
     /** Live model chain-of-thought, accumulated as the LLM streams it. */
     reasoning?: string;
+    llmViews: Map<string, LiveLlmView>;
+  }
+  interface LiveLlmView {
+    node: string;
+    reasoning?: string;
+    response?: string;
   }
   const activeOperations = new Map<string, ActiveOperationEntry>();
   let generationSeq = 0;
@@ -1095,6 +1102,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       workflow: "article.generate",
       phase: "queued",
       state: "queued",
+      llmViews: new Map(),
       progressListeners: new Set(),
     };
     const promise = (async () => {
@@ -1137,6 +1145,30 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (op) op.reasoning = accumulated;
   }
 
+  const LIVE_LLM_TEXT_TAIL_CHARS = 24_000;
+  function liveLlmText(text: string | undefined): string | undefined {
+    if (!text) return undefined;
+    return text.length > LIVE_LLM_TEXT_TAIL_CHARS
+      ? `…${text.slice(-LIVE_LLM_TEXT_TAIL_CHARS)}`
+      : text;
+  }
+
+  function recordLiveLlmUpdate(update: LiveLlmUpdate) {
+    if (!update.slug) return;
+    const write = (views: Map<string, LiveLlmView>) => {
+      const current = views.get(update.node) ?? { node: update.node };
+      views.set(update.node, {
+        ...current,
+        ...(update.reasoning !== undefined ? { reasoning: liveLlmText(update.reasoning) } : {}),
+        ...(update.response !== undefined ? { response: liveLlmText(update.response) } : {}),
+      });
+    };
+    const generation = slugGenerations.get(update.slug);
+    if (generation) write(generation.llmViews);
+    const operation = activeOperations.get(update.slug);
+    if (operation) write(operation.llmViews);
+  }
+
   function generationQueuePayload() {
     const now = Date.now();
     const generating = [...slugGenerations.values()]
@@ -1154,6 +1186,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         phase: entry.phase,
         state: entry.state,
         reasoning: liveCot(entry.reasoning),
+        views: [...entry.llmViews.values()],
       }));
     const updating = [...activeOperations.values()]
       .filter((op) => !slugGenerations.has(op.slug))
@@ -1171,6 +1204,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         phase: op.phase,
         state: "processing",
         reasoning: liveCot(op.reasoning),
+        views: [...op.llmViews.values()],
       }));
     return {
       maxInFlight: articleGenerationLimit(),
@@ -1191,7 +1225,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     title: string,
     workflow: string,
   ): { onNode: (nodeName: string) => void; register: (p: Promise<unknown>) => void } {
-    const op: ActiveOperationEntry = { slug, title, workflow, phase: "starting", startedAt: Date.now() };
+    const op: ActiveOperationEntry = {
+      slug, title, workflow, phase: "starting", startedAt: Date.now(), llmViews: new Map(),
+    };
     activeOperations.set(slug, op);
     const onNode = (nodeName: string) => {
       if (activeOperations.get(slug) === op) op.phase = nodeName;
@@ -1655,6 +1691,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
       runtime,
       onSidecarUpdate: notifySidecar,
+      onLlmUpdate: recordLiveLlmUpdate,
       generateArticleImageAttachment: generateAndAttachArticleImage,
       ...overrides,
     };
@@ -1677,7 +1714,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         requestedTitle,
       },
       deps: buildPipelineDeps({
-        onProgress,
+        onProgress: onProgress ?? (() => {}),
         onReasoningDelta: (_delta, accumulated) => recordLiveReasoning(slug, accumulated),
       }),
       recorder,
@@ -2931,9 +2968,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     const runRewrite = async (send?: (payload: unknown) => void) => {
       inFlightEdits.add(article.slug);
       try {
-        const onProgress = send
-          ? (html: string, markdown: string) => send({ type: "progress", html, markdown })
-          : undefined;
+        const onProgress = (html: string, markdown: string) => {
+          send?.({ type: "progress", html, markdown });
+        };
         const rewriteOp = trackActiveOperation(article.slug, article.title, "article.rewrite");
         const result = await runWorkflow(rewriteArticleWorkflow, {
           input: rewriteInput,
@@ -3035,9 +3072,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       send?.({ type: "status", message: "Retrieving context..." });
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
 
-      const onProgress = send
-        ? (html: string, markdown: string) => send({ type: "progress", html, markdown })
-        : undefined;
+      const onProgress = (html: string, markdown: string) => {
+        send?.({ type: "progress", html, markdown });
+      };
 
       const refreshOp = trackActiveOperation(article.slug, article.title, "article.refresh");
       const result = await runWorkflow(refreshArticleWorkflow, {

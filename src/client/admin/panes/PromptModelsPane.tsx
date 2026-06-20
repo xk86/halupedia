@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Pane } from "../Pane";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -30,7 +31,7 @@ interface Props {
   onUpdate: (key: string, model: "heavy" | "light", thinking: boolean) => void;
 }
 
-export function PromptModelsPane({ associations, savingKey, onUpdate }: Props) {
+function PromptModelsPaneComponent({ associations, savingKey, onUpdate }: Props) {
   return (
     <Pane
       id="prompt-models"
@@ -96,3 +97,5 @@ export function PromptModelsPane({ associations, savingKey, onUpdate }: Props) {
     </Pane>
   );
 }
+
+export const PromptModelsPane = memo(PromptModelsPaneComponent);

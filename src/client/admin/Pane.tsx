@@ -52,7 +52,7 @@ export function Pane({
   return (
     <Card
       data-span={wide ? "wide" : undefined}
-      className="gap-0 overflow-hidden py-0 font-sans data-[span=wide]:col-[1/-1]"
+      className="gap-0 overflow-hidden py-0 font-sans [contain-intrinsic-size:auto_20rem] [content-visibility:auto] data-[span=wide]:col-[1/-1]"
     >
       <Collapsible
         open={!collapsed}

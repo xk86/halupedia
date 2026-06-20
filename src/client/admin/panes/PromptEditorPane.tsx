@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownEditor } from "../../MarkdownEditor";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,7 @@ interface ImagePromptOption {
   label: string;
 }
 
-export function PromptEditorPane() {
+function PromptEditorPaneComponent() {
   const [promptList, setPromptList] = useState<PromptList | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [selected, setSelected] = useState<{
@@ -736,3 +736,5 @@ export function PromptEditorPane() {
     </Pane>
   );
 }
+
+export const PromptEditorPane = memo(PromptEditorPaneComponent);

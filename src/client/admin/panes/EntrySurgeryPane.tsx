@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { TOOLBAR } from "../ui";
@@ -15,7 +16,7 @@ interface Props {
   summaryResult: string | null;
 }
 
-export function EntrySurgeryPane({
+function EntrySurgeryPaneComponent({
   deleteSlug,
   onDeleteSlugChange,
   onDeleteArticle,
@@ -68,3 +69,5 @@ export function EntrySurgeryPane({
     </Pane>
   );
 }
+
+export const EntrySurgeryPane = memo(EntrySurgeryPaneComponent);

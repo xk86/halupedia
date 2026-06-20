@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
@@ -113,7 +113,7 @@ const ROLE_LABEL: Record<RoleKey, string> = {
   embeddings: "embeddings (llm.embeddings)",
 };
 
-export function LlmHostsPane() {
+function LlmHostsPaneComponent() {
   const [data, setData] = useState<LlmConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -257,6 +257,8 @@ export function LlmHostsPane() {
     </Pane>
   );
 }
+
+export const LlmHostsPane = memo(LlmHostsPaneComponent);
 
 function numberOrFallback(value: string, fallback: number) {
   const parsed = Number(value);

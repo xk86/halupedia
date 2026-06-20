@@ -1,4 +1,4 @@
-import { MutableRefObject } from "react";
+import { memo, MutableRefObject } from "react";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,7 +67,7 @@ interface Props {
   restoreMsg: string | null;
 }
 
-export function SlugAliasPane({
+function SlugAliasPaneComponent({
   aliasSearch,
   onAliasSearchChange,
   aliasResults,
@@ -331,3 +331,5 @@ export function SlugAliasPane({
     </Pane>
   );
 }
+
+export const SlugAliasPane = memo(SlugAliasPaneComponent);

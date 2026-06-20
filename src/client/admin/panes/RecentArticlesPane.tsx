@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Pane } from "../Pane";
 import { toWikiSegment } from "../../wikiPath";
 
@@ -13,7 +14,7 @@ interface Props {
   onNavigate: (slug: string) => void;
 }
 
-export function RecentArticlesPane({ articles, onNavigate }: Props) {
+function RecentArticlesPaneComponent({ articles, onNavigate }: Props) {
   return (
     <Pane
       id="recent-articles"
@@ -41,3 +42,5 @@ export function RecentArticlesPane({ articles, onNavigate }: Props) {
     </Pane>
   );
 }
+
+export const RecentArticlesPane = memo(RecentArticlesPaneComponent);

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Pane } from "../Pane";
 
 interface Props {
@@ -6,7 +7,7 @@ interface Props {
   ragMode: string;
 }
 
-export function RuntimePane({
+function RuntimePaneComponent({
   databasePath,
   promptConfigPath,
   ragMode,
@@ -26,3 +27,5 @@ export function RuntimePane({
     </Pane>
   );
 }
+
+export const RuntimePane = memo(RuntimePaneComponent);

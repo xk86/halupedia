@@ -1,9 +1,10 @@
 import {
   Fragment,
+  memo,
   useEffect,
+  useMemo,
   useState,
   type MouseEvent,
-  type ReactNode,
 } from "react";
 import { ChevronDown, LoaderCircle } from "lucide-react";
 import { cn, ERROR_BOX } from "@/lib/utils";
@@ -24,6 +25,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { COUNT_LABEL } from "../ui";
 import { toWikiSegment } from "../../wikiPath";
 import { LiveLlmViews, type LiveLlmView } from "../LiveLlmViews";
@@ -192,6 +201,9 @@ export function PipelinesPane({
     new Set(),
   );
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
+  const [expandedActiveRun, setExpandedActiveRun] = useState<string | null>(
+    null,
+  );
   const [runNodes, setRunNodes] = useState<Record<string, NodeSpan[]>>({});
   const [loadingRun, setLoadingRun] = useState<string | null>(null);
   const [page, setPage] = useState(0);
@@ -284,148 +296,182 @@ export function PipelinesPane({
       </div>
       {totalRows ? (
         <>
-          <div className="mt-3 flex flex-col gap-2">
-            {pageRows.map((row) => {
-              if (row.kind === "active") {
-                const active = row.item;
-                return (
-                  <Card key={`active:${active.slug}`} size="sm">
-                    <Collapsible defaultOpen>
-                      <CardHeader>
-                        <CollapsibleTrigger className="group/trigger flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left">
-                          <CardTitle className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                            <span className="truncate font-mono">
+          <Table
+            containerClassName="mt-3 rounded-lg border border-border"
+            className="min-w-[46rem] table-fixed font-mono text-xs tabular-nums"
+          >
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="h-8 w-24">Started</TableHead>
+                <TableHead className="w-[28%]">Workflow</TableHead>
+                <TableHead>Article</TableHead>
+                <TableHead className="w-24">Status</TableHead>
+                <TableHead className="w-16 text-right">Nodes</TableHead>
+                <TableHead className="w-24 text-right">Duration</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pageRows.map((row) => {
+                if (row.kind === "active") {
+                  const active = row.item;
+                  const activeKey = `${active.slug}:${active.startedAt}`;
+                  const open = expandedActiveRun === activeKey;
+                  const views = active.views?.length
+                    ? active.views
+                    : active.reasoning
+                      ? [
+                          {
+                            node: active.phase ?? "Current model",
+                            reasoning: active.reasoning,
+                          },
+                        ]
+                      : [];
+                  return (
+                    <Fragment key={`active:${activeKey}`}>
+                      <TableRow className="bg-primary/5 hover:bg-primary/10">
+                        <TableCell title={fmtFullTimestamp(active.startedAt)}>
+                          {fmtTimestamp(active.startedAt)}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto max-w-full justify-start gap-1.5 p-0 font-mono text-xs hover:bg-transparent"
+                            aria-expanded={open}
+                            onClick={() =>
+                              setExpandedActiveRun(open ? null : activeKey)
+                            }
+                          >
+                            <ChevronDown
+                              aria-hidden
+                              className={cn(
+                                "size-3.5 shrink-0 transition-transform",
+                                !open && "-rotate-90",
+                              )}
+                            />
+                            <span className="truncate">
                               {active.workflow ?? "Active pipeline"}
                             </span>
-                            <Badge>In progress</Badge>
-                          </CardTitle>
+                          </Button>
+                        </TableCell>
+                        <TableCell>
+                          <SlugCell
+                            slug={active.slug}
+                            segment={toWikiSegment(active.title || active.slug)}
+                            onNavigate={navigateTo}
+                            onNavigateHome={onNavigateHome}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Badge>In progress</Badge>
+                        </TableCell>
+                        <TableCell className="truncate text-right">
+                          {formatActivePhase(active.phase)}
+                        </TableCell>
+                        <TableCell className="text-right">Running</TableCell>
+                      </TableRow>
+                      {open ? (
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell
+                            colSpan={6}
+                            className="p-3 whitespace-normal"
+                          >
+                            <LiveLlmViews views={views} />
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </Fragment>
+                  );
+                }
+
+                const run = row.item;
+                const open = expandedRun === run.run_id;
+                return (
+                  <Fragment key={run.run_id}>
+                    <TableRow
+                      className={cn(open && "bg-muted/60 font-semibold")}
+                      title={run.error_message ?? "Expand node timing"}
+                    >
+                      <TableCell title={fmtFullTimestamp(run.started_at)}>
+                        {fmtTimestamp(run.started_at)}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto max-w-full justify-start gap-1.5 p-0 font-mono text-xs hover:bg-transparent"
+                          aria-expanded={open}
+                          onClick={() => void toggleRun(run.run_id)}
+                        >
                           <ChevronDown
                             aria-hidden
-                            className="shrink-0 text-muted-foreground transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
+                            className={cn(
+                              "size-3.5 shrink-0 transition-transform",
+                              !open && "-rotate-90",
+                            )}
                           />
-                        </CollapsibleTrigger>
-                        <CardDescription className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
-                          <RunDatum
-                            label="Started"
-                            value={fmtTimestamp(active.startedAt)}
-                            title={fmtFullTimestamp(active.startedAt)}
+                          <span className="truncate">{run.workflow}</span>
+                        </Button>
+                      </TableCell>
+                      <TableCell>
+                        {run.slug ? (
+                          <SlugCell
+                            slug={run.slug}
+                            segment={toWikiSegment(run.slug)}
+                            onNavigate={navigateTo}
+                            onNavigateHome={onNavigateHome}
                           />
-                          <RunDatum
-                            label="Article"
-                            value={
-                              <SlugCell
-                                slug={active.slug}
-                                segment={toWikiSegment(
-                                  active.title || active.slug,
-                                )}
-                                onNavigate={navigateTo}
-                                onNavigateHome={onNavigateHome}
-                              />
-                            }
-                          />
-                          <RunDatum
-                            label="Current node"
-                            value={formatActivePhase(active.phase)}
-                          />
-                          <RunDatum label="Duration" value="Running" />
-                        </CardDescription>
-                      </CardHeader>
-                      <CollapsibleContent>
-                        <CardContent className="pt-3">
-                          <LiveLlmViews
-                            views={
-                              active.views?.length
-                                ? active.views
-                                : active.reasoning
-                                  ? [
-                                      {
-                                        node: active.phase ?? "Current model",
-                                        reasoning: active.reasoning,
-                                      },
-                                    ]
-                                  : []
-                            }
-                          />
-                        </CardContent>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </Card>
-                );
-              }
-
-              const run = row.item;
-              const open = expandedRun === run.run_id;
-              return (
-                <Card key={run.run_id} size="sm">
-                  <Collapsible
-                    open={open}
-                    onOpenChange={() => void toggleRun(run.run_id)}
-                  >
-                    <CardHeader>
-                      <CollapsibleTrigger className="group/trigger flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left">
-                        <CardTitle className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                          <span className="truncate font-mono">
-                            {run.workflow}
-                          </span>
-                          <RunStatusBadge status={run.status} />
-                        </CardTitle>
-                        <ChevronDown
-                          aria-hidden
-                          className="shrink-0 text-muted-foreground transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
-                        />
-                      </CollapsibleTrigger>
-                      <CardDescription className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
-                        <RunDatum
-                          label="Started"
-                          value={fmtTimestamp(run.started_at)}
-                          title={fmtFullTimestamp(run.started_at)}
-                        />
-                        <RunDatum
-                          label="Article"
-                          value={
-                            run.slug ? (
-                              <SlugCell
-                                slug={run.slug}
-                                segment={toWikiSegment(run.slug)}
-                                onNavigate={navigateTo}
-                                onNavigateHome={onNavigateHome}
-                              />
-                            ) : (
-                              "—"
-                            )
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            run.status === "error" ? "destructive" : "secondary"
                           }
-                        />
-                        <RunDatum label="Nodes" value={run.nodes_executed} />
-                        <RunDatum
-                          label="Duration"
-                          value={`${run.duration_ms} ms`}
-                        />
-                      </CardDescription>
-                    </CardHeader>
-                    <CollapsibleContent>
-                      <CardContent className="pt-3">
-                        {loadingRun === run.run_id ? (
-                          <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <LoaderCircle
-                              data-icon="inline-start"
-                              className="animate-spin"
+                        >
+                          {run.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {run.nodes_executed}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {run.duration_ms} ms
+                      </TableCell>
+                    </TableRow>
+                    {open ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell
+                          colSpan={6}
+                          className="p-3 whitespace-normal"
+                        >
+                          {loadingRun === run.run_id ? (
+                            <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <LoaderCircle
+                                data-icon="inline-start"
+                                className="animate-spin"
+                              />
+                              Loading trace…
+                            </span>
+                          ) : runNodes[run.run_id] ? (
+                            <NodeBreakdown
+                              nodes={runNodes[run.run_id]}
+                              totalMs={run.duration_ms}
+                              runStartedAt={run.started_at}
                             />
-                            Loading trace…
-                          </span>
-                        ) : runNodes[run.run_id] ? (
-                          <NodeBreakdown
-                            nodes={runNodes[run.run_id]}
-                            totalMs={run.duration_ms}
-                            runStartedAt={run.started_at}
-                          />
-                        ) : null}
-                      </CardContent>
-                    </CollapsibleContent>
-                  </Collapsible>
-                </Card>
-              );
-            })}
-          </div>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
           {pageCount > 1 && (
             <div className="mt-3 flex items-center gap-3">
               <Button
@@ -491,62 +537,61 @@ export function PipelinesPane({
                       {workflow.summary}
                     </p>
                     <div className="flex flex-wrap items-start gap-2">
-                    {segmentNodes(workflow.nodes).map((seg, si, all) => {
-                      const isLast = si === all.length - 1;
-                      if (seg.type === "linear") {
+                      {segmentNodes(workflow.nodes).map((seg, si, all) => {
+                        const isLast = si === all.length - 1;
+                        if (seg.type === "linear") {
+                          return (
+                            <span
+                              key={si}
+                              className="flex flex-wrap items-center gap-1.5"
+                            >
+                              {seg.nodes.map((node, ni) => (
+                                <Fragment key={node.name}>
+                                  <WorkflowNodeBadge node={node} />
+                                  {ni < seg.nodes.length - 1 ? (
+                                    <span className="text-muted-foreground">
+                                      →
+                                    </span>
+                                  ) : null}
+                                </Fragment>
+                              ))}
+                              {!isLast ? (
+                                <span className="text-muted-foreground">→</span>
+                              ) : null}
+                            </span>
+                          );
+                        }
+                        const branchEntries = [...seg.branches.entries()];
                         return (
-                          <span
-                            key={si}
-                            className="flex flex-wrap items-center gap-1.5"
-                          >
-                            {seg.nodes.map((node, ni) => (
-                              <Fragment key={node.name}>
-                                <WorkflowNodeBadge node={node} />
-                                {ni < seg.nodes.length - 1 ? (
-                                  <span className="text-muted-foreground">→</span>
-                                ) : null}
-                              </Fragment>
-                            ))}
+                          <div key={si} className="flex items-center gap-2">
+                            <div className="flex flex-col gap-1.5 border-l border-border pl-2">
+                              {branchEntries.map(([label, nodes]) => (
+                                <div
+                                  key={label}
+                                  className="flex flex-wrap items-center gap-1.5"
+                                >
+                                  <Badge variant="outline" title={label}>
+                                    {label}
+                                  </Badge>
+                                  {nodes.map((node, ni) => (
+                                    <Fragment key={node.name}>
+                                      <WorkflowNodeBadge node={node} />
+                                      {ni < nodes.length - 1 ? (
+                                        <span className="text-muted-foreground">
+                                          →
+                                        </span>
+                                      ) : null}
+                                    </Fragment>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
                             {!isLast ? (
                               <span className="text-muted-foreground">→</span>
                             ) : null}
-                          </span>
-                        );
-                      }
-                      const branchEntries = [...seg.branches.entries()];
-                      return (
-                        <div
-                          key={si}
-                          className="flex items-center gap-2"
-                        >
-                          <div className="flex flex-col gap-1.5 border-l border-border pl-2">
-                            {branchEntries.map(([label, nodes]) => (
-                              <div
-                                key={label}
-                                className="flex flex-wrap items-center gap-1.5"
-                              >
-                                <Badge variant="outline" title={label}>
-                                  {label}
-                                </Badge>
-                                {nodes.map((node, ni) => (
-                                  <Fragment key={node.name}>
-                                    <WorkflowNodeBadge node={node} />
-                                    {ni < nodes.length - 1 ? (
-                                      <span className="text-muted-foreground">
-                                        →
-                                      </span>
-                                    ) : null}
-                                  </Fragment>
-                                ))}
-                              </div>
-                            ))}
                           </div>
-                          {!isLast ? (
-                            <span className="text-muted-foreground">→</span>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                     </div>
                   </CardContent>
                 </CollapsibleContent>
@@ -573,32 +618,6 @@ function WorkflowNodeBadge({ node }: { node: WorkflowNode }) {
       <span className="max-w-56 truncate font-mono">{node.name}</span>
     </Badge>
   );
-}
-
-function RunDatum({
-  label,
-  value,
-  title,
-}: {
-  label: string;
-  value: ReactNode;
-  title?: string;
-}) {
-  return (
-    <span className="min-w-0" title={title}>
-      <span className="block text-[0.65rem] font-medium tracking-wide text-muted-foreground uppercase">
-        {label}
-      </span>
-      <span className="block truncate font-mono text-xs text-foreground tabular-nums">
-        {value}
-      </span>
-    </span>
-  );
-}
-
-function RunStatusBadge({ status }: { status: string }) {
-  const variant = status === "error" ? "destructive" : "secondary";
-  return <Badge variant={variant}>{status}</Badge>;
 }
 
 function formatActivePhase(phase?: string): string {
@@ -677,6 +696,7 @@ function NodeBreakdown({
   totalMs: number;
   runStartedAt?: number;
 }) {
+  const maxMs = Math.max(...nodes.map((node) => node.duration_ms), 1);
   const [openPanels, setOpenPanels] = useState<Set<string>>(new Set());
   function togglePanel(key: string) {
     setOpenPanels((prev) => {
@@ -690,6 +710,10 @@ function NodeBreakdown({
     <div className="flex flex-col gap-2" data-testid="node-breakdown">
       {nodes.map((node, i) => {
         const pct = Math.round((node.duration_ms / Math.max(totalMs, 1)) * 100);
+        const barPct = Math.max(
+          1,
+          Math.round((node.duration_ms / maxMs) * 100),
+        );
         const hasMetadata = Boolean(
           node.llm_role || node.llm_model || node.llm_config_key,
         );
@@ -707,83 +731,85 @@ function NodeBreakdown({
         const ragOpen = openPanels.has(ragKey);
         return (
           <Fragment key={i}>
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span
-                    className="min-w-0 flex-1 truncate font-mono"
-                    title={node.error_message ?? node.node_name}
-                  >
-                    {node.node_name}
-                  </span>
-                  <Badge
-                    variant={
-                      node.status === "error" ? "destructive" : "outline"
-                    }
-                  >
-                    {node.status}
-                  </Badge>
-                  <Badge variant="secondary">
-                    {node.node_kind ?? "unknown"}
-                  </Badge>
-                </CardTitle>
-                <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs tabular-nums">
-                  {node.started_at ? (
-                    <span
-                      title={
-                        runStartedAt
-                          ? `${fmtFullTimestamp(node.started_at)} (+${node.started_at - runStartedAt} ms)`
-                          : fmtFullTimestamp(node.started_at)
-                      }
-                    >
-                      {fmtTimestamp(node.started_at)}
-                    </span>
-                  ) : null}
-                  <span>{node.duration_ms} ms</span>
-                  <span>{pct}% of run</span>
-                </CardDescription>
-                {node.prompt_chars != null || hasRag ? (
-                  <CardAction className="flex flex-wrap gap-1.5">
-                    {node.prompt_chars != null ? (
-                      hasPrompt ? (
-                        <Button
-                          type="button"
-                          variant={promptOpen ? "secondary" : "outline"}
-                          size="sm"
-                          title="Show prompt, reasoning, and output"
-                          onClick={() => togglePanel(promptKey)}
-                        >
-                          {fmtK(node.prompt_chars)} chars
-                          <ChevronDown
-                            data-icon="inline-end"
-                            className={cn(!promptOpen && "-rotate-90")}
-                          />
-                        </Button>
-                      ) : (
-                        <Badge variant="outline">
-                          {fmtK(node.prompt_chars)} chars
-                        </Badge>
-                      )
-                    ) : null}
-                    {hasRag ? (
-                      <Button
-                        type="button"
-                        variant={ragOpen ? "secondary" : "outline"}
-                        size="sm"
-                        title="Show retrieved RAG context and selected source segments"
-                        onClick={() => togglePanel(ragKey)}
-                      >
-                        RAG {ragDetail?.displayCount ?? 0}
-                        <ChevronDown
-                          data-icon="inline-end"
-                          className={cn(!ragOpen && "-rotate-90")}
-                        />
-                      </Button>
-                    ) : null}
-                  </CardAction>
+            <div
+              className="grid grid-cols-[minmax(9rem,14rem)_5rem_minmax(5rem,1fr)_4.5rem_2.5rem_auto_auto] items-center gap-2 py-0.5 font-mono text-xs tabular-nums max-lg:grid-cols-[minmax(8rem,1fr)_minmax(5rem,1fr)_4.5rem_auto_auto]"
+              data-testid="node-timing-row"
+              data-node-kind={node.node_kind ?? "unknown"}
+            >
+              <span
+                className="truncate text-muted-foreground"
+                title={node.error_message ?? node.node_name}
+              >
+                {node.node_name}
+                {node.status === "error" ? (
+                  <span className="text-destructive"> ✕</span>
                 ) : null}
-              </CardHeader>
-            </Card>
+              </span>
+              <span
+                className="text-muted-foreground max-lg:hidden"
+                title={
+                  node.started_at
+                    ? runStartedAt
+                      ? `${fmtFullTimestamp(node.started_at)} (+${node.started_at - runStartedAt} ms)`
+                      : fmtFullTimestamp(node.started_at)
+                    : undefined
+                }
+              >
+                {node.started_at ? fmtTimestamp(node.started_at) : ""}
+              </span>
+              <span className="h-1.5 overflow-hidden rounded-sm bg-muted">
+                <span
+                  className={cn(
+                    "block h-full min-w-px rounded-sm",
+                    nodeBarClass(node.node_kind),
+                  )}
+                  data-testid="node-timing-bar"
+                  style={{ width: `${barPct}%` }}
+                />
+              </span>
+              <span className="text-right text-foreground">
+                {node.duration_ms} ms
+              </span>
+              <span className="text-right text-muted-foreground">{pct}%</span>
+              <span className="flex justify-end">
+                {node.prompt_chars != null ? (
+                  hasPrompt ? (
+                    <Button
+                      type="button"
+                      variant={promptOpen ? "secondary" : "outline"}
+                      size="sm"
+                      title="Show prompt, reasoning, and output"
+                      onClick={() => togglePanel(promptKey)}
+                    >
+                      {fmtK(node.prompt_chars)}c
+                      <ChevronDown
+                        data-icon="inline-end"
+                        className={cn(!promptOpen && "-rotate-90")}
+                      />
+                    </Button>
+                  ) : (
+                    <Badge variant="outline">{fmtK(node.prompt_chars)}c</Badge>
+                  )
+                ) : null}
+              </span>
+              <span className="flex justify-end">
+                {hasRag ? (
+                  <Button
+                    type="button"
+                    variant={ragOpen ? "secondary" : "outline"}
+                    size="sm"
+                    title="Show retrieved RAG context and selected source segments"
+                    onClick={() => togglePanel(ragKey)}
+                  >
+                    RAG {ragDetail?.displayCount ?? 0}
+                    <ChevronDown
+                      data-icon="inline-end"
+                      className={cn(!ragOpen && "-rotate-90")}
+                    />
+                  </Button>
+                ) : null}
+              </span>
+            </div>
             {promptOpen && hasPrompt && (
               <div className="flex flex-col gap-2" data-testid="trace-detail">
                 {hasMetadata && <LlmMetadata node={node} />}
@@ -812,6 +838,23 @@ function NodeBreakdown({
       })}
     </div>
   );
+}
+
+function nodeBarClass(kind: string): string {
+  switch (kind) {
+    case "llm":
+      return "bg-orange-500";
+    case "read":
+      return "bg-blue-500";
+    case "write":
+      return "bg-red-500";
+    case "transform":
+      return "bg-green-500";
+    case "validate":
+      return "bg-purple-500";
+    default:
+      return "bg-primary";
+  }
 }
 
 interface RagSourceTrace {
@@ -1239,7 +1282,7 @@ function LlmMetadata({ node }: { node: NodeSpan }) {
   );
 }
 
-function PromptSection({
+const PromptSection = memo(function PromptSection({
   label,
   text,
   variant,
@@ -1251,7 +1294,7 @@ function PromptSection({
   const copy = () => {
     void navigator.clipboard?.writeText(text).catch(() => {});
   };
-  const html = md.render(text);
+  const html = useMemo(() => md.render(text), [text]);
   return (
     <Card size="sm">
       <CardHeader>
@@ -1275,8 +1318,9 @@ function PromptSection({
       </CardHeader>
       <CardContent>
         <div
+          data-testid="markdown-trace"
           className={cn(
-            "prose prose-sm max-h-96 max-w-none overflow-auto font-mono text-xs leading-relaxed wrap-break-word text-foreground",
+            "prose prose-sm max-w-none font-mono text-xs leading-relaxed wrap-break-word text-foreground [contain-intrinsic-size:auto_24rem] [content-visibility:auto]",
             variant === "cot" && "text-muted-foreground italic",
           )}
           dangerouslySetInnerHTML={{ __html: html }}
@@ -1284,4 +1328,4 @@ function PromptSection({
       </CardContent>
     </Card>
   );
-}
+});

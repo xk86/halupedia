@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ERROR_BOX } from "@/lib/utils";
 import { RuntimePane } from "./admin/panes/RuntimePane";
 import { GenerationQueuePane } from "./admin/panes/GenerationQueuePane";
@@ -101,6 +101,24 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
   const [pipelineRuns, setPipelineRuns] = useState<PipelineRunSummary[]>([]);
   const [pipelineTraceEnabled, setPipelineTraceEnabled] = useState(false);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const activePipelineRuns = useMemo(
+    () =>
+      generationQueue
+        .filter(
+          (item) =>
+            item.state !== "queued" && typeof item.startedAt === "number",
+        )
+        .map((item) => ({
+          slug: item.slug,
+          title: item.title,
+          workflow: item.workflow,
+          phase: item.phase,
+          startedAt: item.startedAt!,
+          reasoning: item.reasoning,
+          views: item.views,
+        })),
+    [generationQueue],
+  );
 
   // Slug alias management
   const [aliasSearch, setAliasSearch] = useState("");
@@ -505,20 +523,7 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         <PipelinesPane
           workflows={pipelineWorkflows}
           runs={pipelineRuns}
-          activeRuns={generationQueue
-            .filter(
-              (item) =>
-                item.state !== "queued" && typeof item.startedAt === "number",
-            )
-            .map((item) => ({
-              slug: item.slug,
-              title: item.title,
-              workflow: item.workflow,
-              phase: item.phase,
-              startedAt: item.startedAt!,
-              reasoning: item.reasoning,
-              views: item.views,
-            }))}
+          activeRuns={activePipelineRuns}
           traceEnabled={pipelineTraceEnabled}
           error={pipelineError}
           onRefresh={loadPipelineStatus}

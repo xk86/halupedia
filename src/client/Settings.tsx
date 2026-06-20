@@ -26,13 +26,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
 import {
   ToggleGroup,
   ToggleGroupItem,
@@ -326,6 +321,27 @@ export function Settings({ settings, onChange }: SettingsProps) {
     [onChange, settings],
   );
 
+  const paletteIsDefault = useCallback(
+    (variant: ThemeVariant) =>
+      paletteFields.every(
+        (field) =>
+          settings[variant][field.key] ===
+          DEFAULT_THEME_SETTINGS[variant][field.key],
+      ),
+    [settings],
+  );
+
+  const resetPalette = useCallback(
+    (variant: ThemeVariant) => {
+      onChange({
+        ...settings,
+        presetId: "custom",
+        [variant]: { ...DEFAULT_THEME_SETTINGS[variant] },
+      });
+    },
+    [onChange, settings],
+  );
+
   const selectedPreset = THEME_PRESETS.find(
     (preset) => preset.id === settings.presetId,
   );
@@ -537,14 +553,21 @@ export function Settings({ settings, onChange }: SettingsProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="light">
-            <TabsList>
-              <TabsTrigger value="light">Day colors</TabsTrigger>
-              <TabsTrigger value="dark">Night colors</TabsTrigger>
-            </TabsList>
+          <div className="grid gap-x-6 gap-y-5 lg:grid-cols-2">
             {(["light", "dark"] as const).map((variant) => (
-              <TabsContent key={variant} value={variant} className="pt-3">
-                <FieldGroup className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div key={variant} className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold whitespace-nowrap">
+                    {variant === "light" ? "Day colors" : "Night colors"}
+                  </h3>
+                  <Separator className="flex-1" />
+                  <ResetButton
+                    label={`Reset ${variant === "light" ? "day" : "night"} colors`}
+                    disabled={paletteIsDefault(variant)}
+                    onReset={() => resetPalette(variant)}
+                  />
+                </div>
+                <FieldGroup className="grid gap-3 sm:grid-cols-2">
                   {paletteFields.map((field) => (
                     <ColorField
                       key={field.key}
@@ -557,9 +580,9 @@ export function Settings({ settings, onChange }: SettingsProps) {
                     />
                   ))}
                 </FieldGroup>
-              </TabsContent>
+              </div>
             ))}
-          </Tabs>
+          </div>
         </CardContent>
       </Card>
 

@@ -861,7 +861,7 @@ function NodeBreakdown({
               <div className="flex flex-col gap-1" data-testid="trace-detail">
                 {hasMetadata && <LlmMetadata node={node} />}
                 {node.prompt_text && (
-                  <PromptTraceSections text={node.prompt_text} />
+                  <PromptTraceSections text={node.prompt_text} promptTokens={node.prompt_tokens} />
                 )}
                 {node.cot_text && (
                   <PromptSection
@@ -1175,12 +1175,12 @@ function normalizeReference(value: unknown): ReferenceTrace | null {
   return { slug, title, content, kind, source, pinned, score };
 }
 
-function PromptTraceSections({ text }: { text: string }) {
+function PromptTraceSections({ text, promptTokens }: { text: string; promptTokens?: number | null }) {
   const split = splitPromptTrace(text);
-  if (!split) return <PromptSection label="Prompt" text={text} />;
+  if (!split) return <PromptSection label="Prompt" text={text} promptTokens={promptTokens} />;
   return (
     <>
-      <PromptSection label="System prompt" text={split.system} />
+      <PromptSection label="System prompt" text={split.system} promptTokens={promptTokens} />
       <PromptSection label="User prompt" text={split.user} />
     </>
   );
@@ -1352,10 +1352,12 @@ const PromptSection = memo(function PromptSection({
   label,
   text,
   variant,
+  promptTokens,
 }: {
   label: string;
   text: string;
   variant?: "cot" | "output";
+  promptTokens?: number | null;
 }) {
   const [mode, setMode] = useState<"source" | "rendered">("rendered");
   const copy = () => {
@@ -1373,6 +1375,12 @@ const PromptSection = memo(function PromptSection({
         <CardDescription>
           {text.length.toLocaleString()} chars · {lineCount.toLocaleString()}
           {" lines"}
+          {promptTokens !== undefined && promptTokens !== null && (
+            <>
+              {" · "}
+              {fmtK(promptTokens)}t
+            </>
+          )}
         </CardDescription>
         <CardAction>
           <Button

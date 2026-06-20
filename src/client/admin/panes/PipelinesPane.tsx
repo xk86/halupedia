@@ -7,7 +7,7 @@ import {
   type MouseEvent,
 } from "react";
 import { ChevronDown, LoaderCircle } from "lucide-react";
-import { encoding_for_model } from "js-tiktoken";
+import { encoding_for_model } from "tiktoken";
 import { cn, ERROR_BOX } from "@/lib/utils";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";

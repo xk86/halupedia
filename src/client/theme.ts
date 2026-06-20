@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { PALETTE_UI_PRESETS } from "./paletteThemes";
 
 export type ThemeMode = "system" | "light" | "dark";
 export type ThemeVariant = "light" | "dark";
@@ -36,6 +37,8 @@ export interface ThemePreset {
   id: string;
   name: string;
   description: string;
+  /** Menu grouping label (e.g. "Built-in", "Neutral", "Space & Retro"). */
+  category?: string;
   light: ThemePalette;
   dark: ThemePalette;
 }
@@ -173,6 +176,7 @@ export const THEME_PRESETS: ThemePreset[] = [
     id: "halupedia",
     name: "Halupedia",
     description: "Warm parchment, ink, and oxblood.",
+    category: "Built-in",
     light: halupediaLight,
     dark: halupediaDark,
   },
@@ -180,6 +184,7 @@ export const THEME_PRESETS: ThemePreset[] = [
     id: "neutral",
     name: "Neutral",
     description: "A standard grayscale UI palette.",
+    category: "Built-in",
     light: {
       background: "oklch(0.985 0.000 89.9)",
       foreground: "oklch(0.205 0.000 89.9)",
@@ -209,6 +214,7 @@ export const THEME_PRESETS: ThemePreset[] = [
     id: "slate",
     name: "Slate",
     description: "Cool blue-gray surfaces and crisp contrast.",
+    category: "Built-in",
     light: {
       background: "oklch(0.984 0.003 247.9)",
       foreground: "oklch(0.208 0.040 265.8)",
@@ -238,6 +244,7 @@ export const THEME_PRESETS: ThemePreset[] = [
     id: "solarized",
     name: "Solarized",
     description: "The familiar low-contrast Solarized palette.",
+    category: "Built-in",
     light: {
       background: "oklch(0.974 0.026 90.1)",
       foreground: "oklch(0.568 0.029 221.9)",
@@ -263,7 +270,30 @@ export const THEME_PRESETS: ThemePreset[] = [
       destructive: "oklch(0.581 0.173 39.5)",
     },
   },
+  // 35 curated palettes from paletteui.xyz (brands/TV/countries excluded).
+  ...PALETTE_UI_PRESETS,
 ];
+
+/** Preset categories in display order, each with its presets. */
+export const THEME_PRESET_GROUPS: Array<{
+  category: string;
+  presets: ThemePreset[];
+}> = (() => {
+  const order: string[] = [];
+  const byCategory = new Map<string, ThemePreset[]>();
+  for (const preset of THEME_PRESETS) {
+    const category = preset.category ?? "Other";
+    if (!byCategory.has(category)) {
+      byCategory.set(category, []);
+      order.push(category);
+    }
+    byCategory.get(category)!.push(preset);
+  }
+  return order.map((category) => ({
+    category,
+    presets: byCategory.get(category)!,
+  }));
+})();
 
 function clonePalette(palette: ThemePalette): ThemePalette {
   return { ...palette };
@@ -391,7 +421,7 @@ export function themeVariables(
   variant: ThemeVariant,
 ): Record<string, string> {
   const p = settings[variant];
-  return {
+  const base: Record<string, string> = {
     "--article-font": fontStack(settings.articleFont),
     "--ui-font": fontStack(settings.uiFont),
     "--fixed-font": fontStack(settings.fixedFont),
@@ -466,6 +496,17 @@ export function themeVariables(
     "--input": p.border,
     "--ring": p.accent,
   };
+  // Tailwind's @theme bridge is non-inline, so utilities compile to
+  // `var(--color-*)` whose value is resolved once at :root. To theme a scoped
+  // container (e.g. the day/night preview), mirror every source token as
+  // `--color-<name>: var(--<name>)` so the utilities re-resolve per element.
+  for (const key of Object.keys(base)) {
+    if (!key.startsWith("--color-")) {
+      const colorKey = `--color-${key.slice(2)}`;
+      if (!(colorKey in base)) base[colorKey] = `var(${key})`;
+    }
+  }
+  return base;
 }
 
 export function themePreviewStyle(

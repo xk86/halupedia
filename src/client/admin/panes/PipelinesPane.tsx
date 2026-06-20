@@ -145,7 +145,9 @@ interface NodeSpan {
   prompt_text?: string | null;
   prompt_tokens?: number | null;
   cot_text?: string | null;
+  cot_tokens?: number | null;
   response_text?: string | null;
+  response_tokens?: number | null;
   llm_role?: string | null;
   llm_resolved_role?: string | null;
   llm_config_key?: string | null;
@@ -827,14 +829,16 @@ function NodeBreakdown({
                       title="Show prompt, reasoning, and output"
                       onClick={() => togglePanel(promptKey)}
                     >
-                      {fmtK(node.prompt_tokens ?? 0)}t
+                      {((node.prompt_tokens ?? 0) + (node.cot_tokens ?? 0) + (node.response_tokens ?? 0)).toLocaleString()}t
                       <ChevronDown
                         data-icon="inline-end"
                         className={cn(!promptOpen && "-rotate-90")}
                       />
                     </Button>
                   ) : (
-                    <Badge variant="outline">{fmtK(node.prompt_tokens ?? 0)}t</Badge>
+                    <Badge variant="outline">
+                      {((node.prompt_tokens ?? 0) + (node.cot_tokens ?? 0) + (node.response_tokens ?? 0)).toLocaleString()}t
+                    </Badge>
                   )
                 ) : null}
               </span>
@@ -867,6 +871,7 @@ function NodeBreakdown({
                   <PromptSection
                     label="Chain of thought"
                     text={node.cot_text}
+                    promptTokens={node.cot_tokens}
                     variant="cot"
                   />
                 )}
@@ -874,6 +879,7 @@ function NodeBreakdown({
                   <PromptSection
                     label="Output"
                     text={node.response_text}
+                    promptTokens={node.response_tokens}
                     variant="output"
                   />
                 )}
@@ -1180,8 +1186,8 @@ function PromptTraceSections({ text, promptTokens }: { text: string; promptToken
   if (!split) return <PromptSection label="Prompt" text={text} promptTokens={promptTokens} />;
   return (
     <>
-      <PromptSection label="System prompt" text={split.system} promptTokens={promptTokens} />
-      <PromptSection label="User prompt" text={split.user} />
+      <PromptSection label="System prompt" text={split.system} />
+      <PromptSection label="User prompt" text={split.user} promptTokens={promptTokens} />
     </>
   );
 }
@@ -1378,7 +1384,7 @@ const PromptSection = memo(function PromptSection({
           {promptTokens !== undefined && promptTokens !== null && (
             <>
               {" · "}
-              {fmtK(promptTokens)}t
+              {promptTokens.toLocaleString()}t
             </>
           )}
         </CardDescription>

@@ -148,6 +148,8 @@ export function registerPipelineAdminRoutes(
         diff: safeParse(n.diff_json),
         warnings: safeParse(n.warnings_json),
         prompt_tokens: countTokens(n.prompt_text as string | null),
+        cot_tokens: countTokens(n.cot_text as string | null),
+        response_tokens: countTokens(n.response_text as string | null),
       })),
     });
   });
@@ -219,6 +221,8 @@ export function registerPipelineAdminRoutes(
           diff: safeParse(n.diff_json),
           warnings: safeParse(n.warnings_json),
           prompt_tokens: countTokens(n.prompt_text as string | null),
+          cot_tokens: countTokens(n.cot_text as string | null),
+          response_tokens: countTokens(n.response_text as string | null),
         })),
       },
     });

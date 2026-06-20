@@ -39,6 +39,7 @@ import {
   MAX_FONT_SCALE,
   MIN_FONT_SCALE,
   THEME_PRESETS,
+  THEME_PRESET_GROUPS,
   hexToOklch,
   oklchToHex,
   settingsFromPreset,
@@ -345,7 +346,9 @@ export function Settings({ settings, onChange }: SettingsProps) {
   const selectedPreset = THEME_PRESETS.find(
     (preset) => preset.id === settings.presetId,
   );
-  const displayedPresetItems =
+  // The `items` prop feeds the trigger's label lookup; include "Custom" so a
+  // modified palette shows a label rather than a blank trigger.
+  const presetSelectItems =
     settings.presetId === "custom"
       ? [{ label: "Custom", value: "custom" }, ...presetItems]
       : presetItems;
@@ -383,7 +386,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
                   </FieldDescription>
                 </div>
                 <Select
-                  items={displayedPresetItems}
+                  items={presetSelectItems}
                   value={settings.presetId}
                   onValueChange={(value) => {
                     const preset = THEME_PRESETS.find(
@@ -395,14 +398,25 @@ export function Settings({ settings, onChange }: SettingsProps) {
                   <SelectTrigger id="theme-preset" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
-                    <SelectGroup>
-                      {displayedPresetItems.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
+                  <SelectContent
+                    alignItemWithTrigger={false}
+                    className="max-h-80"
+                  >
+                    {settings.presetId === "custom" && (
+                      <SelectGroup>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectGroup>
+                    )}
+                    {THEME_PRESET_GROUPS.map((group) => (
+                      <SelectGroup key={group.category}>
+                        <SelectLabel>{group.category}</SelectLabel>
+                        {group.presets.map((preset) => (
+                          <SelectItem key={preset.id} value={preset.id}>
+                            {preset.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
                   </SelectContent>
                 </Select>
               </Field>

@@ -809,6 +809,7 @@ function slugify(text: string): string {
 }
 
 /** Conservative test: does this plain-text paste contain markdown syntax? */
+//TODO Find some way to do this without uh....... doing whatever the fuck this is bc what is this? lol. like use a library, even if it's simple.
 function looksLikeMarkdown(text: string): boolean {
   return (
     /^#{1,6}\s/m.test(text) ||

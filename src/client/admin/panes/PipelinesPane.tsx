@@ -1332,26 +1332,27 @@ const PromptSection = memo(function PromptSection({
             <TabsTrigger value="source">Source</TabsTrigger>
           </TabsList>
           <TabsContent value="rendered">
-            {/* font-serif: this lives inside a font-mono trace table, so the
-                rendered prose would otherwise inherit monospace. max-h/overflow:
-                scroll the rendered body in its own box like the source view. */}
+            {/* No inner scroll box: a nested overflow:auto scroller scrolls on
+                Firefox's main thread (janky), whereas letting this flow inline
+                means it scrolls with the page — smooth, like the article view.
+                font-serif: this lives inside a font-mono trace table, so the
+                prose would otherwise inherit monospace. */}
             <div
               data-testid="markdown-trace"
               className={cn(
-                "prose-halu prose prose-sm max-h-80 max-w-none overflow-auto overscroll-contain [contain:content] font-serif",
+                "prose-halu prose prose-sm max-w-none font-serif",
                 variant === "cot" && "italic",
               )}
               dangerouslySetInnerHTML={{ __html: html }}
             />
           </TabsContent>
           <TabsContent value="source">
-            {/* A read-only <pre> (not <textarea>): textareas are heavy editable
-                controls that scroll sluggishly in Firefox at this size; a <pre>
-                scrolls natively. Monospace is intentional for raw source. */}
+            {/* Read-only <pre> that flows inline (no inner scroller) so it pans
+                with the page. Monospace is intentional for raw source. */}
             <pre
               data-testid="trace-source"
               aria-label={`${label} source`}
-              className="max-h-80 overflow-auto overscroll-contain [contain:content] rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre-wrap"
+              className="rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre-wrap"
             >{text}</pre>
           </TabsContent>
         </Tabs>

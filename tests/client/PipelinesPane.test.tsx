@@ -130,7 +130,9 @@ describe("PipelinesPane", () => {
     );
     expect(markdownTraces[0]).toHaveClass("prose-halu");
     expect(markdownTraces[0]).toHaveClass("font-serif");
-    expect(markdownTraces[0]).toHaveClass("overflow-auto");
+    // Flows inline (no inner scroll box) so it pans with the page, not the
+    // main thread — see PromptSection.
+    expect(markdownTraces[0]).not.toHaveClass("overflow-auto");
     expect(screen.getAllByText(/1 lines/).length).toBeGreaterThan(0);
     // Markdown headings come from the rendered (default) view.
     expect(

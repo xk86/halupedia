@@ -6,7 +6,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -94,24 +93,58 @@ const presetItems = THEME_PRESETS.map(({ id, name }) => ({
   label: name,
   value: id,
 }));
+function ResetButton({
+  label,
+  disabled,
+  onReset,
+}: {
+  label: string;
+  disabled?: boolean;
+  onReset: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onReset}
+      className="size-7 shrink-0 text-muted-foreground"
+    >
+      <RotateCcwIcon className="size-3.5" />
+    </Button>
+  );
+}
+
 function FontSelect({
   id,
   label,
   description,
   value,
+  defaultValue,
   onValueChange,
 }: {
   id: string;
   label: string;
   description: string;
   value: string;
+  defaultValue: string;
   onValueChange: (value: string) => void;
 }) {
   return (
     <Field>
-      <div>
-        <FieldLabel htmlFor={id}>{label}</FieldLabel>
-        <FieldDescription>{description}</FieldDescription>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <FieldLabel htmlFor={id}>{label}</FieldLabel>
+          <FieldDescription>{description}</FieldDescription>
+        </div>
+        <ResetButton
+          label={`Reset ${label.toLowerCase()}`}
+          disabled={value === defaultValue}
+          onReset={() => onValueChange(defaultValue)}
+        />
       </div>
       <Select
         items={fontItems}
@@ -397,6 +430,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
                 label="Article font"
                 description="Headlines and long-form copy."
                 value={settings.articleFont}
+                defaultValue={DEFAULT_THEME_SETTINGS.articleFont}
                 onValueChange={(value) => updateFont("articleFont", value)}
               />
               <FontSelect
@@ -404,6 +438,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
                 label="UI font"
                 description="Navigation, forms, and controls."
                 value={settings.uiFont}
+                defaultValue={DEFAULT_THEME_SETTINGS.uiFont}
                 onValueChange={(value) => updateFont("uiFont", value)}
               />
               <FontSelect
@@ -411,6 +446,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
                 label="Fixed-width font"
                 description="Code, slugs, and tabular details."
                 value={settings.fixedFont}
+                defaultValue={DEFAULT_THEME_SETTINGS.fixedFont}
                 onValueChange={(value) => updateFont("fixedFont", value)}
               />
               <Field>
@@ -421,7 +457,19 @@ export function Settings({ settings, onChange }: SettingsProps) {
                     </FieldLabel>
                     <FieldDescription>0px square to 24px round.</FieldDescription>
                   </div>
-                  <Badge variant="secondary">{settings.radius}px</Badge>
+                  <div className="flex items-center gap-1">
+                    <Badge variant="secondary">{settings.radius}px</Badge>
+                    <ResetButton
+                      label="Reset component radius"
+                      disabled={settings.radius === DEFAULT_THEME_SETTINGS.radius}
+                      onReset={() =>
+                        onChange({
+                          ...settings,
+                          radius: DEFAULT_THEME_SETTINGS.radius,
+                        })
+                      }
+                    />
+                  </div>
                 </div>
                 <Slider
                   id="theme-radius"
@@ -445,9 +493,23 @@ export function Settings({ settings, onChange }: SettingsProps) {
                       Scales every size across the site.
                     </FieldDescription>
                   </div>
-                  <Badge variant="secondary">
-                    {Math.round(settings.fontScale * 100)}%
-                  </Badge>
+                  <div className="flex items-center gap-1">
+                    <Badge variant="secondary">
+                      {Math.round(settings.fontScale * 100)}%
+                    </Badge>
+                    <ResetButton
+                      label="Reset type size"
+                      disabled={
+                        settings.fontScale === DEFAULT_THEME_SETTINGS.fontScale
+                      }
+                      onReset={() =>
+                        onChange({
+                          ...settings,
+                          fontScale: DEFAULT_THEME_SETTINGS.fontScale,
+                        })
+                      }
+                    />
+                  </div>
                 </div>
                 <Slider
                   id="theme-font-scale"
@@ -463,25 +525,6 @@ export function Settings({ settings, onChange }: SettingsProps) {
               </Field>
             </FieldGroup>
           </CardContent>
-          <CardFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                onChange({
-                  ...settings,
-                  articleFont: DEFAULT_THEME_SETTINGS.articleFont,
-                  uiFont: DEFAULT_THEME_SETTINGS.uiFont,
-                  fixedFont: DEFAULT_THEME_SETTINGS.fixedFont,
-                  radius: DEFAULT_THEME_SETTINGS.radius,
-                  fontScale: DEFAULT_THEME_SETTINGS.fontScale,
-                })
-              }
-            >
-              <RotateCcwIcon data-icon="inline-start" />
-              Reset type and radius
-            </Button>
-          </CardFooter>
         </Card>
       </div>
 

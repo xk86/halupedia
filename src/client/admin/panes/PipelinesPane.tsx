@@ -1228,12 +1228,7 @@ function countPromptRefs(text: string): number {
     const slug = match[1]?.trim();
     if (slug) refs.add(slug);
   }
-  if (refs.size > 0) return refs.size;
-  const nonEmptyLines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  return nonEmptyLines.length;
+  return refs.size;
 }
 
 function normalizeRagSource(value: unknown): RagSourceTrace | null {

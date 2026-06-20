@@ -541,4 +541,80 @@ describe("PipelinesPane", () => {
       within(promptRefSection).getByRole("link", { name: "Alpha" }),
     ).toHaveAttribute("href", "/wiki/Alpha");
   });
+
+  it("does not count instruction lines as prompt references", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              nodes: [
+                {
+                  node_name: "llm.generate_article",
+                  node_kind: "llm",
+                  duration_ms: 5,
+                  status: "ok",
+                  prompt_chars: 123,
+                  prompt_text: [
+                    "### System",
+                    "System text.",
+                    "",
+                    "### User",
+                    "References — link to these using [Visible Title](ref:slug) syntax.",
+                    "",
+                    "You do not need to cite all of them.",
+                    "Pinned references should be prioritized.",
+                    "Unrelated references are fine to omit.",
+                    "(none)",
+                    "",
+                    "Retrieved context:",
+                    "",
+                    "(none)",
+                    "",
+                    "Suggested related existing topics:",
+                    "",
+                    "Remember the requested article title: Streamed-article",
+                    "",
+                    "Output the full article Markdown.",
+                  ].join("\n"),
+                },
+              ],
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    render(
+      <PipelinesPane
+        workflows={[]}
+        runs={[
+          {
+            run_id: "run-empty-refs",
+            workflow: "article.generate",
+            slug: "streamed-article",
+            started_at: 1,
+            duration_ms: 5,
+            status: "ok",
+            nodes_executed: 1,
+            error_message: null,
+          },
+        ]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    await userEvent.click(screen.getByText("article.generate"));
+    const ragButton = await screen.findByRole("button", { name: "RAG 0" });
+    expect(
+      screen.queryByRole("button", { name: "RAG 4" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(ragButton);
+    expect(screen.queryByText("Prompt refs")).not.toBeInTheDocument();
+    expect(screen.getByText("Reference context in prompt")).toBeInTheDocument();
+  });
 });

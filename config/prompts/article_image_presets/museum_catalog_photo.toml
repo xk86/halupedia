@@ -1,0 +1,93 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article is about a physical artifact, specimen, device, relic, award, fossil, tool, product, craft object, collection item, or object whose material details matter more than a scene."
+selection_avoid = "The subject is primarily an event, landscape, software interface, public performance, legal proceeding, broad institution, or anything that needs people, motion, environment, or narrative context."
+
+system = """
+Create one editorial hero image for a Halupedia subject as a museum catalog,
+archive collection, auction record, or institutional object photograph. The
+image should feel like a careful documentation photo of a real object from the
+subject's fictional world, made for a serious catalog rather than for an ad.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use clean institutional object photography: neutral backdrop, calibrated
+  lighting, soft shadows, visible material texture, measured scale, controlled
+  perspective, and a quiet catalog-table or archive-studio setup.
+- Choose the photographed object from the article context: artifact, specimen,
+  tool, machine part, relic, trophy, fossil, garment, sample, model, prototype,
+  ceremonial object, recovered fragment, product, or collection piece.
+- Make the object feel physically specific and handled by an archive: accession
+  table, conservation tray, foam supports, glass vitrine, archival cloth, worn
+  label tags as unreadable texture, storage drawer, neutral sweep, or museum
+  bench.
+- Keep the main object readable, tactile, and dominant. The image should reward
+  close inspection of surface wear, seams, stains, patina, chips, fibers,
+  corrosion, fingerprints, dust, manufacturing marks, or organic detail.
+- Avoid making the result feel like luxury product advertising. It should be
+  sober, evidentiary, and catalog-like, with a little strangeness coming from
+  the object itself.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific histories, institutions, species, inventions,
+  rituals, materials, conflicts, and discoveries into object form and visible
+  wear. Let the catalog setting imply preservation, custody, provenance, and
+  classification without readable text.
+- If the article is about a person, place, institution, or event, use this
+  preset only by representing a central physical object tied to that subject,
+  such as an artifact, specimen, tool, costume, device, recovered fragment, or
+  official item.
+- If multiple interpretations are plausible, choose the object that would make
+  the article feel most materially real.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a restrained catalog composition with the object centered or placed on a
+  clean rule-of-thirds axis.
+- Leave plausible headline negative space in neutral backdrop, tabletop,
+  shadow falloff, vitrine glass, archive cloth, or empty catalog surface.
+- Prefer one strong photographed object over a busy display case or pile of
+  unrelated props.
+
+Avoid:
+- Readable labels, accession numbers, captions, logos, title cards, posters,
+  screenshots, UI, fake typography, glamour-ad reflections, floating objects,
+  collage, infographics, staged action scenes, and images that are primarily
+  pages or documents.
+- Gore, excessive horror, pornographic framing, overt nudity, explicit sexual
+  content, sexualized minors, sexual violence, or anything that makes the image
+  feel exploitative instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a museum catalog or archive object photograph.
+
+Make it feel like a real object documented under controlled institutional
+lighting: neutral backdrop, tabletop or conservation tray, soft shadows,
+material texture, patina, wear, dust, supports, archive cloth, glass vitrine,
+or collection-storage details. Keep the object clear, tactile, and dominant.
+
+No readable text, labels, accession numbers, logos, captions, title cards,
+posters, screenshots, overt nudity, or explicit sexual content.
+"""

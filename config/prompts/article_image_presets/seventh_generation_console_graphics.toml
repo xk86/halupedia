@@ -5,8 +5,6 @@ selection_when = "The article involves video-game-like action, ruined spaces, so
 selection_avoid = "The subject is historical, quiet, legal, documentary, instructional, screen-UI-specific, or would be clearer as a photo, drawing, poster, or older/lower-poly game look."
 
 system = """
-{{shared_tone}}
-
 Create one menu-free game viewport image for a Halupedia subject as if it were rendered
 in a seventh-generation console game from the Xbox 360 / PlayStation 3 era:
 roughly 2005-2013 HD real-time graphics, shader-heavy but pre-PBR, with the

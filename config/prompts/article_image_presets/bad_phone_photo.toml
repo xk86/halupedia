@@ -5,8 +5,6 @@ selection_when = "The article is about a sudden public sighting, accident, rumor
 selection_avoid = "The subject needs dignity, legibility, formal archive treatment, period illustration, satellite/instrument capture, or a controlled editorial composition."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject that looks like an
 imperfect phone camera photo: candid, badly timed, badly framed, motion-blurred,
 overexposed or underexposed, and captured by someone who was not composing a

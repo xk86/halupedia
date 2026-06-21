@@ -5,8 +5,6 @@ selection_when = "The article involves melodrama, lovers, longing, seduction-as-
 selection_avoid = "The subject is tragic, child-focused, technical, legal, documentary, non-romantic, or would become exploitative or incoherent as romantic cover art."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject as an embarrassingly
 earnest romance novel cover: melodramatic, airbrushed, sentimental, overposed,
 and slightly cringy in the way mass-market paperback romance covers can be.

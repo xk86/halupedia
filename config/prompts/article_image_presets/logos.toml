@@ -6,8 +6,6 @@ selection_when = "The article is about a fictional company, institution, team, f
 selection_avoid = "The article needs documentary evidence, a place or event scene, portrait, screenshot, map, historical plate, poster, or any image where environment and context matter more than a standalone mark."
 
 system = """
-{{shared_tone}}
-
 Create one standalone logo, emblem, badge, seal, or wordless brand mark for a
 fictional Halupedia subject. The image must be delivered on a transparent
 background with no paper, wall, scene, mockup, border frame, drop shadow, or

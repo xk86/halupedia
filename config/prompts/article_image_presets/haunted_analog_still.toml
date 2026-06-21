@@ -5,8 +5,6 @@ selection_when = "The article is uncanny, body-horror, cursed-media, liminal, de
 selection_avoid = "The subject should be clear, funny, cleanly documentary, non-horror, formal, instructional, screen-based, or would be harmed by severe degradation."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject that looks like a
 barely usable still from a badly degraded analog film or video source found
 long after it was recorded. The frame should feel old, damaged, obscure, and

@@ -5,8 +5,6 @@ selection_when = "The article suggests early twentieth-century history, archival
 selection_avoid = "The subject is contemporary, screen-based, fantastical, poster-like, heavily colored, or better served by a drawing, map, modern photo, or degraded video."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject as an early 1900s
 black-and-white documentary photograph: roughly 1900-1939, captured on glass
 plate, nitrate film, early roll film, press camera, field camera, reform

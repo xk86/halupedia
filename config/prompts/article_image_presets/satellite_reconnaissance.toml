@@ -5,8 +5,6 @@ selection_when = "The article is about geography, borders, remote sites, environ
 selection_avoid = "The subject is a person, small object, indoor event, legal proceeding, screen interface, portrait, poster, or anything that needs ground-level emotional detail."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject as if it were captured
 by satellite reconnaissance, orbital survey imaging, aerial intelligence
 photography, environmental monitoring, or a high-altitude institutional scan.

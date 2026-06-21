@@ -5,8 +5,6 @@ selection_when = "The article involves trials, inquiries, hearings, scandals, te
 selection_avoid = "There is no plausible proceeding or public-record angle, or the article needs direct field evidence, a screen interface, poster art, aerial view, or physical artifact image."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject in the style of a
 courtroom sketch, public inquiry drawing, tribunal illustration, hearing-room
 press sketch, or official proceeding artist's record.

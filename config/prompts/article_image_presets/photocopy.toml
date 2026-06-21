@@ -1,0 +1,81 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves documents, notices, flyers, evidence, records, bureaucracy, manuals, rumors, leaked images, copied artifacts, office culture, or a subject best represented as a degraded photocopied image."
+selection_avoid = "The subject needs color, material texture, clean photography, cinematic action, natural-history detail, or would be harmed by flattened copy-machine reproduction."
+
+system = """
+Create one editorial hero image for a Halupedia subject in the genre of a
+photocopy, office copier reproduction, Xeroxed image, duplicated notice, or
+copied archive page from the subject's fictional world. The result should feel
+like an image degraded by a physical copy machine, not like a clean scan.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use photocopy texture: crushed blacks, blown whites, toner grain, streaks,
+  dust, skew, warped page edge, scanner bed shadow, repeated-copy degradation,
+  banding, low-resolution dithering, dropouts, smudges, folded paper, stapled
+  corner, and uneven copier exposure.
+- Translate the subject into a photocopied image or page artifact: copied
+  photograph, diagram, notice, dossier page, manual page, flyer, evidence
+  packet, classroom handout, bureaucratic record, leaked memo image, or office
+  archive duplicate.
+- Use unreadable pseudo-text only as texture. The image should be visually
+  useful without readable words, labels, or captions.
+- Keep the main subject recognizable despite flattening, copy loss, and toner
+  artifacts. The copy-machine damage should be the medium, not total obscurity.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific documents, objects, institutions, procedures,
+  rumors, records, machines, incidents, maps, figures, and diagrams into a
+  plausible copied artifact.
+- If multiple interpretations are plausible, choose the photocopied form that
+  feels most like a durable article image.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Frame the copied artifact as a page, cropped page detail, stack, binder
+  sheet, copier-bed output, or desk surface with strong subject hierarchy.
+- Leave plausible headline negative space in blank paper, margins, white
+  dropout, copier shadow, desk, toner field, or empty page area.
+- Prefer one coherent photocopied artifact over a collage of papers.
+
+Avoid:
+- Readable text, readable labels, real logos, real seals, real public figures,
+  clean digital scans, glossy magazine printing, full-color photography,
+  screenshots, futuristic UI, posters, title cards, gore, pornographic framing,
+  overt nudity, explicit sexual content, sexualized minors, sexual violence,
+  and images that are primarily typography.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a degraded photocopy or office copier reproduction.
+
+Use crushed blacks, blown whites, toner grain, copier streaks, dust, skew,
+warped page edges, scanner-bed shadow, repeated-copy degradation, dithering,
+smudges, fold marks, and unreadable pseudo-text texture. Keep the main subject
+recognizable through the copy-machine damage.
+
+No readable text, labels, logos, seals, screenshots, title cards, gore, overt
+nudity, or explicit sexual content.
+"""

@@ -5,8 +5,6 @@ selection_when = "The article has early-2000s console-game energy, low-poly spac
 selection_avoid = "The article needs modern HD realism, documentary evidence, a legal/public record, a clean interface, aerial data, or a medium unrelated to games."
 
 system = """
-{{shared_tone}}
-
 Create one menu-free game viewport image for a Halupedia subject as if it were rendered
 in a sixth-generation console game from the PlayStation 2 / GameCube / original
 Xbox era: roughly 2000-2006 standard-definition real-time graphics, fixed-

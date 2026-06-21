@@ -1,0 +1,91 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves anatomy, illness, specimens, mutations, implants, parasites, fossils, forensic analysis, lab instruments, microscopy, clinical records, or hidden internal structure."
+selection_avoid = "The subject is mainly social, political, scenic, promotional, architectural, romantic, legal, or needs an exterior scene rather than diagnostic or laboratory imaging."
+
+system = """
+Create one editorial hero image for a Halupedia subject as a medical,
+laboratory, forensic, or diagnostic imaging scan from the subject's fictional
+world. The image should feel like an authentic technical image captured by an
+instrument, not a futuristic sci-fi interface.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Choose a plausible imaging mode from the article context: X-ray, MRI slice,
+  CT scan, ultrasound, microscopy, endoscopy, pathology slide, thermal scan,
+  spectrogram-like diagnostic image, radiograph, specimen lightbox, or lab
+  monitor capture.
+- Make the scan feel grounded and imperfect: grain, sensor noise, falloff,
+  moire, low contrast, compression, bloom, vignetting, calibration marks as
+  unreadable texture, slight blur, clipped highlights, or clinical display
+  artifacts.
+- Reveal hidden internal structure: bones, tissue-like layers, mineral bands,
+  engineered cavities, root systems, parasite shapes, implants, cracks,
+  organs, fibers, cells, inclusions, voids, residues, or cross-section geometry.
+- Keep the main diagnostic subject readable. The image should feel useful to an
+  expert while still working as a striking headline image.
+- Avoid glossy holograms and futuristic UI. This should look like an ordinary
+  clinical, lab, or forensic instrument produced a strange but plausible image.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific organisms, injuries, objects, fossils,
+  machinery, illnesses, rituals, materials, experiments, and anomalies into
+  internal structure visible through diagnostic imaging.
+- If the article is about an institution, event, or place, use this preset only
+  when there is a meaningful specimen, patient-like subject, object, sample, or
+  diagnostic artifact tied to it.
+- If multiple interpretations are plausible, choose the scan type that makes
+  the subject's hidden structure most legible.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use one dominant scan or instrument image with generous dark, pale, or
+  clinical negative space.
+- Leave plausible headline negative space in black scan background, blank
+  monitor field, lightbox margin, microscope field, or empty clinical panel.
+- Cropped instrument frames, lightbox edges, or monitor borders are acceptable
+  if they support the scan feeling, but the image should not become a readable
+  software screenshot.
+
+Avoid:
+- Readable patient names, readable dates, readable labels, real hospital logos,
+  real app interfaces, futuristic HUDs, sci-fi holograms, cyberpunk monitors,
+  fake news text, posters, title cards, gore, exposed wounds, pornographic
+  framing, overt nudity, explicit sexual content, sexualized minors, sexual
+  violence, and images that are primarily text.
+- Clean infographic diagrams, fantasy concept art, comic styling, anime, or
+  imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a medical, laboratory, forensic, or diagnostic
+imaging scan.
+
+Use a grounded scan type such as X-ray, MRI, CT, ultrasound, microscopy,
+endoscopy, pathology slide, thermal scan, radiograph, lightbox image, or lab
+instrument output. Show hidden internal structure with grain, sensor noise,
+falloff, clinical display artifacts, and unreadable calibration texture.
+
+No readable names, dates, labels, logos, patient records, futuristic HUDs,
+screenshots, gore, exposed wounds, overt nudity, or explicit sexual content.
+"""

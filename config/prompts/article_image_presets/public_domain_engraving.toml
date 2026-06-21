@@ -5,8 +5,6 @@ selection_when = "The article suggests old encyclopedia plates, expeditions, nat
 selection_avoid = "The subject is contemporary, intimate, screen-based, newsy, highly colorful, cinematic, or needs photographic proof rather than a historical plate."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject in the style of a
 public-domain historical engraving, etching, or encyclopedia plate. The result
 should feel like a scanned illustration from an old reference book, expedition

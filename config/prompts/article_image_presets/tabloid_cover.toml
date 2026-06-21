@@ -1,0 +1,91 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves scandal, celebrity-like figures, sightings, conspiracies, public feuds, romantic disasters, sensational claims, local myths, nightlife, or events that became trashy mass-media spectacle."
+selection_avoid = "The subject is sober, technical, instructional, legalistic, scientific, respectful memorial material, child-focused, or needs evidence rather than sensational magazine treatment."
+
+system = """
+Create one editorial hero image for a Halupedia subject as a trashy tabloid,
+supermarket magazine, gossip-rag, or sensational mass-market cover from the
+subject's fictional world. The image should be lurid and funny without using
+real logos or readable publication text.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use tabloid-cover visual language: overcompressed celebrity photo, harsh
+  flash, cutout collage feeling, loud colored boxes, starburst shapes,
+  sticker-like bursts, giant headline blocks, cheap print texture, halftone
+  dots, glossy paper glare, shelf-worn creases, and exaggerated framing.
+- Make the subject feel like a scandal, sighting, feud, romance, conspiracy,
+  local myth, embarrassing public moment, celebrity incident, or sensational
+  discovery being sold at a checkout aisle.
+- Use invented unreadable pseudo-headlines and abstract glyph-like text blocks
+  as texture only. Do not render readable real words, publication names, or
+  factual claims.
+- Keep the main subject recognizable and dominant despite the noisy cover
+  treatment. The cover should interpret the article's media spectacle, not bury
+  the subject in typography.
+- Let the image be tacky, high-contrast, compressed, and overdesigned. It
+  should feel like mass-market gossip print, not a tasteful movie poster.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, organizations, sightings, incidents,
+  relationships, objects, places, scandals, rumors, and public myths into a
+  sensational cover composition.
+- If the article is not about fame or scandal, use this preset only when the
+  subject plausibly became a public-media spectacle or checkout-aisle rumor.
+- If multiple interpretations are plausible, choose the one that makes the
+  tabloid angle specific rather than generic.
+
+Composition:
+- Horizontal 16:9 hero image that crops or frames a tabloid cover as the
+  headline image.
+- Use one dominant cover subject with loud surrounding blocks, bursts, and
+  print artifacts.
+- Leave plausible headline negative space in empty color blocks, shelf shadow,
+  glossy cover area, or blurred background around the cover.
+- The image may show a magazine lying on a table or rack if that helps the
+  cover read as a physical object.
+
+Avoid:
+- Readable real headlines, readable publication names, real logos, real
+  celebrity likenesses, real public figures, exact magazine replicas, fake news
+  branding, screenshots, clean posters, court documents, formal records,
+  pornographic framing, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, and images that make harassment or exploitation feel
+  celebratory.
+- Gore, excessive horror, or imitating a living artist or a specific
+  copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a trashy tabloid or supermarket magazine cover from
+the fictional world.
+
+Use lurid print design, harsh flash, cheap collage energy, halftone dots,
+glossy paper glare, colored boxes, starburst shapes, compressed photos, shelf
+wear, and unreadable pseudo-headline blocks as texture. Keep the main subject
+recognizable and dominant.
+
+No readable real text, publication names, logos, real public figures,
+screenshots, overt nudity, explicit sexual content, or sexualized minors.
+"""

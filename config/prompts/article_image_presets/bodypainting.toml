@@ -5,8 +5,6 @@ selection_when = "The article is funny, embarrassing, ceremonial, fan-made, amat
 selection_avoid = "The article is serious, tragic, institutional, child-focused, explicit, body-horror, or needs a respectful documentary, archival, or artifact-based image."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject as a crude painting on
 someone's stomach: a homemade, awkward, funny, slightly embarrassing belly
 painting documented like an odd local photo or amateur archive image.

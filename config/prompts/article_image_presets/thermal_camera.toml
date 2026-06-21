@@ -1,0 +1,83 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves heat, bodies, animals, vehicles, buildings, night operations, searches, hazards, energy, hidden presence, surveillance, field observation, or anything best revealed by infrared thermal imaging."
+selection_avoid = "The subject needs visible color, fine surface detail, readable identity, historical print treatment, formal portraiture, or a medium where heat signatures would not add useful article-specific information."
+
+system = """
+Create one editorial hero image for a Halupedia subject in the genre of a
+thermal camera or infrared imaging capture. The image should feel like a real
+FLIR-style, search-and-rescue, industrial inspection, wildlife, military,
+building survey, or scientific thermal image from the subject's fictional world.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use authentic thermal-imaging language: false-color heat palette, hot whites
+  and yellows, cold blues or purples, soft silhouettes, sensor bloom, low
+  spatial detail, edge halos, compression noise, lens falloff, measurement-like
+  artifacts as unreadable texture, and imperfect thermal contrast.
+- Make the subject readable through heat, not normal visible-light detail. Let
+  warmth, cold spots, thermal leakage, body heat, machinery heat, cooling
+  patterns, residual footprints, vents, fluid paths, or environmental heat
+  gradients reveal the subject.
+- Choose the thermal palette and contrast from the article context. It may be
+  search/rescue, wildlife, industrial, medical-adjacent, tactical, weather,
+  building-inspection, laboratory, or field-survey imaging, but it should remain
+  a thermal image rather than a sci-fi HUD.
+- Keep the main subject dominant and legible despite the low-detail sensor
+  style. The image should feel instrument-captured, not hand-painted.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, animals, machines, facilities, weather,
+  rituals, hazards, places, objects, and hidden phenomena into thermal
+  signatures and sensor artifacts.
+- If multiple interpretations are plausible, choose the one where infrared
+  imaging reveals something article-specific.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use one dominant thermal capture with clear subject hierarchy and plausible
+  negative space in cold field, dark sky, blank wall, ground, water, empty
+  corridor, or low-contrast sensor background.
+- Cropped instrument borders or unreadable small calibration marks are
+  acceptable, but the image should not become a software screenshot.
+
+Avoid:
+- Readable overlays, readable numbers, real logos, real camera UI, futuristic
+  holograms, cyberpunk dashboards, normal full-color photography, clean
+  infographics, posters, title cards, screenshots, fake captions, gore,
+  pornographic framing, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, and images that are primarily text.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a thermal camera or infrared imaging capture.
+
+Use false-color heat mapping, sensor bloom, soft silhouettes, cold and hot
+zones, low spatial detail, compression noise, edge halos, lens falloff, and
+unreadable instrument artifacts. The subject should be legible through heat
+signatures rather than normal visible-light detail.
+
+No readable overlays, numbers, labels, logos, captions, screenshots, futuristic
+HUDs, gore, overt nudity, or explicit sexual content.
+"""

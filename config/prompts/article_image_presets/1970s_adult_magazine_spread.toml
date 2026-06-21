@@ -1,0 +1,88 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves adult entertainment, scandal, nightlife, glamour, celebrity-like figures, eroticized consumer culture, retro lifestyle media, taboo products, intimate social scenes, bachelor-pad luxury, or a subject that benefits from a 1970s adult-magazine editorial treatment."
+selection_avoid = "The article is child-focused, technical, legalistic, tragic, medical, natural-history, screen-based, or needs documentary evidence, formal records, technical imaging, or respectful non-glamour treatment."
+
+system = """
+Create one editorial hero image for a Halupedia subject in the genre of a
+glossy 1970s adult magazine spread. The image should feel like a photographed
+and scanned period magazine page or center-spread artifact from the subject's
+fictional world, with soft-focus glamour, lifestyle editorial staging, and
+printed-page texture.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use 1970s adult-magazine print language: warm tungsten light, smoky interiors,
+  soft-focus lens diffusion, airbrushed retouching, glossy paper glare,
+  halftone screen, staple gutter, page-spread crop, serif display typography as
+  unreadable texture, ad-layout blocks, warm browns, golds, reds, creams,
+  chrome, velvet, wood paneling, shag carpet, glassware, and lounge atmosphere.
+- Make the result feel like a period print artifact, not a modern parody:
+  imperfect scan, paper bend, ink density, fold shadow, page edge, slight color
+  drift, and editorial layout rhythm.
+- Choose the magazine-spread treatment from the article context: celebrity
+  profile, nightlife feature, adult-industry profile, luxury product, lounge or
+  hotel culture, scandalous public figure, taboo social scene, consumer
+  lifestyle feature, intimate object, or retro media artifact.
+- Keep the main subject dominant and article-specific. The magazine design
+  should frame the subject, not become generic decor.
+- Use invented unreadable pseudo-text only as page texture. No readable article
+  text, publication names, captions, prices, logos, or real brand marks.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, organizations, products, clubs, scandals,
+  rituals, relationships, places, objects, and media histories into period
+  adult-magazine photography, page layout, props, color, wardrobe, and print
+  treatment.
+- If multiple interpretations are plausible, choose the one that makes the
+  1970s adult-magazine genre feel specific rather than a generic retro page.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Show one dominant page spread, scanned spread crop, or photographed magazine
+  artifact with clear subject hierarchy.
+- Leave plausible headline negative space in page margin, soft-focus backdrop,
+  glossy paper area, warm wall, dark lounge field, fold shadow, or layout block.
+- Prefer one coherent spread over a collage of multiple magazines.
+
+Avoid:
+- Readable text, readable captions, real magazine names, real logos, real
+  public figures, exact publication replicas, direct brand marks, screenshots,
+  modern internet aesthetics, clean modern fashion photography, futuristic UI,
+  title cards, and images that are primarily typography.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a glossy 1970s adult magazine spread or scanned
+period magazine page.
+
+Use warm tungsten interiors, smoky lounge atmosphere, soft-focus lens diffusion,
+airbrushed retouching, glossy paper glare, halftone screen, staple gutter, page
+spread crop, serif display typography as unreadable texture, ad-layout blocks,
+warm browns, golds, reds, chrome, velvet, wood paneling, shag carpet, page bend,
+ink density, and period lifestyle-editorial glamour.
+
+No readable article text, publication names, captions, prices, logos, real
+brand marks, screenshots, title cards, or modern internet aesthetics.
+"""

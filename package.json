@@ -31,6 +31,7 @@
     "db:slug-dupe-check": "node --import tsx/esm scripts/slug-dupe-check.ts"
   },
   "dependencies": {
+    "3d-force-graph": "^1.80.0",
     "@base-ui/react": "^1.5.0",
     "@fontsource/inter": "^5.2.8",
     "@hono/node-server": "^2.0.5",
@@ -41,7 +42,6 @@
     "@tailwindcss/vite": "^4.3.1",
     "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^4.7.0",
-    "3d-force-graph": "^1.80.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "culori": "^4.0.2",
@@ -54,7 +54,6 @@
     "graphology-shortest-path": "^2.1.0",
     "graphology-types": "^0.24.8",
     "hono": "^4.12.25",
-    "tiktoken": "^1.0.15",
     "jsonrepair": "^3.14.0",
     "katex": "^0.16.47",
     "lucide-react": "^1.20.0",
@@ -77,6 +76,7 @@
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.1",
     "three": "^0.184.0",
+    "tiktoken": "^1.0.15",
     "toml": "^4.1.1",
     "troika-three-text": "^0.52.4",
     "tsx": "^4.22.4",
@@ -107,5 +107,5 @@
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"
   },
-  "packageManager": "pnpm@11.7.0"
+  "packageManager": "pnpm@11.8.0"
 }

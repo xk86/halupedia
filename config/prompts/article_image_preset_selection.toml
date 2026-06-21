@@ -29,6 +29,10 @@ interface is truly the most article-specific visual form.
 
 The allowed-preset list is intentionally shuffled per article. Do not treat
 earlier or later presets as preferred; compare all allowed presets on fit.
+Each allowed preset may include "Select when" and "Avoid when" guidance. Treat
+that guidance as the preset owner's intended use case. It is a strong signal,
+but not an absolute rule; choose the preset whose guidance and visual style fit
+the article best.
 
 Use "photo" when a serious photoreal documentary/editorial image is plainly
 the strongest fit, or when the available specialized presets would distract

@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is about a procedure, self-help ritual, household practice, etiquette, step-by-step behavior, practical absurdity, folk remedy, or an action best shown as awkward instructional art."
+selection_avoid = "The subject is a specific public event, legal record, landscape, celebrity scandal, horror footage, cinematic myth, or anything that needs evidence rather than instructions."
 
 system = """
 {{shared_tone}}

@@ -47,6 +47,8 @@ interface PresetPromptRow {
   key: string;
   presetKey: string;
   description: string;
+  selectionWhen?: string;
+  selectionAvoid?: string;
 }
 
 function promptKeyForPresetKey(presetKey: string): string {
@@ -65,6 +67,8 @@ function imagePresetRowsForPrompt(
       key: promptKeyForPresetKey(preset.key),
       presetKey: preset.key,
       description: promptSummary(`${preset.system}\n${preset.user}`),
+      selectionWhen: preset.selectionWhen,
+      selectionAvoid: preset.selectionAvoid,
     })),
     ...(includeDefault
       ? [
@@ -74,6 +78,10 @@ function imagePresetRowsForPrompt(
             description: defaultPrompt
               ? promptSummary(`${defaultPrompt.system}\n${defaultPrompt.user}`)
               : "Photoreal editorial/documentary article image.",
+            selectionWhen:
+              "The article is best served by a grounded documentary, archival, field, portrait, location, museum, lab, or editorial photograph.",
+            selectionAvoid:
+              "A non-photographic artifact, period medium, screen, poster, game render, or stylized illustration is more article-specific.",
           },
         ]
       : []),
@@ -82,7 +90,13 @@ function imagePresetRowsForPrompt(
 }
 
 function formatImagePresetRows(rows: PresetPromptRow[]): string {
-  return rows.map((row) => `- ${row.key}: ${row.description}`).join("\n");
+  return rows
+    .map((row) => [
+      `- ${row.key}: ${row.description}`,
+      row.selectionWhen ? `  Select when: ${promptSummary(row.selectionWhen)}` : "",
+      row.selectionAvoid ? `  Avoid when: ${promptSummary(row.selectionAvoid)}` : "",
+    ].filter(Boolean).join("\n"))
+    .join("\n");
 }
 
 function allowedPresetKeys(rows: PresetPromptRow[]): Map<string, string> {

@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is uncanny, body-horror, cursed-media, liminal, degraded-archive, found-footage, warped anatomy, ritual, disappearance, or a phenomenon that should feel physically wrong on old film."
+selection_avoid = "The subject should be clear, funny, cleanly documentary, non-horror, formal, instructional, screen-based, or would be harmed by severe degradation."
 
 system = """
 {{shared_tone}}

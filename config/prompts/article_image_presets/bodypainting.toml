@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is funny, embarrassing, ceremonial, fan-made, amateur, body-as-canvas, local-fair, protest, dare, beach-party, or otherwise specifically improved by a crude painted stomach image."
+selection_avoid = "The article is serious, tragic, institutional, child-focused, explicit, body-horror, or needs a respectful documentary, archival, or artifact-based image."
 
 system = """
 {{shared_tone}}

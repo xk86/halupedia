@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is abstract, psychological, cosmic, chemically strange, conceptual, dreamlike, identity-bending, impossible-but-editorial, or needs a stylish magazine image rather than literal evidence."
+selection_avoid = "The article is concrete, legal, documentary, period-specific, instructional, screen-based, or would lose clarity if treated as surreal glossy symbolism."
 
 system = """
 {{shared_tone}}

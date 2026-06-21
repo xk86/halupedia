@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article feels like a fictional film, legend, public myth, dramatic character, threat, romance, monster, spectacle, or cultural phenomenon best represented as theatrical campaign art."
+selection_avoid = "The article needs evidence, restraint, a mundane place, a technical object, a legal record, a screenshot, or would become misleading if made too promotional."
 
 system = """
 {{shared_tone}}

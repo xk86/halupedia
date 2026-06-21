@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is about obscure scholarship, taxonomy, invented creatures, rituals, diagrams, premodern notes, marginalia, strange plants, anatomical sketches, maps, coded lore, or an awkward archival folio."
+selection_avoid = "The subject needs a real scene, modern technology, public event, photo evidence, poster, broadcast still, or readable interface."
 
 system = """
 {{shared_tone}}

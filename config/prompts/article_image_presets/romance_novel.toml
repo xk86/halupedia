@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article involves melodrama, lovers, longing, seduction-as-comedy, sentimental rivalry, gothic estates, campy passion, scandalous relationships, or would benefit from earnest paperback excess."
+selection_avoid = "The subject is tragic, child-focused, technical, legal, documentary, non-romantic, or would become exploitative or incoherent as romantic cover art."
 
 system = """
 {{shared_tone}}

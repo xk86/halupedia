@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article concerns a historical figure, institution, myth, memorial, public commission, sacred or civic image, museum object, ceremonial scene, or subject that suits a painted reproduction."
+selection_avoid = "The subject is specifically photographic, screen-based, surveillance-derived, modern candid, instructional, or needs a technological/instrumental capture."
 
 system = """
 {{shared_tone}}

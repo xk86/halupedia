@@ -1151,6 +1151,7 @@ describe("http", () => {
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
     assert.ok(llm.capturedPrompts.some((prompt) => prompt.user.includes("Allowed presets:")));
     assert.ok(llm.capturedPrompts.some((prompt) => /do not pick photo merely because\s+it is safe/i.test(prompt.system)));
+    assert.ok(llm.capturedPrompts.some((prompt) => /preset owner's intended use case/i.test(prompt.system)));
     assert.ok(llm.capturedPrompts.some((prompt) => /favor fitting variety over the safest\s+generic answer/i.test(prompt.user)));
     assert.ok(llm.capturedPrompts.some((prompt) => /reason\s+as one short sentence/i.test(prompt.user)));
     const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.user.includes("Allowed presets:"));
@@ -1160,6 +1161,9 @@ describe("http", () => {
     assert.ok(selectorPrompt.user.includes("- photo:"));
     assert.ok(selectorPrompt.user.includes("- psychedelic_editorial:"));
     assert.match(selectorPrompt.user, /- screenshot: .*narrow preset/i);
+    assert.match(selectorPrompt.user, /Select when: .*substantially about software/i);
+    assert.match(selectorPrompt.user, /Avoid when: .*ordinary person, place, organization/i);
+    assert.match(selectorPrompt.user, /Select when: .*grounded documentary/i);
     assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 1);
   });
 

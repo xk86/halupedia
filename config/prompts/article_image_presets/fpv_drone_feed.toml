@@ -1,6 +1,8 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article concerns conflict zones, fast pursuit, hazards, ruins, perimeter inspection, low-altitude reconnaissance, improvised field documentation, or a subject best seen by a small unstable drone."
+selection_avoid = "The subject is indoors, calm, intimate, archival, legal, poster-like, microscopic, screen-based, or too small/abstract for a drone camera view."
 
 system = """
 {{shared_tone}}

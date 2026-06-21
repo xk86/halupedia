@@ -11,8 +11,6 @@ interface MediaInfo {
   description: string;
   generation?: {
     kind?: string;
-    articleSlug?: string;
-    articleTitle?: string;
     presetKey?: string;
     presetLabel?: string;
     aspectRatioKey?: string;
@@ -237,22 +235,6 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
                     )}
                     {(info.generation.backend || info.generation.model) && (
                       <tr><th>Model</th><td>{[info.generation.backend, info.generation.model].filter(Boolean).join(" · ")}</td></tr>
-                    )}
-                    {info.generation.articleTitle && (
-                      <tr>
-                        <th>Article</th>
-                        <td>
-                          <a
-                            href={`/wiki/${info.generation.articleSlug || info.generation.articleTitle.replace(/\s+/g, "_")}`}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              onNavigate(info.generation?.articleSlug || info.generation?.articleTitle?.replace(/\s+/g, "_") || "");
-                            }}
-                          >
-                            {info.generation.articleTitle}
-                          </a>
-                        </td>
-                      </tr>
                     )}
                     {info.generation.revisedPrompt && (
                       <tr>

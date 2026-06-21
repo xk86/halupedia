@@ -4840,8 +4840,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
     updateMediaGenerationMetadata(mediaDb, result.mediaId, JSON.stringify({
       kind: "article-image",
-      articleSlug: article.slug,
-      articleTitle: article.title,
       presetKey: imagePreset.key,
       presetLabel: imagePreset.label,
       aspectRatioKey: aspectRatio.key,

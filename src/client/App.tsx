@@ -21,6 +21,8 @@ import { Sidebar } from "./Sidebar";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
 import { ArticleProse, articleProseClasses } from "./article/ArticleProse";
+import { ArticleBacklinks } from "./article/ArticleBacklinks";
+import { ArticleBody } from "./article/ArticleBody";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2630,70 +2632,18 @@ export function App() {
             </div>
           </article>
         ) : (
-          <article
+          <ArticleBody
             ref={articleRef}
-            className="article"
+            html={stripLeadingH1(page.article.html)}
+            statusMessage={page.statusMessage}
             onClick={interceptArticleLinks}
-          >
-            <ArticleProse html={stripLeadingH1(page.article.html)} />
-            {page.statusMessage ? (
-              <div className="mt-6 flex items-center gap-[0.6rem] border-t border-rule py-[0.6rem] font-mono text-[0.82rem] text-ink-fade">
-                <span className="size-[7px] animate-[pulse_1.1s_ease-in-out_infinite] rounded-full bg-accent" />
-                <span>{page.statusMessage}</span>
-              </div>
-            ) : null}
-          </article>
+          />
         )}
-        {/* Backlinks — moved to bottom of article column */}
-        {(page.backlinks.existing.length > 0 ||
-          page.backlinks.unwritten.length > 0) && (
-            <section
-              className="mt-8 max-w-[87dvw] border-t border-rule-soft pt-3"
-              aria-label="Referenced by"
-            >
-              <h4 className="m-0 mb-[0.4rem] text-[0.78rem] font-semibold tracking-[0.06em] text-ink-fade uppercase">
-                Referenced by{" "}
-                <span className="font-normal">
-                  (
-                  {page.backlinks.existing.length +
-                    page.backlinks.unwritten.length}
-                  )
-                </span>
-              </h4>
-              <ul className="m-0 flex list-none flex-wrap gap-x-3 gap-y-1 p-0 [&_li]:text-[0.85rem] [&_li]:[word-break:break-all] [&_li]:[hyphens:manual]">
-                {page.backlinks.existing.map((b) => (
-                  <li key={b.slug}>
-                    <a
-                      href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigateToArticle(b.title.replace(/\s+/g, "_"));
-                      }}
-                    >
-                      {b.title}
-                    </a>
-                  </li>
-                ))}
-                {page.backlinks.unwritten.map((b) => (
-                  <li key={b.slug}>
-                    <a
-                      href={`/wiki/${b.title.replace(/\s+/g, "_")}`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        navigateToArticle(b.title.replace(/\s+/g, "_"));
-                      }}
-                    >
-                      {b.title}
-                    </a>
-                    <span className="text-[0.8rem] text-ink-fade">
-                      {" "}
-                      (unwritten)
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+        <ArticleBacklinks
+          existing={page.backlinks.existing}
+          unwritten={page.backlinks.unwritten}
+          onNavigate={navigateToArticle}
+        />
       </>
     );
   }, [

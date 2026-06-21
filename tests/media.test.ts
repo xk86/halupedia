@@ -1351,6 +1351,14 @@ describe("http", () => {
     assert.match(selectorPrompt.user, /Select when: .*grounded documentary/i);
     assert.doesNotMatch(selectorPrompt.user, /Create one editorial hero image/i);
     assert.doesNotMatch(selectorPrompt.user, /Core look:/i);
+    const schema = llm.capturedOptions[0]?.jsonSchema as any;
+    assert.equal(schema.type, "object");
+    assert.equal(schema.additionalProperties, false);
+    assert.deepEqual(schema.properties.image, undefined);
+    assert.ok(schema.properties.presetKey.enum.includes("photo"));
+    assert.ok(schema.properties.presetKey.enum.includes("psychedelic_editorial"));
+    assert.ok(schema.properties.aspectRatioKey.enum.includes("landscape"));
+    assert.deepEqual(schema.required, ["presetKey", "reason"]);
     assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 1);
   });
 
@@ -1388,6 +1396,10 @@ describe("http", () => {
     assert.ok(selectorPrompt);
     assert.match(selectorPrompt.user, /- portrait: portrait \(832x1088\)/);
     assert.match(selectorPrompt.user, /Use portrait shapes for people/i);
+    const schema = llm.capturedOptions[0]?.jsonSchema as any;
+    assert.ok(schema.properties.aspectRatioKey.enum.includes("portrait"));
+    assert.ok(schema.required.includes("aspectRatioKey"));
+    assert.ok(schema.required.includes("aspectRatioReason"));
   });
 
   test("POST /api/article/:slug/image/generate accepts mixed-case auto preset responses", async (t) => {

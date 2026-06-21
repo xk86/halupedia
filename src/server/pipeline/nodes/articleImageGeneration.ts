@@ -140,6 +140,47 @@ function allowedAspectRatioKeys(rows: AspectRatioPromptRow[]): Set<string> {
   return new Set(rows.map((row) => row.key));
 }
 
+function presetSelectionJsonSchema(
+  rows: PresetPromptRow[],
+  aspectRows: AspectRatioPromptRow[],
+  requireAspect: boolean,
+): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    presetKey: {
+      type: "string",
+      enum: rows.map((row) => row.key),
+      description: "One key from the allowed preset list.",
+    },
+    reason: {
+      type: "string",
+      description: "One short sentence explaining the preset choice.",
+    },
+  };
+  const required = ["presetKey", "reason"];
+
+  if (aspectRows.length > 0) {
+    properties.aspectRatioKey = {
+      type: "string",
+      enum: aspectRows.map((row) => row.key),
+      description: "One key from the allowed aspect ratio list.",
+    };
+    properties.aspectRatioReason = {
+      type: "string",
+      description: "One short sentence explaining the aspect ratio choice.",
+    };
+    if (requireAspect) {
+      required.push("aspectRatioKey", "aspectRatioReason");
+    }
+  }
+
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties,
+    required,
+  };
+}
+
 function oneSentenceReason(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.replace(/\s+/g, " ").trim();
@@ -208,6 +249,7 @@ async function selectPresetWithRetries(options: {
 }): Promise<{ presetKey: string; aspectRatioKey?: string; reason?: string; aspectRatioReason?: string }> {
   const allowedPresets = allowedPresetKeys(options.rows);
   const allowedAspects = allowedAspectRatioKeys(options.aspectRows);
+  const jsonSchema = presetSelectionJsonSchema(options.rows, options.aspectRows, options.requireAspect);
   let lastRaw = "";
   for (let attempt = 1; attempt <= PRESET_SELECTION_MAX_ATTEMPTS; attempt += 1) {
     const retryGuidance = attempt === 1
@@ -220,6 +262,7 @@ async function selectPresetWithRetries(options: {
     const raw = await options.deps.llm.chat(rendered.role, rendered.system, rendered.user, {
       thinking: rendered.thinking,
       jsonMode: rendered.json,
+      jsonSchema,
     });
     lastRaw = raw;
     const selected = parseSelectedPreset(raw, allowedPresets, allowedAspects, options.requireAspect);

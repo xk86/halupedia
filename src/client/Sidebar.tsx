@@ -4,7 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import type { InfoboxData, InfoboxGroup, HeadlineMedia } from "@/types";
+import type { InfoboxData, HeadlineMedia } from "@/types";
+import { InfoboxCard } from "@/article/infobox/InfoboxCard";
 
 // Compact field styling for the dense sidebar infobox editor — shrinks the
 // shadcn Input/Textarea defaults (height, padding, font) to sidebar scale.
@@ -627,90 +628,6 @@ const GENERATING_LABEL =
 const GENERATING_PARTIAL =
   "mt-[0.3rem] text-[0.78rem] text-ink-soft leading-[1.4] italic opacity-80";
 
-/**
- * Presentational infobox — the title / subtitle / grouped label-value table that
- * makes up the article right-rail. Styling lives in styles.css (.infobox*). The
- * live Sidebar wraps this with edit/image/streaming chrome through the slots;
- * the theme preview renders it standalone so themes are tested against the real
- * component rather than a stand-in. Fields are pre-rendered HTML (hence the
- * dangerouslySetInnerHTML), matching what the server emits.
- */
-export function InfoboxView({
-  title,
-  subtitle,
-  groups,
-  collapsed = false,
-  titleAction,
-  beforeTable,
-  footer,
-}: {
-  title?: string;
-  subtitle?: string;
-  groups: InfoboxGroup[];
-  /** Mobile collapse state — toggles the group-data-driven hide rules. */
-  collapsed?: boolean;
-  /** Action rendered alongside the title (e.g. the edit button). */
-  titleAction?: React.ReactNode;
-  /** Content between the subtitle and the table (edit panel, headline image). */
-  beforeTable?: React.ReactNode;
-  /** Content after the table (e.g. the streaming status row). */
-  footer?: React.ReactNode;
-}) {
-  return (
-    <div className="infobox group/sb" data-collapsed={collapsed}>
-      <div className="flex items-start justify-between gap-[0.25rem] bg-accent-wash-strong [border-bottom:1px_solid_var(--panel-border)]">
-        {title && (
-          <div
-            className="infobox-title"
-            dangerouslySetInnerHTML={{ __html: title }}
-          />
-        )}
-        {titleAction}
-      </div>
-      {subtitle && (
-        <div
-          className="infobox-subtitle max-[680px]:group-data-[collapsed=true]/sb:hidden"
-          dangerouslySetInnerHTML={{ __html: subtitle }}
-        />
-      )}
-
-      {beforeTable}
-
-      {groups.length > 0 && (
-        <table className="infobox-table max-[680px]:group-data-[collapsed=true]/sb:hidden">
-          {groups.map((group, gi) => (
-            <tbody key={gi}>
-              {group.label && (
-                <tr>
-                  <th
-                    className="infobox-group-header"
-                    colSpan={2}
-                    dangerouslySetInnerHTML={{ __html: group.label }}
-                  />
-                </tr>
-              )}
-              {group.rows.map((row, ri) => (
-                <tr key={ri}>
-                  <th
-                    className="infobox-label"
-                    dangerouslySetInnerHTML={{ __html: row.label }}
-                  />
-                  <td
-                    className="infobox-value"
-                    dangerouslySetInnerHTML={{ __html: row.value }}
-                  />
-                </tr>
-              ))}
-            </tbody>
-          ))}
-        </table>
-      )}
-
-      {footer}
-    </div>
-  );
-}
-
 export function Sidebar({
   articleSlug,
   infobox: infoboxProp,
@@ -918,7 +835,7 @@ export function Sidebar({
           {mobileCollapsed ? "▸" : "▾"}
         </span>
       </button>
-      <InfoboxView
+      <InfoboxCard
         title={title}
         subtitle={subtitle}
         groups={groups}

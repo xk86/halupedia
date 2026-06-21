@@ -63,6 +63,9 @@ describe("Sidebar", () => {
     );
 
     expect(screen.getByLabelText("Article info")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="card"]')).toHaveClass(
+      "overflow-hidden",
+    );
     // "Test Article" appears both in the mobile-toggle button and the
     // infobox title; assert on the title element specifically.
     expect(document.querySelector(".infobox-title")?.textContent).toBe("Test Article");

@@ -7,7 +7,7 @@ import {
   UploadIcon,
 } from "lucide-react";
 import { MarkdownEditor } from "./MarkdownEditor";
-import { InfoboxView } from "./Sidebar";
+import { InfoboxCard } from "./article/infobox/InfoboxCard";
 import type { InfoboxData } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -345,7 +345,7 @@ const ThemePreview = memo(function ThemePreview({
           placeholder="Edit this sample to test your theme…"
         />
         <aside className="flex flex-col gap-2 font-serif">
-          <InfoboxView
+          <InfoboxCard
             title={PREVIEW_INFOBOX.title}
             subtitle={PREVIEW_INFOBOX.subtitle}
             groups={PREVIEW_INFOBOX.groups}

@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves video-game-like action, ruined spaces, soldiers, monsters, vehicles, grim spectacle, mid-2000s-to-early-2010s console aesthetics, or a subject best staged as an HD in-engine frame."
-selection_avoid = "The subject is historical, quiet, legal, documentary, instructional, screen-UI-specific, or would be clearer as a photo, drawing, poster, or older/lower-poly game look."
 
 system = """
 Create one menu-free game viewport image for a Halupedia subject as if it were rendered

@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves dossiers, secrecy, investigations, intelligence records, declassified files, scandals, institutions, disappearances, bureaucracy, conspiracies, or subjects best framed as a redacted archival file."
-selection_avoid = "The subject needs visual color, natural scenery, object materiality, portrait intimacy, technical imaging, or should not be flattened into a document-like record."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a

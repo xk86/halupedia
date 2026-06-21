@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about animals, plants, fungi, minerals, weather forms, anatomical variants, taxonomy, habitats, specimens, field observation, or natural-history subjects that need clear color reference illustration."
-selection_avoid = "The subject is a modern event, legal record, software interface, celebrity-like figure, building, branded organization, product, or needs photographic evidence rather than a reference plate."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a color field-guide

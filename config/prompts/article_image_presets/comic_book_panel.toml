@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves action, conflict, melodrama, strange powers, public myths, monsters, heroes, villains, dramatic objects, urban incidents, or a subject that would read well as sequential-art imagery."
-selection_avoid = "The subject needs direct evidence, formal record treatment, clean technical imaging, natural-history reference, screen UI, or a restrained documentary photograph."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a

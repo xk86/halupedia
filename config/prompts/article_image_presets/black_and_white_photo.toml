@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article suggests early twentieth-century history, archival documentary records, reform photography, old institutions, expeditions, formal portraits, public works, factories, laboratories, or period field evidence."
-selection_avoid = "The subject is contemporary, screen-based, fantastical, poster-like, heavily colored, or better served by a drawing, map, modern photo, or degraded video."
 
 system = """
 Create one editorial hero image for a Halupedia subject as an early 1900s

@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about a fictional company, institution, team, faction, product, event, seal, emblem, mascot, publication, project, club, or branded organization where a standalone logo, badge, crest, or mark would be more useful than a scene."
-selection_avoid = "The article needs documentary evidence, a place or event scene, portrait, screenshot, map, historical plate, poster, or any image where environment and context matter more than a standalone mark."
 
 system = """
 Create one standalone logo, emblem, badge, seal, or wordless brand mark for a

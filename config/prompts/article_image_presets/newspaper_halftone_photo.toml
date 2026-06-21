@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves civic events, disasters, arrests, public ceremonies, scandals, sightings, old local news, historical controversies, municipal records, or a scene best remembered through a printed newspaper photograph."
-selection_avoid = "The subject needs color accuracy, object detail, clean documentary photography, screen UI, poster art, technical imaging, or a non-news artifact rather than a degraded printed press image."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a degraded newspaper

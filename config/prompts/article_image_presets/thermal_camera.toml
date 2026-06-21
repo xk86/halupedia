@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves heat, bodies, animals, vehicles, buildings, night operations, searches, hazards, energy, hidden presence, surveillance, field observation, or anything best revealed by infrared thermal imaging."
-selection_avoid = "The subject needs visible color, fine surface detail, readable identity, historical print treatment, formal portraiture, or a medium where heat signatures would not add useful article-specific information."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a

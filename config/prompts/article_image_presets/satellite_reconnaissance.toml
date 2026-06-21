@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about geography, borders, remote sites, environmental scars, infrastructure, military/intelligence observation, large-scale anomalies, settlements, landscapes, or orbital survey evidence."
-selection_avoid = "The subject is a person, small object, indoor event, legal proceeding, screen interface, portrait, poster, or anything that needs ground-level emotional detail."
 
 system = """
 Create one editorial hero image for a Halupedia subject as if it were captured

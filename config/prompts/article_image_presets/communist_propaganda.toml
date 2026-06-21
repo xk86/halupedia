@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves labor, state campaigns, revolutionary mythology, industrial pride, collective identity, ideological organizations, public murals, planned economies, or fictional socialist civic imagery."
-selection_avoid = "The subject is apolitical, intimate, legalistic, screen-based, modern documentary, or would be misrepresented by state-propaganda framing."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a physically

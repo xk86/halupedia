@@ -3,7 +3,6 @@ thinking = false
 json = false
 allow_text = true
 selection_when = "The article involves a person, creature, object, vehicle, team, faction, artifact, product, champion, mascot, specimen, or collectible subject that would work as a printed trading card."
-selection_avoid = "The subject needs sober evidence, legal record treatment, large-scale geography, clean technical imaging, screen UI, or a medium where collectible-card design would make it too promotional or unserious."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a

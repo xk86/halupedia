@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves darkness, searches, surveillance, nocturnal activity, field observation, trespass, wildlife, conflict, hazards, hidden movement, or a subject best seen through low-light imaging."
-selection_avoid = "The subject needs color accuracy, daylight detail, formal archive treatment, clean illustration, technical diagrams, or a medium where darkness and low-light artifacts would distract from recognition."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of night

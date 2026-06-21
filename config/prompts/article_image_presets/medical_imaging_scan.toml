@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves anatomy, illness, specimens, mutations, implants, parasites, fossils, forensic analysis, lab instruments, microscopy, clinical records, or hidden internal structure."
-selection_avoid = "The subject is mainly social, political, scenic, promotional, architectural, romantic, legal, or needs an exterior scene rather than diagnostic or laboratory imaging."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a medical,

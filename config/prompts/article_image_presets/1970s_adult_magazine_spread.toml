@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves adult entertainment, scandal, nightlife, glamour, celebrity-like figures, eroticized consumer culture, retro lifestyle media, taboo products, intimate social scenes, bachelor-pad luxury, or a subject that benefits from a 1970s adult-magazine editorial treatment."
-selection_avoid = "The article is child-focused, technical, legalistic, tragic, medical, natural-history, screen-based, or needs documentary evidence, formal records, technical imaging, or respectful non-glamour treatment."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a

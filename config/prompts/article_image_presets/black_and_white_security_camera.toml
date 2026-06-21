@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article centers on surveillance, trespass, institutional corridors, stores, parking lots, labs, night perimeters, anomalies caught by fixed cameras, or events defined by being monitored."
-selection_avoid = "The subject is not plausibly seen by a fixed security camera, needs color/detail, or is better represented by a document, formal photo, poster, map, or illustration."
 
 system = """
 Create one editorial hero image for a Halupedia subject that looks like a still

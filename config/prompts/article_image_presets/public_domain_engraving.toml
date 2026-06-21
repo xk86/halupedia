@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article suggests old encyclopedia plates, expeditions, natural history, antiquarian records, inventions, specimens, maps, monuments, ruins, taxonomy, or public-domain-style reference illustration."
-selection_avoid = "The subject is contemporary, intimate, screen-based, newsy, highly colorful, cinematic, or needs photographic proof rather than a historical plate."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the style of a

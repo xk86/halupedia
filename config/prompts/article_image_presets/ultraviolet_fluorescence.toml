@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves residues, stains, minerals, specimens, forensic traces, insects, plants, inks, hidden markings, contamination, rituals, bodily evidence, or a subject best revealed by ultraviolet fluorescence."
-selection_avoid = "The subject needs normal color, wide landscape context, formal portraiture, clean diagrams, screen UI, or hidden fluorescence would add no useful subject-specific information."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of an

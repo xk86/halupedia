@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves melodrama, lovers, longing, seduction-as-comedy, sentimental rivalry, gothic estates, campy passion, scandalous relationships, or would benefit from earnest paperback excess."
-selection_avoid = "The subject is tragic, child-focused, technical, legal, documentary, non-romantic, or would become exploitative or incoherent as romantic cover art."
 
 system = """
 Create one editorial hero image for a Halupedia subject as an embarrassingly
@@ -22,6 +21,9 @@ Core look:
 - Use genre subtypes from the context: historical romance, paranormal romance,
   small-town romance, gothic romance, workplace romance, space romance,
   forbidden love, fake-marriage drama, or melodramatic adventure romance.
+- Vary the romantic pairing when the context leaves it open. Sometimes depict
+  same-gender couples, including gay or lesbian romance-cover tableaux, instead
+  of defaulting every central couple to a man and a woman.
 - Keep the main subject readable. If the article is not about people, translate
   it into a romance-cover object, place, institution, vehicle, artifact, or
   symbolic scene with exaggerated yearning.
@@ -81,8 +83,10 @@ Halupedia context above, as a cringy mass-market romance novel cover.
 Use overearnest paperback romance aesthetics: soft-focus glow, airbrushed
 figures or objects, windblown hair or fabric, longing gazes, dramatic embrace
 when appropriate, sunset or moonlit backdrop, mist, roses, candlelight,
-stormy melodrama, and sentimental cover-like composition. Keep it cheesy but
-non-explicit and specific to the article.
+stormy melodrama, and sentimental cover-like composition. When the context does
+not specify a pairing, sometimes make the central romance gay or lesbian rather
+than always straight. Keep it cheesy but non-explicit and specific to the
+article.
 
 No readable text, titles, author names, publisher blurbs, UI,
 screenshots, overt nudity, pornographic framing, or explicit sexual content.

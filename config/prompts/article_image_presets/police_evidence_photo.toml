@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves evidence, crimes, scandals, disappearances, accidents, strange objects, contested incidents, recovered items, official investigations, or procedural documentation."
-selection_avoid = "The subject is celebratory, mythic, purely natural-history, screen-based, romantic, promotional, scenic, or needs respectful portraiture rather than an evidentiary object or scene."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a police evidence,

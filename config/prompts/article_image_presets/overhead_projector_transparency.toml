@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves classrooms, training sessions, office briefings, diagrams, obsolete instruction, bureaucratic explanation, safety lectures, amateur charts, or ideas best shown as projected acetate."
-selection_avoid = "The subject needs a direct scene, real person, archival photo, screen capture, dramatic poster, or detailed physical rendering rather than a teaching aid."
 
 system = """
 Create one editorial hero image for a Halupedia subject as if it were captured

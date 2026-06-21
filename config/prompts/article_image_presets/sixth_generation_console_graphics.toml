@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article has early-2000s console-game energy, low-poly spaces, uncanny real-time characters, clunky vehicles, eerie facilities, playable locations, or a subject suited to PS2/GameCube/Xbox-era rendering."
-selection_avoid = "The article needs modern HD realism, documentary evidence, a legal/public record, a clean interface, aerial data, or a medium unrelated to games."
 
 system = """
 Create one menu-free game viewport image for a Halupedia subject as if it were rendered

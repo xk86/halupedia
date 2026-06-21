@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article concerns identity, aliases, citizenship, bureaucracy, minor officials, vanished people, membership records, permits, dossiers, institutional registration, or a person best represented through an official ID portrait."
-selection_avoid = "The subject needs action, landscape, public event context, scandal, group dynamics, object detail, technical imaging, or a respectful painted or documentary scene rather than a flat ID-style portrait."
 
 system = """
 Create one editorial hero image for a Halupedia subject as an official passport,

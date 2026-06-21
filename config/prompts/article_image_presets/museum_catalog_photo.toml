@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about a physical artifact, specimen, device, relic, award, fossil, tool, product, craft object, collection item, or object whose material details matter more than a scene."
-selection_avoid = "The subject is primarily an event, landscape, software interface, public performance, legal proceeding, broad institution, or anything that needs people, motion, environment, or narrative context."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a museum catalog,

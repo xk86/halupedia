@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves private snapshots, parties, family records, field evidence, disappearances, youth culture, informal rituals, amateur discovery, personal archives, or a subject that benefits from instant-film intimacy."
-selection_avoid = "The subject needs formal documentation, large-scale geography, screen capture, technical imaging, clean catalog detail, or a sober institutional record instead of an intimate instant-photo artifact."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of an

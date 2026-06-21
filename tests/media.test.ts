@@ -1203,6 +1203,13 @@ describe("http", () => {
     assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "article_image_psychedelic_editorial"), false);
   });
 
+  test("romance novel preset includes same-gender pairing guidance", () => {
+    const preset = readArticleImagePresetFile("romance_novel");
+    assert.ok(preset);
+    assert.match(preset.system, /same-gender couples/i);
+    assert.match(preset.user, /gay or lesbian/i);
+  });
+
   test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {
     const suffix = randomUUID().replace(/-/g, "_");
     const key = `test_${suffix}`;
@@ -1379,6 +1386,9 @@ describe("http", () => {
     assert.match(selectorPrompt.system, /Allowed aspect ratios:/);
     assert.ok(selectorPrompt.system.includes("- documentary_photo:"));
     assert.ok(selectorPrompt.system.includes("- psychedelic_editorial:"));
+    assert.match(selectorPrompt.system, /- manuscript:\n\s+The article is specifically about a manuscript, folio, codex, notebook page/i);
+    assert.doesNotMatch(selectorPrompt.system, /Avoid when/i);
+    assert.doesNotMatch(selectorPrompt.system, /obscure scholarship, taxonomy/i);
     const schema = llm.capturedOptions[0]?.jsonSchema as any;
     assert.equal(schema.type, "object");
     assert.equal(schema.additionalProperties, false);

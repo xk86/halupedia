@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article has heightened emotion, symbolic conflict, surreal spaces, youth-culture melodrama, magical or nightmare logic, stylized characters, or would read best as a polished fictional broadcast still."
-selection_avoid = "The subject should feel like documentary evidence, old public record, mundane institution, real artifact, or sober encyclopedia photography."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a high-quality

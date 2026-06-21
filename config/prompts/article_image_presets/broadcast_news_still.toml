@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about a public event, press conference, disaster scene, local controversy, field report, studio segment, institutional announcement, or something likely captured by TV news."
-selection_avoid = "The subject is private, ancient, purely conceptual, screen-interface-specific, or better as a poster, sketch, satellite image, manuscript, or candid phone photo."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a still captured

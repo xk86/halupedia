@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves childhood, memory, folklore, school records, simple testimony, dreams, fears, family archives, naive diagrams, rituals, mascots, or a subject that gains force from crude handmade drawing."
-selection_avoid = "The subject needs dignity, precise technical detail, photographic evidence, adult institutional record, realistic anatomy, clean design, or a medium where childlike rendering would trivialize it."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a

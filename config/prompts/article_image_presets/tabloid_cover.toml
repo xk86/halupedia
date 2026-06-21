@@ -3,7 +3,6 @@ thinking = false
 json = false
 allow_text = true
 selection_when = "The article involves scandal, celebrity-like figures, sightings, conspiracies, public feuds, romantic disasters, sensational claims, local myths, nightlife, or events that became trashy mass-media spectacle."
-selection_avoid = "The subject is sober, technical, instructional, legalistic, scientific, respectful memorial material, child-focused, or needs evidence rather than sensational magazine treatment."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a trashy tabloid,

@@ -205,25 +205,25 @@
    * system should. Multiplying (not offsetting) means the sharp end lands
    * cleanly on 0 with no need to floor against negatives.
    *
-   * The larger steps are gentle multipliers *and* capped in px (min(...)): a
-   * 22px corner already reads as a friendly rounded card, so without the cap a
-   * high roundness setting turned big surfaces (cards, the infobox) into domes
-   * with a 50px+ arch. The cap lets small controls keep rounding while large
-   * surfaces top out where they still look like cards. md stays uncapped — it
-   * IS the slider value, so the badge stays honest — and the slider tops out
-   * (12) below every cap, so the scale never crosses (md < lg < xl < 2xl
-   * always) and bigger shapes stay the rounder ones.
+   * The multipliers are ordered (0.5 < 0.9 < 1 < 1.9 < 2.7 < 3.6), which is
+   * what keeps the scale monotonic at every setting — md < lg < xl < 2xl
+   * always, so bigger shapes are always the rounder ones, no caps needed.
+   * They spread wide on purpose: at the top of the slider the large steps
+   * exceed half their element's size and read as full circles/pills (the
+   * whole UI goes bubbly), while the small steps only soften a little and the
+   * low end of the slider stays tight and businesslike. md == the slider
+   * value, so the px badge stays honest.
    *
    * `xs` is the "barely there" crisp corner for elements that would otherwise
    * sit at a dead 0 (the search submit, the editor box) — it keeps them part
    * of the system so they soften alongside everything else.
    */
-  --radius-xs: calc(var(--radius) * 0.4);
-  --radius-sm: calc(var(--radius) * 0.7);
+  --radius-xs: calc(var(--radius) * 0.5);
+  --radius-sm: calc(var(--radius) * 0.9);
   --radius-md: var(--radius);
-  --radius-lg: min(calc(var(--radius) * 1.5), 16px);
-  --radius-xl: min(calc(var(--radius) * 2.2), 22px);
-  --radius-2xl: min(calc(var(--radius) * 2.8), 28px);
+  --radius-lg: calc(var(--radius) * 1.9);
+  --radius-xl: calc(var(--radius) * 2.7);
+  --radius-2xl: calc(var(--radius) * 3.6);
 }
 
 /*

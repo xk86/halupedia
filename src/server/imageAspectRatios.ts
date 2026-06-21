@@ -65,7 +65,7 @@ export function validateOpenAIImageSize(size: string): string | null {
 }
 
 function normalizeAspectRatioKey(value: string | undefined): string {
-  const key = (value ?? "").trim();
+  const key = (value ?? "").trim().toLowerCase();
   if (!key || key === DEFAULT_IMAGE_ASPECT_RATIO_KEY) return DEFAULT_IMAGE_ASPECT_RATIO_KEY;
   if (key === AUTO_IMAGE_ASPECT_RATIO_KEY) return AUTO_IMAGE_ASPECT_RATIO_KEY;
   if (!/^[a-z0-9_]+$/i.test(key)) {
@@ -94,7 +94,7 @@ export function listArticleImageAspectRatios(
   };
   return Object.entries(merged)
     .map(([key, option]) => ({
-      key,
+      key: key.toLowerCase(),
       label: option.label || key,
       size: option.size,
       selection_when: option.selection_when,

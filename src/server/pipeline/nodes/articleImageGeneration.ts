@@ -1,6 +1,6 @@
 import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps } from "../deps";
-import { getArticleByLookup, getArticleInfobox } from "../../db";
+import { getArticleByLookup } from "../../db";
 import { stripJsonFences } from "../../prompts";
 import { readPromptFile, listArticleImagePresetFiles } from "../../promptEditor";
 import { stripTopLevelSections, summaryMarkdownFromArticle } from "../../markdown";
@@ -14,7 +14,7 @@ const DEFAULT_PRESET_PROMPT_KEY = "photo";
 const PRESET_SELECTION_MAX_ATTEMPTS = 3;
 
 function normalizePresetKey(value: string | undefined): string {
-  const key = (value ?? "").trim();
+  const key = (value ?? "").trim().toLowerCase();
   if (!key || key === "default" || key === "article_image" || key === DEFAULT_PRESET_PROMPT_KEY) return "default";
   if (key === "auto") return "auto";
   const normalized = key.replace(/^article_image_/, "");
@@ -30,6 +30,13 @@ function promptSummary(text: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 420);
+}
+
+function selectionSummary(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
 }
 
 function stableHash(value: string): number {
@@ -104,9 +111,9 @@ function imagePresetRowsForPrompt(
 function formatImagePresetRows(rows: PresetPromptRow[]): string {
   return rows
     .map((row) => [
-      `- ${row.key}: ${row.description}`,
-      row.selectionWhen ? `  Select when: ${promptSummary(row.selectionWhen)}` : "",
-      row.selectionAvoid ? `  Avoid when: ${promptSummary(row.selectionAvoid)}` : "",
+      `- ${row.key}:`,
+      row.selectionWhen ? `  Select when: ${selectionSummary(row.selectionWhen)}` : `  Style: ${promptSummary(row.description)}`,
+      row.selectionAvoid ? `  Avoid when: ${selectionSummary(row.selectionAvoid)}` : "",
     ].filter(Boolean).join("\n"))
     .join("\n");
 }
@@ -207,7 +214,7 @@ async function selectPresetWithRetries(options: {
       ? options.baseSelectionGuidance
       : [
           options.baseSelectionGuidance,
-          `Previous response was rejected because it was not valid JSON in the required shape. Return exactly {"presetKey":"one_allowed_key","aspectRatioKey":"one_allowed_aspect_key","reason":"one short sentence","aspectRatioReason":"one short sentence"} with no extra text. Attempt ${attempt} of ${PRESET_SELECTION_MAX_ATTEMPTS}.`,
+          `Previous response was rejected because it was not a valid selector object. Do not write an image-generation prompt, do not return prompt/style/aspect_ratio fields, and do not invent a visual brief. Return exactly {"presetKey":"one_allowed_key","aspectRatioKey":"one_allowed_aspect_key","reason":"one short sentence","aspectRatioReason":"one short sentence"} with no extra text. Attempt ${attempt} of ${PRESET_SELECTION_MAX_ATTEMPTS}.`,
         ].filter(Boolean).join("\n\n");
     const rendered = options.renderSelectionPrompt(options.rows, options.aspectRows, retryGuidance);
     const raw = await options.deps.llm.chat(rendered.role, rendered.system, rendered.user, {
@@ -225,7 +232,7 @@ async function selectPresetWithRetries(options: {
     });
   }
   throw new Error(
-    `article image preset selection returned invalid JSON after ${PRESET_SELECTION_MAX_ATTEMPTS} attempts: ${lastRaw.slice(0, 160)}`,
+    `article image preset selection returned invalid selector responses after ${PRESET_SELECTION_MAX_ATTEMPTS} attempts: ${lastRaw.slice(0, 160)}`,
   );
 }
 
@@ -235,20 +242,6 @@ function articleImagePresetSelectionContext(input: { slug?: string }, deps: Pipe
   const article = getArticleByLookup(deps.db, input.slug);
   if (!article) throw new Error("article not found");
 
-  const infobox = getArticleInfobox(deps.db, article.slug);
-  const sidebarContext = infobox
-    ? [
-        infobox.title,
-        infobox.subtitle ?? "",
-        ...infobox.groups.flatMap((group) => [
-          group.label,
-          ...group.rows.flatMap((row) => [row.label, row.value]),
-        ]),
-      ]
-        .filter(Boolean)
-        .join("\n")
-        .slice(0, 1600)
-    : "";
   const articleBody = stripTopLevelSections(article.markdown, ["References", "See also"]);
   const seed = `${article.slug}:${article.title}`;
   const renderSelectionPrompt = (
@@ -260,7 +253,6 @@ function articleImagePresetSelectionContext(input: { slug?: string }, deps: Pipe
       requested_title: article.title,
       summary: article.summaryMarkdown || summaryMarkdownFromArticle(article.markdown),
       article_excerpt: articleBody.slice(0, 2400),
-      sidebar_context: sidebarContext,
       available_presets: formatImagePresetRows(rows),
       available_aspect_ratios: formatAspectRatioRows(aspectRows),
       selection_guidance: selectionGuidance,

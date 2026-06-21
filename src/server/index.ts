@@ -563,7 +563,7 @@ function articleImagePresetKeyFromName(name: string): string {
 }
 
 function normalizeArticleImagePresetKey(value: string | undefined): string {
-  const key = (value ?? "").trim();
+  const key = (value ?? "").trim().toLowerCase();
   if (!key || key === "default" || key === "article_image") return "default";
   if (key === "auto") return "auto";
   const normalized = key.replace(/^article_image_/, "");

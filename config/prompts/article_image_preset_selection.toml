@@ -11,21 +11,16 @@ objects in the article context as fictional-world material. Your job is only to
 choose a visual preset and aspect ratio from the supplied lists, not to write an
 image prompt.
 
+Important: this is a routing decision, not an image prompt request. Never return
+fields like "prompt", "style", or "aspect_ratio". Never invent a new visual
+brief. The only acceptable top-level keys are "presetKey", "aspectRatioKey",
+"reason", and "aspectRatioReason".
+
 Prefer the preset that would make the article's main subject visually legible,
 tonally specific, and entertainingly article-shaped. When several presets would
 fit, lean toward the more distinctive, odd, funny, uncanny, retro, theatrical,
 or artifact-like choice instead of photo, as long as the preset still serves
 the article's actual theme.
-
-Screenshots are a narrow fit, not a general artifact fallback. Choose a
-screenshot preset only when the article is substantially about software,
-databases, records systems, dashboards, maps, surveillance feeds, instrument
-screens, web pages, digital archives, computer games, or a screen-captured
-artifact. Do not choose screenshot merely because the subject could appear in a
-file, registry, website, report, or administrative system. For ordinary people,
-places, organizations, events, objects, rituals, conflicts, species, or
-phenomena, prefer photo or a non-screenshot specialized preset unless the screen
-interface is truly the most article-specific visual form.
 
 The allowed-preset list is intentionally shuffled per article. Do not treat
 earlier or later presets as preferred; compare all allowed presets on fit.
@@ -33,11 +28,6 @@ Each allowed preset may include "Select when" and "Avoid when" guidance. Treat
 that guidance as the preset owner's intended use case. It is a strong signal,
 but not an absolute rule; choose the preset whose guidance and visual style fit
 the article best.
-
-Use "photo" when a serious photoreal documentary/editorial image is plainly
-the strongest fit, or when the available specialized presets would distract
-from, flatten, or misrepresent the subject. Do not pick photo merely because
-it is safe.
 
 Return valid JSON only:
 {"presetKey":"one_allowed_key","aspectRatioKey":"one_allowed_aspect_key","reason":"one short sentence explaining the preset choice","aspectRatioReason":"one short sentence explaining the aspect ratio choice"}
@@ -53,9 +43,6 @@ Summary:
 Article excerpt:
 {{article_excerpt}}
 
-Sidebar/object facts:
-{{sidebar_context}}
-
 Selection guidance:
 {{selection_guidance}}
 
@@ -69,5 +56,7 @@ Pick exactly one allowed preset key. Favor fitting variety over the safest
 generic answer, but keep the article's subject recognizable. Pick exactly one
 allowed aspect ratio key. Use portrait shapes for people, posters, covers, and
 tall designed artifacts when that would compose better than landscape. Include
-each reason as one short sentence. Return JSON only.
+each reason as one short sentence. Do not write an image-generation prompt or
+return prompt/style/aspect_ratio fields. Return JSON only in the exact schema
+shown in the system message.
 """

@@ -1,6 +1,7 @@
 import { Agent, fetch as undiciFetch } from "undici";
 import type { ChatConfig, EmbeddingsConfig, HostConfig, LlmConfig, LlmInvocationMetadata } from "./types";
 import { createConsoleLogger, type Logger, truncateForLog } from "./logger";
+import { OPTIONAL_OLLAMA_PARAMETER_KEYS } from "../ollamaOptions";
 
 // undici's fetch enforces its own headersTimeout/bodyTimeout (300s each by
 // default). Those fire independently of our AbortSignal/idle timers, so a
@@ -617,12 +618,13 @@ class OpenAICompatClient {
    *  only when configured, so an unset value leaves the backend default alone. */
   private nativeOptions(): Record<string, number> {
     const c = this.chatConfig;
+    const optional = Object.fromEntries(
+      OPTIONAL_OLLAMA_PARAMETER_KEYS.flatMap((key) => c[key] === undefined ? [] : [[key, c[key]]]),
+    ) as Record<string, number>;
     return {
       temperature: c.temperature,
       num_predict: c.max_tokens,
-      ...(c.top_k !== undefined ? { top_k: c.top_k } : {}),
-      ...(c.top_p !== undefined ? { top_p: c.top_p } : {}),
-      ...(c.min_p !== undefined ? { min_p: c.min_p } : {}),
+      ...optional,
     };
   }
 
@@ -1114,6 +1116,7 @@ export class OpenAICompatRouter implements LlmRouter {
       host: hostForBaseUrl(config.base_url),
       temperature: config.temperature,
       maxTokens: config.max_tokens,
+      numCtx: config.num_ctx,
       topK: config.top_k,
       topP: config.top_p,
       minP: config.min_p,

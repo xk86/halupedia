@@ -32,6 +32,7 @@ temperature = 1
 top_k = 150
 top_p = 0.85
 max_tokens = 9001
+# num_ctx = 32768 # Optional native Ollama options use model defaults when unset.
 # Non-streaming chat: total timeout. Streaming chat: idle timeout between tokens.
 request_timeout_ms = 180000
 

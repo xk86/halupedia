@@ -325,6 +325,12 @@ export interface ChatConfig {
   model: string;
   temperature: number;
   max_tokens: number;
+  /** Optional native Ollama generation options. Unset values use model defaults. */
+  num_ctx?: number;
+  repeat_last_n?: number;
+  repeat_penalty?: number;
+  seed?: number;
+  draft_num_predict?: number;
   /** Optional sampler params. Sent top-level (like Ollama's `think`/`format`
    *  extensions) only when set, so an unset value leaves the backend default
    *  untouched. */
@@ -363,6 +369,7 @@ export interface LlmInvocationMetadata {
   host: string;
   temperature: number;
   maxTokens: number;
+  numCtx?: number;
   topK?: number;
   topP?: number;
   minP?: number;

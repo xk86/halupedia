@@ -80,6 +80,24 @@ export function setTomlTableValue(
   return lines.join(eol);
 }
 
+/** Remove an active key from a table while preserving comments and formatting. */
+export function removeTomlTableKey(source: string, tablePath: string, key: string): string {
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const lines = source.split(/\r?\n/);
+  const headerIdx = findTableHeader(lines, tablePath);
+  if (headerIdx === -1) return source;
+  const blockEnd = tableBlockEnd(lines, headerIdx + 1);
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
+  for (let i = headerIdx + 1; i < blockEnd; i++) {
+    if (/^\s*#/.test(lines[i])) continue;
+    if (keyPattern.test(lines[i])) {
+      lines.splice(i, 1);
+      return lines.join(eol);
+    }
+  }
+  return source;
+}
+
 /**
  * Append a new `[tablePath]` block with the given entries. No-op-safe: if the
  * table already exists this still appends a duplicate header, so callers should

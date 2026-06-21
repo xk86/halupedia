@@ -3,6 +3,7 @@ import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
 import type { AppConfig, HostConfig, ImagesConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
 import { validateOpenAIImageSize } from "./imageAspectRatios";
+import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
 
 const ROOT = process.cwd();
 
@@ -199,6 +200,12 @@ interface RawRole {
   model?: string;
   temperature?: number;
   max_tokens?: number;
+  num_predict?: number;
+  num_ctx?: number;
+  repeat_last_n?: number;
+  repeat_penalty?: number;
+  seed?: number;
+  draft_num_predict?: number;
   top_k?: number;
   top_p?: number;
   min_p?: number;
@@ -224,7 +231,7 @@ function synthHostId(baseUrl: string): string {
   }
 }
 
-function withLlmDefaults(raw: RawLlm): LlmConfig {
+export function withLlmDefaults(raw: RawLlm): LlmConfig {
   const hosts: Record<string, HostConfig> = {};
 
   const upsertHost = (id: string, partial: RawHost, fallbackMaxInFlight: number): HostConfig => {
@@ -273,20 +280,18 @@ function withLlmDefaults(raw: RawLlm): LlmConfig {
     return { base_url: host?.base_url ?? DEFAULT_BASE_URL, api_key: host?.api_key ?? "local" };
   };
 
-  // Optional sampler params: kept only when set (so an unset value leaves the
+  // Optional generation params: kept only when set (so an unset value leaves the
   // backend default alone), inheriting down the chat → light → images chain.
-  const samplers = (...roles: (RawRole | undefined)[]): { top_k?: number; top_p?: number; min_p?: number } => {
-    const pick = (key: "top_k" | "top_p" | "min_p") => {
+  const generationOptions = (...roles: (RawRole | undefined)[]): Partial<Record<OptionalOllamaParameterKey, number>> => {
+    const pick = (key: OptionalOllamaParameterKey) => {
       for (const r of roles) if (typeof r?.[key] === "number") return r[key];
       return undefined;
     };
-    const out: { top_k?: number; top_p?: number; min_p?: number } = {};
-    const tk = pick("top_k");
-    const tp = pick("top_p");
-    const mp = pick("min_p");
-    if (tk !== undefined) out.top_k = tk;
-    if (tp !== undefined) out.top_p = tp;
-    if (mp !== undefined) out.min_p = mp;
+    const out: Partial<Record<OptionalOllamaParameterKey, number>> = {};
+    for (const key of OPTIONAL_OLLAMA_PARAMETER_KEYS) {
+      const value = pick(key);
+      if (value !== undefined) out[key] = value;
+    }
     return out;
   };
 
@@ -306,8 +311,8 @@ function withLlmDefaults(raw: RawLlm): LlmConfig {
       ...primary(chatHosts),
       model: raw.chat?.model ?? "local-model",
       temperature: raw.chat?.temperature ?? 0.8,
-      max_tokens: raw.chat?.max_tokens ?? 2400,
-      ...samplers(raw.chat),
+      max_tokens: raw.chat?.num_predict ?? raw.chat?.max_tokens ?? 2400,
+      ...generationOptions(raw.chat),
       request_timeout_ms: raw.chat?.request_timeout_ms ?? 180_000,
     },
     light: {
@@ -315,8 +320,8 @@ function withLlmDefaults(raw: RawLlm): LlmConfig {
       ...primary(lightHosts),
       model: raw.light?.model ?? raw.chat?.model ?? "local-model",
       temperature: raw.light?.temperature ?? raw.chat?.temperature ?? 0.8,
-      max_tokens: raw.light?.max_tokens ?? raw.chat?.max_tokens ?? 2400,
-      ...samplers(raw.light, raw.chat),
+      max_tokens: raw.light?.num_predict ?? raw.light?.max_tokens ?? raw.chat?.num_predict ?? raw.chat?.max_tokens ?? 2400,
+      ...generationOptions(raw.light, raw.chat),
       request_timeout_ms: raw.light?.request_timeout_ms ?? raw.chat?.request_timeout_ms ?? 180_000,
     },
     images: raw.images
@@ -325,8 +330,8 @@ function withLlmDefaults(raw: RawLlm): LlmConfig {
           ...primary(imagesHosts),
           model: raw.images.model ?? raw.light?.model ?? raw.chat?.model ?? "local-model",
           temperature: raw.images.temperature ?? raw.light?.temperature ?? raw.chat?.temperature ?? 0.8,
-          max_tokens: raw.images.max_tokens ?? raw.light?.max_tokens ?? raw.chat?.max_tokens ?? 2400,
-          ...samplers(raw.images, raw.light, raw.chat),
+          max_tokens: raw.images.num_predict ?? raw.images.max_tokens ?? raw.light?.num_predict ?? raw.light?.max_tokens ?? raw.chat?.num_predict ?? raw.chat?.max_tokens ?? 2400,
+          ...generationOptions(raw.images, raw.light, raw.chat),
           request_timeout_ms:
             raw.images.request_timeout_ms ?? raw.light?.request_timeout_ms ?? raw.chat?.request_timeout_ms ?? 180_000,
         }

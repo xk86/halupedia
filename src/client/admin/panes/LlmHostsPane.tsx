@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ERROR_BOX } from "@/lib/utils";
 import {
@@ -12,6 +13,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  OPTIONAL_OLLAMA_PARAMETER_DEFINITIONS,
+  type OptionalOllamaParameterKey,
+} from "../../../ollamaOptions";
 
 // Shared chrome for the LLM admin cards (formerly the llm-card* CSS family).
 // --rule-strong is intentionally undefined upstream, so these borders render
@@ -20,10 +25,32 @@ const LLM_CARD =
   "my-1.5 mx-0 bg-input-surface px-2.5 py-2 [border:1px_solid_var(--rule-strong)]";
 const LLM_CARD_HEAD = "mb-1.5 flex items-center gap-2 font-mono text-xs";
 const LLM_CARD_GRID =
-  "mb-1.5 grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-x-2 gap-y-1.5";
+  "mb-1.5 grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-2 gap-y-1";
 const LLM_FIELD =
-  "flex flex-col gap-[0.2rem] font-mono text-[0.72rem] uppercase opacity-85 [&_input]:normal-case";
+  "flex flex-col gap-1 font-mono uppercase opacity-85 [&_input]:h-8 [&_input]:text-xs [&_input]:normal-case";
 const LLM_FIELD_WIDE = `${LLM_FIELD} col-[1/-1]`;
+const LLM_PARAMETER_LABEL = "text-[0.65rem] leading-none";
+
+type RoleParameterKey =
+  | "temperature"
+  | "max_tokens"
+  | OptionalOllamaParameterKey;
+interface RoleParameterDefinition {
+  key: RoleParameterKey;
+  label: string;
+  optional: boolean;
+  min?: number;
+  step: number;
+}
+const ROLE_PARAMETER_DEFINITIONS: readonly RoleParameterDefinition[] = [
+  { key: "temperature", label: "temperature", optional: false, step: 0.1 },
+  { key: "max_tokens", label: "num_predict", optional: false, step: 1 },
+  ...OPTIONAL_OLLAMA_PARAMETER_DEFINITIONS.map((definition) => ({
+    ...definition,
+    label: definition.key,
+    optional: true,
+  })),
+];
 
 interface HostInfo {
   id: string;
@@ -58,17 +85,14 @@ interface DispatchJob {
   node?: string;
 }
 
-interface RoleInfo {
+type RoleInfo = {
   hosts: string[];
   model: string;
   temperature?: number;
   max_tokens?: number;
-  top_k?: number | null;
-  top_p?: number | null;
-  min_p?: number | null;
   enabled?: boolean;
   candidates: string[];
-}
+} & Partial<Record<OptionalOllamaParameterKey, number | null>>;
 
 type RoleKey = "heavy" | "light" | "images" | "embeddings";
 
@@ -800,18 +824,16 @@ function RoleCard({
 }) {
   const [hosts, setHosts] = useState<string[]>(info.hosts);
   const [model, setModel] = useState(info.model);
-  const [temperature, setTemperature] = useState(
-    String(info.temperature ?? ""),
-  );
-  const [maxTokens, setMaxTokens] = useState(String(info.max_tokens ?? ""));
-  const [topK, setTopK] = useState(
-    info.top_k != null ? String(info.top_k) : "",
-  );
-  const [topP, setTopP] = useState(
-    info.top_p != null ? String(info.top_p) : "",
-  );
-  const [minP, setMinP] = useState(
-    info.min_p != null ? String(info.min_p) : "",
+  const [parameterValues, setParameterValues] = useState<
+    Record<RoleParameterKey, string>
+  >(
+    () =>
+      Object.fromEntries(
+        ROLE_PARAMETER_DEFINITIONS.map(({ key }) => [
+          key,
+          info[key] == null ? "" : String(info[key]),
+        ]),
+      ) as Record<RoleParameterKey, string>,
   );
   const [enabled, setEnabled] = useState(info.enabled ?? false);
   const saving = busy === `role:${role}`;
@@ -910,11 +932,13 @@ function RoleCard({
         )}
       </div>
 
-      <div className={LLM_CARD_GRID}>
-        <label className={LLM_FIELD}>
-          model
+      <FieldGroup className={LLM_CARD_GRID}>
+        <Field className={LLM_FIELD}>
+          <FieldLabel htmlFor={`${role}-model`} className={LLM_PARAMETER_LABEL}>
+            model
+          </FieldLabel>
           <Select value={model} onValueChange={(v) => setModel(v ?? "")}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger id={`${role}-model`} size="sm" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -925,64 +949,41 @@ function RoleCard({
               ))}
             </SelectContent>
           </Select>
-        </label>
-        {!isEmbeddings && (
-          <label className={LLM_FIELD}>
-            temperature
-            <Input
-              type="number"
-              step="0.1"
-              value={temperature}
-              onChange={(e) => setTemperature(e.target.value)}
-            />
-          </label>
-        )}
-        {!isEmbeddings && (
-          <label className={LLM_FIELD}>
-            max_tokens
-            <Input
-              type="number"
-              value={maxTokens}
-              onChange={(e) => setMaxTokens(e.target.value)}
-            />
-          </label>
-        )}
-        {!isEmbeddings && (
-          <label className={LLM_FIELD}>
-            top_k
-            <Input
-              type="number"
-              placeholder="default"
-              value={topK}
-              onChange={(e) => setTopK(e.target.value)}
-            />
-          </label>
-        )}
-        {!isEmbeddings && (
-          <label className={LLM_FIELD}>
-            top_p
-            <Input
-              type="number"
-              step="0.01"
-              placeholder="default"
-              value={topP}
-              onChange={(e) => setTopP(e.target.value)}
-            />
-          </label>
-        )}
-        {!isEmbeddings && (
-          <label className={LLM_FIELD}>
-            min_p
-            <Input
-              type="number"
-              step="0.01"
-              placeholder="default"
-              value={minP}
-              onChange={(e) => setMinP(e.target.value)}
-            />
-          </label>
-        )}
-      </div>
+        </Field>
+        {!isEmbeddings &&
+          ROLE_PARAMETER_DEFINITIONS.map((definition) => {
+            const inputId = `${role}-${definition.key.replaceAll("_", "-")}`;
+            return (
+              <Field key={definition.key} className={LLM_FIELD}>
+                <FieldLabel
+                  htmlFor={inputId}
+                  className={LLM_PARAMETER_LABEL}
+                  title={
+                    definition.key === "max_tokens"
+                      ? "Stored as max_tokens for compatibility"
+                      : undefined
+                  }
+                >
+                  {definition.label}
+                </FieldLabel>
+                <Input
+                  id={inputId}
+                  type="number"
+                  min={definition.min}
+                  step={definition.step}
+                  placeholder={definition.optional ? "default" : undefined}
+                  value={parameterValues[definition.key]}
+                  onChange={(event) =>
+                    setParameterValues((current) => ({
+                      ...current,
+                      [definition.key]: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+            );
+          })}
+      </FieldGroup>
 
       <p className="sb-copy text-[12px] opacity-60">
         Resolved order:{" "}
@@ -996,17 +997,21 @@ function RoleCard({
         disabled={saving}
         onClick={() => {
           const num = (s: string) => (s.trim() === "" ? undefined : Number(s));
+          const optionalParameters = Object.fromEntries(
+            OPTIONAL_OLLAMA_PARAMETER_DEFINITIONS.map(({ key }) => [
+              key,
+              num(parameterValues[key]) ?? null,
+            ]),
+          );
           onSave({
             hosts,
             model,
             ...(isEmbeddings
               ? { enabled }
               : {
-                  temperature: Number(temperature),
-                  max_tokens: Number(maxTokens),
-                  ...(num(topK) !== undefined ? { top_k: num(topK) } : {}),
-                  ...(num(topP) !== undefined ? { top_p: num(topP) } : {}),
-                  ...(num(minP) !== undefined ? { min_p: num(minP) } : {}),
+                  temperature: Number(parameterValues.temperature),
+                  max_tokens: Number(parameterValues.max_tokens),
+                  ...optionalParameters,
                 }),
           });
         }}

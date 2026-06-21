@@ -110,10 +110,11 @@ import {
   findReferencedArticlesInEditText,
 } from "./editReferences";
 import { OpenAICompatRouter, fetchHostModels, type LlmRouter } from "./llm";
-import type { ImageGenerationConfig } from "./types";
-import { addTomlTable, setTomlTableValue } from "./tomlEdit";
+import type { ChatConfig, ImageGenerationConfig } from "./types";
+import { addTomlTable, removeTomlTableKey, setTomlTableValue } from "./tomlEdit";
 import { createConsoleLogger, type Logger } from "./logger";
 import { MaintenanceScheduler } from "./maintenance";
+import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
 import {
   articleSectionMarkdown,
   buildHaluLink,
@@ -3567,22 +3568,12 @@ export async function createApp(options: CreateAppOptions = {}) {
         models: l?.models ?? null,
       };
     });
-    const roleEntry = (cfg: {
-      hosts: string[];
-      model: string;
-      temperature: number;
-      max_tokens: number;
-      top_k?: number;
-      top_p?: number;
-      min_p?: number;
-    }) => ({
+    const roleEntry = (cfg: ChatConfig) => ({
       hosts: cfg.hosts,
       model: cfg.model,
       temperature: cfg.temperature,
       max_tokens: cfg.max_tokens,
-      top_k: cfg.top_k ?? null,
-      top_p: cfg.top_p ?? null,
-      min_p: cfg.min_p ?? null,
+      ...Object.fromEntries(OPTIONAL_OLLAMA_PARAMETER_KEYS.map((key) => [key, cfg[key] ?? null])),
     });
     const roles = {
       heavy: { ...roleEntry(runtime.llm.chat), candidates: liveRouter()?.candidatesFor("heavy") ?? [] },
@@ -3646,11 +3637,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       model?: unknown;
       temperature?: unknown;
       max_tokens?: unknown;
-      top_k?: unknown;
-      top_p?: unknown;
-      min_p?: unknown;
+      num_predict?: unknown;
       enabled?: unknown;
-    };
+    } & Partial<Record<OptionalOllamaParameterKey, unknown>>;
     try {
       editLlmToml((src) => {
         let next = src;
@@ -3658,8 +3647,11 @@ export async function createApp(options: CreateAppOptions = {}) {
         if (typeof body.model === "string") next = setTomlTableValue(next, table, "model", body.model);
         if (typeof body.temperature === "number") next = setTomlTableValue(next, table, "temperature", body.temperature);
         if (typeof body.max_tokens === "number") next = setTomlTableValue(next, table, "max_tokens", body.max_tokens);
-        for (const key of ["top_k", "top_p", "min_p"] as const) {
+        if (typeof body.num_predict === "number") next = setTomlTableValue(next, table, "num_predict", body.num_predict);
+        else if (body.num_predict === null) next = removeTomlTableKey(next, table, "num_predict");
+        for (const key of OPTIONAL_OLLAMA_PARAMETER_KEYS) {
           if (typeof body[key] === "number") next = setTomlTableValue(next, table, key, body[key] as number);
+          else if (body[key] === null) next = removeTomlTableKey(next, table, key);
         }
         if (role === "embeddings" && typeof body.enabled === "boolean")
           next = setTomlTableValue(next, table, "enabled", body.enabled);

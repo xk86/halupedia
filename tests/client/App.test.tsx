@@ -168,12 +168,22 @@ describe("App", () => {
     expect(
       screen.getByLabelText("dark Background HEX value"),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("light Background")).toHaveClass(
-      "overflow-hidden",
-      "p-0",
-      "[&::-moz-color-swatch]:border-0",
-      "[&::-webkit-color-swatch]:border-0",
-      "[&::-webkit-color-swatch-wrapper]:p-0",
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit light Background color" }),
+    );
+    expect(
+      screen.getByRole("application", { name: "Color area" }),
+    ).toBeVisible();
+    const hue = screen.getByRole("slider", { name: "Hue" });
+    const pickerValue = screen.getByLabelText(
+      "light Background OKLCH value",
+    ) as HTMLInputElement;
+    const initialPickerValue = pickerValue.value;
+    hue.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await waitFor(() =>
+      expect(pickerValue).not.toHaveValue(initialPickerValue),
     );
 
     const backgroundHex = screen.getByLabelText("light Background HEX value");

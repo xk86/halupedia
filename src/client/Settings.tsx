@@ -11,6 +11,7 @@ import { InfoboxCard } from "./article/infobox/InfoboxCard";
 import type { InfoboxData } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ColorPicker } from "@/components/ui/color-picker/color-picker";
 import {
   Card,
   CardContent,
@@ -271,14 +272,33 @@ function ColorField({
           <FieldLabel htmlFor={id}>{field.label}</FieldLabel>
           <FieldDescription>{field.description}</FieldDescription>
         </div>
-        <Input
-          id={id}
-          type="color"
-          value={oklchToHex(value)}
-          onChange={(event) => onChange(hexToOklch(event.currentTarget.value))}
-          className="size-8 shrink-0 cursor-pointer overflow-hidden p-0 [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
-          aria-label={`${variant} ${field.label}`}
-        />
+        <Popover>
+          <PopoverTrigger
+            type="button"
+            aria-label={`Edit ${variant} ${field.label} color`}
+            title="Open color picker"
+            className="size-8 shrink-0 cursor-pointer rounded-md border border-input shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            style={{ backgroundColor: value }}
+          />
+          <PopoverContent
+            align="end"
+            sideOffset={8}
+            className="w-auto border-0 bg-transparent p-0 shadow-none ring-0"
+          >
+            <ColorPicker.Root
+              value={value}
+              format="oklch"
+              formats={["oklch"]}
+              onValueChange={(_color, _formatted, formats) =>
+                onChange(formats.oklch)
+              }
+              aria-label={`${variant} ${field.label} color picker`}
+            >
+              <ColorPicker.Area mode="oklch-cl" softProof />
+              <ColorPicker.Hue />
+            </ColorPicker.Root>
+          </PopoverContent>
+        </Popover>
       </div>
       <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-1">
         <Input

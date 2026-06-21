@@ -253,8 +253,15 @@ export interface ImageGenerationConfig {
   auto_generate_for_featured_article: boolean;
   auto_preset_multipass: boolean;
   backend: ImageGenerationBackend;
+  aspect_ratios: Record<string, ImageAspectRatioConfig>;
   openai: OpenAIImageGenerationConfig;
   ollama: OllamaImageGenerationConfig;
+}
+
+export interface ImageAspectRatioConfig {
+  label: string;
+  size: string;
+  selection_when?: string;
 }
 
 export interface OpenAIImageGenerationConfig {

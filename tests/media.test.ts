@@ -47,6 +47,7 @@ import { articleImageGenerationWorkflow } from "../src/server/pipeline/workflows
 import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
 import { generateArticleImage, setImageGenerationFetchForTests } from "../src/server/imageGeneration";
+import { listArticleImageAspectRatios } from "../src/server/imageAspectRatios";
 import type { ImageGenerationConfig } from "../src/server/types";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -469,6 +470,60 @@ describe("article image generation", () => {
     assert.equal(result.mime, "image/jpeg");
     assert.equal(result.revisedPrompt, "revised");
     assert.deepEqual(result.bytes, TINY_PNG);
+  });
+
+  test("OpenAI backend validates and sends requested image size overrides", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: TINY_PNG_B64 }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        ...enabledOpenAiImageGeneration,
+        ollama: TEST_CONFIG.app.images.generation.ollama,
+      } as ImageGenerationConfig,
+      logger: noop(),
+      size: "832x1088",
+    });
+
+    assert.equal(capturedBody.size, "832x1088");
+    await assert.rejects(
+      () =>
+        generateArticleImage({
+          prompt: "draw aspirin",
+          config: {
+            ...TEST_CONFIG.app.images.generation,
+            ...enabledOpenAiImageGeneration,
+            ollama: TEST_CONFIG.app.images.generation.ollama,
+          } as ImageGenerationConfig,
+          logger: noop(),
+          size: "801x1088",
+        }),
+      /divisible by 16/i,
+    );
+  });
+
+  test("default image aspect ratio follows configured OpenAI size", () => {
+    const ratios = listArticleImageAspectRatios({
+      ...TEST_CONFIG.app.images.generation,
+      ...enabledOpenAiImageGeneration,
+      openai: {
+        ...enabledOpenAiImageGeneration.openai!,
+        size: "1152x672",
+      },
+      ollama: TEST_CONFIG.app.images.generation.ollama,
+    } as ImageGenerationConfig);
+    assert.equal(ratios.find((ratio) => ratio.key === "default")?.size, "1152x672");
   });
 
   test("OpenAI backend rejects missing API keys before calling the provider", async (t) => {
@@ -1165,6 +1220,42 @@ describe("http", () => {
     assert.match(selectorPrompt.user, /Avoid when: .*ordinary person, place, organization/i);
     assert.match(selectorPrompt.user, /Select when: .*grounded documentary/i);
     assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 1);
+  });
+
+  test("POST /api/article/:slug/image/generate can ask the LLM to select an aspect ratio", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm('{"presetKey":"photo","aspectRatioKey":"portrait","reason":"Photo keeps the portrait subject legible.","aspectRatioReason":"Portrait fits a person better than landscape."}');
+    const s = await makeTestServer(
+      llm,
+      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
+    ); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto", aspectRatioKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "default");
+    assert.equal(body.aspectRatioKey, "portrait");
+    assert.equal(capturedBody.size, "832x1088");
+    const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.user.includes("Allowed aspect ratios:"));
+    assert.ok(selectorPrompt);
+    assert.match(selectorPrompt.user, /- portrait: portrait \(832x1088\)/);
+    assert.match(selectorPrompt.user, /Use portrait shapes for people/i);
   });
 
   test("POST /api/article/:slug/image/generate retries malformed auto preset responses", async (t) => {

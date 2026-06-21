@@ -31,6 +31,12 @@ interface ImagePromptOption {
   label: string;
 }
 
+interface ImageAspectRatioOption {
+  key: string;
+  label: string;
+  size: string;
+}
+
 interface Props {
   articleSlug: string;
   onArticleUpdate: (article: unknown) => void;
@@ -51,6 +57,11 @@ export function HeadlineImagePanel({
     { key: "default", label: "default" },
   ]);
   const [selectedPresetKey, setSelectedPresetKey] = useState("default");
+  const [aspectRatios, setAspectRatios] = useState<ImageAspectRatioOption[]>([
+    { key: "default", label: "default landscape", size: "1088x624" },
+  ]);
+  const [selectedAspectRatioKey, setSelectedAspectRatioKey] =
+    useState("default");
 
   // Search-existing state
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,6 +85,28 @@ export function HeadlineImagePanel({
           prompts.some((prompt) => prompt.key === current)
             ? current
             : prompts[0].key,
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  const loadAspectRatios = useCallback(() => {
+    fetch("/api/admin/article-image-aspect-ratios")
+      .then((r) => r.json())
+      .then((body: { aspectRatios?: ImageAspectRatioOption[] }) => {
+        const options =
+          Array.isArray(body.aspectRatios) && body.aspectRatios.length > 0
+            ? body.aspectRatios
+            : [{ key: "default", label: "default landscape", size: "1088x624" }];
+        const withAuto = [
+          { key: "auto", label: "auto", size: "" },
+          ...options,
+        ];
+        setAspectRatios(withAuto);
+        setSelectedAspectRatioKey((current) =>
+          withAuto.some((option) => option.key === current)
+            ? current
+            : "default",
         );
       })
       .catch(() => {});
@@ -111,13 +144,15 @@ export function HeadlineImagePanel({
             });
           } else {
             loadImagePrompts();
+            loadAspectRatios();
           }
         },
       )
       .catch(() => {
         loadImagePrompts();
+        loadAspectRatios();
       });
-  }, [articleSlug, loadImagePrompts]);
+  }, [articleSlug, loadAspectRatios, loadImagePrompts]);
 
   const applyResult = useCallback(
     (payload: any) => {
@@ -187,7 +222,10 @@ export function HeadlineImagePanel({
   );
 
   const generateImage = useCallback(
-    async (presetKey = selectedPresetKey) => {
+    async (
+      presetKey = selectedPresetKey,
+      aspectRatioKey = selectedAspectRatioKey,
+    ) => {
       if (busy) return;
       setBusy(true);
       setGenerating(true);
@@ -198,7 +236,7 @@ export function HeadlineImagePanel({
           {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ presetKey }),
+            body: JSON.stringify({ presetKey, aspectRatioKey }),
           },
         );
         const payload = (await res.json().catch(() => ({}))) as any;
@@ -211,7 +249,7 @@ export function HeadlineImagePanel({
         setBusy(false);
       }
     },
-    [articleSlug, busy, selectedPresetKey, applyResult],
+    [articleSlug, busy, selectedPresetKey, selectedAspectRatioKey, applyResult],
   );
 
   const searchExisting = useCallback(async () => {
@@ -463,6 +501,39 @@ export function HeadlineImagePanel({
                 ))}
               </SelectContent>
             </Select>
+            <Select
+              value={selectedAspectRatioKey}
+              onValueChange={(value) =>
+                value && setSelectedAspectRatioKey(value)
+              }
+              disabled={busy}
+              items={Object.fromEntries(
+                aspectRatios.map((option) => [
+                  option.key,
+                  option.size
+                    ? `${option.label} (${option.size})`
+                    : option.label,
+                ]),
+              )}
+            >
+              <SelectTrigger
+                size="sm"
+                className="max-w-full min-w-[11rem]"
+                aria-label="Image aspect ratio"
+                title="Image aspect ratio"
+              >
+                <SelectValue placeholder="Aspect ratio" />
+              </SelectTrigger>
+              <SelectContent>
+                {aspectRatios.map((option) => (
+                  <SelectItem key={option.key} value={option.key}>
+                    {option.size
+                      ? `${option.label} (${option.size})`
+                      : option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               type="button"
               variant="default"
@@ -478,7 +549,7 @@ export function HeadlineImagePanel({
               variant="outline"
               size="sm"
               className="min-w-8 px-2"
-              onClick={() => void generateImage("auto")}
+              onClick={() => void generateImage("auto", "auto")}
               disabled={busy}
               aria-label="Automatically select preset"
               title="Generate with automatically selected preset"

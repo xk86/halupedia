@@ -1,5 +1,6 @@
 import type { Logger } from "./logger";
 import type { ImageGenerationConfig } from "./types";
+import { parseImageSize, validateOpenAIImageSize } from "./imageAspectRatios";
 
 type ImageFetch = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -25,6 +26,7 @@ export interface GenerateArticleImageOptions {
   prompt: string;
   config: ImageGenerationConfig;
   logger: Logger;
+  size?: string;
 }
 
 function normalizeBaseUrl(baseUrl: string, fallback: string): string {
@@ -83,10 +85,15 @@ async function generateWithOpenAI(
   prompt: string,
   config: ImageGenerationConfig,
   logger: Logger,
+  size = config.openai.size,
 ): Promise<GeneratedArticleImage> {
   const openai = config.openai;
   if (!openai.api_key.trim()) {
     throw new Error("OpenAI image generation requires images.generation.openai.api_key");
+  }
+  const sizeError = validateOpenAIImageSize(size);
+  if (sizeError) {
+    throw new Error(`OpenAI image generation ${sizeError}`);
   }
   const url = `${normalizeBaseUrl(openai.base_url, "https://api.openai.com/v1")}/images/generations`;
   const startedAt = Date.now();
@@ -94,7 +101,7 @@ async function generateWithOpenAI(
     model: openai.model,
     prompt,
     n: 1,
-    size: openai.size,
+    size,
     quality: openai.quality,
     output_format: openai.output_format,
   };
@@ -153,8 +160,10 @@ async function generateWithOllama(
   prompt: string,
   config: ImageGenerationConfig,
   logger: Logger,
+  size?: string,
 ): Promise<GeneratedArticleImage> {
   const ollama = config.ollama;
+  const parsedSize = size ? parseImageSize(size) : null;
   const base = normalizeBaseUrl(ollama.base_url, "http://127.0.0.1:11434").replace(/\/v1$/, "");
   const startedAt = Date.now();
   const response = await imageFetch(`${base}/api/generate`, {
@@ -165,8 +174,8 @@ async function generateWithOllama(
       model: ollama.model,
       prompt,
       stream: false,
-      width: ollama.width,
-      height: ollama.height,
+      width: parsedSize?.width ?? ollama.width,
+      height: parsedSize?.height ?? ollama.height,
       steps: ollama.steps,
     }),
   });
@@ -193,12 +202,13 @@ export async function generateArticleImage({
   prompt,
   config,
   logger,
+  size,
 }: GenerateArticleImageOptions): Promise<GeneratedArticleImage> {
   if (!config.enabled) {
     throw new Error("image generation is disabled");
   }
   if (config.backend === "ollama") {
-    return generateWithOllama(prompt, config, logger);
+    return generateWithOllama(prompt, config, logger, size);
   }
-  return generateWithOpenAI(prompt, config, logger);
+  return generateWithOpenAI(prompt, config, logger, size);
 }

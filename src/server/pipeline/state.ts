@@ -83,6 +83,8 @@ export const WorkflowInputSchema = z.object({
   imageReplace: z.boolean().optional(),
   /** Article-image preset key used for article.image_generate. */
   imagePromptKey: z.string().optional(),
+  /** Article-image aspect ratio key used for article.image_generate. */
+  imageAspectRatioKey: z.string().optional(),
 
   // Random-page-specific ─────────────────────────────────────────────────────
   /** Existing articles offered to the model as inspiration for a random pick. */
@@ -290,6 +292,10 @@ export const PipelineStateSchema = z.object({
   selectedImagePromptKey: z.string().optional(),
   /** Single-sentence reason for the final concrete article-image preset selection. */
   selectedImagePromptReason: z.string().optional(),
+  /** Concrete image aspect ratio selected for article.image_generate. */
+  selectedImageAspectRatioKey: z.string().optional(),
+  /** Single-sentence reason for the selected image aspect ratio. */
+  selectedImageAspectRatioReason: z.string().optional(),
   /** Generated headline image attachment result for article.image_generate. */
   imageGenerationResult: z
     .object({
@@ -300,6 +306,7 @@ export const PipelineStateSchema = z.object({
       backend: z.string(),
       model: z.string(),
       presetKey: z.string().optional(),
+      aspectRatioKey: z.string().optional(),
       revisedPrompt: z.string().optional(),
     })
     .optional(),

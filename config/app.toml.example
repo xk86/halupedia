@@ -105,6 +105,31 @@ output_format = "jpeg"
 output_compression = 70
 timeout_ms = 120000
 
+[images.generation.aspect_ratios.default]
+label = "default landscape"
+size = "1088x624"
+selection_when = "Ordinary article headline images, places, scenes, objects, and general encyclopedia illustrations."
+
+[images.generation.aspect_ratios.square]
+label = "square"
+size = "832x832"
+selection_when = "Icons, specimens, centered artifacts, album-like covers, badges, symbols, and compact visual subjects."
+
+[images.generation.aspect_ratios.portrait]
+label = "portrait"
+size = "832x1088"
+selection_when = "People, character portraits, statues, fashion, costumes, tall objects, and vertical compositions."
+
+[images.generation.aspect_ratios.poster]
+label = "poster portrait"
+size = "768x1152"
+selection_when = "Posters, covers, propaganda, exhibition placards, title cards, and designed printed artifacts."
+
+[images.generation.aspect_ratios.wide]
+label = "wide landscape"
+size = "1152x672"
+selection_when = "Broad landscapes, group scenes, architecture, maps, ceremonies, battle scenes, or environment-heavy subjects."
+
 [images.generation.ollama]
 base_url = "http://127.0.0.1:11434"
 model = "x/z-image-turbo"

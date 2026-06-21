@@ -90,7 +90,7 @@
  * --radius-* scale that utilities read lives in the @theme block below.
  */
 :root {
-  --radius: 3px;
+  --radius: 1px;
 }
 
 @theme {

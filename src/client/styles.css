@@ -1321,11 +1321,11 @@ a:hover {
   outline: none;
 }
 
-.mdedit-pm > :first-child {
+.mdedit-pm> :first-child {
   margin-top: 0;
 }
 
-.mdedit-pm > :last-child {
+.mdedit-pm> :last-child {
   margin-bottom: 0;
 }
 
@@ -1346,9 +1346,11 @@ a:hover {
 .mdedit-pm h1 {
   font-size: 1.6rem;
 }
+
 .mdedit-pm h2 {
   font-size: 1.35rem;
 }
+
 .mdedit-pm h3 {
   font-size: 1.15rem;
 }

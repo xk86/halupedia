@@ -462,9 +462,9 @@ export function App() {
             ? "Admin - Halupedia"
             : route.kind === "settings"
               ? "Settings - Halupedia"
-            : route.kind === "index"
-              ? "All entries - Halupedia"
-              : "Halupedia";
+              : route.kind === "index"
+                ? "All entries - Halupedia"
+                : "Halupedia";
       return;
     }
 
@@ -2946,17 +2946,18 @@ export function App() {
         {route.kind !== "graph" &&
           route.kind !== "admin" &&
           route.kind !== "settings" && (
-          <Sidebar
-            articleSlug={articleSlug}
-            articleTitle={articleTitle}
-            showTopArticles={route.kind === "home"}
-            infobox={page?.infobox ?? null}
-            headlineMedia={page?.headlineMedia ?? null}
-            onNavigate={navigateToArticle}
-            onNavigateToMedia={navigateToMedia}
-            onArticleUpdate={handleLiveArticleUpdate}
-          />
-        )}
+            <Sidebar
+              articleSlug={articleSlug}
+              articleTitle={articleTitle}
+              showTopArticles={route.kind === "home"}
+              infobox={page?.infobox ?? null}
+              headlineMedia={page?.headlineMedia ?? null}
+              onNavigate={navigateToArticle}
+              onNavigateToMedia={navigateToMedia}
+              onArticleUpdate={handleLiveArticleUpdate}
+            />
+            // TODO factor into a new component in a new file w shadcn components
+          )}
       </section>
 
       {linkMenu ? (

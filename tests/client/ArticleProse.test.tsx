@@ -17,6 +17,10 @@ describe("ArticleProse", () => {
 
     expect(prose).toHaveClass("prose", "prose-halu", "max-w-none");
     expect(articleProseClasses).toContain("[&_blockquote]:border-l-accent");
+    expect(articleProseClasses).toContain("[&_blockquote]:border-l-[3px]");
+    expect(articleProseClasses).toContain(
+      "[&_blockquote]:[border-left-style:solid]",
+    );
     expect(articleProseClasses).toContain("[&_blockquote]:bg-blockquote-bg");
   });
 

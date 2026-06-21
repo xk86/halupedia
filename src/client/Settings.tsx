@@ -276,7 +276,7 @@ function ColorField({
           type="color"
           value={oklchToHex(value)}
           onChange={(event) => onChange(hexToOklch(event.currentTarget.value))}
-          className="size-8 shrink-0 p-0.5"
+          className="size-8 shrink-0 cursor-pointer overflow-hidden p-0 [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0"
           aria-label={`${variant} ${field.label}`}
         />
       </div>

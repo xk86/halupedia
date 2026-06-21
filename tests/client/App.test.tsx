@@ -163,25 +163,26 @@ describe("App", () => {
     // The real MarkdownEditor renders the shared sample in both panels.
     expect(screen.getAllByText(/cartographer/i).length).toBeGreaterThan(0);
     // Day and night palettes render side by side, not behind tabs.
-    expect(
-      screen.getByRole("heading", { name: "Day colors" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("heading", { name: "Night colors" }),
-    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Day colors" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Night colors" })).toBeVisible();
     expect(
       screen.getByLabelText("dark Background HEX value"),
     ).toBeInTheDocument();
-
-    const backgroundHex = screen.getByLabelText(
-      "light Background HEX value",
+    expect(screen.getByLabelText("light Background")).toHaveClass(
+      "overflow-hidden",
+      "p-0",
+      "[&::-moz-color-swatch]:border-0",
+      "[&::-webkit-color-swatch]:border-0",
+      "[&::-webkit-color-swatch-wrapper]:p-0",
     );
+
+    const backgroundHex = screen.getByLabelText("light Background HEX value");
     fireEvent.change(backgroundHex, { target: { value: "112233" } });
     fireEvent.blur(backgroundHex);
     expect(backgroundHex).toHaveValue("#112233");
-    expect(
-      screen.getByLabelText("light Background OKLCH value"),
-    ).toHaveValue(hexToOklch("#112233"));
+    expect(screen.getByLabelText("light Background OKLCH value")).toHaveValue(
+      hexToOklch("#112233"),
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Night" }));
 

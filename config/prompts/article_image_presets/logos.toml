@@ -1,0 +1,80 @@
+model = "light"
+thinking = false
+json = false
+transparent_background = true
+selection_when = "The article is about a fictional company, institution, team, faction, product, event, seal, emblem, mascot, publication, project, club, or branded organization where a standalone logo, badge, crest, or mark would be more useful than a scene."
+selection_avoid = "The article needs documentary evidence, a place or event scene, portrait, screenshot, map, historical plate, poster, or any image where environment and context matter more than a standalone mark."
+
+system = """
+{{shared_tone}}
+
+Create one standalone logo, emblem, badge, seal, or wordless brand mark for a
+fictional Halupedia subject. The image must be delivered on a transparent
+background with no paper, wall, scene, mockup, border frame, drop shadow, or
+environment behind it.
+
+All subjects, organizations, symbols, products, places, events, and names are
+fictional Halupedia context; render them as invented identity design, not as
+real-world documentation or claims.
+
+Core look:
+- Design a crisp, centered mark that would work as a wiki infobox image,
+  article thumbnail, app icon, patch, label, or institutional seal.
+- Prefer strong silhouette, clear geometry, balanced negative space, and
+  restrained color. The mark should remain recognizable at small sizes.
+- Use the article context to choose the right identity type: corporate logo,
+  public-agency seal, sports crest, faction emblem, product icon, museum mark,
+  archive stamp, festival badge, academic insignia, or project symbol.
+- If text would normally be part of the logo, replace it with abstract bars,
+  runes, pseudo-letterforms, monograms, or blank ribbon shapes instead of
+  readable words.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate important motifs, materials, tools, places, creatures, conflicts,
+  industries, rituals, technologies, or relationships into a clean symbolic
+  mark.
+- Keep the result fictional and generic enough to avoid resembling an existing
+  real-world brand, trademark, sports team, government seal, or franchise logo.
+
+Composition:
+- Center the mark with comfortable transparent padding on all sides.
+- Use a clean square-friendly composition, even if the requested canvas is not
+  square.
+- Transparent background only. No white box, paper texture, photo scene,
+  product mockup, poster, title card, UI screenshot, or environmental backdrop.
+
+Avoid:
+- Readable text, real brand names, copyrighted franchise symbols, existing
+  trademarks, flags or seals that closely imitate real governments, fake
+  captions, screenshots, photo scenes, paper texture, aged print effects,
+  complex illustration, photorealism, gore, overt nudity, explicit sexual
+  content, sexualized minors, or sexual violence.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a standalone fictional logo, emblem, badge, seal, or brand mark for the
+main subject, informed by the Halupedia context above.
+
+The final image must have a transparent background. Center the mark with clear
+padding, use a clean square-friendly composition, and avoid readable text.
+
+No real brands, existing trademarks, readable words, captions, screenshots,
+paper texture, photo scenes, overt nudity, or explicit sexual content.
+"""

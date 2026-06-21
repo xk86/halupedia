@@ -586,6 +586,53 @@ describe("article image generation", () => {
     assert.equal(result.mime, "image/png");
   });
 
+  test("OpenAI backend sends transparent background requests as png", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: TINY_PNG_B64 }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const result = await generateArticleImage({
+      prompt: "draw a transparent fictional logo",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        ...enabledOpenAiImageGeneration,
+        ollama: TEST_CONFIG.app.images.generation.ollama,
+      } as ImageGenerationConfig,
+      logger: noop(),
+      background: "transparent",
+    });
+
+    assert.equal(capturedBody.background, "transparent");
+    assert.equal(capturedBody.output_format, "png");
+    assert.equal("output_compression" in capturedBody, false);
+    assert.equal(result.mime, "image/png");
+  });
+
+  test("transparent background requests require the OpenAI backend", async () => {
+    await assert.rejects(
+      () =>
+        generateArticleImage({
+          prompt: "draw a transparent fictional logo",
+          config: {
+            ...TEST_CONFIG.app.images.generation,
+            enabled: true,
+            backend: "ollama",
+          } as ImageGenerationConfig,
+          logger: noop(),
+          background: "transparent",
+        }),
+      /transparent image backgrounds require the OpenAI image backend/i,
+    );
+  });
+
   test("Ollama backend parses final image field", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let capturedUrl = "";
@@ -1119,6 +1166,7 @@ describe("http", () => {
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "seventh_generation_console_graphics"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "anime"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "manuscript"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "logos"));
     assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_psychedelic_editorial"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;
@@ -1175,6 +1223,36 @@ describe("http", () => {
     }
     await res.json();
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
+  });
+
+  test("POST /api/article/:slug/image/generate enables transparent OpenAI output for logos preset", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "logos" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "logos");
+    assert.match(capturedBody.prompt, /standalone fictional logo/i);
+    assert.equal(capturedBody.background, "transparent");
+    assert.equal(capturedBody.output_format, "png");
+    assert.equal("output_compression" in capturedBody, false);
   });
 
   test("POST /api/article/:slug/image/generate can ask the LLM to select an image preset", async (t) => {

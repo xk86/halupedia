@@ -58,6 +58,7 @@ export interface ArticleImagePresetContent {
   label: string;
   selectionWhen?: string;
   selectionAvoid?: string;
+  transparentBackground?: boolean;
   system: string;
   user: string;
   path: string;
@@ -150,6 +151,7 @@ function readTomlPromptContent(path: string, key: string, displayPath: string): 
     key,
     selectionWhen: typeof raw.selection_when === "string" ? raw.selection_when : undefined,
     selectionAvoid: typeof raw.selection_avoid === "string" ? raw.selection_avoid : undefined,
+    transparentBackground: raw.transparent_background === true,
     system: typeof raw.system === "string" ? raw.system : "",
     user: typeof raw.user === "string" ? raw.user : "",
     model: raw.model === "light" ? "light" : raw.model === "heavy" ? "heavy" : undefined,

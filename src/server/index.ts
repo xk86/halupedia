@@ -4818,6 +4818,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       config: generationConfig,
       logger,
       size: aspectRatio.size,
+      background: imagePreset.transparentBackground ? "transparent" : undefined,
     });
     const result = await ingestImageFromBuffer(generated.bytes, generated.mime, {
       mediaDb,

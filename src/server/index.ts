@@ -556,15 +556,15 @@ function articleImagePresetKeyFromName(name: string): string {
   if (!key) {
     throw new Error("preset name must include at least one letter or number");
   }
-  if (key === "default") {
-    throw new Error("default preset is reserved");
+  if (key === "default" || key === "documentary_photo" || key === "article_image") {
+    throw new Error("base image preset is reserved");
   }
   return key;
 }
 
 function normalizeArticleImagePresetKey(value: string | undefined): string {
   const key = (value ?? "").trim().toLowerCase();
-  if (!key || key === "default" || key === "article_image") return "default";
+  if (!key || key === "article_image") return "documentary_photo";
   if (key === "auto") return "auto";
   const normalized = key.replace(/^article_image_/, "");
   if (!/^[a-z0-9_]+$/i.test(normalized)) {
@@ -575,20 +575,20 @@ function normalizeArticleImagePresetKey(value: string | undefined): string {
 
 function listArticleImagePromptOptions() {
   return [
-    { key: "default", label: "default" },
+    { key: "documentary_photo", label: "documentary_photo" },
     ...listArticleImagePresetFiles().map((preset) => ({ key: preset.key, label: preset.label })),
   ];
 }
 
 function readArticleImagePromptSelection(key: string) {
   const presetKey = normalizeArticleImagePresetKey(key);
-  if (presetKey === "default") {
+  if (presetKey === "documentary_photo") {
     const meta = readPromptFile("runnable", "article_image");
     if (!meta) throw new Error("article_image prompt not found");
     return {
       ...meta,
-      key: "default",
-      label: "default",
+      key: "documentary_photo",
+      label: "documentary_photo",
     };
   }
   const preset = readArticleImagePresetFile(presetKey);
@@ -1809,7 +1809,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         articleSlug,
         false,
         "auto",
-        "default",
+        "documentary_photo",
         title,
         imageOp.onNode,
       );
@@ -1856,7 +1856,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       featured.slug,
       false,
       "auto",
-      "default",
+      "documentary_photo",
       title,
       imageOp.onNode,
     );
@@ -3959,7 +3959,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const key = c.req.param("key");
     try {
       const prompt = readArticleImagePromptSelection(key);
-      if (prompt.key === "default") {
+      if (prompt.key === "documentary_photo") {
         const current = getPromptCurrent(db, "runnable", "article_image");
         return c.json({ ...prompt, ...(current ?? {}) });
       }
@@ -3983,14 +3983,14 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const copyFrom = typeof body.copyFrom === "string" && body.copyFrom.trim()
       ? body.copyFrom.trim()
-      : "default";
+      : "documentary_photo";
     let source: ReturnType<typeof readArticleImagePromptSelection>;
     try {
       source = readArticleImagePromptSelection(copyFrom);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
-    if (source.key === "default") {
+    if (source.key === "documentary_photo") {
       const current = getPromptCurrent(db, "runnable", "article_image");
       if (current) source = { ...source, ...current };
     }
@@ -4015,8 +4015,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
-    if (key === "default") {
-      return c.json({ error: "default preset is edited through article_image" }, 400);
+    if (key === "documentary_photo") {
+      return c.json({ error: "documentary_photo preset is edited through article_image" }, 400);
     }
     const body = await c.req.json().catch(() => ({})) as { system?: unknown; user?: unknown };
     if (typeof body.system !== "string" || typeof body.user !== "string") {
@@ -4036,8 +4036,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
-    if (key === "default") {
-      return c.json({ error: "the default image prompt cannot be deleted" }, 400);
+    if (key === "documentary_photo") {
+      return c.json({ error: "the documentary_photo image prompt cannot be deleted" }, 400);
     }
     const err = deleteArticleImagePresetFile(key);
     if (err) return c.json(err, /not found/i.test(err.error) ? 404 : 400);
@@ -4776,7 +4776,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   async function generateAndAttachArticleImage(
     articleSlug: string,
     _replace = false,
-    presetKey = "default",
+    presetKey = "documentary_photo",
     aspectRatioKey = "landscape",
   ) {
     const generationConfig = runtime.app.images.generation;
@@ -4804,7 +4804,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           .slice(0, 2000)
       : "";
     const articleBody = stripTopLevelSections(article.markdown, ["References", "See also"]);
-    const imagePromptConfig = imagePreset.key === "default"
+    const imagePromptConfig = imagePreset.key === "documentary_photo"
       ? runtime.prompts
       : {
           ...runtime.prompts,

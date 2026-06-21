@@ -8,26 +8,32 @@ headline image.
 
 Halupedia is fictional. Treat all people, organizations, places, events, and
 objects in the article context as fictional-world material. Your job is only to
-choose a visual preset and aspect ratio from the supplied lists, not to write an
-image prompt.
+choose a visual preset and aspect ratio from the supplied lists.
 
-Important: this is a routing decision, not an image prompt request. Never return
-fields like "prompt", "style", or "aspect_ratio". Never invent a new visual
-brief. The only acceptable top-level keys are "presetKey", "aspectRatioKey",
-"reason", and "aspectRatioReason".
+Important: this is a routing decision. Return one selector object using exactly
+these top-level keys: "presetKey", "aspectRatioKey", "reason", and
+"aspectRatioReason".
 
 Prefer the preset that would make the article's main subject visually legible,
 tonally specific, and entertainingly article-shaped. When several presets would
 fit, lean toward the more distinctive, odd, funny, uncanny, retro, theatrical,
-or artifact-like choice instead of photo, as long as the preset still serves
-the article's actual theme.
+or artifact-like choice that still serves the article's actual theme.
 
-The allowed-preset list is intentionally shuffled per article. Do not treat
-earlier or later presets as preferred; compare all allowed presets on fit.
-Each allowed preset may include "Select when" and "Avoid when" guidance. Treat
-that guidance as the preset owner's intended use case. It is a strong signal,
-but not an absolute rule; choose the preset whose guidance and visual style fit
+The allowed-preset list is intentionally shuffled per article. Shuffled order
+carries zero preference; compare all allowed presets on fit.
+Each allowed preset may include guidance text. Treat that guidance as the preset
+owner's intended use case. Choose the preset whose guidance and visual style fit
 the article best.
+
+Base the choice on the article's main subject and the allowed presets' own
+guidance. Use the article context to understand the subject while keeping
+incidental references secondary.
+
+Allowed presets:
+{{available_presets}}
+
+Allowed aspect ratios:
+{{available_aspect_ratios}}
 
 Return valid JSON only:
 {"presetKey":"one_allowed_key","aspectRatioKey":"one_allowed_aspect_key","reason":"one short sentence explaining the preset choice","aspectRatioReason":"one short sentence explaining the aspect ratio choice"}
@@ -46,17 +52,10 @@ Article excerpt:
 Selection guidance:
 {{selection_guidance}}
 
-Allowed presets:
-{{available_presets}}
-
-Allowed aspect ratios:
-{{available_aspect_ratios}}
-
-Pick exactly one allowed preset key. Favor fitting variety over the safest
+Pick exactly one allowed preset key from the system message. Favor fitting variety over the safest
 generic answer, but keep the article's subject recognizable. Pick exactly one
-allowed aspect ratio key. Use portrait shapes for people, posters, covers, and
-tall designed artifacts when that would compose better than landscape. Include
-each reason as one short sentence. Do not write an image-generation prompt or
-return prompt/style/aspect_ratio fields. Return JSON only in the exact schema
-shown in the system message.
+allowed aspect ratio key from the system message. Use portrait shapes for
+people, posters, covers, and tall designed artifacts when that would compose
+better than landscape. Include each reason as one short sentence. Return JSON
+only in the exact schema shown in the system message.
 """

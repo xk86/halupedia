@@ -60,6 +60,11 @@ interface ImagePromptOption {
   label: string;
 }
 
+const BASE_IMAGE_PRESET: ImagePromptOption = {
+  key: "documentary_photo",
+  label: "documentary_photo",
+};
+
 function PromptEditorPaneComponent() {
   const [promptList, setPromptList] = useState<PromptList | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -87,8 +92,8 @@ function PromptEditorPaneComponent() {
   const [presetError, setPresetError] = useState<string | null>(null);
   const [imagePromptPresets, setImagePromptPresets] = useState<
     ImagePromptOption[]
-  >([{ key: "default", label: "default" }]);
-  const [selectedPresetKey, setSelectedPresetKey] = useState("default");
+  >([BASE_IMAGE_PRESET]);
+  const [selectedPresetKey, setSelectedPresetKey] = useState(BASE_IMAGE_PRESET.key);
   const contentRequestRef = useRef(0);
 
   const isDirty =
@@ -140,16 +145,16 @@ function PromptEditorPaneComponent() {
     try {
       const res = await fetch("/api/admin/article-image-prompts");
       if (!res.ok) {
-        setImagePromptPresets([{ key: "default", label: "default" }]);
+        setImagePromptPresets([BASE_IMAGE_PRESET]);
         return;
       }
       const data = await res.json();
       const prompts = Array.isArray(data.prompts) ? data.prompts : [];
       setImagePromptPresets(
-        prompts.length > 0 ? prompts : [{ key: "default", label: "default" }],
+        prompts.length > 0 ? prompts : [BASE_IMAGE_PRESET],
       );
     } catch {
-      setImagePromptPresets([{ key: "default", label: "default" }]);
+      setImagePromptPresets([BASE_IMAGE_PRESET]);
     }
   }, []);
 
@@ -223,8 +228,8 @@ function PromptEditorPaneComponent() {
         contentRequestRef.current += 1;
         setSelected(null);
         setContent(null);
-        setImagePromptPresets([{ key: "default", label: "default" }]);
-        setSelectedPresetKey("default");
+        setImagePromptPresets([BASE_IMAGE_PRESET]);
+        setSelectedPresetKey(BASE_IMAGE_PRESET.key);
         return;
       }
       const [scope, ...rest] = value.split(":");
@@ -232,11 +237,11 @@ function PromptEditorPaneComponent() {
       if (scope !== "runnable" && scope !== "shared") return;
       setSelected({ scope, key });
       setPresetError(null);
-      setSelectedPresetKey("default");
+      setSelectedPresetKey(BASE_IMAGE_PRESET.key);
       if (scope === "runnable" && key === "article_image") {
         void loadImagePresetList();
       } else {
-        setImagePromptPresets([{ key: "default", label: "default" }]);
+        setImagePromptPresets([BASE_IMAGE_PRESET]);
       }
       loadContent(scope, key);
     },
@@ -252,8 +257,8 @@ function PromptEditorPaneComponent() {
       )
         return;
       setPresetError(null);
-      if (key === "default") {
-        setSelectedPresetKey("default");
+      if (key === BASE_IMAGE_PRESET.key) {
+        setSelectedPresetKey(BASE_IMAGE_PRESET.key);
         loadContent("runnable", "article_image");
         return;
       }
@@ -271,7 +276,7 @@ function PromptEditorPaneComponent() {
       const isCustomImagePreset =
         selected.scope === "runnable" &&
         selected.key === "article_image" &&
-        selectedPresetKey !== "default";
+        selectedPresetKey !== BASE_IMAGE_PRESET.key;
       const res = await fetch(
         isCustomImagePreset
           ? `/api/admin/article-image-prompts/${encodeURIComponent(selectedPresetKey)}`
@@ -324,7 +329,7 @@ function PromptEditorPaneComponent() {
     if (
       selected.scope === "runnable" &&
       selected.key === "article_image" &&
-      selectedPresetKey !== "default"
+      selectedPresetKey !== BASE_IMAGE_PRESET.key
     ) {
       void loadImagePresetContent(selectedPresetKey);
       return;
@@ -392,7 +397,7 @@ function PromptEditorPaneComponent() {
   const selectedImagePreset =
     selected?.scope === "runnable" && selected.key === "article_image";
   const editingCustomImagePreset =
-    selectedImagePreset && selectedPresetKey !== "default";
+    selectedImagePreset && selectedPresetKey !== BASE_IMAGE_PRESET.key;
 
   const handleCreatePreset = useCallback(async () => {
     if (!selectedImagePreset || !selected) return;
@@ -447,7 +452,7 @@ function PromptEditorPaneComponent() {
   ]);
 
   const handleDeletePreset = useCallback(async () => {
-    if (!selectedImagePreset || !selected || selectedPresetKey === "default")
+    if (!selectedImagePreset || !selected || selectedPresetKey === BASE_IMAGE_PRESET.key)
       return;
     setPresetBusy(true);
     setPresetError(null);
@@ -466,9 +471,9 @@ function PromptEditorPaneComponent() {
       setImagePromptPresets(
         Array.isArray(data.prompts)
           ? data.prompts
-          : [{ key: "default", label: "default" }],
+          : [BASE_IMAGE_PRESET],
       );
-      setSelectedPresetKey("default");
+      setSelectedPresetKey(BASE_IMAGE_PRESET.key);
       loadContent("runnable", "article_image");
       setSaveMsg("Preset deleted.");
     } catch (err: any) {
@@ -573,7 +578,7 @@ function PromptEditorPaneComponent() {
                 type="button"
                 onClick={handleDeletePreset}
                 disabled={
-                  presetBusy || !selected || selectedPresetKey === "default"
+                  presetBusy || !selected || selectedPresetKey === BASE_IMAGE_PRESET.key
                 }
               >
                 Delete preset

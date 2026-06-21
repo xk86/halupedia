@@ -10,12 +10,12 @@ import {
   normalizeArticleImageAspectRatioKey,
 } from "../../imageAspectRatios";
 
-const DEFAULT_PRESET_PROMPT_KEY = "photo";
+const DEFAULT_IMAGE_PRESET_KEY = "documentary_photo";
 const PRESET_SELECTION_MAX_ATTEMPTS = 3;
 
 function normalizePresetKey(value: string | undefined): string {
   const key = (value ?? "").trim().toLowerCase();
-  if (!key || key === "default" || key === "article_image" || key === DEFAULT_PRESET_PROMPT_KEY) return "default";
+  if (!key || key === "article_image") return DEFAULT_IMAGE_PRESET_KEY;
   if (key === "auto") return "auto";
   const normalized = key.replace(/^article_image_/, "");
   if (!/^[a-z0-9_]+$/i.test(normalized)) {
@@ -60,7 +60,6 @@ interface PresetPromptRow {
   presetKey: string;
   description: string;
   selectionWhen?: string;
-  selectionAvoid?: string;
 }
 
 interface AspectRatioPromptRow {
@@ -70,41 +69,36 @@ interface AspectRatioPromptRow {
   selectionWhen?: string;
 }
 
-function promptKeyForPresetKey(presetKey: string): string {
-  if (presetKey === "default") return DEFAULT_PRESET_PROMPT_KEY;
-  return presetKey;
-}
-
 function imagePresetRowsForPrompt(
   seed: string,
-  options: { includeDefault?: boolean; onlyPresetKeys?: Set<string> } = {},
+  options: { includeDefault?: boolean; onlyPresetKeys?: Set<string>; excludePresetKeys?: Set<string> } = {},
 ): PresetPromptRow[] {
   const includeDefault = options.includeDefault !== false;
   const defaultPrompt = readPromptFile("runnable", "article_image");
   const rows = [
     ...listArticleImagePresetFiles().map((preset) => ({
-      key: promptKeyForPresetKey(preset.key),
+      key: preset.key,
       presetKey: preset.key,
       description: promptSummary(`${preset.system}\n${preset.user}`),
       selectionWhen: preset.selectionWhen,
-      selectionAvoid: preset.selectionAvoid,
     })),
     ...(includeDefault
       ? [
           {
-            key: DEFAULT_PRESET_PROMPT_KEY,
-            presetKey: "default",
+            key: DEFAULT_IMAGE_PRESET_KEY,
+            presetKey: DEFAULT_IMAGE_PRESET_KEY,
             description: defaultPrompt
               ? promptSummary(`${defaultPrompt.system}\n${defaultPrompt.user}`)
               : "Photoreal editorial/documentary article image.",
             selectionWhen:
               "The article is best served by a grounded documentary, archival, field, portrait, location, museum, lab, or editorial photograph.",
-            selectionAvoid:
-              "A non-photographic artifact, period medium, screen, poster, game render, or stylized illustration is more article-specific.",
           },
         ]
       : []),
-  ].filter((row) => !options.onlyPresetKeys || options.onlyPresetKeys.has(row.presetKey));
+  ].filter((row) =>
+    (!options.onlyPresetKeys || options.onlyPresetKeys.has(row.presetKey)) &&
+    (!options.excludePresetKeys || !options.excludePresetKeys.has(row.presetKey))
+  );
   return shuffleRowsForSeed(rows, seed);
 }
 
@@ -112,8 +106,7 @@ function formatImagePresetRows(rows: PresetPromptRow[]): string {
   return rows
     .map((row) => [
       `- ${row.key}:`,
-      row.selectionWhen ? `  Select when: ${selectionSummary(row.selectionWhen)}` : `  Style: ${promptSummary(row.description)}`,
-      row.selectionAvoid ? `  Avoid when: ${selectionSummary(row.selectionAvoid)}` : "",
+      row.selectionWhen ? `  ${selectionSummary(row.selectionWhen)}` : `  Style: ${promptSummary(row.description)}`,
     ].filter(Boolean).join("\n"))
     .join("\n");
 }
@@ -122,7 +115,7 @@ function formatAspectRatioRows(rows: AspectRatioPromptRow[]): string {
   return rows
     .map((row) => [
       `- ${row.key}: ${row.label} (${row.size})`,
-      row.selectionWhen ? `  Select when: ${promptSummary(row.selectionWhen)}` : "",
+      row.selectionWhen ? `  ${promptSummary(row.selectionWhen)}` : "",
     ].filter(Boolean).join("\n"))
     .join("\n");
 }
@@ -131,7 +124,6 @@ function allowedPresetKeys(rows: PresetPromptRow[]): Map<string, string> {
   const allowed = new Map<string, string>();
   for (const row of rows) {
     allowed.set(row.key, row.presetKey);
-    allowed.set(row.presetKey, row.presetKey);
   }
   return allowed;
 }
@@ -256,7 +248,7 @@ async function selectPresetWithRetries(options: {
       ? options.baseSelectionGuidance
       : [
           options.baseSelectionGuidance,
-          `Previous response was rejected because it was not a valid selector object. Do not write an image-generation prompt, do not return prompt/style/aspect_ratio fields, and do not invent a visual brief. Return exactly {"presetKey":"one_allowed_key","aspectRatioKey":"one_allowed_aspect_key","reason":"one short sentence","aspectRatioReason":"one short sentence"} with no extra text. Attempt ${attempt} of ${PRESET_SELECTION_MAX_ATTEMPTS}.`,
+          `Previous response missed the selector schema. Return exactly {"presetKey":"one_allowed_key","aspectRatioKey":"one_allowed_aspect_key","reason":"one short sentence","aspectRatioReason":"one short sentence"}. Attempt ${attempt} of ${PRESET_SELECTION_MAX_ATTEMPTS}.`,
         ].filter(Boolean).join("\n\n");
     const rendered = options.renderSelectionPrompt(options.rows, options.aspectRows, retryGuidance);
     const raw = await options.deps.llm.chat(rendered.role, rendered.system, rendered.user, {
@@ -343,6 +335,7 @@ export const selectArticleImagePresetNode = defineNode({
       ? imagePresetRowsForPrompt(seed)
       : imagePresetRowsForPrompt(seed, { onlyPresetKeys: new Set([requested]) });
     const aspectRows = aspectRatioRowsForPrompt(deps, requestedAspect);
+    if (rows.length === 0) throw new Error(`unknown image preset: ${requested}`);
     if (aspectRows.length === 0) throw new Error(`unknown image aspect ratio: ${requestedAspect}`);
     const selected = await selectPresetWithRetries({
       articleSlug: article.slug,
@@ -351,7 +344,7 @@ export const selectArticleImagePresetNode = defineNode({
       aspectRows,
       renderSelectionPrompt,
       baseSelectionGuidance: [
-        requested === "auto" ? "" : `The preset is fixed to "${promptKeyForPresetKey(requested)}"; choose only the image aspect ratio.`,
+        requested === "auto" ? "" : `The preset is fixed to "${requested}"; choose only the image aspect ratio.`,
         requestedAspect === AUTO_IMAGE_ASPECT_RATIO_KEY ? "" : `The aspect ratio is fixed to "${requestedAspect}"; choose only the preset.`,
       ].filter(Boolean).join("\n"),
       requireAspect: requestedAspect === AUTO_IMAGE_ASPECT_RATIO_KEY,
@@ -375,17 +368,22 @@ export const selectArticleImagePresetNode = defineNode({
   },
 });
 
-export const selectSpecializedArticleImagePresetNode = defineNode({
+export const selectChallengerArticleImagePresetNode = defineNode({
   name: "llm.select_image_preset_challenger",
   kind: "llm",
-  description: "Choose the best specialized article-image preset challenger when the initial selection picked photo.",
+  description: "Choose the best article-image preset challenger to compare with the initial selection.",
   reads: ["input", "initialImagePromptKey"] as const,
-  writes: ["specializedImagePromptKey", "specializedImagePromptReason"] as const,
+  writes: ["challengerImagePromptKey", "challengerImagePromptReason"] as const,
   async run({ input, initialImagePromptKey }, deps: PipelineDeps) {
-    if (normalizePresetKey(input.imagePromptKey) !== "auto" || initialImagePromptKey !== "default") return {};
+    if (
+      normalizePresetKey(input.imagePromptKey) !== "auto" ||
+      !initialImagePromptKey
+    ) return {};
 
     const { article, seed, renderSelectionPrompt } = articleImagePresetSelectionContext(input, deps);
-    const rows = imagePresetRowsForPrompt(seed, { includeDefault: false });
+    const rows = imagePresetRowsForPrompt(seed, {
+      excludePresetKeys: new Set([initialImagePromptKey]),
+    });
     const requestedAspect = normalizeArticleImageAspectRatioKey(input.imageAspectRatioKey);
     const aspectRows = aspectRatioRowsForPrompt(deps, requestedAspect);
     if (rows.length === 0) return {};
@@ -395,7 +393,7 @@ export const selectSpecializedArticleImagePresetNode = defineNode({
       rows,
       aspectRows,
       renderSelectionPrompt,
-      baseSelectionGuidance: `The previous pass chose ${DEFAULT_PRESET_PROMPT_KEY}. For this pass, ${DEFAULT_PRESET_PROMPT_KEY} is not an allowed key; choose the best fitting specialized preset from the list.`,
+      baseSelectionGuidance: `The previous pass chose "${initialImagePromptKey}". This pass considers the alternative presets listed below. Choose the strongest alternative preset from the list.`,
       requireAspect: false,
       invalidEvent: "article_image.preset_challenger_invalid",
     });
@@ -404,28 +402,28 @@ export const selectSpecializedArticleImagePresetNode = defineNode({
       presetKey: selected.presetKey,
       reason: selected.reason,
     });
-    return { specializedImagePromptKey: selected.presetKey, specializedImagePromptReason: selected.reason };
+    return { challengerImagePromptKey: selected.presetKey, challengerImagePromptReason: selected.reason };
   },
 });
 
-export const judgeArticleImagePresetDefaultNode = defineNode({
+export const judgeArticleImagePresetFinalNode = defineNode({
   name: "llm.select_image_preset_final",
   kind: "llm",
-  description: "Choose between photo and the best specialized challenger for final automatic preset selection.",
-  reads: ["input", "initialImagePromptKey", "specializedImagePromptKey"] as const,
+  description: "Choose between the first-pass preset and its strongest challenger for final automatic preset selection.",
+  reads: ["input", "initialImagePromptKey", "challengerImagePromptKey"] as const,
   writes: ["selectedImagePromptKey", "selectedImagePromptReason"] as const,
-  async run({ input, initialImagePromptKey, specializedImagePromptKey }, deps: PipelineDeps) {
+  async run({ input, initialImagePromptKey, challengerImagePromptKey }, deps: PipelineDeps) {
     if (
       normalizePresetKey(input.imagePromptKey) !== "auto" ||
-      initialImagePromptKey !== "default" ||
-      !specializedImagePromptKey
+      !initialImagePromptKey ||
+      !challengerImagePromptKey
     ) {
       return {};
     }
 
     const { article, seed, renderSelectionPrompt } = articleImagePresetSelectionContext(input, deps);
     const rows = imagePresetRowsForPrompt(seed, {
-      onlyPresetKeys: new Set(["default", specializedImagePromptKey]),
+      onlyPresetKeys: new Set([initialImagePromptKey, challengerImagePromptKey]),
     });
     const requestedAspect = normalizeArticleImageAspectRatioKey(input.imageAspectRatioKey);
     const aspectRows = aspectRatioRowsForPrompt(deps, requestedAspect);
@@ -435,13 +433,13 @@ export const judgeArticleImagePresetDefaultNode = defineNode({
       rows,
       aspectRows,
       renderSelectionPrompt,
-      baseSelectionGuidance: `The first pass chose ${DEFAULT_PRESET_PROMPT_KEY}. The strongest specialized challenger is "${promptKeyForPresetKey(specializedImagePromptKey)}". Choose between only ${DEFAULT_PRESET_PROMPT_KEY} and "${promptKeyForPresetKey(specializedImagePromptKey)}". Pick "${promptKeyForPresetKey(specializedImagePromptKey)}" if it fits the article theme well enough to add useful variety; pick ${DEFAULT_PRESET_PROMPT_KEY} if "${promptKeyForPresetKey(specializedImagePromptKey)}" would distract from, flatten, or misrepresent the article.`,
+      baseSelectionGuidance: `The first pass chose "${initialImagePromptKey}". The strongest challenger is "${challengerImagePromptKey}". Choose between only "${initialImagePromptKey}" and "${challengerImagePromptKey}". Pick "${challengerImagePromptKey}" when it fits the article theme well enough to add useful variety. Pick "${initialImagePromptKey}" when it gives the clearer, more accurate, and more representative image for the article's main subject.`,
       requireAspect: false,
       invalidEvent: "article_image.preset_final_invalid",
     });
     deps.logger.info("article_image.preset_final_selected", {
       slug: article.slug,
-      challengerPresetKey: specializedImagePromptKey,
+      challengerPresetKey: challengerImagePromptKey,
       presetKey: selected.presetKey,
       reason: selected.reason,
     });

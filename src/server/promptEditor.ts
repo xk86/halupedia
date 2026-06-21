@@ -175,7 +175,7 @@ export function listArticleImagePresetFiles(): ArticleImagePresetContent[] {
 }
 
 export function readArticleImagePresetFile(key: string): ArticleImagePresetContent | null {
-  if (!safeKey(key) || key === "default") return null;
+  if (!safeKey(key) || key === "default" || key === "documentary_photo" || key === "article_image") return null;
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return null;
   return {
@@ -210,7 +210,9 @@ export function createArticleImagePresetFile(
   options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean } = {},
 ): { error: string } | ArticleImagePresetContent {
   if (!safeKey(key)) return { error: "invalid key" };
-  if (key === "default") return { error: "default preset is reserved" };
+  if (key === "default" || key === "documentary_photo" || key === "article_image") {
+    return { error: "base image preset is reserved" };
+  }
   mkdirSync(ARTICLE_IMAGE_PRESET_DIR, { recursive: true });
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (existsSync(path)) return { error: "preset already exists" };
@@ -225,7 +227,9 @@ export function writeArticleImagePresetFile(
   user: string,
 ): { error: string } | null {
   if (!safeKey(key)) return { error: "invalid key" };
-  if (key === "default") return { error: "default preset is edited through article_image" };
+  if (key === "default" || key === "documentary_photo" || key === "article_image") {
+    return { error: "base image preset is edited through article_image" };
+  }
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return { error: "preset not found" };
   let source = readFileSync(path, "utf8");
@@ -237,7 +241,9 @@ export function writeArticleImagePresetFile(
 
 export function deleteArticleImagePresetFile(key: string): { error: string } | null {
   if (!safeKey(key)) return { error: "invalid key" };
-  if (key === "default") return { error: "default preset cannot be deleted" };
+  if (key === "default" || key === "documentary_photo" || key === "article_image") {
+    return { error: "base image preset cannot be deleted" };
+  }
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return { error: "preset not found" };
   unlinkSync(path);

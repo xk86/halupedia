@@ -539,7 +539,6 @@ a:hover {
   width: 100%;
   background: var(--panel-surface-strong);
   border: 1px solid var(--panel-border);
-  border-radius: var(--radius-md);
   font-size: 0.83rem;
   line-height: 1.45;
 }
@@ -1098,17 +1097,6 @@ a:hover {
   border-radius: var(--radius-sm);
 }
 
-.linkless-notice {
-  margin: 0 0 1.3rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--accent-border-soft);
-  border-left: 4px solid var(--accent);
-  background: linear-gradient(180deg, var(--accent-surface-soft), var(--control-surface-strong));
-  color: var(--ink-soft);
-  font-family: var(--serif);
-  font-style: italic;
-}
-
 .selection-link-menu {
   position: fixed;
   z-index: 50;
@@ -1189,6 +1177,7 @@ a:hover {
   width: min(42rem, 100%);
   background: var(--parchment);
   border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
   box-shadow: 0 24px 48px var(--shadow-strong);
   padding: 1.2rem 1.2rem 1rem;
 }
@@ -1215,6 +1204,7 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   border: none;
+  border-radius: var(--radius-md);
   cursor: pointer;
   padding: 0.55rem 0.8rem;
 }
@@ -1244,6 +1234,7 @@ a:hover {
   color: var(--ink);
   background: var(--input-surface);
   border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
   padding: 0.75rem 0.85rem;
   outline: none;
 }
@@ -1374,8 +1365,10 @@ a:hover {
  */
 .mdedit-pm blockquote,
 .prose-halu blockquote {
-  padding-left: 0.9rem;
+  padding: 0.6rem 0.9rem;
   border-left: 3px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--blockquote-bg);
   color: var(--ink-soft);
   font-style: italic;
 }

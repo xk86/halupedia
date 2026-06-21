@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { InfoboxGroup } from "@/types";
 
-const infoboxCardClasses = "infobox group/sb gap-0 py-0";
+const infoboxCardClasses = "infobox group/sb gap-0 rounded-sm py-0";
 const infoboxHeaderClasses =
   "gap-0 rounded-none border-b border-panel-border bg-accent-wash-strong px-0 py-0";
 const collapsedContentClasses =

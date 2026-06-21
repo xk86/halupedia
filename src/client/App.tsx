@@ -145,11 +145,6 @@ function stripLeadingH1(html: string): string {
   return html.replace(/<h1[^>]*>[\s\S]*?<\/h1>\s*/i, "");
 }
 
-function countInternalLinks(markdown: string): number {
-  const matches = markdown.match(/\]\(halu:[^) "\t\r\n]+(?:\s+"[^"]*")?\)/g);
-  return matches?.length ?? 0;
-}
-
 const articleFailureMessage =
   "This article could not be generated right now. Adjust prompts or retry from the admin panel.";
 
@@ -1705,9 +1700,6 @@ export function App() {
   const articleDisplayTitle =
     page?.article.displayTitle || page?.article.title || "";
   const articleTitle = page?.article.title ?? "";
-  const hasZeroLinks = page
-    ? countInternalLinks(page.article.markdown) === 0
-    : false;
   const historyEmpty =
     historyOpen &&
     historyLoaded &&
@@ -1835,20 +1827,6 @@ export function App() {
             <span>Fresh generation from local canon.</span>
           </div>
         )}
-        {hasZeroLinks ? (
-          <div className="linkless-notice">
-            This article has no links. Expand it by highlighting text.
-          </div>
-        ) : null}
-        {page.referenceStatus?.missing?.length ||
-          page.referenceStatus?.unformatted?.length ||
-          page.referenceStatus?.hasReferencesSection ? (
-          <div className="linkless-notice">
-            This article seems to cite references that are not listed or not in
-            the current reference format. Run the refresh references button to
-            update it.
-          </div>
-        ) : null}
         {refreshMessage ? <div className="status">{refreshMessage}</div> : null}
         {restoreMessage ? <div className="status">{restoreMessage}</div> : null}
         <div className="m-0 mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start justify-between gap-3 max-[680px]:grid-cols-1">

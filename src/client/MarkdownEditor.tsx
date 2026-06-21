@@ -17,6 +17,20 @@ import {
   InlinePopoverRoot,
 } from "prosekit/react/inline-popover";
 import {
+  BoldIcon,
+  CodeIcon,
+  Heading1Icon,
+  Heading2Icon,
+  Heading3Icon,
+  ItalicIcon,
+  LinkIcon,
+  ListIcon,
+  ListOrderedIcon,
+  QuoteIcon,
+  StrikethroughIcon,
+  type LucideIcon,
+} from "lucide-react";
+import {
   ArticleSearchDropdown,
   SEARCH_INPUT,
   type Suggestion,
@@ -54,6 +68,15 @@ interface MarkdownEditorProps {
 }
 
 type LinkScheme = "ref" | "halu" | "url";
+type HeadingLevel = 1 | 2 | 3;
+
+const HEADING_LEVELS: readonly HeadingLevel[] = [1, 2, 3];
+const HEADING_ICONS: Record<HeadingLevel, LucideIcon> = {
+  1: Heading1Icon,
+  2: Heading2Icon,
+  3: Heading3Icon,
+};
+
 interface LinkDraft {
   scheme: LinkScheme;
   slug: string;
@@ -288,7 +311,7 @@ interface ToolbarState {
   bulletList: boolean;
   orderedList: boolean;
   blockquote: boolean;
-  headings: Array<{ level: number; active: boolean }>;
+  headings: Array<{ level: HeadingLevel; active: boolean }>;
   context: ContextInfo;
 }
 
@@ -316,7 +339,7 @@ function getToolbarState(editor: Editor): ToolbarState {
     bulletList: node("list", { kind: "bullet" }),
     orderedList: node("list", { kind: "ordered" }),
     blockquote: node("blockquote"),
-    headings: [1, 2, 3].map((level) => ({
+    headings: HEADING_LEVELS.map((level) => ({
       level,
       active: node("heading", { level }),
     })),
@@ -341,45 +364,45 @@ function Toolbar({
   return (
     <div className="mdedit-toolbar">
       <div className="mdedit-tool-group">
-        {s.headings.map(({ level, active }) => (
-          <button
-            key={level}
-            type="button"
-            className={`mdedit-tool${active ? " mdedit-tool--active" : ""}`}
-            title={`Heading ${level}`}
-            onClick={() => cmd.toggleHeading?.({ level })}
-          >
-            H{level}
-          </button>
-        ))}
+        {s.headings.map(({ level, active }) => {
+          const HeadingIcon = HEADING_ICONS[level];
+          return (
+            <button
+              key={level}
+              type="button"
+              className={`mdedit-tool${active ? " mdedit-tool--active" : ""}`}
+              aria-label={`Heading ${level}`}
+              title={`Heading ${level}`}
+              onClick={() => cmd.toggleHeading?.({ level })}
+            >
+              <HeadingIcon aria-hidden="true" />
+            </button>
+          );
+        })}
       </div>
       <span className="mdedit-tool-sep" />
       <div className="mdedit-tool-group">
         <ToolButton
-          label="B"
+          icon={BoldIcon}
           title="Bold"
-          strong
           state={s.bold}
           onClick={() => cmd.toggleBold?.()}
         />
         <ToolButton
-          label="I"
+          icon={ItalicIcon}
           title="Italic"
-          italic
           state={s.italic}
           onClick={() => cmd.toggleItalic?.()}
         />
         <ToolButton
-          label="S"
+          icon={StrikethroughIcon}
           title="Strikethrough"
-          strike
           state={s.strike}
           onClick={() => cmd.toggleStrike?.()}
         />
         <ToolButton
-          label="<>"
+          icon={CodeIcon}
           title="Inline code"
-          mono
           state={s.code}
           onClick={() => cmd.toggleCode?.()}
         />
@@ -390,9 +413,10 @@ function Toolbar({
           <PopoverTrigger
             type="button"
             className={`mdedit-tool${linkDraft || s.context?.kind === "link" ? " mdedit-tool--active" : ""}`}
+            aria-label="Link to an article or URL"
             title="Link to an article or URL"
           >
-            🔗
+            <LinkIcon aria-hidden="true" />
           </PopoverTrigger>
           {linkDraft && (
             <PopoverContent
@@ -414,26 +438,29 @@ function Toolbar({
         <button
           type="button"
           className={`mdedit-tool${s.bulletList ? " mdedit-tool--active" : ""}`}
+          aria-label="Bullet list"
           title="Bullet list"
           onClick={() => cmd.toggleList?.({ kind: "bullet" })}
         >
-          •
+          <ListIcon aria-hidden="true" />
         </button>
         <button
           type="button"
           className={`mdedit-tool${s.orderedList ? " mdedit-tool--active" : ""}`}
+          aria-label="Numbered list"
           title="Numbered list"
           onClick={() => cmd.toggleList?.({ kind: "ordered" })}
         >
-          1.
+          <ListOrderedIcon aria-hidden="true" />
         </button>
         <button
           type="button"
           className={`mdedit-tool${s.blockquote ? " mdedit-tool--active" : ""}`}
+          aria-label="Quote"
           title="Quote"
           onClick={() => cmd.toggleBlockquote?.()}
         >
-          ❝
+          <QuoteIcon aria-hidden="true" />
         </button>
       </div>
       <span className="mdedit-tool-spacer" />
@@ -443,39 +470,26 @@ function Toolbar({
 }
 
 function ToolButton({
-  label,
+  icon: Icon,
   title,
   state,
   onClick,
-  strong,
-  italic,
-  strike,
-  mono,
 }: {
-  label: string;
+  icon: LucideIcon;
   title: string;
   state: { active: boolean; can: boolean };
   onClick: () => void;
-  strong?: boolean;
-  italic?: boolean;
-  strike?: boolean;
-  mono?: boolean;
 }) {
   return (
     <button
       type="button"
       className={`mdedit-tool${state.active ? " mdedit-tool--active" : ""}`}
+      aria-label={title}
       title={title}
       disabled={!state.can}
-      style={{
-        fontWeight: strong ? 700 : undefined,
-        fontStyle: italic ? "italic" : undefined,
-        textDecoration: strike ? "line-through" : undefined,
-        fontFamily: mono ? "var(--mono)" : undefined,
-      }}
       onClick={onClick}
     >
-      {label}
+      <Icon aria-hidden="true" />
     </button>
   );
 }

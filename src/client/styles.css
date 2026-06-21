@@ -1483,6 +1483,11 @@ a:hover {
   cursor: pointer;
 }
 
+.mdedit-tool svg {
+  width: 1rem;
+  height: 1rem;
+}
+
 .mdedit-tool:hover:not(:disabled) {
   background: var(--accent-wash);
   color: var(--ink);

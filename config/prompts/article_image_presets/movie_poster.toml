@@ -25,12 +25,11 @@ Core look:
   thriller, courtroom drama, creature feature, political thriller, biopic,
   sci-fi spectacle, sports movie, romance, procedural, or documentary poster.
 - Keep the subject readable and visually dominant at thumbnail size.
-- If the poster uses readable title type, include one crisp title treatment
-  with the exact subject name only: "{{requested_title}}". Keep it integrated
-  into the poster design, as title typography near the lower third or in clear
-  negative space. Do not add taglines, release dates, billing blocks, credits,
-  reviews, studio names, ratings, laurels, fake words, pseudo-text, gibberish,
-  or any other readable text.
+- Readable title type is optional. If the poster needs a title treatment, choose
+  a short plausible in-world poster title from the supplied context rather than
+  blindly copying the article subject name. Use no more than one title treatment.
+  Keep it integrated into the poster design, as title typography near the lower
+  third or in clear negative space.
 
 Context rules:
 - Use the supplied Halupedia context as silent art direction. Prefer exact and
@@ -90,8 +89,7 @@ silhouettes or symbolic background, composited lighting, atmosphere, rim light,
 genre-appropriate color grade, and strong thumbnail readability. Keep the
 subject specific to the article.
 
-If readable title type appears, include the exact title "{{requested_title}}"
-once as the only readable poster text. No taglines, credits, billing blocks,
-release dates, review quotes, UI, screenshots, fake words, pseudo-text,
-gibberish, overt nudity, or explicit sexual content.
+Readable title type is optional. If it appears, use one short plausible
+in-world poster title inferred from the context, not necessarily the article
+subject name.
 """

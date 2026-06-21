@@ -411,7 +411,12 @@ export const judgeArticleImagePresetFinalNode = defineNode({
   kind: "llm",
   description: "Choose between the first-pass preset and its strongest challenger for final automatic preset selection.",
   reads: ["input", "initialImagePromptKey", "challengerImagePromptKey"] as const,
-  writes: ["selectedImagePromptKey", "selectedImagePromptReason"] as const,
+  writes: [
+    "selectedImagePromptKey",
+    "selectedImagePromptReason",
+    "selectedImageAspectRatioKey",
+    "selectedImageAspectRatioReason",
+  ] as const,
   async run({ input, initialImagePromptKey, challengerImagePromptKey }, deps: PipelineDeps) {
     if (
       normalizePresetKey(input.imagePromptKey) !== "auto" ||
@@ -441,9 +446,16 @@ export const judgeArticleImagePresetFinalNode = defineNode({
       slug: article.slug,
       challengerPresetKey: challengerImagePromptKey,
       presetKey: selected.presetKey,
+      aspectRatioKey: selected.aspectRatioKey,
       reason: selected.reason,
+      aspectRatioReason: selected.aspectRatioReason,
     });
-    return { selectedImagePromptKey: selected.presetKey, selectedImagePromptReason: selected.reason };
+    return {
+      selectedImagePromptKey: selected.presetKey,
+      selectedImagePromptReason: selected.reason,
+      ...(selected.aspectRatioKey ? { selectedImageAspectRatioKey: selected.aspectRatioKey } : {}),
+      ...(selected.aspectRatioReason ? { selectedImageAspectRatioReason: selected.aspectRatioReason } : {}),
+    };
   },
 });
 

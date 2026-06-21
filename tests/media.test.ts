@@ -538,6 +538,7 @@ describe("article image generation", () => {
         size: "1152x672",
       },
       ollama: TEST_CONFIG.app.images.generation.ollama,
+      aspect_ratios: {},
     } as ImageGenerationConfig);
     assert.equal(ratios.find((ratio) => ratio.key === "landscape")?.size, "1152x672");
     assert.equal(ratios.some((ratio) => ratio.key === "default"), false);
@@ -1210,6 +1211,15 @@ describe("http", () => {
     assert.match(preset.user, /gay or lesbian/i);
   });
 
+  test("movie poster preset does not force the literal article title into poster text", () => {
+    const preset = readArticleImagePresetFile("movie_poster");
+    assert.ok(preset);
+    assert.match(preset.system, /Readable title type is optional/i);
+    assert.match(preset.user, /not necessarily the article\s+subject name/i);
+    assert.doesNotMatch(preset.system, /exact subject name only/i);
+    assert.doesNotMatch(preset.user, /exact title "\{\{requested_title\}\}"/i);
+  });
+
   test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {
     const suffix = randomUUID().replace(/-/g, "_");
     const key = `test_${suffix}`;
@@ -1289,7 +1299,7 @@ describe("http", () => {
     assert.equal(capturedBody.size, "832x1088");
   });
 
-  test("text-capable image presets allow only exact context text", async (t) => {
+  test("text-capable image presets allow short grounded artifact text", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let capturedBody: any = null;
     setImageGenerationFetchForTests(async (_url, init) => {
@@ -1314,7 +1324,7 @@ describe("http", () => {
     await res.json();
     assert.equal(readArticleImagePresetFile("tabloid_cover")?.allowText, true);
     assert.match(capturedBody.prompt, /Text policy:/);
-    assert.match(capturedBody.prompt, /Readable text is allowed only when it exactly copies text supplied in this prompt context/i);
+    assert.match(capturedBody.prompt, /Readable text is allowed only when it is short, legible, natural for the chosen artifact, and directly grounded in the supplied context/i);
     assert.match(capturedBody.prompt, /Do not invent headlines, slogans, labels, prices, stats, UI strings, captions/i);
     assert.match(capturedBody.prompt, /fake words, pseudo-text, glyph text, lorem ipsum, or gibberish/i);
     assert.doesNotMatch(capturedBody.prompt, /EXCLUSIVE|SHOCK|INSIDE|SPECIAL/);
@@ -1390,6 +1400,7 @@ describe("http", () => {
     assert.doesNotMatch(selectorPrompt.system, /Avoid when/i);
     assert.doesNotMatch(selectorPrompt.system, /obscure scholarship, taxonomy/i);
     const schema = llm.capturedOptions[0]?.jsonSchema as any;
+    assert.equal(llm.capturedOptions[0]?.thinking, false);
     assert.equal(schema.type, "object");
     assert.equal(schema.additionalProperties, false);
     assert.ok(schema.properties.presetKey.enum.includes("documentary_photo"));
@@ -1437,6 +1448,44 @@ describe("http", () => {
     assert.ok(schema.properties.aspectRatioKey.enum.includes("portrait"));
     assert.ok(schema.required.includes("aspectRatioKey"));
     assert.ok(schema.required.includes("aspectRatioReason"));
+  });
+
+  test("POST /api/admin/pipeline/run carries article image options through", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm('{"presetKey":"psychedelic_editorial","aspectRatioKey":"portrait","reason":"Conceptual editorial fits the article.","aspectRatioReason":"Portrait keeps the subject dominant."}');
+    const s = await makeTestServer(
+      llm,
+      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
+    ); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go("/api/admin/pipeline/run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        workflow: "article.image_generate",
+        input: {
+          slug: articleSlug,
+          imagePromptKey: "auto",
+          imageAspectRatioKey: "auto",
+        },
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json() as any;
+    assert.equal(body.status, "ok", body.error ?? "workflow should succeed");
+    assert.equal(body.error, null);
+    assert.equal(body.trace?.run?.workflow, "article.image_generate");
+    assert.equal(body.trace?.run?.error_message ?? null, null);
+    assert.equal(capturedBody.size, "832x1088");
+    assert.match(capturedBody.prompt, /conceptual editorial photo-illustration/i);
   });
 
   test("POST /api/article/:slug/image/generate accepts mixed-case auto preset responses", async (t) => {
@@ -1680,6 +1729,40 @@ describe("http", () => {
       entry.fields?.challengerPresetKey === "psychedelic_editorial" &&
       entry.fields?.presetKey === "painting"
     ));
+  });
+
+  test("POST /api/article/:slug/image/generate uses final multipass aspect ratio", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm([
+      '{"presetKey":"painting","aspectRatioKey":"landscape","reason":"Painting fits the article as a ceremonial image.","aspectRatioReason":"Landscape is the default broad article shape."}',
+      '{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial is the strongest alternative."}',
+      '{"presetKey":"psychedelic_editorial","aspectRatioKey":"portrait","reason":"Psychedelic editorial makes the subject more distinctive.","aspectRatioReason":"Portrait keeps the main subject dominant."}',
+    ]);
+    const s = await makeTestServer(llm, enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto", aspectRatioKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "psychedelic_editorial");
+    assert.equal(body.aspectRatioKey, "portrait");
+    assert.equal(capturedBody.size, "832x1088");
+    assert.match(capturedBody.prompt, /conceptual editorial photo-illustration/i);
   });
 
   test("POST /api/article/:slug/image/generate rejects non-image prompt key", async (t) => {

@@ -604,7 +604,7 @@ function articleImageTextPolicy(allowText: boolean | undefined): string {
   if (allowText === true) {
     return [
       "Text policy:",
-      "- Readable text is allowed only when it exactly copies text supplied in this prompt context, especially the subject name.",
+      "- Readable text is allowed only when it is short, legible, natural for the chosen artifact, and directly grounded in the supplied context.",
       "- Do not invent headlines, slogans, labels, prices, stats, UI strings, captions, fake words, pseudo-text, glyph text, lorem ipsum, or gibberish.",
       "- When exact text is not needed, use blank areas, icons, shapes, crops, blur, or redaction instead of text-like filler.",
     ].join("\n");
@@ -1829,7 +1829,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         articleSlug,
         false,
         "auto",
-        "documentary_photo",
+        "auto",
         title,
         imageOp.onNode,
       );
@@ -1876,7 +1876,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       featured.slug,
       false,
       "auto",
-      "documentary_photo",
+      "auto",
       title,
       imageOp.onNode,
     );
@@ -3312,13 +3312,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   });
 
-  registerPipelineAdminRoutes(app, () => runtime.app.pipeline.trace, () => ({
-    db,
-    llm,
-    prompts: buildPromptRegistry(runtime.prompts),
-    logger,
-    runtime,
-  }));
+  registerPipelineAdminRoutes(app, () => runtime.app.pipeline.trace, () => buildPipelineDeps());
 
   app.get("/api/admin/overview", (c) => {
     const modelConfigs = {

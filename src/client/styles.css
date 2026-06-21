@@ -298,6 +298,7 @@ a:hover {
   color: var(--parchment);
   background: var(--accent);
   border: none;
+  border-radius: var(--radius-xs);
   padding: 0.42rem 0.9rem;
   cursor: pointer;
   transition: background 120ms ease;
@@ -1267,6 +1268,7 @@ a:hover {
   width: 100%;
   background: var(--input-surface);
   border: 1px solid var(--rule);
+  border-radius: var(--radius-xs);
   display: flex;
   flex-direction: column;
 }

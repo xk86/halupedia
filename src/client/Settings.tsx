@@ -78,6 +78,18 @@ interface SettingsProps {
   onChange: (settings: ThemeSettings) => void;
 }
 
+/* The XS–XL corner scale, mirrored as a live preview under the roundness
+ * slider. Each swatch grows with its step and rounds with its own token (full
+ * class strings so Tailwind keeps them), so the scale reads at a glance and
+ * responds the instant the slider moves. */
+const RADIUS_SCALE_PREVIEW = [
+  { token: "rounded-xs", size: "size-5", label: "XS" },
+  { token: "rounded-sm", size: "size-6", label: "S" },
+  { token: "rounded-md", size: "size-7", label: "M" },
+  { token: "rounded-lg", size: "size-9", label: "L" },
+  { token: "rounded-xl", size: "size-11", label: "XL" },
+] as const;
+
 const paletteFields: Array<{
   key: keyof ThemePalette;
   label: string;
@@ -823,16 +835,17 @@ export function Settings({ settings, onChange }: SettingsProps) {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <FieldLabel htmlFor="theme-radius">
-                      Component radius
+                      Corner roundness
                     </FieldLabel>
                     <FieldDescription>
-                      0px square to 24px round.
+                      One knob scales the whole XS–XL corner system — sharp at 0,
+                      rounder as it climbs, bigger shapes rounding more.
                     </FieldDescription>
                   </div>
                   <div className="flex items-center gap-1">
                     <Badge variant="secondary">{settings.radius}px</Badge>
                     <ResetButton
-                      label="Reset component radius"
+                      label="Reset corner roundness"
                       disabled={
                         settings.radius === DEFAULT_THEME_SETTINGS.radius
                       }
@@ -854,8 +867,26 @@ export function Settings({ settings, onChange }: SettingsProps) {
                   onValueChange={(value) =>
                     onChange({ ...settings, radius: Number(value) })
                   }
-                  aria-label="Component radius"
+                  aria-label="Corner roundness"
                 />
+                {/* Live preview of the derived scale: each swatch is sized to
+                    its step and rounded with its own token, so the "bigger
+                    shapes, bigger radii" rule is visible as the slider moves. */}
+                <div className="mt-1 flex items-end gap-2.5" aria-hidden>
+                  {RADIUS_SCALE_PREVIEW.map(({ token, size, label }) => (
+                    <div
+                      key={label}
+                      className="flex flex-col items-center gap-1"
+                    >
+                      <div
+                        className={`${token} ${size} border border-control-border bg-control-surface-strong`}
+                      />
+                      <span className="font-mono text-[0.58rem] uppercase tracking-wide text-ink-fade">
+                        {label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </Field>
               <Field>
                 <div className="flex items-center justify-between gap-2">

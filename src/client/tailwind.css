@@ -84,9 +84,10 @@
 }
 
 /*
- * shadcn/ui base radius. The design is intentionally sharp (buttons/cards use
- * 2–3px, not shadcn's default 0.625rem), so the derived radius scale below is
- * tuned down to keep parity. Declared on :root (not @theme) per shadcn; the
+ * shadcn/ui base radius. `--radius` is the M / button radius — the single
+ * "Corner roundness" value the user drives from Settings. The design is
+ * intentionally sharp (buttons/cards sit around 3px, not shadcn's default
+ * 0.625rem). Declared on :root (not @theme) per shadcn; the proportional
  * --radius-* scale that utilities read lives in the @theme block below.
  */
 :root {
@@ -196,12 +197,26 @@
   --color-input: var(--input, var(--control-border));
   --color-ring: var(--ring, var(--accent));
 
-  /* Derived radius scale shadcn utilities read (rounded-sm/md/lg/xl). Floored
-   * at the sharp end so the smaller steps don't go negative. */
-  --radius-sm: max(0px, calc(var(--radius) - 2px));
+  /*
+   * Proportional corner scale (rounded-xs/sm/md/lg/xl/2xl). Every step is a
+   * multiple of the base `--radius`, so sliding roundness toward 0 collapses
+   * the whole UI to hard corners and sliding up rounds everything in
+   * proportion — bigger shapes get bigger radii, the way a consistent corner
+   * system should. The multipliers accelerate (xs→2xl) so cards and dialogs
+   * read as clearly rounder than chips and inputs at any setting, while never
+   * crossing each other. Multiplying (not offsetting) means the sharp end
+   * lands cleanly on 0 with no need to floor against negatives.
+   *
+   * `xs` is the "barely there" crisp corner for elements that would otherwise
+   * sit at a dead 0 (the search submit, the editor box) — it keeps them part
+   * of the system so they soften alongside everything else.
+   */
+  --radius-xs: calc(var(--radius) * 0.35);
+  --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) + 2px);
-  --radius-xl: calc(var(--radius) + 6px);
+  --radius-lg: calc(var(--radius) * 1.65);
+  --radius-xl: calc(var(--radius) * 3);
+  --radius-2xl: calc(var(--radius) * 4.5);
 }
 
 /*

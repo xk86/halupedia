@@ -15,6 +15,7 @@ import type { PipelineState } from "../state";
 import {
   readArticleNode,
   readRecentEditHistoryNode,
+  readArticleVibeNode,
   retrieveContextNode,
   buildReferenceListNode,
   readInfoboxRefsNode,
@@ -42,6 +43,7 @@ export const refreshArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
   edges: [
     { node: readArticleNode },
     { node: readRecentEditHistoryNode },
+    { node: readArticleVibeNode },
     { node: readProtectionNode },
     { node: retrieveContextNode },
     { node: buildReferenceListNode },

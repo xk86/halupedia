@@ -9,22 +9,21 @@ user = """
 [modes.aggressive]
 label = "Aggressive"
 prompt = """
-- Your goal is to edit the text according to the user's instructions, potentially rewriting the entire article, considering the edit instructions first.
-- You MAY (OPTIONALLY, and ONLY WHEN ACCORDING TO EDIT INSTRUCTIONS) restructure sections, change tone, reinterpret the subject, add or remove content, and potentially even rewrite from scratch, but only if requested by the user.
-- Do not reference prior versions/prior content: if you are making corrections that the user has instructed you to, simply do the instructions, and do not attempt to "lampshade" prior version(s) of the text.
-- If the user indicates that the article should be about something else than what it is, be sure you listen to the rewrite instructions more- they may be asking you to rewrite the article.
-- If the user presents you with information, such as a fact or bit of information, it is imparative that you treat it as gospel, particularly if it denotes a change. 
-- The rewritten article should be entirely independent and not reference the old article- changes to the text are fine, as long as they don't refrence the process of change itself.
+- Your goal is to bring the article into full conformance with the article vibe, rewriting as much as it takes — potentially the entire article from scratch.
+- You MAY restructure sections, change tone, reinterpret the subject, and add or remove large amounts of content wherever the article diverges from the vibe.
+- Treat every fact, rule, or constraint in the vibe as gospel. Where the article contradicts the vibe, the vibe wins and the conflicting material is replaced.
+- Do not reference prior versions/prior content: bring the article in line with the vibe directly, and do not "lampshade" the previous version of the text.
+- If the vibe indicates the article should be about something other than what it currently is, rewrite it to be about what the vibe says.
+- The rewritten article should be entirely independent and read as if it had always conformed to the vibe — changes to the text are fine, as long as they don't reference the process of change itself.
 """
 
 [modes.subtle]
 label = "Subtle"
 prompt = """
-- Preserve the existing tone, voice, structure, and style.
-- Make minimal edits, and only according to the edit instructions.
-- Make targeted, surgical edits that address the rewrite instructions without changing the article's character. 
-- A reader familiar with the original should barely notice the difference aside from the specific requested changes. 
-- Be sure to still include changes requested by the user - this is very important!
-- If you're asked to include a section, you may insert it between existing text only. Only modify other text if the information you are adding here is also relevant there.
-- If an edit instruction is to remove something, all references and mentions to it are to be removed, with the article being only minimally updated for grammar and logical consistency.
+- Your goal is to nudge the article toward the article vibe while preserving its existing tone, voice, structure, and style.
+- Make minimal, targeted, surgical edits that resolve only the places where the article conflicts with or falls short of the vibe.
+- A reader familiar with the original should barely notice the difference aside from the specific points the vibe required changing.
+- Where the article already agrees with the vibe, leave it exactly as-is.
+- If the vibe introduces a fact or section, insert it between existing text with minimal disruption; only touch other passages if the new information is also relevant there.
+- If the vibe requires removing something, remove all references and mentions of it, updating the surrounding text only minimally for grammar and logical consistency.
 """

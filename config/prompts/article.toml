@@ -14,6 +14,8 @@ Incoming canonical references that may link back to this article:
 
 {{link_hints}}
 
+{{article_vibe}}
+
 """
 
 user = """
@@ -38,6 +40,8 @@ Retrieved context:
 Suggested related existing topics:
 
 {{related_titles}}
+
+{{article_vibe}}
 
 Remember the requested article title: {{requested_title}}
 

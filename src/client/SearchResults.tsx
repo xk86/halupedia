@@ -65,11 +65,37 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState(q);
+  // Optional "vibe" to author up front when creating a new article — the
+  // canonical, human-authored source of truth used for its first generation.
+  const [vibeDraft, setVibeDraft] = useState("");
+  const [vibeOpen, setVibeOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setDraft(q);
+    setVibeDraft("");
+    setVibeOpen(false);
   }, [q]);
+
+  const createWithVibe = useCallback(async () => {
+    const trimmed = q.trim();
+    if (!trimmed || creating) return;
+    const segment = toWikiSegment(trimmed);
+    setCreating(true);
+    try {
+      if (vibeDraft.trim()) {
+        await fetch(`/api/article/${encodeURIComponent(segment)}/create`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: trimmed, vibe: vibeDraft }),
+        }).catch(() => {});
+      }
+      onNavigate(segment);
+    } finally {
+      setCreating(false);
+    }
+  }, [q, vibeDraft, creating, onNavigate]);
 
   useEffect(() => {
     abortRef.current?.abort();
@@ -170,14 +196,47 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
 
       {q && (
         <div className="search-goto mb-[1.2em] rounded-lg bg-blockquote-bg px-[0.8em] py-[0.6em] text-[0.95rem] [border:1px_solid_var(--rule)]">
-          Go to{" "}
-          <a
-            className="font-semibold text-accent no-underline hover:text-accent-hover hover:underline"
-            href={`/wiki/${toWikiSegment(q)}`}
-            onClick={(e) => onLinkClick(e, toWikiSegment(q))}
-          >
-            {q}
-          </a>
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              Go to{" "}
+              <a
+                className="font-semibold text-accent no-underline hover:text-accent-hover hover:underline"
+                href={`/wiki/${toWikiSegment(q)}`}
+                onClick={(e) => onLinkClick(e, toWikiSegment(q))}
+              >
+                {q}
+              </a>
+            </span>
+            <button
+              type="button"
+              className="font-serif text-[0.85rem] text-ink-fade italic hover:text-accent"
+              onClick={() => setVibeOpen((o) => !o)}
+            >
+              {vibeOpen ? "− hide vibe" : "+ create with a vibe"}
+            </button>
+          </div>
+          {vibeOpen && (
+            <div className="mt-[0.6em] flex flex-col gap-[0.5em]">
+              <textarea
+                className="min-h-[5rem] w-full rounded-md bg-panel-surface px-[0.6em] py-[0.45em] font-serif text-[0.95rem] [border:1px_solid_var(--rule)]"
+                placeholder="Canonical vibe for this new article: the rules, constraints, and facts it must follow. Treated as ground truth — never RAG'd."
+                value={vibeDraft}
+                onChange={(e) => setVibeDraft(e.target.value)}
+                maxLength={20000}
+                disabled={creating}
+              />
+              <div>
+                <Button
+                  type="button"
+                  className="h-auto px-[1.1rem]"
+                  onClick={() => void createWithVibe()}
+                  disabled={creating}
+                >
+                  {creating ? "Creating…" : "Create with vibe"}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

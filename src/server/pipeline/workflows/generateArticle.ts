@@ -19,6 +19,7 @@ import type { PipelineDeps } from "../deps";
 import {
   readArticleNode,
   readRecentEditHistoryNode,
+  readArticleVibeNode,
   retrieveContextNode,
   buildReferenceListNode,
   readInfoboxRefsNode,
@@ -44,6 +45,7 @@ export const generateArticleWorkflow: WorkflowDefinition<PipelineDeps> = {
   edges: [
     { node: readArticleNode },
     { node: readRecentEditHistoryNode },
+    { node: readArticleVibeNode },
     { node: retrieveContextNode },
     { node: buildReferenceListNode },
     { node: readInfoboxRefsNode },

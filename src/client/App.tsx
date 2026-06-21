@@ -8,6 +8,7 @@ import {
 } from "react";
 import clsx from "clsx";
 import {
+  CogIcon,
   CopyIcon,
   HistoryIcon,
   LockIcon,
@@ -42,7 +43,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
@@ -235,10 +236,13 @@ export function App() {
   const [linkMenuError, setLinkMenuError] = useState<string | null>(null);
   const [editSelectedText, setEditSelectedText] = useState("");
   const [editOpen, setEditOpen] = useState(false);
+  // The edit box now edits the article's persistent "vibe" — its canonical,
+  // human-authored source of truth. `editDraft` is the working copy;
+  // `editVibeLoaded` is what's currently persisted (for dirty detection).
   const [editDraft, setEditDraft] = useState("");
+  const [editVibeLoaded, setEditVibeLoaded] = useState("");
+  const [editVibeSaving, setEditVibeSaving] = useState(false);
   const [editSectionId, setEditSectionId] = useState("");
-  const [editIncludeRecentPrompts, setEditIncludeRecentPrompts] =
-    useState(false);
   // References panel state
   const [editRefsEnabled, setEditRefsEnabled] = useState(false);
   const [editRefs, setEditRefs] = useState<
@@ -319,6 +323,8 @@ export function App() {
     editRefsEnabled &&
     (editRefs.length !== editInitialRefSlugs.length ||
       editRefs.some((r) => !editInitialRefSlugSet.has(r.slug)));
+  // The vibe draft differs from what's persisted — "Save vibe" is enabled.
+  const editVibeDirty = editDraft !== editVibeLoaded;
 
   useLayoutEffect(() => {
     applyThemeSettings(themeSettings, systemDark);
@@ -435,9 +441,9 @@ export function App() {
       setLinkMenuBusy(false);
       setEditOpen(false);
       setEditDraft("");
+      setEditVibeLoaded("");
       setEditSectionId("");
       setEditSelectedText("");
-      setEditIncludeRecentPrompts(false);
       setEditRefsEnabled(false);
       setEditRefs([]);
       setEditInitialRefSlugs([]);
@@ -496,9 +502,9 @@ export function App() {
     setLinkMenuBusy(false);
     setEditOpen(false);
     setEditDraft("");
+    setEditVibeLoaded("");
     setEditSectionId("");
     setEditSelectedText("");
-    setEditIncludeRecentPrompts(false);
     setEditBusy(false);
     setEditError(null);
     setEditRefsEnabled(false);
@@ -1022,9 +1028,43 @@ export function App() {
       .catch(() => { });
   }, []);
 
+  // Load the article's persistent vibe into the edit box. Called on edit-open.
+  const loadEditVibe = useCallback((slug: string) => {
+    fetch(`/api/article/${encodeURIComponent(slug)}/vibe`)
+      .then((r) => r.json())
+      .then((body: { content?: string }) => {
+        const content = body.content ?? "";
+        setEditDraft(content);
+        setEditVibeLoaded(content);
+      })
+      .catch(() => { });
+  }, []);
+
+  // Persist the vibe draft (decoupled from rewriting). Records a revision only
+  // when the content changed. Returns the saved content.
+  const saveVibe = useCallback(async (): Promise<string> => {
+    const slug = page?.article.slug;
+    if (!slug) return editDraft;
+    setEditVibeSaving(true);
+    try {
+      const res = await fetch(`/api/article/${encodeURIComponent(slug)}/vibe`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: editDraft }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { content?: string };
+      const content = body.content ?? editDraft;
+      setEditVibeLoaded(content);
+      return content;
+    } finally {
+      setEditVibeSaving(false);
+    }
+  }, [page?.article.slug, editDraft]);
+
   useEffect(() => {
     if (!editOpen || !page?.article.slug) return;
     loadEditRefs(page.article.slug);
+    loadEditVibe(page.article.slug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editOpen, page?.article.slug]);
 
@@ -1239,6 +1279,9 @@ export function App() {
       current ? { ...current, statusMessage: "Rewriting article..." } : current,
     );
     try {
+      // The rewrite conforms the article to the saved vibe. Persist any unsaved
+      // edits to the vibe box first so the rewrite uses what's on screen.
+      if (editVibeDirty) await saveVibe();
       const res = await fetch(
         `/api/article/${encodeURIComponent(targetSlug)}/rewrite?stream=1`,
         {
@@ -1249,7 +1292,6 @@ export function App() {
           },
           signal: ac.signal,
           body: JSON.stringify({
-            instructions: editDraft,
             ...(editSectionId === "__selection__"
               ? { selectedText: editSelectedText }
               : { sectionId: editSectionId || undefined }),
@@ -1268,9 +1310,6 @@ export function App() {
             // means "clear all persisted blocks" (it was loaded from the server
             // when the tray opened).
             blacklistSlugs: editBlacklist,
-            ...(editIncludeRecentPrompts
-              ? { includeRecentEditHistory: true }
-              : {}),
             rewriteMode: editRewriteMode,
           }),
         },
@@ -1389,9 +1428,9 @@ export function App() {
         })();
       }
       setEditDraft("");
+      setEditVibeLoaded("");
       setEditSectionId("");
       setEditSelectedText("");
-      setEditIncludeRecentPrompts(false);
       setEditAddRefsOpen(false);
       setEditBlacklist([]);
       setEditBlacklistOpen(false);
@@ -1419,9 +1458,10 @@ export function App() {
     editRefsChanged,
     editInitialRefSlugs,
     editBlacklist,
-    editIncludeRecentPrompts,
     editRewriteMode,
     editBusy,
+    editVibeDirty,
+    saveVibe,
     loadEditRefs,
   ]);
 
@@ -2089,7 +2129,7 @@ export function App() {
                 </Select>
               </label>
               <label className="edit-modal-mode-toggle">
-                Mode
+                How much to change
                 <Select
                   value={editRewriteMode}
                   onValueChange={(v) =>
@@ -2099,12 +2139,19 @@ export function App() {
                   }
                   disabled={editBusy}
                 >
-                  <SelectTrigger aria-label="Mode" className="w-full">
+                  <SelectTrigger
+                    aria-label="How much to change"
+                    className="w-full"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="aggressive">Aggressive</SelectItem>
-                    <SelectItem value="subtle">Subtle</SelectItem>
+                    <SelectItem value="aggressive">
+                      Aggressive — may rewrite large portions
+                    </SelectItem>
+                    <SelectItem value="subtle">
+                      Subtle — surgical alignment
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </label>
@@ -2121,23 +2168,22 @@ export function App() {
               className="edit-instructions-mdedit"
               value={editDraft}
               onChange={setEditDraft}
-              placeholder="Describe your changes."
+              placeholder="This article's canonical vibe: the rules, constraints, and facts it must follow. Treated as ground truth — never RAG'd."
               minRows={3}
               disabled={editBusy}
             />
             <button
               type="button"
-              className={clsx(
-                "edit-recent-prompts-btn",
-                editIncludeRecentPrompts && "edit-recent-prompts-btn--active",
-              )}
-              aria-pressed={editIncludeRecentPrompts}
-              onClick={() => setEditIncludeRecentPrompts((enabled) => !enabled)}
-              disabled={editBusy}
+              className="edit-recent-prompts-btn"
+              onClick={() => void saveVibe()}
+              disabled={editBusy || editVibeSaving || !editVibeDirty}
+              title="Save the vibe without rewriting the article"
             >
-              {editIncludeRecentPrompts
-                ? "✓ Using last 2 edit prompts"
-                : "Use last 2 edit prompts"}
+              {editVibeSaving
+                ? "Saving vibe…"
+                : editVibeDirty
+                  ? "Save vibe"
+                  : "✓ Vibe saved"}
             </button>
             {/* References panel */}
             <div className="edit-refs-row">
@@ -2388,13 +2434,14 @@ export function App() {
                 type="button"
                 className="edit-modal-submit"
                 onClick={rewriteArticle}
+                title="Rewrite the article to conform to its vibe"
                 disabled={
                   editBusy ||
                   (!editDraft.trim() && !editRefsChanged) ||
                   !!page.isProtected
                 }
               >
-                {editBusy ? "Rewriting..." : "Apply edit"}
+                {editBusy ? "Rewriting..." : "Rewrite to vibe"}
               </button>
               <button
                 type="button"
@@ -2646,7 +2693,10 @@ export function App() {
     editBusy,
     editDraft,
     editError,
-    editIncludeRecentPrompts,
+    editVibeLoaded,
+    editVibeSaving,
+    editVibeDirty,
+    saveVibe,
     rewriteArticle,
     rawEditOpen,
     rawEditMarkdown,
@@ -2695,7 +2745,7 @@ export function App() {
 
   return (
     <div className="site">
-      <header className="site-header">
+      <header className="site-header relative">
         <a
           href="/"
           className="brand"
@@ -2725,6 +2775,23 @@ export function App() {
             <MoonIcon />
           )}
         </Button>
+
+        <a
+          href="/settings"
+          className={buttonVariants({
+            variant: "outline",
+            size: "icon",
+            className: "absolute top-3 right-0",
+          })}
+          aria-label="Theme/user settings"
+          title="Theme/user settings"
+          onClick={(e) => {
+            e.preventDefault();
+            navigateToSettings();
+          }}
+        >
+          <CogIcon />
+        </a>
 
         <nav className="nav">
           <a
@@ -2780,15 +2847,6 @@ export function App() {
             }}
           >
             Admin
-          </a>
-          <a
-            href="/settings"
-            onClick={(e) => {
-              e.preventDefault();
-              navigateToSettings();
-            }}
-          >
-            Settings
           </a>
           <a
             href="/graph"

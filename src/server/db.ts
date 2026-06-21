@@ -250,6 +250,28 @@ export function openDatabase(databasePath: string): DatabaseSync {
       PRIMARY KEY (scope, key)
     );
 
+    -- Per-article "vibe": a human-authored, canonical statement of the rules,
+    -- constraints, and facts for one article. Injected into generation and
+    -- rewrite prompts as ground truth, never RAG'd. Versioned the same way as
+    -- prompt revisions (reverse patches), but kept in its own tables so the
+    -- TOML startup-sync for prompts never touches per-article content.
+    CREATE TABLE IF NOT EXISTS article_vibe (
+      slug TEXT PRIMARY KEY,
+      content TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS article_vibe_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      reverse_patch TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'save'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_article_vibe_revisions_slug
+      ON article_vibe_revisions(slug, created_at DESC, id DESC);
+
     -- Per-article media attachments. The media_id references the media DB
     -- (cross-database, no FK enforced). caption is the per-usage visible text
     -- shown in the article (defaults to the media description when empty).
@@ -2149,4 +2171,97 @@ export function listAllPromptCurrents(
   return db
     .prepare(`SELECT scope, key, system, user FROM prompt_current`)
     .all() as unknown as Array<{ scope: string; key: string; system: string; user: string }>;
+}
+
+// ── Article vibe (per-article canonical source) ──────────────────────────────
+
+export type ArticleVibeSource = "save" | "revert" | "hint-seed";
+
+export interface ArticleVibeRevisionRow {
+  id: number;
+  slug: string;
+  createdAt: number;
+  source: string;
+}
+
+/** Current vibe content for an article (empty string when none set). */
+export function getArticleVibe(db: DatabaseSync, slug: string): string {
+  const row = db
+    .prepare(`SELECT content FROM article_vibe WHERE slug = ?`)
+    .get(slug) as { content: string } | undefined;
+  return row?.content ?? "";
+}
+
+/**
+ * Saves a new vibe for an article. Records a reverse patch so the prior content
+ * can be reconstructed, then upserts the current content. No-op (returns null)
+ * when the content is unchanged. Returns the new revision id otherwise.
+ */
+export function setArticleVibe(
+  db: DatabaseSync,
+  slug: string,
+  content: string,
+  source: ArticleVibeSource = "save",
+): number | null {
+  const current = getArticleVibe(db, slug);
+  if (current === content) return null;
+  const patch = makeReversePatch(current, content);
+  const result = db
+    .prepare(
+      `INSERT INTO article_vibe_revisions (slug, created_at, reverse_patch, source)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .run(slug, Date.now(), patch, source);
+  db.prepare(
+    `INSERT INTO article_vibe (slug, content, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(slug) DO UPDATE SET
+       content = excluded.content,
+       updated_at = excluded.updated_at`,
+  ).run(slug, content, Date.now());
+  return result.lastInsertRowid as number;
+}
+
+/** Returns all vibe revisions for an article newest-first. */
+export function listArticleVibeRevisions(
+  db: DatabaseSync,
+  slug: string,
+): ArticleVibeRevisionRow[] {
+  return db
+    .prepare(
+      `SELECT id, slug, created_at AS createdAt, source
+       FROM article_vibe_revisions
+       WHERE slug = ?
+       ORDER BY created_at DESC, id DESC`,
+    )
+    .all(slug) as unknown as ArticleVibeRevisionRow[];
+}
+
+/**
+ * Reconstructs the vibe content as it existed just before revision `targetId`
+ * was saved, by walking the reverse patches backwards from current content.
+ * Returns null if the revision is not found or a patch fails to apply.
+ */
+export function reconstructArticleVibeRevision(
+  db: DatabaseSync,
+  slug: string,
+  targetId: number,
+): string | null {
+  const rows = db
+    .prepare(
+      `SELECT id, reverse_patch AS patch
+       FROM article_vibe_revisions
+       WHERE slug = ?
+       ORDER BY created_at DESC, id DESC`,
+    )
+    .all(slug) as Array<{ id: number; patch: string }>;
+
+  let content = getArticleVibe(db, slug);
+  for (const row of rows) {
+    const next = applyPatch(row.patch, content);
+    if (next === null) return null;
+    content = next;
+    if (row.id === targetId) return content;
+  }
+  return null;
 }

@@ -24,6 +24,7 @@ import {
   formatReferencesForPromptText,
 } from "../../referenceList";
 import { formatIncomingHintsForPrompt } from "../../linkHints";
+import { formatArticleVibeForPrompt } from "./articleGeneration";
 import { formatRagContextForPrompt, formatRelatedTitlesForPrompt } from "../../retrieval";
 import {
   normalizeMarkdown,
@@ -73,9 +74,10 @@ export const renderRefreshPromptNode = defineNode({
     "loadedArticle",
     "references",
     "retrievedContext",
+    "articleVibe",
   ] as const,
   writes: ["renderedPrompt"] as const,
-  run({ input, loadedArticle, references, retrievedContext }, deps: PipelineDeps) {
+  run({ input, loadedArticle, references, retrievedContext, articleVibe }, deps: PipelineDeps) {
     const slug = input.slug ?? "";
     const title = loadedArticle?.title ?? input.requestedTitle ?? slug;
     const currentBody = loadedArticle
@@ -117,6 +119,7 @@ export const renderRefreshPromptNode = defineNode({
       parent_comment: "",
       selected_text: "",
       edit_instructions: "",
+      article_vibe: formatArticleVibeForPrompt(articleVibe),
     });
     return { renderedPrompt: rendered };
   },

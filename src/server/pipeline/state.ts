@@ -214,6 +214,10 @@ export const PipelineStateSchema = z.object({
   loadedArticle: LoadedArticleSchema.optional(),
   /** Recent edit revisions, formatted for prompt or sentinel-string downstream. */
   recentEditHistory: z.string().optional(),
+  /** Per-article canonical "vibe": human-authored ground truth, never RAG'd.
+   *  Injected into generation/rewrite prompts; for rewrites it is the edit
+   *  instruction the model conforms the article to. */
+  articleVibe: z.string().optional(),
 
   // retrieval ────────────────────────────────────────────────────────────────
   retrievedContext: RetrievedContextSchema.optional(),

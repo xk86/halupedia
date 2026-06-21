@@ -24,6 +24,7 @@ import {
   getArticleByLookup,
   getArticleHeadlineMedia,
   getArticleInfobox,
+  getArticleVibe,
   type IncomingHint,
   listIncomingHints,
 } from "../../db";
@@ -130,6 +131,20 @@ export const readRecentEditHistoryNode = defineNode({
         )
         .join("\n"),
     };
+  },
+});
+
+export const readArticleVibeNode = defineNode({
+  name: "read.article_vibe",
+  kind: "read",
+  description:
+    "Load the article's canonical vibe (human-authored ground truth). Never RAG'd.",
+  reads: ["input"] as const,
+  writes: ["articleVibe"] as const,
+  run({ input }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    if (!slug) return { articleVibe: "" };
+    return { articleVibe: getArticleVibe(deps.db, slug) };
   },
 });
 
@@ -428,6 +443,22 @@ export const readInfoboxRefsNode = defineNode({
   },
 });
 
+/**
+ * Wrap the article vibe in a canonical-source block, or "" when empty. The
+ * block is framed as human-authored ground truth so generation treats it as
+ * fact rather than a suggestion. Empty vibe leaves no dangling header.
+ */
+export function formatArticleVibeForPrompt(vibe: string | undefined): string {
+  const trimmed = (vibe ?? "").trim();
+  if (!trimmed) return "";
+  return [
+    "Canonical source for this article (human-authored ground truth — treat as",
+    "fact; do not contradict or hedge against it):",
+    "",
+    trimmed,
+  ].join("\n");
+}
+
 // ─── LLM nodes ───────────────────────────────────────────────────────────────
 
 export const renderArticlePromptNode = defineNode({
@@ -439,10 +470,11 @@ export const renderArticlePromptNode = defineNode({
     "references",
     "retrievedContext",
     "recentEditHistory",
+    "articleVibe",
   ] as const,
   writes: ["renderedPrompt"] as const,
   run(
-    { input, references, retrievedContext, recentEditHistory },
+    { input, references, retrievedContext, recentEditHistory, articleVibe },
     deps: PipelineDeps,
   ) {
     const refs = (references ?? []).map((r) =>
@@ -471,6 +503,7 @@ export const renderArticlePromptNode = defineNode({
       ),
       recent_edit_history: recentEditHistory ?? "",
       link_hints: linkHints || "(none)",
+      article_vibe: formatArticleVibeForPrompt(articleVibe),
     });
     return { renderedPrompt: rendered };
   },

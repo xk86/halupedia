@@ -151,7 +151,10 @@ export const retrieveContextForRewriteNode = defineNode({
     const explicitSlugs = [...(input.pinnedSlugs ?? []), ...(input.userReferenceSlugs ?? [])];
     const ragEnabled = input.ragEnabled === true;
     const ragQuery = input.ragQuery ?? "";
-    const instructionsText = input.instructions ?? "";
+    // The article vibe is never used as a retrieval query — it is canonical
+    // human-authored source, not a search prompt. Retrieval is driven only by
+    // an explicit ragQuery (or the auto hints/backlinks branch below).
+    const instructionsText = "";
 
     const hints = listIncomingHints(deps.db, slug);
     const backlinkSlugs = [...new Set(hints.map((h) => h.sourceSlug).filter(Boolean))];
@@ -331,9 +334,10 @@ export const renderRewritePromptNode = defineNode({
     "retrievedContext",
     "rewriteMode",
     "recentEditHistory",
+    "articleVibe",
   ] as const,
   writes: ["renderedPrompt"] as const,
-  run({ input, loadedArticle, selectedMarkdown, selectionRange, sectionId, references, retrievedContext, rewriteMode, recentEditHistory }, deps: PipelineDeps) {
+  run({ input, loadedArticle, selectedMarkdown, selectionRange, sectionId, references, retrievedContext, rewriteMode, recentEditHistory, articleVibe }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
     const title = loadedArticle?.title ?? input.requestedTitle ?? slug;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
@@ -343,7 +347,10 @@ export const renderRewritePromptNode = defineNode({
       deps.runtime.prompts.rewriteModes?.[requestedMode]?.prompt ??
       deps.runtime.prompts.rewriteModes?.aggressive?.prompt ??
       "";
-    const instructions = input.instructions ?? "";
+    // The article vibe (human-authored canonical source) is the rewrite
+    // instruction: the model conforms the article to it at the chosen
+    // magnitude. Per-edit free-text instructions no longer exist.
+    const instructions = (articleVibe ?? "").trim();
 
     // For partial edits (section or selection), feed only the targeted fragment
     // as current_article so the model returns just that fragment. For full rewrites,

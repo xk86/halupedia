@@ -81,6 +81,10 @@ import {
   getPromptCurrent,
   setPromptCurrent,
   listAllPromptCurrents,
+  getArticleVibe,
+  setArticleVibe,
+  listArticleVibeRevisions,
+  reconstructArticleVibeRevision,
   getArticleHeadlineMedia,
   getArticleInfobox,
   setArticleInfobox,
@@ -153,6 +157,7 @@ import {
 } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
 import { normalizeMarkdownLinks } from "./text/linkNormalize";
+import { formatIncomingHintsForPrompt } from "./linkHints";
 import type {
   ArticleRecord,
   HomepagePayload,
@@ -1740,6 +1745,26 @@ export async function createApp(options: CreateAppOptions = {}) {
     onStatus?: (message: string) => void,
   ) {
     onStatus?.("Writing...");
+    // Seed the article's vibe from incoming halu hidden-hints on first
+    // generation. Those hints are the wiki's existing canon about this topic
+    // ("what everything that links here already says about me"), which makes a
+    // sensible starting vibe. Only seeds when no vibe exists yet so a
+    // human-authored vibe is never overwritten. This is the one LLM-derived
+    // vibe; afterward the vibe is human-curated.
+    if (!getArticleVibe(db, slug).trim()) {
+      const seedHints = listIncomingHints(db, slug);
+      if (seedHints.length > 0) {
+        const seed = formatIncomingHintsForPrompt(
+          seedHints,
+          slug,
+          runtime.app.rag.prompt_link_hints_max,
+        ).trim();
+        if (seed && seed !== "(none yet)") {
+          setArticleVibe(db, slug, seed, "hint-seed");
+          logger.info("article.vibe_hint_seed", { slug, hints: seedHints.length });
+        }
+      }
+    }
     const recorder = getTraceRecorder(runtime.app.pipeline.trace);
     const genEntry = slugGenerations.get(slug);
     const result = await runWorkflow(generateArticleWorkflow, {
@@ -2429,6 +2454,83 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({ references, blacklist: listArticleBlacklistSlugs(db, article.slug) });
   });
 
+  // ── Article vibe (per-article canonical source) ────────────────────────────
+  // The vibe is the persistent, human-authored ground truth for an article. It
+  // is shown in the edit panel, versioned, and used as the rewrite instruction.
+  // Saving is decoupled from rewriting: this only stores a revision.
+
+  app.get("/api/article/:slug/vibe", (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    // Allow reading the vibe for not-yet-generated slugs (new-article flow).
+    const article = getArticleByLookup(db, lookupSlug);
+    const slug = article?.slug ?? lookupSlug;
+    return c.json({
+      content: getArticleVibe(db, slug),
+      revisions: listArticleVibeRevisions(db, slug),
+    });
+  });
+
+  app.put("/api/article/:slug/vibe", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    const slug = article?.slug ?? lookupSlug;
+    const body = (await c.req.json().catch(() => ({}))) as { content?: string };
+    const content = (body.content ?? "").slice(0, 20_000);
+    const revisionId = setArticleVibe(db, slug, content, "save");
+    logger.info("article.vibe_saved", { slug, changed: revisionId !== null });
+    return c.json({
+      content: getArticleVibe(db, slug),
+      revisions: listArticleVibeRevisions(db, slug),
+      changed: revisionId !== null,
+    });
+  });
+
+  app.post("/api/article/:slug/vibe/revert", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    const article = getArticleByLookup(db, lookupSlug);
+    const slug = article?.slug ?? lookupSlug;
+    const body = (await c.req.json().catch(() => ({}))) as { revisionId?: number };
+    if (typeof body.revisionId !== "number")
+      return c.json({ error: "missing revisionId" }, 400);
+    const prior = reconstructArticleVibeRevision(db, slug, body.revisionId);
+    if (prior === null) return c.json({ error: "revision not found" }, 404);
+    setArticleVibe(db, slug, prior, "revert");
+    logger.info("article.vibe_reverted", { slug, revision_id: body.revisionId });
+    return c.json({
+      content: getArticleVibe(db, slug),
+      revisions: listArticleVibeRevisions(db, slug),
+    });
+  });
+
+  // New-article-with-vibe: store a vibe for a not-yet-generated slug, then let
+  // the client navigate to /wiki/<segment> to trigger generation. The lazy
+  // generate path seeds a vibe only when none exists, so this human-authored
+  // vibe is preserved and used as canonical source for the first generation.
+  app.post("/api/article/:slug/create", async (c) => {
+    const lookupSlug = slugify(c.req.param("slug"));
+    if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
+    if (getArticleByLookup(db, lookupSlug))
+      return c.json({ error: "article already exists" }, 409);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      title?: string;
+      vibe?: string;
+    };
+    const title = normalizeCanonicalTitle(
+      (body.title ?? "").trim() || wikiSegmentToRequestedTitle(lookupSlug),
+    );
+    const vibe = (body.vibe ?? "").slice(0, 20_000);
+    if (vibe.trim()) setArticleVibe(db, lookupSlug, vibe, "save");
+    logger.info("article.create_with_vibe", { slug: lookupSlug, has_vibe: !!vibe.trim() });
+    return c.json({
+      slug: lookupSlug,
+      title,
+      segment: titleToWikiSegment(title),
+    });
+  });
+
   // Toggle the pinned flag on a saved reference without triggering a full rewrite.
   app.post("/api/article/:slug/pin-reference", async (c) => {
     const lookupSlug = slugify(c.req.param("slug"));
@@ -2874,20 +2976,27 @@ export async function createApp(options: CreateAppOptions = {}) {
       /** When true, bypass article-level protection (user is explicitly editing). */
       isManualEdit?: boolean;
     };
-    const instructions = (body.instructions ?? "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 2500);
-    if (!instructions && !hasReferenceEditFields(body))
-      return c.json({ error: "missing rewrite instructions" }, 400);
-
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
 
+    // The rewrite instruction is now the article's canonical vibe (loaded from
+    // the DB), not per-edit free text. `instructions` here is just a marker for
+    // the revision row / logs — the prompt itself reads the vibe via
+    // readArticleVibeNode. A `rewriteMode` (subtle/aggressive) selects how much
+    // of the article to change to conform to the vibe.
+    const vibe = getArticleVibe(db, article.slug).trim();
+    const hasVibe = vibe.length > 0;
+    if (!hasVibe && !hasReferenceEditFields(body))
+      return c.json(
+        { error: "Set an article vibe before rewriting." },
+        400,
+      );
+    const instructions = "rewrite-to-vibe";
+
     // Refs-only edit: the user changed the reference selection (add/remove/
-    // pin/block) without rewrite instructions. Update the sidecar directly —
-    // no LLM call, no retrieval, no post-process.
-    if (!instructions) {
+    // pin/block) and there is no vibe to rewrite toward. Update the sidecar
+    // directly — no LLM call, no retrieval, no post-process.
+    if (!hasVibe) {
       const refs = applyReferenceOnlyEdit(db, article.slug, body, runtime.app.rag, logger);
       invalidateArticleHtml(article.slug);
       logger.info("article.reference_only_edit", { slug: article.slug, refs: refs.length });

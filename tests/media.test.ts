@@ -604,53 +604,6 @@ describe("article image generation", () => {
     assert.equal(result.mime, "image/png");
   });
 
-  test("OpenAI backend sends transparent background requests as png", async (t) => {
-    t.after(() => setImageGenerationFetchForTests(null));
-    let capturedBody: any = null;
-    setImageGenerationFetchForTests(async (_url, init) => {
-      capturedBody = JSON.parse(String(init?.body ?? "{}"));
-      return new Response(
-        JSON.stringify({
-          data: [{ b64_json: TINY_PNG_B64 }],
-        }),
-        { headers: { "content-type": "application/json" } },
-      );
-    });
-
-    const result = await generateArticleImage({
-      prompt: "draw a transparent fictional logo",
-      config: {
-        ...TEST_CONFIG.app.images.generation,
-        ...enabledOpenAiImageGeneration,
-        ollama: TEST_CONFIG.app.images.generation.ollama,
-      } as ImageGenerationConfig,
-      logger: noop(),
-      background: "transparent",
-    });
-
-    assert.equal(capturedBody.background, "transparent");
-    assert.equal(capturedBody.output_format, "png");
-    assert.equal("output_compression" in capturedBody, false);
-    assert.equal(result.mime, "image/png");
-  });
-
-  test("transparent background requests require the OpenAI backend", async () => {
-    await assert.rejects(
-      () =>
-        generateArticleImage({
-          prompt: "draw a transparent fictional logo",
-          config: {
-            ...TEST_CONFIG.app.images.generation,
-            enabled: true,
-            backend: "ollama",
-          } as ImageGenerationConfig,
-          logger: noop(),
-          background: "transparent",
-        }),
-      /transparent image backgrounds require the OpenAI image backend/i,
-    );
-  });
-
   test("Ollama backend parses final image field", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let capturedUrl = "";
@@ -1260,7 +1213,7 @@ describe("http", () => {
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
   });
 
-  test("POST /api/article/:slug/image/generate enables transparent OpenAI output for logos preset", async (t) => {
+  test("POST /api/article/:slug/image/generate uses logos preset without transparent output", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let capturedBody: any = null;
     setImageGenerationFetchForTests(async (_url, init) => {
@@ -1285,9 +1238,8 @@ describe("http", () => {
     const body = await res.json() as any;
     assert.equal(body.presetKey, "logos");
     assert.match(capturedBody.prompt, /standalone fictional logo/i);
-    assert.equal(capturedBody.background, "transparent");
-    assert.equal(capturedBody.output_format, "png");
-    assert.equal("output_compression" in capturedBody, false);
+    assert.doesNotMatch(capturedBody.prompt, /transparent background/i);
+    assert.equal("background" in capturedBody, false);
   });
 
   test("POST /api/article/:slug/image/generate can ask the LLM to select an image preset", async (t) => {

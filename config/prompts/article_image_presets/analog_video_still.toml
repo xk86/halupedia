@@ -1,10 +1,10 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article feels like lost footage, institutional tape, local TV, training video, camcorder evidence, broadcast archive, cult ritual recording, or a scene where degraded analog capture is the most specific source."
+selection_avoid = "The article calls for a still photograph, clean poster, formal record, screen UI, satellite view, or a subject with no plausible filmed moment."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject that looks like a
 damaged still captured from an analog video source: VHS, late-night local TV,
 camcorder tape, public-access broadcast, training cassette, surveillance feed,

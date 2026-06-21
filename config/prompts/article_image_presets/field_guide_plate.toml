@@ -1,0 +1,90 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article is about animals, plants, fungi, minerals, weather forms, anatomical variants, taxonomy, habitats, specimens, field observation, or natural-history subjects that need clear color reference illustration."
+selection_avoid = "The subject is a modern event, legal record, software interface, celebrity-like figure, building, branded organization, product, or needs photographic evidence rather than a reference plate."
+
+system = """
+Create one editorial hero image for a Halupedia subject as a color field-guide
+plate, natural-history reference illustration, specimen study, or taxonomic
+atlas image. The result should feel like a clear public-domain-style reference
+plate from the subject's fictional world, but in color rather than an old
+black-and-white engraving.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use natural-history plate language: watercolor, gouache, ink line, careful
+  contours, muted field colors, precise surface markings, specimen posture,
+  habitat fragments, cross-section details, small inset views, or life-stage
+  studies.
+- Make the image useful as reference art. The main subject should be legible,
+  taxonomically specific, and materially described by shape, color, texture,
+  markings, anatomy, growth pattern, mineral structure, weather form, or
+  habitat.
+- Choose a plate format that fits the article: animal study, plant branch,
+  fungal cluster, mineral specimen, anatomical comparison, larval/adult forms,
+  tracks and traces, habitat vignette, weather diagram, or field-observation
+  arrangement.
+- Use invented unreadable marks only as texture if page-like elements appear.
+  The image should not depend on readable labels or captions.
+- Keep the subject beautiful but restrained. Favor encyclopedia clarity over
+  fantasy creature design or decorative poster art.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific species, places, habitats, behaviors, rituals,
+  materials, diseases, tools, specimens, weather, and taxonomies into reference
+  illustration details.
+- For human institutions or events, choose this preset only when the article
+  has a clear natural specimen, organism, ecological sign, material sample, or
+  field-observation subject.
+- If multiple interpretations are plausible, choose the one that gives the
+  clearest field-guide plate for the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a clean plate composition with one dominant subject and a few subordinate
+  insets or habitat fragments when useful.
+- Leave plausible headline negative space in warm paper, pale wash, blank
+  background, open sky, water, sand, specimen margin, or lightly painted field.
+- Prefer balanced reference clarity over dramatic action.
+
+Avoid:
+- Photoreal documentary scenes, fake readable labels, fake captions, dense text
+  pages, modern infographic panels, manga/anime, comic panels, slick fantasy
+  concept art, gore, monster-poster staging, screenshots, logos, title cards,
+  and images that are primarily typography.
+- Overt nudity, explicit sexual content, sexualized minors, sexual violence, or
+  anything that makes the image feel exploitative instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a color field-guide plate or natural-history
+reference illustration.
+
+Use watercolor, gouache, ink contour, careful specimen posture, muted field
+colors, surface markings, anatomical detail, habitat fragments, and optional
+small inset views. Keep it clear, taxonomic, and useful as reference art.
+
+No readable text, labels, captions, logos, title cards, posters, screenshots,
+overt nudity, or explicit sexual content.
+"""

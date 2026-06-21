@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
 import type { AppConfig, HostConfig, ImagesConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
+import { validateOpenAIImageSize } from "./imageAspectRatios";
 
 const ROOT = process.cwd();
 
@@ -66,6 +67,13 @@ function loadPromptConfig(dir: string): PromptConfig {
 }
 
 function withDefaults(app: Partial<AppConfig>): AppConfig {
+  const rawAspectRatios = app.images?.generation?.aspect_ratios ?? {};
+  const aspectRatios = Object.fromEntries(
+    Object.entries(rawAspectRatios).filter(([, option]) => {
+      if (!option || typeof option.size !== "string") return false;
+      return !validateOpenAIImageSize(option.size);
+    }),
+  );
   return {
     server: {
       host: app.server?.host ?? "127.0.0.1",
@@ -138,6 +146,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
         auto_generate_for_featured_article: app.images?.generation?.auto_generate_for_featured_article ?? false,
         auto_preset_multipass: app.images?.generation?.auto_preset_multipass ?? false,
         backend: app.images?.generation?.backend === "ollama" ? "ollama" : "openai",
+        aspect_ratios: aspectRatios,
         openai: {
           base_url: app.images?.generation?.openai?.base_url ?? "https://api.openai.com/v1",
           api_key: app.images?.generation?.openai?.api_key ?? "",

@@ -1,5 +1,6 @@
 import type { Logger } from "./logger";
 import type { ImageGenerationConfig } from "./types";
+import { parseImageSize, validateOpenAIImageSize } from "./imageAspectRatios";
 
 type ImageFetch = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -25,6 +26,8 @@ export interface GenerateArticleImageOptions {
   prompt: string;
   config: ImageGenerationConfig;
   logger: Logger;
+  size?: string;
+  background?: "transparent" | "opaque" | "auto";
 }
 
 function normalizeBaseUrl(baseUrl: string, fallback: string): string {
@@ -83,22 +86,32 @@ async function generateWithOpenAI(
   prompt: string,
   config: ImageGenerationConfig,
   logger: Logger,
+  size = config.openai.size,
+  background?: GenerateArticleImageOptions["background"],
 ): Promise<GeneratedArticleImage> {
   const openai = config.openai;
   if (!openai.api_key.trim()) {
     throw new Error("OpenAI image generation requires images.generation.openai.api_key");
   }
+  const sizeError = validateOpenAIImageSize(size);
+  if (sizeError) {
+    throw new Error(`OpenAI image generation ${sizeError}`);
+  }
   const url = `${normalizeBaseUrl(openai.base_url, "https://api.openai.com/v1")}/images/generations`;
   const startedAt = Date.now();
+  const outputFormat = background === "transparent" ? "png" : openai.output_format;
   const body: Record<string, unknown> = {
     model: openai.model,
     prompt,
     n: 1,
-    size: openai.size,
+    size,
     quality: openai.quality,
-    output_format: openai.output_format,
+    output_format: outputFormat,
   };
-  if (supportsOpenAIOutputCompression(openai.output_format)) {
+  if (background) {
+    body.background = background;
+  }
+  if (supportsOpenAIOutputCompression(outputFormat)) {
     body.output_compression = openai.output_compression;
   }
   const response = await imageFetch(url, {
@@ -120,7 +133,7 @@ async function generateWithOpenAI(
   const first = json.data?.[0];
   if (!first) throw new Error("OpenAI image generation returned no images");
   let bytes: Buffer;
-  let mime = mimeFromOpenAIOutputFormat(openai.output_format);
+  let mime = mimeFromOpenAIOutputFormat(outputFormat);
   if (first.b64_json) {
     bytes = decodeBase64Image(first.b64_json, "OpenAI image generation");
   } else if (first.url) {
@@ -153,8 +166,10 @@ async function generateWithOllama(
   prompt: string,
   config: ImageGenerationConfig,
   logger: Logger,
+  size?: string,
 ): Promise<GeneratedArticleImage> {
   const ollama = config.ollama;
+  const parsedSize = size ? parseImageSize(size) : null;
   const base = normalizeBaseUrl(ollama.base_url, "http://127.0.0.1:11434").replace(/\/v1$/, "");
   const startedAt = Date.now();
   const response = await imageFetch(`${base}/api/generate`, {
@@ -165,8 +180,8 @@ async function generateWithOllama(
       model: ollama.model,
       prompt,
       stream: false,
-      width: ollama.width,
-      height: ollama.height,
+      width: parsedSize?.width ?? ollama.width,
+      height: parsedSize?.height ?? ollama.height,
       steps: ollama.steps,
     }),
   });
@@ -193,12 +208,17 @@ export async function generateArticleImage({
   prompt,
   config,
   logger,
+  size,
+  background,
 }: GenerateArticleImageOptions): Promise<GeneratedArticleImage> {
   if (!config.enabled) {
     throw new Error("image generation is disabled");
   }
-  if (config.backend === "ollama") {
-    return generateWithOllama(prompt, config, logger);
+  if (background === "transparent" && config.backend !== "openai") {
+    throw new Error("transparent image backgrounds require the OpenAI image backend");
   }
-  return generateWithOpenAI(prompt, config, logger);
+  if (config.backend === "ollama") {
+    return generateWithOllama(prompt, config, logger, size);
+  }
+  return generateWithOpenAI(prompt, config, logger, size, background);
 }

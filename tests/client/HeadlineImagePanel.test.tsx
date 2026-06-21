@@ -115,6 +115,24 @@ describe("HeadlineImagePanel", () => {
     expect(await screen.findByRole("button", { name: /generate/i })).toBeInTheDocument();
   });
 
+  it("keeps built-in aspect ratio options when the aspect-ratio endpoint is unavailable", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/article-image-aspect-ratios")) {
+        return jsonResponse({ error: "not found" }, 404);
+      }
+      return NO_IMAGE_RESPONSE;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("combobox", { name: /image aspect ratio/i }));
+
+    expect(await screen.findByRole("option", { name: /portrait \(832x1088\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /square \(832x832\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /poster portrait \(768x1152\)/i })).toBeInTheDocument();
+  });
+
   // ── URL attach ───────────────────────────────────────────────────────────────
 
   it("clicking Attach POSTs to the image endpoint and shows thumbnail", async () => {
@@ -242,6 +260,7 @@ describe("HeadlineImagePanel", () => {
       expect(generateCall).toBeTruthy();
       expect(JSON.parse(String((generateCall?.[1] as RequestInit).body))).toEqual({
         presetKey: "psychedelic_editorial",
+        aspectRatioKey: "landscape",
       });
     });
   });
@@ -281,6 +300,7 @@ describe("HeadlineImagePanel", () => {
       expect(generateCall).toBeTruthy();
       expect(JSON.parse(String((generateCall?.[1] as RequestInit).body))).toEqual({
         presetKey: "auto",
+        aspectRatioKey: "auto",
       });
     });
   });

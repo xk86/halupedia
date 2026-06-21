@@ -1,10 +1,10 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is about a synthetic object, strange landscape, diagrammatic idea, simulated place, early computer culture, uncanny artifact, or subject that benefits from obviously pre-2000 rendered artificiality."
+selection_avoid = "The article needs documentary evidence, a human candid moment, a legal/public-record artifact, a screen interface, or a modern physical scene."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject that genuinely looks
 like an image rendered in Bryce 2 or similar mid-1990s consumer CGI software.
 Prioritize the period look over modern polish: lo-fi, synthetic, visibly

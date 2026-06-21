@@ -47,6 +47,7 @@ import { articleImageGenerationWorkflow } from "../src/server/pipeline/workflows
 import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
 import { generateArticleImage, setImageGenerationFetchForTests } from "../src/server/imageGeneration";
+import { listArticleImageAspectRatios } from "../src/server/imageAspectRatios";
 import type { ImageGenerationConfig } from "../src/server/types";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -471,6 +472,78 @@ describe("article image generation", () => {
     assert.deepEqual(result.bytes, TINY_PNG);
   });
 
+  test("OpenAI backend validates and sends requested image size overrides", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: TINY_PNG_B64 }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    await generateArticleImage({
+      prompt: "draw aspirin",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        ...enabledOpenAiImageGeneration,
+        ollama: TEST_CONFIG.app.images.generation.ollama,
+      } as ImageGenerationConfig,
+      logger: noop(),
+      size: "832x1088",
+    });
+
+    assert.equal(capturedBody.size, "832x1088");
+    await assert.rejects(
+      () =>
+        generateArticleImage({
+          prompt: "draw aspirin",
+          config: {
+            ...TEST_CONFIG.app.images.generation,
+            ...enabledOpenAiImageGeneration,
+            ollama: TEST_CONFIG.app.images.generation.ollama,
+          } as ImageGenerationConfig,
+          logger: noop(),
+          size: "801x1088",
+        }),
+      /divisible by 16/i,
+    );
+  });
+
+  test("landscape image aspect ratio follows configured OpenAI size", () => {
+    const ratios = listArticleImageAspectRatios({
+      ...TEST_CONFIG.app.images.generation,
+      ...enabledOpenAiImageGeneration,
+      openai: {
+        ...enabledOpenAiImageGeneration.openai!,
+        size: "1152x672",
+      },
+      ollama: TEST_CONFIG.app.images.generation.ollama,
+    } as ImageGenerationConfig);
+    assert.equal(ratios.find((ratio) => ratio.key === "landscape")?.size, "1152x672");
+    assert.equal(ratios.some((ratio) => ratio.key === "default"), false);
+  });
+
+  test("legacy default image aspect ratio config is folded into landscape", () => {
+    const ratios = listArticleImageAspectRatios({
+      ...TEST_CONFIG.app.images.generation,
+      ...enabledOpenAiImageGeneration,
+      aspect_ratios: {
+        default: {
+          label: "old configured landscape",
+          size: "1152x672",
+          selection_when: "Legacy configured landscape option.",
+        },
+      },
+      ollama: TEST_CONFIG.app.images.generation.ollama,
+    } as ImageGenerationConfig);
+    assert.equal(ratios.find((ratio) => ratio.key === "landscape")?.label, "old configured landscape");
+    assert.equal(ratios.some((ratio) => ratio.key === "default"), false);
+  });
+
   test("OpenAI backend rejects missing API keys before calling the provider", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let called = false;
@@ -529,6 +602,53 @@ describe("article image generation", () => {
     assert.equal(capturedBody.output_format, "png");
     assert.equal("output_compression" in capturedBody, false);
     assert.equal(result.mime, "image/png");
+  });
+
+  test("OpenAI backend sends transparent background requests as png", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: TINY_PNG_B64 }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const result = await generateArticleImage({
+      prompt: "draw a transparent fictional logo",
+      config: {
+        ...TEST_CONFIG.app.images.generation,
+        ...enabledOpenAiImageGeneration,
+        ollama: TEST_CONFIG.app.images.generation.ollama,
+      } as ImageGenerationConfig,
+      logger: noop(),
+      background: "transparent",
+    });
+
+    assert.equal(capturedBody.background, "transparent");
+    assert.equal(capturedBody.output_format, "png");
+    assert.equal("output_compression" in capturedBody, false);
+    assert.equal(result.mime, "image/png");
+  });
+
+  test("transparent background requests require the OpenAI backend", async () => {
+    await assert.rejects(
+      () =>
+        generateArticleImage({
+          prompt: "draw a transparent fictional logo",
+          config: {
+            ...TEST_CONFIG.app.images.generation,
+            enabled: true,
+            backend: "ollama",
+          } as ImageGenerationConfig,
+          logger: noop(),
+          background: "transparent",
+        }),
+      /transparent image backgrounds require the OpenAI image backend/i,
+    );
   });
 
   test("Ollama backend parses final image field", async (t) => {
@@ -1039,23 +1159,36 @@ describe("http", () => {
     const body = await (await s.go("/api/admin/article-image-prompts")).json() as any;
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "default"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "psychedelic_editorial"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "1970s_adult_magazine_spread"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "1990s_cgi"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "analog_video_still"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "bad_phone_photo"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "black_and_white_security_camera"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "broadcast_news_still"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "bodypainting"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "field_guide_plate"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "paparazzi_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "photocopy"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "communist_propaganda"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "comic_book_panel"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "courtroom_sketch"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "crayon_drawing"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "romance_novel"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "fpv_drone_feed"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "haunted_analog_still"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "overhead_projector_transparency"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "painting"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "movie_poster"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "museum_catalog_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "newspaper_halftone_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "night_vision"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "passport_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "police_evidence_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "polaroid"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "black_and_white_photo"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "medical_imaging_scan"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "public_domain_engraving"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "redacted_file_scan"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "satellite_reconnaissance"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "screenshot"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "sixth_generation_console_graphics"));
@@ -1064,6 +1197,11 @@ describe("http", () => {
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "seventh_generation_console_graphics"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "anime"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "manuscript"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "logos"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "tabloid_cover"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "thermal_camera"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "trading_card"));
+    assert.ok(body.prompts.some((prompt: any) => prompt.key === "ultraviolet_fluorescence"));
     assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_psychedelic_editorial"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;
@@ -1122,6 +1260,36 @@ describe("http", () => {
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
   });
 
+  test("POST /api/article/:slug/image/generate enables transparent OpenAI output for logos preset", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "logos" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "logos");
+    assert.match(capturedBody.prompt, /standalone fictional logo/i);
+    assert.equal(capturedBody.background, "transparent");
+    assert.equal(capturedBody.output_format, "png");
+    assert.equal("output_compression" in capturedBody, false);
+  });
+
   test("POST /api/article/:slug/image/generate can ask the LLM to select an image preset", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let capturedPrompt = "";
@@ -1151,6 +1319,7 @@ describe("http", () => {
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
     assert.ok(llm.capturedPrompts.some((prompt) => prompt.user.includes("Allowed presets:")));
     assert.ok(llm.capturedPrompts.some((prompt) => /do not pick photo merely because\s+it is safe/i.test(prompt.system)));
+    assert.ok(llm.capturedPrompts.some((prompt) => /preset owner's intended use case/i.test(prompt.system)));
     assert.ok(llm.capturedPrompts.some((prompt) => /favor fitting variety over the safest\s+generic answer/i.test(prompt.user)));
     assert.ok(llm.capturedPrompts.some((prompt) => /reason\s+as one short sentence/i.test(prompt.user)));
     const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.user.includes("Allowed presets:"));
@@ -1160,7 +1329,46 @@ describe("http", () => {
     assert.ok(selectorPrompt.user.includes("- photo:"));
     assert.ok(selectorPrompt.user.includes("- psychedelic_editorial:"));
     assert.match(selectorPrompt.user, /- screenshot: .*narrow preset/i);
+    assert.match(selectorPrompt.user, /Select when: .*substantially about software/i);
+    assert.match(selectorPrompt.user, /Avoid when: .*ordinary person, place, organization/i);
+    assert.match(selectorPrompt.user, /Select when: .*grounded documentary/i);
     assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 1);
+  });
+
+  test("POST /api/article/:slug/image/generate can ask the LLM to select an aspect ratio", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm('{"presetKey":"photo","aspectRatioKey":"portrait","reason":"Photo keeps the portrait subject legible.","aspectRatioReason":"Portrait fits a person better than landscape."}');
+    const s = await makeTestServer(
+      llm,
+      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
+    ); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto", aspectRatioKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "default");
+    assert.equal(body.aspectRatioKey, "portrait");
+    assert.equal(capturedBody.size, "832x1088");
+    const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.user.includes("Allowed aspect ratios:"));
+    assert.ok(selectorPrompt);
+    assert.match(selectorPrompt.user, /- portrait: portrait \(832x1088\)/);
+    assert.match(selectorPrompt.user, /Use portrait shapes for people/i);
   });
 
   test("POST /api/article/:slug/image/generate retries malformed auto preset responses", async (t) => {

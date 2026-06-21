@@ -1,10 +1,10 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is about obscure scholarship, taxonomy, invented creatures, rituals, diagrams, premodern notes, marginalia, strange plants, anatomical sketches, maps, coded lore, or an awkward archival folio."
+selection_avoid = "The subject needs a real scene, modern technology, public event, photo evidence, poster, broadcast still, or readable interface."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject as a very simple crude
 manuscript folio with the visual mood of the Voynich manuscript and slight
 inspiration from Leonardo da Vinci notebook studies: one awkward low-skill

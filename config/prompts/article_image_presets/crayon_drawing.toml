@@ -1,0 +1,82 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves childhood, memory, folklore, school records, simple testimony, dreams, fears, family archives, naive diagrams, rituals, mascots, or a subject that gains force from crude handmade drawing."
+selection_avoid = "The subject needs dignity, precise technical detail, photographic evidence, adult institutional record, realistic anatomy, clean design, or a medium where childlike rendering would trivialize it."
+
+system = """
+Create one editorial hero image for a Halupedia subject in the genre of a
+crayon drawing, childlike handmade picture, classroom drawing, naive witness
+sketch, or wax-crayon artifact. The image should feel physically drawn on
+paper, not like polished children's-book illustration.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use crayon and school-paper language: waxy strokes, uneven pressure, broken
+  crayon texture, visible paper tooth, simple shapes, crude perspective,
+  heavy outlines, blank construction-paper or notebook-paper ground, smudges,
+  folded corners, tape marks, and imperfect coloring outside the lines.
+- Keep the subject specific to the article even though the drawing is naive.
+  The medium can be childish, eerie, funny, or tender, but the article subject
+  should remain identifiable.
+- Use textless drawing whenever possible. If page-like marks appear, they must
+  be invented unreadable scribbles rather than readable words.
+- Let the physical artifact matter: taped to a wall, scanned, held flat, pinned
+  to a board, or lying on a desk, while keeping one drawing dominant.
+- Avoid making it too polished, cute, or professional. It should feel like
+  wax crayon on paper with awkward, earnest specificity.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, places, creatures, rituals, disasters,
+  objects, dreams, family lore, institutions, and testimonies into simple
+  crayon forms, colors, scale mistakes, and childlike emphasis.
+- If multiple interpretations are plausible, choose the drawing that gives the
+  clearest and strangest handmade account of the subject.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Show one dominant crayon drawing artifact with clear subject hierarchy and
+  generous paper or tabletop negative space.
+- Leave plausible headline negative space in blank paper, construction paper,
+  classroom wall, desk surface, shadow, or empty color field.
+- Prefer one strong handmade image over a collage of drawings.
+
+Avoid:
+- Readable handwriting, readable labels, real school names, real logos,
+  polished children's-book art, vector illustration, anime, comic panels,
+  photoreal scenes, screenshots, title cards, gore, pornographic framing, overt
+  nudity, explicit sexual content, sexualized minors, sexual violence, and
+  images that are primarily text.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a crayon drawing or childlike handmade picture.
+
+Use waxy crayon strokes, uneven pressure, broken crayon texture, visible paper
+tooth, simple shapes, crude perspective, heavy outlines, smudges, folded
+corners, tape marks, and awkward coloring. Keep the subject recognizable as a
+physical drawing artifact.
+
+No readable handwriting, labels, logos, polished children's-book art,
+screenshots, title cards, overt nudity, or explicit sexual content.
+"""

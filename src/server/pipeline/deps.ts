@@ -62,6 +62,7 @@ export interface PipelineDeps {
     slug: string,
     replace?: boolean,
     presetKey?: string,
+    aspectRatioKey?: string,
   ) => Promise<{
     mediaId: string;
     isNew: boolean;
@@ -70,6 +71,7 @@ export interface PipelineDeps {
     backend: string;
     model: string;
     presetKey?: string;
+    aspectRatioKey?: string;
     revisedPrompt?: string;
   }>;
 }

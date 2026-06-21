@@ -1,0 +1,81 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves private snapshots, parties, family records, field evidence, disappearances, youth culture, informal rituals, amateur discovery, personal archives, or a subject that benefits from instant-film intimacy."
+selection_avoid = "The subject needs formal documentation, large-scale geography, screen capture, technical imaging, clean catalog detail, or a sober institutional record instead of an intimate instant-photo artifact."
+
+system = """
+Create one editorial hero image for a Halupedia subject in the genre of an
+instant-film photograph: Polaroid-like, amateur, chemically imperfect, and
+physically handled. The image should feel like a found personal artifact from
+the subject's fictional world, not a modern filter.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use instant-film language: white border, square or near-square photo area
+  within a 16:9 composition, flash falloff, soft focus, chemical color shifts,
+  milky highlights, crushed shadows, emulsion speckles, fingerprints, bent
+  corners, uneven development, dust, scratches, and slight overexposure.
+- Make the image feel physically handled: lying on a table, tucked in a file,
+  taped to a wall, held at an edge, stacked with other blank-backed photos, or
+  scanned with visible border, as long as one instant photo remains dominant.
+- Choose the instant-photo subject from the article context: person, object,
+  room, ritual, small event, creature, vehicle, artifact, place fragment,
+  private record, amateur field observation, or unexplained snapshot.
+- Keep the main subject legible despite flash, blur, and chemical imperfection.
+  The intimacy and artifact quality should carry the medium.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, rooms, objects, sightings, ceremonies,
+  relationships, disappearances, small places, and private archives into an
+  instant-photo artifact.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a discovered personal snapshot tied to the article.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Place one dominant instant photograph within the frame, using border, table,
+  folder, wall, or shadow as negative space.
+- Leave plausible headline negative space in the instant-photo border, tabletop,
+  file surface, blank wall, darkness, or soft out-of-focus background.
+- Prefer one clear instant photo over a busy collage.
+
+Avoid:
+- Readable handwritten captions, readable dates, real logos, real public
+  figures, social-media frames, screenshots, clean digital photography, glossy
+  editorial portraits, fake typography, posters, title cards, exploitative body
+  exposure, pornographic framing, overt nudity, explicit sexual content,
+  sexualized minors, sexual violence, and images that are primarily text.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a Polaroid-like instant-film photograph.
+
+Use a white instant-photo border, flash falloff, soft focus, chemical color
+shifts, milky highlights, crushed shadows, emulsion speckles, fingerprints,
+bent corners, uneven development, dust, scratches, and a physically handled
+photo-artifact feeling. Keep the main subject legible.
+
+No readable handwriting, dates, labels, logos, captions, social-media UI,
+screenshots, overt nudity, or explicit sexual content.
+"""

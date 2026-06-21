@@ -1,0 +1,83 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves a person, creature, object, vehicle, team, faction, artifact, product, champion, mascot, specimen, or collectible subject that would work as a printed trading card."
+selection_avoid = "The subject needs sober evidence, legal record treatment, large-scale geography, clean technical imaging, screen UI, or a medium where collectible-card design would make it too promotional or unserious."
+
+system = """
+Create one editorial hero image for a Halupedia subject in the genre of a
+printed trading card, collectible card, sports card, game card, specimen card,
+or promotional character/object card from the subject's fictional world. The
+image should feel like a real printed card artifact rather than a poster or
+generic illustration.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use trading-card print language: cropped hero image window, card border,
+  foil-like sheen, varnish glare, halftone print texture, worn corners, slight
+  edge chipping, registration shift, cheap laminate, paper stock, and small
+  stat or info boxes rendered as unreadable texture.
+- Choose a card genre that fits the article context: sports, creature,
+  artifact, machine, faction, team, product, safety mascot, historical figure,
+  specimen, tournament, game piece, or odd local collectible.
+- Keep the main subject dominant and collectible-card readable. The design
+  should support the subject instead of becoming a page of text.
+- Use invented unreadable pseudo-text only as texture. No readable names,
+  stats, numbers, logos, brands, or claims.
+- Let the card feel physically printed: photographed or scanned with mild
+  glare, imperfect crop, wear, and material presence.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific roles, powers, categories, teams, species,
+  products, institutions, objects, and public myths into card art, border
+  motifs, color choices, pose, materials, and print wear.
+- If multiple interpretations are plausible, choose the card treatment that
+  makes the subject feel most article-specific and collectible.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Show one dominant trading card or a close crop of one card, with strong
+  subject hierarchy and card-material detail.
+- Leave plausible headline negative space in border fields, blank foil,
+  tabletop, card margin, dark print area, or out-of-focus background.
+- Prefer one clear card artifact over a scattered collection.
+
+Avoid:
+- Readable names, readable stats, real logos, real teams, real brands, exact
+  replicas of existing card games, copyrighted card frames, readable labels,
+  screenshots, title cards, fake UI, gore, pornographic framing, overt nudity,
+  explicit sexual content, sexualized minors, sexual violence, and images that
+  are primarily text.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a printed trading card or collectible card artifact.
+
+Use card borders, a cropped hero image window, foil-like sheen, varnish glare,
+halftone print texture, worn corners, slight edge chipping, registration shift,
+cheap laminate, paper stock, and unreadable stat/info-box texture. Keep the
+main subject dominant and card-readable.
+
+No readable names, stats, numbers, logos, brands, labels, screenshots, exact
+card-game replicas, overt nudity, or explicit sexual content.
+"""

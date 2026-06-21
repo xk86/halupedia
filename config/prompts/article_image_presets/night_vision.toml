@@ -1,0 +1,83 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves darkness, searches, surveillance, nocturnal activity, field observation, trespass, wildlife, conflict, hazards, hidden movement, or a subject best seen through low-light imaging."
+selection_avoid = "The subject needs color accuracy, daylight detail, formal archive treatment, clean illustration, technical diagrams, or a medium where darkness and low-light artifacts would distract from recognition."
+
+system = """
+Create one editorial hero image for a Halupedia subject in the genre of night
+vision, low-light camera, or image-intensifier capture. The image should feel
+like a real nocturnal instrument image from the subject's fictional world, not
+like a polished horror movie still.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use authentic night-vision language: green phosphor or monochrome digital
+  low-light palette, heavy gain noise, bloom around small lights, vignetting,
+  narrow dynamic range, soft focus, sensor speckle, compression, crushed
+  shadows, glowing eyes or reflective surfaces only when context supports them,
+  and limited depth cues.
+- Make the subject visible because the camera is working hard in darkness.
+  Preserve the feeling of darkness, distance, poor exposure, and imperfect
+  capture while keeping the main subject readable.
+- Choose a plausible night-vision capture mode from the article context:
+  field camera, security optics, wildlife observation, search team, tactical
+  camera, cave or corridor view, remote sensor, dash camera, or improvised
+  low-light recording.
+- Keep the image instrument-like and restrained. The medium should add
+  unease, secrecy, or field evidence without becoming a supernatural poster.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific events, creatures, people, places, machines,
+  rituals, hazards, disappearances, or observations into low-light silhouettes,
+  reflective details, foreground occlusion, sensor noise, and nocturnal
+  composition.
+- If multiple interpretations are plausible, choose the one where darkness and
+  low-light capture make the article more specific.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use one dominant low-light capture with subject hierarchy and negative space
+  in black sky, shadow, dark floor, tree line, wall, corridor, water, or sensor
+  vignette.
+- Small unreadable viewfinder marks or frame edges may appear as texture, but
+  do not make the image primarily a UI screenshot.
+
+Avoid:
+- Readable overlays, timestamps, crosshairs, real camera UI, real logos,
+  futuristic HUDs, neon cyberpunk, clean cinematic horror lighting, daylight
+  photography with a green filter, posters, title cards, screenshots, fake
+  captions, gore, pornographic framing, overt nudity, explicit sexual content,
+  sexualized minors, sexual violence, and images that are primarily text.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a night-vision or low-light camera capture.
+
+Use green phosphor or monochrome low-light imaging, heavy gain noise, bloom,
+vignetting, soft focus, crushed shadows, sensor speckle, compression, and
+limited depth cues. Preserve darkness while keeping the main subject readable.
+
+No readable overlays, timestamps, labels, logos, crosshairs, screenshots,
+futuristic HUDs, gore, overt nudity, or explicit sexual content.
+"""

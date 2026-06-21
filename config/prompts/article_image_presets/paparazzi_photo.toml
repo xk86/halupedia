@@ -1,10 +1,10 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is about fame, scandal, celebrity-like figures, public embarrassment, secretive meetings, tabloids, nightlife, public exits, or someone/something caught intrusively in public."
+selection_avoid = "The subject is not a public figure or candid public moment, or needs respectful archival, legal, technical, aerial, screen, or illustrative treatment."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject as a candid paparazzi
 or tabloid photographer's image: intrusive, telephoto, flash-lit, cropped,
 hurried, and caught in public rather than posed.

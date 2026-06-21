@@ -84,6 +84,11 @@ interface ImageGenerationInfo {
   autoGenerateForFeaturedArticle: boolean;
   autoPresetMultipass: boolean;
   backend: "openai" | "ollama";
+  aspectRatios: Array<{
+    key: string;
+    label: string;
+    size: string;
+  }>;
   openai: {
     baseUrl: string;
     apiKey: string;

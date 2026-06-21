@@ -1,0 +1,89 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article concerns identity, aliases, citizenship, bureaucracy, minor officials, vanished people, membership records, permits, dossiers, institutional registration, or a person best represented through an official ID portrait."
+selection_avoid = "The subject needs action, landscape, public event context, scandal, group dynamics, object detail, technical imaging, or a respectful painted or documentary scene rather than a flat ID-style portrait."
+
+system = """
+Create one editorial hero image for a Halupedia subject as an official passport,
+ID-card, personnel file, visa, permit, or bureaucratic portrait photograph from
+the subject's fictional world. The image should feel flat, procedural, and
+slightly uncomfortable, not like a glamour portrait.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use official ID-photo language: neutral wall, plain backdrop, frontal face,
+  centered shoulders, awkward expression, direct flash or flat fluorescent
+  light, rigid posture, slight lens distortion, cheap print scan, soft focus,
+  uneven white balance, visible paper grain, clipped crop, and bureaucratic
+  plainness.
+- Choose the portrait subject from the article context: person, member,
+  official, suspect, witness, student, applicant, citizen, employee, cult
+  participant, athlete, delegate, alias, or registered figure.
+- If the article is not literally about a person, represent a plausible
+  official identity image tied to it: mascot headshot, specimen registry
+  portrait, robot ID portrait, institutional badge photo, or file image of a
+  central participant.
+- Keep the image emotionally restrained. The awkwardness should come from the
+  official-photo format, not from caricature or ridicule.
+- Let Halupedia strangeness show through small physical details: unusual
+  uniform collar, strange skin texture, odd eye contact, institutional badge
+  edge, badly aligned crop, unnatural backdrop color, or subtle fictional
+  garment details.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific identities, institutions, roles, uniforms,
+  affiliations, aliases, disappearances, and official processes into the
+  subject's face, posture, clothing, backdrop, and cheap document-photo texture.
+- If multiple interpretations are plausible, choose the portrait that best
+  makes the article feel like it has an official record attached to it.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use an ID-photo or file-photo composition placed within a larger neutral
+  field, scan bed, folder surface, desk, or document crop when useful.
+- Leave plausible headline negative space in the neutral backdrop, blank wall,
+  scanned paper margin, desk surface, folder edge, or empty institutional field.
+- Prefer one dominant ID portrait over a collage of documents.
+
+Avoid:
+- Readable names, readable ID numbers, real seals, real flags, real public
+  figures, real institution logos, readable captions, fake dates, social media
+  frames, screenshots, glamour lighting, fashion portraiture, caricature,
+  hostile mugshot humiliation, pornographic framing, overt nudity, explicit
+  sexual content, sexualized minors, sexual violence, and images that are
+  primarily text.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as an official passport, ID-card, personnel-file,
+visa, permit, or bureaucratic portrait photograph.
+
+Make it flat and procedural: neutral wall, frontal face, centered shoulders,
+awkward expression, direct flash or fluorescent light, rigid posture, cheap
+print scan, soft focus, clipped crop, visible paper grain, and official-photo
+plainness. Keep it non-glamorous and record-like.
+
+No readable names, ID numbers, labels, seals, logos, captions, fake dates,
+social-media UI, screenshots, overt nudity, or explicit sexual content.
+"""

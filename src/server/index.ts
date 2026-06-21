@@ -23,6 +23,11 @@ import {
   writePromptFile,
 } from "./promptEditor";
 import {
+  listArticleImageAspectRatios,
+  normalizeArticleImageAspectRatioKey,
+  resolveArticleImageAspectRatio,
+} from "./imageAspectRatios";
+import {
   deleteArticleBySlug,
   listImageBacklinks,
   getAdminOverview,
@@ -1794,6 +1799,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         articleSlug,
         false,
         "auto",
+        "default",
         title,
         imageOp.onNode,
       );
@@ -1840,6 +1846,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       featured.slug,
       false,
       "auto",
+      "default",
       title,
       imageOp.onNode,
     );
@@ -3466,6 +3473,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
         autoPresetMultipass: runtime.app.images.generation.auto_preset_multipass,
         backend: runtime.app.images.generation.backend,
+        aspectRatios: listArticleImageAspectRatios(runtime.app.images.generation),
         openai: {
           baseUrl: runtime.app.images.generation.openai.base_url,
           apiKey: runtime.app.images.generation.openai.api_key ? MASKED_API_KEY : "",
@@ -3931,6 +3939,10 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/admin/article-image-prompts", (c) => {
     return c.json({ prompts: listArticleImagePromptOptions() });
+  });
+
+  app.get("/api/admin/article-image-aspect-ratios", (c) => {
+    return c.json({ aspectRatios: listArticleImageAspectRatios(runtime.app.images.generation) });
   });
 
   app.get("/api/admin/article-image-prompts/:key", (c) => {
@@ -4748,12 +4760,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     return { mediaId, isNew, width, height };
   }
 
-  async function generateAndAttachArticleImage(articleSlug: string, _replace = false, presetKey = "default") {
+  async function generateAndAttachArticleImage(
+    articleSlug: string,
+    _replace = false,
+    presetKey = "default",
+    aspectRatioKey = "landscape",
+  ) {
     const generationConfig = runtime.app.images.generation;
     if (!generationConfig.enabled) {
       throw new Error("image generation is disabled");
     }
     const imagePreset = readArticleImagePromptSelection(presetKey);
+    const aspectRatio = resolveArticleImageAspectRatio(generationConfig, aspectRatioKey);
     const article = getArticleByLookup(db, articleSlug);
     if (!article) {
       throw new Error("article not found");
@@ -4799,6 +4817,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       prompt: [rendered.system.trim(), rendered.user.trim()].filter(Boolean).join("\n\n"),
       config: generationConfig,
       logger,
+      size: aspectRatio.size,
+      background: imagePreset.transparentBackground ? "transparent" : undefined,
     });
     const result = await ingestImageFromBuffer(generated.bytes, generated.mime, {
       mediaDb,
@@ -4815,6 +4835,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       slug: article.slug,
       mediaId: attached.mediaId,
       presetKey: imagePreset.key,
+      aspectRatioKey: aspectRatio.key,
+      size: aspectRatio.size,
       backend: generated.backend,
       model: generated.model,
     });
@@ -4823,6 +4845,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       backend: generated.backend,
       model: generated.model,
       presetKey: imagePreset.key,
+      aspectRatioKey: aspectRatio.key,
       revisedPrompt: generated.revisedPrompt,
     };
   }
@@ -4831,6 +4854,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     articleSlug: string,
     replace: boolean,
     presetKey: string,
+    aspectRatioKey: string,
     requestedTitle: string,
     onNode?: (nodeName: string, nodeKind: string) => void,
   ) {
@@ -4842,6 +4866,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         requestedTitle,
         imageReplace: replace,
         imagePromptKey: presetKey,
+        imageAspectRatioKey: aspectRatioKey,
       },
       deps: buildPipelineDeps(),
       recorder: getTraceRecorder(runtime.app.pipeline.trace),
@@ -4944,12 +4969,19 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!runtime.app.images.generation.enabled) {
       return c.json({ error: "image generation is disabled" }, 400);
     }
-    const body = await c.req.json().catch(() => ({})) as { replace?: boolean; promptKey?: string; presetKey?: string };
+    const body = await c.req.json().catch(() => ({})) as {
+      replace?: boolean;
+      promptKey?: string;
+      presetKey?: string;
+      aspectRatioKey?: string;
+    };
     let presetKey: string;
+    let aspectRatioKey: string;
     try {
       presetKey = normalizeArticleImagePresetKey(
         typeof body.presetKey === "string" ? body.presetKey : body.promptKey,
       );
+      aspectRatioKey = normalizeArticleImageAspectRatioKey(body.aspectRatioKey);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
@@ -4960,6 +4992,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         slug,
         body.replace === true,
         presetKey,
+        aspectRatioKey,
         article?.title ?? slug,
         imageOp.onNode,
       );

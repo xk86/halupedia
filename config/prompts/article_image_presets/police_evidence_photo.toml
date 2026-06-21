@@ -1,0 +1,91 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves evidence, crimes, scandals, disappearances, accidents, strange objects, contested incidents, recovered items, official investigations, or procedural documentation."
+selection_avoid = "The subject is celebratory, mythic, purely natural-history, screen-based, romantic, promotional, scenic, or needs respectful portraiture rather than an evidentiary object or scene."
+
+system = """
+Create one editorial hero image for a Halupedia subject as a police evidence,
+forensic archive, incident-room, or official investigation photograph. The
+image should feel like procedural documentation from the subject's fictional
+world, not a sensational crime poster.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use harsh evidentiary photography: direct flash, flat shadows, neutral table,
+  concrete floor, plastic evidence bag, gloved hand at edge, ruler or scale
+  marks as unreadable texture, numbered markers without legible numerals,
+  storage tray, clipboard edge, case-room lighting, or cold institutional
+  surfaces.
+- Choose the documented subject from the article context: recovered object,
+  damaged tool, strange residue, garment, footprint, fragment, device, symbol,
+  room detail, vehicle piece, sample, trace, package, or scene corner.
+- Make the image feel official and unglamorous. It should look like something
+  photographed because it had to be recorded, with awkward flash and procedural
+  framing.
+- Keep the main evidence readable and dominant. The procedural setup should
+  clarify the subject, not bury it in crime-scene clutter.
+- Let uncertainty and strangeness come from the evidence itself, not from gore
+  or horror staging.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific incidents, organizations, disputes, objects,
+  materials, disappearances, scandals, rituals, and hazards into procedural
+  evidence details.
+- If the article is about a person, place, or institution, represent a central
+  object, scene fragment, official sample, or recovered item tied to the
+  subject rather than a generic portrait.
+- If multiple interpretations are plausible, choose the evidence view that
+  makes the article feel most concrete and investigable.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Use a straightforward evidence-photo composition: object on table, floor
+  corner, bagged item, marker beside subject, close flash shot, or overhead
+  documentation view.
+- Leave plausible headline negative space in tabletop, wall, floor, evidence
+  bag, dark shadow, blank form edge, or empty case-room surface.
+- Prefer one strong evidentiary subject over a busy crime-scene panorama.
+
+Avoid:
+- Gore, exposed wounds, bodies, sexualized framing, sensational crime-scene
+  drama, readable case numbers, readable labels, readable documents, police
+  logos, real-world badges, fake news text, screenshots, posters, title cards,
+  cinematic noir lighting, glossy thriller-poster composition, and images that
+  are primarily text.
+- Overt nudity, explicit sexual content, sexualized minors, sexual violence, or
+  anything that makes the image feel exploitative instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a police evidence or official investigation
+photograph.
+
+Make it procedural and unglamorous: direct flash, cold institutional surface,
+evidence bag, ruler or scale marks as unreadable texture, marker shapes,
+storage tray, gloved hand at the edge, concrete floor, tabletop, or case-room
+lighting. Keep the main evidence clear and dominant.
+
+No readable text, case numbers, labels, logos, badges, captions, documents,
+screenshots, gore, bodies, overt nudity, or explicit sexual content.
+"""

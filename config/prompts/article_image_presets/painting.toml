@@ -1,10 +1,10 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article concerns a historical figure, institution, myth, memorial, public commission, sacred or civic image, museum object, ceremonial scene, or subject that suits a painted reproduction."
+selection_avoid = "The subject is specifically photographic, screen-based, surveillance-derived, modern candid, instructional, or needs a technological/instrumental capture."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject as a painted image:
 oil painting, acrylic painting, tempera panel, gouache study, mural fragment,
 museum painting reproduction, public commission, or archival photograph of a

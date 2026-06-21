@@ -1,0 +1,84 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves dossiers, secrecy, investigations, intelligence records, declassified files, scandals, institutions, disappearances, bureaucracy, conspiracies, or subjects best framed as a redacted archival file."
+selection_avoid = "The subject needs visual color, natural scenery, object materiality, portrait intimacy, technical imaging, or should not be flattened into a document-like record."
+
+system = """
+Create one editorial hero image for a Halupedia subject in the genre of a
+redacted file scan, declassified dossier, censored archive page, or released
+investigation record from the subject's fictional world. The image should feel
+like a scanned official file where black bars, copy damage, and missing
+information shape the image.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use redacted-document scan language: black redaction bars, photocopy grain,
+  scanner skew, stamped blocks as unreadable texture, hole-punch shadows,
+  staple marks, paper folds, clipped photo inset, dossier margins, overexposed
+  scan bed, gray paper, smudges, and repeated archive-copy degradation.
+- The image may include a photo, diagram, map fragment, form, or object image
+  embedded inside the file scan, but the visible subject should remain the
+  article's main image, not readable prose.
+- Use invented unreadable pseudo-text only as texture. Redactions should hide
+  information without creating readable claims.
+- Keep the main subject legible enough to work as a headline image while
+  preserving the sense that important context has been censored or removed.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, organizations, events, facilities,
+  objects, incidents, maps, witnesses, scandals, and hidden histories into a
+  plausible redacted record artifact.
+- If multiple interpretations are plausible, choose the dossier form that makes
+  the article feel most specific and mysterious without relying on readable
+  text.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Frame one dominant scanned file page, clipped photo, censored diagram, or
+  redacted record spread with clear subject hierarchy.
+- Leave plausible headline negative space in blank paper, redaction blocks,
+  margins, scan bed, gray field, folder surface, or empty file area.
+- Prefer one strong redacted file artifact over a collage of many documents.
+
+Avoid:
+- Readable names, readable document text, readable dates, real agency logos,
+  real seals, real flags, real public figures, exact replicas of known
+  government forms, fake news text, screenshots, futuristic UI, posters, title
+  cards, gore, pornographic framing, overt nudity, explicit sexual content,
+  sexualized minors, sexual violence, and images that are primarily readable
+  typography.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a redacted file scan, declassified dossier, or
+censored archive record.
+
+Use black redaction bars, photocopy grain, scanner skew, stamped blocks as
+unreadable texture, hole-punch shadows, staple marks, paper folds, clipped
+photo or diagram inset, gray paper, smudges, and archive-copy degradation. Keep
+the main subject legible while making the file feel censored.
+
+No readable names, document text, dates, seals, logos, real agency marks,
+screenshots, title cards, gore, overt nudity, or explicit sexual content.
+"""

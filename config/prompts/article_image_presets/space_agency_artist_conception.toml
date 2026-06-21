@@ -1,10 +1,10 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article concerns spacecraft, planets, astronomy, probes, habitats, orbital events, speculative science, instruments, missions, exoplanets, observatories, or science-agency explanatory art."
+selection_avoid = "The subject is terrestrial, social, legal, intimate, horror, screen-interface-specific, or better shown as documentary photo, satellite scan, poster, or historical plate."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject as a NASA-style space
 agency artist conception: a scientifically minded painted or digital concept
 illustration used to explain a spacecraft, planet, astronomical event, mission,

@@ -1,0 +1,89 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article involves civic events, disasters, arrests, public ceremonies, scandals, sightings, old local news, historical controversies, municipal records, or a scene best remembered through a printed newspaper photograph."
+selection_avoid = "The subject needs color accuracy, object detail, clean documentary photography, screen UI, poster art, technical imaging, or a non-news artifact rather than a degraded printed press image."
+
+system = """
+Create one editorial hero image for a Halupedia subject as a degraded newspaper
+halftone photograph clipped or scanned from a fictional-world printed paper.
+The image should feel like an old local-news or archive clipping where ink,
+paper, and reproduction damage are part of the evidence.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Use newspaper reproduction texture: visible halftone dot screen, ink bleed,
+  muddy shadows, crushed contrast, cheap newsprint fiber, yellowed or gray
+  paper, registration wobble, uneven crop, fold marks, scuffs, ink offset,
+  scanner moire, and low-resolution press-photo detail.
+- Choose a printed-news image from the article context: public ceremony,
+  arrest, hearing, disaster scene, civic meeting, parade, protest, accident,
+  local sighting, sports moment, building exterior, crowd, damaged object,
+  official demonstration, or strange event captured by a newspaper photographer.
+- Make the image read as a photograph reproduced in a newspaper, not as a clean
+  modern black-and-white photo or a designed poster.
+- Use unreadable columns, cropped masthead fragments, or caption blocks only as
+  texture around the photo if page context appears. The main image must not
+  depend on readable text.
+- Keep the subject legible despite the print degradation. The halftone should
+  add archival grit, not reduce the frame to noise.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific events, institutions, people, places, objects,
+  scandals, discoveries, and disasters into a plausible local-news or archive
+  press photograph.
+- For abstract or technical subjects, choose a public demonstration, hearing,
+  facility exterior, municipal announcement, crowd reaction, or newspaper B-roll
+  image tied to the subject.
+- If multiple interpretations are plausible, choose the one that feels most
+  like a useful newspaper clipping attached to the article.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Frame the halftone photo as a cropped clipping, scanned newspaper image, or
+  printed-photo reproduction with visible paper margins when useful.
+- Leave plausible headline negative space in blank paper, pale sky, wall,
+  pavement, smoky shadow, margin, fold, or low-detail halftone background.
+- Prefer one strong newspaper image over a full readable page layout.
+
+Avoid:
+- Readable headlines, readable captions, readable article text, real newspaper
+  names, real logos, real public figures, exact replicas of known publications,
+  fake dates, clean modern monochrome photography, glossy magazine treatment,
+  posters, screenshots, title cards, comic art, anime, gore, pornographic
+  framing, overt nudity, explicit sexual content, sexualized minors, sexual
+  violence, and images that are primarily typography.
+- Imitating a living artist or a specific copyrighted visual franchise.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as a degraded newspaper halftone photograph from a
+fictional-world printed paper.
+
+Make it feel clipped or scanned from newsprint: visible halftone dots, ink
+bleed, muddy shadows, crushed contrast, cheap paper fiber, yellowed or gray
+paper, registration wobble, fold marks, scanner moire, uneven crop, and
+low-resolution press-photo detail. Keep the subject legible.
+
+No readable headlines, captions, article text, newspaper names, logos, fake
+dates, screenshots, title cards, overt nudity, or explicit sexual content.
+"""

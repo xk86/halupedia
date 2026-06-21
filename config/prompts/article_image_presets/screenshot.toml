@@ -1,10 +1,10 @@
 model = "light"
 thinking = false
 json = false
+selection_when = "The article is substantially about software, records systems, databases, maps, dashboards, surveillance viewers, lab instruments, websites, digital archives, computer games, or screen-captured artifacts."
+selection_avoid = "The subject is an ordinary person, place, organization, event, object, ritual, species, conflict, or phenomenon that only incidentally could appear in a file, report, registry, or website."
 
 system = """
-{{shared_tone}}
-
 Create one editorial hero image for a Halupedia subject that looks like a
 grounded, realistic computer screenshot from the subject's fictional world:
 mundane desktop software, an old office application, Windows XP/Windows 7-era

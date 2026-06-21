@@ -27,7 +27,6 @@ export interface GenerateArticleImageOptions {
   config: ImageGenerationConfig;
   logger: Logger;
   size?: string;
-  background?: "transparent" | "opaque" | "auto";
 }
 
 function normalizeBaseUrl(baseUrl: string, fallback: string): string {
@@ -87,7 +86,6 @@ async function generateWithOpenAI(
   config: ImageGenerationConfig,
   logger: Logger,
   size = config.openai.size,
-  background?: GenerateArticleImageOptions["background"],
 ): Promise<GeneratedArticleImage> {
   const openai = config.openai;
   if (!openai.api_key.trim()) {
@@ -99,7 +97,7 @@ async function generateWithOpenAI(
   }
   const url = `${normalizeBaseUrl(openai.base_url, "https://api.openai.com/v1")}/images/generations`;
   const startedAt = Date.now();
-  const outputFormat = background === "transparent" ? "png" : openai.output_format;
+  const outputFormat = openai.output_format;
   const body: Record<string, unknown> = {
     model: openai.model,
     prompt,
@@ -108,9 +106,6 @@ async function generateWithOpenAI(
     quality: openai.quality,
     output_format: outputFormat,
   };
-  if (background) {
-    body.background = background;
-  }
   if (supportsOpenAIOutputCompression(outputFormat)) {
     body.output_compression = openai.output_compression;
   }
@@ -209,16 +204,12 @@ export async function generateArticleImage({
   config,
   logger,
   size,
-  background,
 }: GenerateArticleImageOptions): Promise<GeneratedArticleImage> {
   if (!config.enabled) {
     throw new Error("image generation is disabled");
   }
-  if (background === "transparent" && config.backend !== "openai") {
-    throw new Error("transparent image backgrounds require the OpenAI image backend");
-  }
   if (config.backend === "ollama") {
     return generateWithOllama(prompt, config, logger, size);
   }
-  return generateWithOpenAI(prompt, config, logger, size, background);
+  return generateWithOpenAI(prompt, config, logger, size);
 }

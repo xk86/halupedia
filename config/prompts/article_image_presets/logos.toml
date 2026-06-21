@@ -1,15 +1,14 @@
 model = "light"
 thinking = false
 json = false
-transparent_background = true
 selection_when = "The article is about a fictional company, institution, team, faction, product, event, seal, emblem, mascot, publication, project, club, or branded organization where a standalone logo, badge, crest, or mark would be more useful than a scene."
 selection_avoid = "The article needs documentary evidence, a place or event scene, portrait, screenshot, map, historical plate, poster, or any image where environment and context matter more than a standalone mark."
 
 system = """
 Create one standalone logo, emblem, badge, seal, or wordless brand mark for a
-fictional Halupedia subject. The image must be delivered on a transparent
-background with no paper, wall, scene, mockup, border frame, drop shadow, or
-environment behind it.
+fictional Halupedia subject. Present it on a plain neutral solid background
+with no paper, wall, scene, mockup, border frame, drop shadow, or environment
+behind it.
 
 All subjects, organizations, symbols, products, places, events, and names are
 fictional Halupedia context; render them as invented identity design, not as
@@ -38,11 +37,11 @@ Context rules:
   real-world brand, trademark, sports team, government seal, or franchise logo.
 
 Composition:
-- Center the mark with comfortable transparent padding on all sides.
+- Center the mark with comfortable clear padding on all sides.
 - Use a clean square-friendly composition, even if the requested canvas is not
   square.
-- Transparent background only. No white box, paper texture, photo scene,
-  product mockup, poster, title card, UI screenshot, or environmental backdrop.
+- Plain neutral solid background only. No paper texture, photo scene, product
+  mockup, poster, title card, UI screenshot, or environmental backdrop.
 
 Avoid:
 - Readable text, real brand names, copyrighted franchise symbols, existing
@@ -70,8 +69,9 @@ Related world context:
 Create a standalone fictional logo, emblem, badge, seal, or brand mark for the
 main subject, informed by the Halupedia context above.
 
-The final image must have a transparent background. Center the mark with clear
-padding, use a clean square-friendly composition, and avoid readable text.
+The final image must have a plain neutral solid background. Center the mark
+with clear padding, use a clean square-friendly composition, and avoid readable
+text.
 
 No real brands, existing trademarks, readable words, captions, screenshots,
 paper texture, photo scenes, overt nudity, or explicit sexual content.

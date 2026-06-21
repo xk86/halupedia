@@ -26,6 +26,12 @@ describe("theme settings", () => {
     }
   });
 
+  it("derives opaque HEX from an OKLCH color with alpha", () => {
+    expect(oklchToHex("oklch(0.5 0.1 20 / 0.5)")).toBe(
+      oklchToHex("oklch(0.5 0.1 20)"),
+    );
+  });
+
   it("normalizes corrupt persisted values without discarding valid choices", () => {
     const normalized = normalizeThemeSettings({
       mode: "dark",
@@ -69,9 +75,9 @@ describe("theme settings", () => {
     expect(document.documentElement.style.getPropertyValue("--radius")).toBe(
       "11px",
     );
-    expect(
-      document.documentElement.style.getPropertyValue("--parchment"),
-    ).toBe(settings.dark.background);
+    expect(document.documentElement.style.getPropertyValue("--parchment")).toBe(
+      settings.dark.background,
+    );
     expect(
       document.documentElement.style.getPropertyValue("--article-font"),
     ).toContain("ui-monospace");

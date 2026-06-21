@@ -794,7 +794,7 @@ export function hexToOklch(hex: string): string {
 
 export function oklchToHex(color: string): string {
   const match = color.match(
-    /oklch\(\s*([\d.]+)%?\s+([\d.]+)\s+([\d.-]+)(?:deg)?\s*\)/i,
+    /oklch\(\s*([\d.]+)%?\s+([\d.]+)\s+([\d.-]+)(?:deg)?(?:\s*\/\s*[\d.]+%?)?\s*\)/i,
   );
   if (!match) return "#000000";
   let lightness = Number(match[1]);

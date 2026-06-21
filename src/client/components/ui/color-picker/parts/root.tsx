@@ -8,13 +8,8 @@ import {
 } from "../hooks/use-color-picker";
 import { cn } from "@/lib/utils";
 
-export interface RootProps
-  extends
-    UseColorPickerProps,
-    Omit<React.HTMLAttributes<HTMLDivElement>, "defaultValue" | "onChange"> {
-  /** When true the picker is rendered without children using the default layout. */
-  asChild?: boolean;
-}
+export type RootProps = UseColorPickerProps &
+  Omit<React.HTMLAttributes<HTMLDivElement>, "defaultValue" | "onChange">;
 
 export const Root = React.forwardRef<HTMLDivElement, RootProps>(function Root(
   {

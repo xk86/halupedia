@@ -122,6 +122,7 @@ describe("App", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("renders the home route and fetches homepage data", async () => {
@@ -151,6 +152,14 @@ describe("App", () => {
   });
 
   it("renders persistent appearance settings at /settings", async () => {
+    vi.stubGlobal(
+      "EyeDropper",
+      class {
+        async open() {
+          return { sRGBHex: "#123456" };
+        }
+      },
+    );
     setPath("/settings");
     render(<App />);
 
@@ -175,24 +184,60 @@ describe("App", () => {
     expect(
       screen.getByRole("application", { name: "Color area" }),
     ).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent(/sRGB|P3|Rec\.2020/);
+    expect(
+      screen.getByRole("button", {
+        name: "Contrast (WCAG). Click to switch to APCA.",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("combobox", { name: "Color format" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Pick color from screen" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("listbox", { name: "Color swatches" }),
+    ).toBeVisible();
+    expect(screen.getByRole("slider", { name: "Opacity" })).toBeVisible();
+    expect(
+      screen.queryByLabelText("light Background OKLCH value"),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Add current color to swatches" }),
+    );
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("halupedia-theme-color-swatches") ?? "[]",
+      ),
+    ).toContain("#F3ECD8");
+
     const hue = screen.getByRole("slider", { name: "Hue" });
-    const pickerValue = screen.getByLabelText(
-      "light Background OKLCH value",
-    ) as HTMLInputElement;
-    const initialPickerValue = pickerValue.value;
+    const backgroundHex = screen.getByLabelText("light Background HEX value");
+    const initialHex = (backgroundHex as HTMLInputElement).value;
     hue.focus();
     await userEvent.keyboard("{ArrowRight}");
-    await waitFor(() =>
-      expect(pickerValue).not.toHaveValue(initialPickerValue),
-    );
+    await waitFor(() => expect(backgroundHex).not.toHaveValue(initialHex));
 
-    const backgroundHex = screen.getByLabelText("light Background HEX value");
+    await userEvent.click(screen.getByRole("button", { name: "Chroma × hue" }));
+    expect(screen.getByRole("slider", { name: "Lightness" })).toBeVisible();
+    expect(
+      screen.queryByRole("slider", { name: "Hue" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("listbox", { name: "Color swatches" }),
+    ).not.toBeInTheDocument();
+
     fireEvent.change(backgroundHex, { target: { value: "112233" } });
     fireEvent.blur(backgroundHex);
     expect(backgroundHex).toHaveValue("#112233");
-    expect(screen.getByLabelText("light Background OKLCH value")).toHaveValue(
-      hexToOklch("#112233"),
-    );
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          window.localStorage.getItem("halupedia-user-settings") ?? "{}",
+        ).light.background,
+      ).toBe(hexToOklch("#112233"));
+    });
 
     await userEvent.click(screen.getByRole("button", { name: "Night" }));
 

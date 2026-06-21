@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CopyPlusIcon,
   DownloadIcon,
@@ -7,11 +7,11 @@ import {
   UploadIcon,
 } from "lucide-react";
 import { MarkdownEditor } from "./MarkdownEditor";
+import { ThemeColorPicker } from "./ThemeColorPicker";
 import { InfoboxCard } from "./article/infobox/InfoboxCard";
 import type { InfoboxData } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ColorPicker } from "@/components/ui/color-picker/color-picker";
 import {
   Card,
   CardContent,
@@ -108,6 +108,15 @@ const paletteFields: Array<{
 ];
 
 const PREVIEW_MARKDOWN_KEY = "halupedia-theme-preview-md";
+const COLOR_SWATCHES_KEY = "halupedia-theme-color-swatches";
+const DEFAULT_COLOR_SWATCHES = [
+  "#FFFFFF",
+  "#000000",
+  "#7A2E1F",
+  "#D98968",
+  "#2F6F73",
+  "#B6A47E",
+];
 const DEFAULT_PREVIEW_MARKDOWN = `# The cartographer's quiet index
 
 An article font should stay comfortable over long passages. An [accent link](https://example.com) stays distinct without overwhelming the body text.
@@ -157,6 +166,22 @@ function loadPreviewMarkdown(): string {
     );
   } catch {
     return DEFAULT_PREVIEW_MARKDOWN;
+  }
+}
+
+function loadColorSwatches(): string[] {
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(COLOR_SWATCHES_KEY) ?? "[]",
+    );
+    return Array.isArray(stored)
+      ? stored.filter(
+          (color): color is string =>
+            typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color),
+        )
+      : [];
+  } catch {
+    return [];
   }
 }
 
@@ -251,12 +276,18 @@ function ColorField({
   variant,
   field,
   value,
+  backgroundColor,
+  presets,
   onChange,
+  onAddPreset,
 }: {
   variant: ThemeVariant;
   field: (typeof paletteFields)[number];
   value: string;
+  backgroundColor: string;
+  presets: string[];
   onChange: (value: string) => void;
+  onAddPreset: (hex: string) => void;
 }) {
   const id = `${variant}-${field.key}`;
   const hex = oklchToHex(value).toUpperCase();
@@ -266,66 +297,59 @@ function ColorField({
   useEffect(() => setHexDraft(hex), [hex]);
 
   return (
-    <Field className="gap-1.5" data-invalid={!validHex || undefined}>
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <FieldLabel htmlFor={id}>{field.label}</FieldLabel>
-          <FieldDescription>{field.description}</FieldDescription>
-        </div>
-        <Popover>
-          <PopoverTrigger
-            type="button"
-            aria-label={`Edit ${variant} ${field.label} color`}
-            title="Open color picker"
-            className="size-8 shrink-0 cursor-pointer rounded-md border border-input shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            style={{ backgroundColor: value }}
+    <Field
+      className="grid grid-cols-[minmax(0,1fr)_5.75rem_1.75rem] items-center gap-1.5"
+      data-invalid={!validHex || undefined}
+    >
+      <div className="min-w-0">
+        <FieldLabel htmlFor={id} className="text-xs leading-tight">
+          {field.label}
+        </FieldLabel>
+        <FieldDescription className="truncate text-[0.6875rem] leading-tight">
+          {field.description}
+        </FieldDescription>
+      </div>
+      <Input
+        id={id}
+        value={hexDraft}
+        onChange={(event) => {
+          const next = event.currentTarget.value.toUpperCase();
+          setHexDraft(next);
+          if (/^#?[0-9A-F]{6}$/.test(next)) {
+            onChange(hexToOklch(`#${next.replace(/^#/, "")}`));
+          }
+        }}
+        onBlur={() => {
+          setHexDraft(
+            validHex ? `#${hexDraft.replace(/^#/, "").toUpperCase()}` : hex,
+          );
+        }}
+        aria-label={`${variant} ${field.label} HEX value`}
+        aria-invalid={!validHex}
+        className="h-7 px-2 font-mono text-xs"
+      />
+      <Popover>
+        <PopoverTrigger
+          type="button"
+          aria-label={`Edit ${variant} ${field.label} color`}
+          title="Open color picker"
+          className="size-7 shrink-0 cursor-pointer rounded-md border border-input shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          style={{ backgroundColor: value }}
+        />
+        <PopoverContent
+          align="end"
+          sideOffset={6}
+          className="w-auto border-0 bg-transparent p-0 shadow-none ring-0"
+        >
+          <ThemeColorPicker
+            value={value}
+            backgroundColor={backgroundColor}
+            presets={presets}
+            onChange={onChange}
+            onAddPreset={onAddPreset}
           />
-          <PopoverContent
-            align="end"
-            sideOffset={8}
-            className="w-auto border-0 bg-transparent p-0 shadow-none ring-0"
-          >
-            <ColorPicker.Root
-              value={value}
-              format="oklch"
-              formats={["oklch"]}
-              onValueChange={(_color, _formatted, formats) =>
-                onChange(formats.oklch)
-              }
-              aria-label={`${variant} ${field.label} color picker`}
-            >
-              <ColorPicker.Area mode="oklch-cl" softProof />
-              <ColorPicker.Hue />
-            </ColorPicker.Root>
-          </PopoverContent>
-        </Popover>
-      </div>
-      <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-1">
-        <Input
-          value={hexDraft}
-          onChange={(event) => {
-            const next = event.currentTarget.value.toUpperCase();
-            setHexDraft(next);
-            if (/^#?[0-9A-F]{6}$/.test(next)) {
-              onChange(hexToOklch(`#${next.replace(/^#/, "")}`));
-            }
-          }}
-          onBlur={() => {
-            setHexDraft(
-              validHex ? `#${hexDraft.replace(/^#/, "").toUpperCase()}` : hex,
-            );
-          }}
-          aria-label={`${variant} ${field.label} HEX value`}
-          aria-invalid={!validHex}
-          className="h-8 font-mono text-xs"
-        />
-        <Input
-          value={value}
-          readOnly
-          aria-label={`${variant} ${field.label} OKLCH value`}
-          className="h-8 font-mono text-[0.7rem]"
-        />
-      </div>
+        </PopoverContent>
+      </Popover>
     </Field>
   );
 }
@@ -377,6 +401,25 @@ const ThemePreview = memo(function ThemePreview({
 });
 
 export function Settings({ settings, onChange }: SettingsProps) {
+  const [savedColorSwatches, setSavedColorSwatches] =
+    useState(loadColorSwatches);
+  const colorSwatches = useMemo(
+    () => [...new Set([...DEFAULT_COLOR_SWATCHES, ...savedColorSwatches])],
+    [savedColorSwatches],
+  );
+  const saveColorSwatch = useCallback((hex: string) => {
+    setSavedColorSwatches((current) => {
+      if (current.includes(hex)) return current;
+      const next = [...current, hex];
+      try {
+        window.localStorage.setItem(COLOR_SWATCHES_KEY, JSON.stringify(next));
+      } catch {
+        // Storage may be disabled; retain the swatch for this session.
+      }
+      return next;
+    });
+  }, []);
+
   const updateFont = useCallback(
     (key: "articleFont" | "uiFont" | "fixedFont", value: string) => {
       onChange({ ...settings, [key]: value });
@@ -882,16 +925,23 @@ export function Settings({ settings, onChange }: SettingsProps) {
                     onReset={() => resetPalette(variant)}
                   />
                 </div>
-                <FieldGroup className="grid gap-3 sm:grid-cols-2">
+                <FieldGroup className="grid gap-2 sm:grid-cols-2">
                   {paletteFields.map((field) => (
                     <ColorField
                       key={field.key}
                       variant={variant}
                       field={field}
                       value={settings[variant][field.key]}
+                      backgroundColor={
+                        field.key === "background"
+                          ? settings[variant].foreground
+                          : settings[variant].background
+                      }
+                      presets={colorSwatches}
                       onChange={(value) =>
                         updateColor(variant, field.key, value)
                       }
+                      onAddPreset={saveColorSwatch}
                     />
                   ))}
                 </FieldGroup>

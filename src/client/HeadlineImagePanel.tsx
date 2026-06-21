@@ -37,6 +37,14 @@ interface ImageAspectRatioOption {
   size: string;
 }
 
+const DEFAULT_IMAGE_ASPECT_RATIOS: ImageAspectRatioOption[] = [
+  { key: "landscape", label: "landscape", size: "1088x624" },
+  { key: "square", label: "square", size: "832x832" },
+  { key: "portrait", label: "portrait", size: "832x1088" },
+  { key: "poster", label: "poster portrait", size: "768x1152" },
+  { key: "wide", label: "wide landscape", size: "1152x672" },
+];
+
 interface Props {
   articleSlug: string;
   onArticleUpdate: (article: unknown) => void;
@@ -57,9 +65,9 @@ export function HeadlineImagePanel({
     { key: "default", label: "default" },
   ]);
   const [selectedPresetKey, setSelectedPresetKey] = useState("default");
-  const [aspectRatios, setAspectRatios] = useState<ImageAspectRatioOption[]>([
-    { key: "landscape", label: "landscape", size: "1088x624" },
-  ]);
+  const [aspectRatios, setAspectRatios] = useState<ImageAspectRatioOption[]>(
+    DEFAULT_IMAGE_ASPECT_RATIOS,
+  );
   const [selectedAspectRatioKey, setSelectedAspectRatioKey] =
     useState("landscape");
 
@@ -97,7 +105,7 @@ export function HeadlineImagePanel({
         const options =
           Array.isArray(body.aspectRatios) && body.aspectRatios.length > 0
             ? body.aspectRatios
-            : [{ key: "landscape", label: "landscape", size: "1088x624" }];
+            : DEFAULT_IMAGE_ASPECT_RATIOS;
         const withAuto = [
           { key: "auto", label: "auto", size: "" },
           ...options,
@@ -109,7 +117,12 @@ export function HeadlineImagePanel({
             : "landscape",
         );
       })
-      .catch(() => {});
+      .catch(() => {
+        setAspectRatios([
+          { key: "auto", label: "auto", size: "" },
+          ...DEFAULT_IMAGE_ASPECT_RATIOS,
+        ]);
+      });
   }, []);
 
   useEffect(() => {

@@ -251,6 +251,34 @@ describe("App", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
+  it("opens theme settings from the header cog", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(emptyHomepagePayload()), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    setPath("/");
+    render(<App />);
+
+    const settingsLink = screen.getByRole("link", {
+      name: "Theme/user settings",
+    });
+    expect(settingsLink).toHaveAttribute("title", "Theme/user settings");
+    expect(
+      within(screen.getByRole("navigation")).queryByText("Settings"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(settingsLink);
+
+    expect(window.location.pathname).toBe("/settings");
+    expect(
+      screen.getByRole("heading", { name: "Appearance" }),
+    ).toBeInTheDocument();
+  });
+
   it("random nav asks the server for a random page and redirects to it", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

@@ -229,7 +229,7 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
   });
 });
 
-test("configured sampler params (top_k/top_p/min_p) are sent; unset ones are omitted", async (t) => {
+test("configured Ollama generation params are sent; unset ones are omitted", async (t) => {
   let body: any = null;
   t.after(() => setLlmFetchForTests(null));
   setLlmFetchForTests(async (_input, init) => {
@@ -240,16 +240,30 @@ test("configured sampler params (top_k/top_p/min_p) are sent; unset ones are omi
     );
   });
 
-  const heavy = { base_url: "http://llm.test/v1", api_key: "k", model: "gemma4", temperature: 1, max_tokens: 100, top_k: 10, top_p: 0.85 };
+  const heavy = {
+    base_url: "http://llm.test/v1", api_key: "k", model: "gemma4", temperature: 1, max_tokens: 100,
+    num_ctx: 32768, repeat_last_n: -1, repeat_penalty: 1.1, seed: 42, draft_num_predict: 4,
+    top_k: 10, top_p: 0.85,
+  };
   const light = { base_url: "http://llm.test/v1", api_key: "k", model: "gemma4", temperature: 1, max_tokens: 100 };
   const router = makeRouter(heavy, light, { enabled: false, base_url: "", api_key: "", model: "" });
 
   await router.chat("heavy", "s", "u");
+  assert.equal(body.options.num_ctx, 32768);
+  assert.equal(body.options.repeat_last_n, -1);
+  assert.equal(body.options.repeat_penalty, 1.1);
+  assert.equal(body.options.seed, 42);
+  assert.equal(body.options.draft_num_predict, 4);
   assert.equal(body.options.top_k, 10);
   assert.equal(body.options.top_p, 0.85);
   assert.equal("min_p" in body.options, false, "unset min_p must be omitted entirely");
 
   await router.chat("light", "s", "u");
+  assert.equal("num_ctx" in body.options, false);
+  assert.equal("repeat_last_n" in body.options, false);
+  assert.equal("repeat_penalty" in body.options, false);
+  assert.equal("seed" in body.options, false);
+  assert.equal("draft_num_predict" in body.options, false);
   assert.equal("top_k" in body.options, false, "light set none -> no sampler keys");
   assert.equal("top_p" in body.options, false);
 });

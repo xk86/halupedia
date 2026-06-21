@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getArticle, getArticleByLookup, getLatestArticleReferences, listArticleRevisions, openDatabase, saveArticle, saveArticleReferences } from "../src/server/db";
+import { getArticle, getArticleByLookup, getLatestArticleReferences, listArticleRevisions, openDatabase, saveArticle, saveArticleReferences, setArticleVibe } from "../src/server/db";
 import { slugify } from "../src/server/slug";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
@@ -123,6 +123,10 @@ function saveMarkdownArticle(
     title: string;
     markdown: string;
     generated_at?: number;
+    // The vibe is the canonical edit channel: rewrites are rejected without
+    // one. Seed a neutral default so rewrite regressions reach the edit logic
+    // instead of the empty-vibe gate. Pass "" to exercise the no-vibe path.
+    vibe?: string;
   },
 ) {
   const db = openDatabase(databasePath);
@@ -141,6 +145,8 @@ function saveMarkdownArticle(
     links,
     [article.slug],
   );
+  const vibe = article.vibe ?? "Keep the encyclopedic tone.";
+  if (vibe) setArticleVibe(db, article.slug, vibe, "save");
   db.close();
 }
 

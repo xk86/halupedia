@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle, getArticleByLookup, listArticleRevisions } from "../src/server/db";
+import { openDatabase, saveArticle, getArticleByLookup, listArticleRevisions, setArticleVibe } from "../src/server/db";
 import { slugify } from "../src/server/slug";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
@@ -28,7 +28,16 @@ function createMemoryLogger(entries: CapturedLogEntry[]): Logger {
   };
 }
 
-function seedArticle(databasePath: string, slug: string, title: string, body: string) {
+function seedArticle(
+  databasePath: string,
+  slug: string,
+  title: string,
+  body: string,
+  // The vibe is the canonical edit channel: an LLM rewrite/section/selection
+  // edit is rejected unless the article has one. Seed a neutral default so
+  // edit-flow tests exercise the edit logic rather than the empty-vibe gate.
+  vibe = "Keep the encyclopedic tone.",
+) {
   const markdown = `# ${title}\n\n${body}`;
   const db = openDatabase(databasePath);
   saveArticle(
@@ -45,6 +54,7 @@ function seedArticle(databasePath: string, slug: string, title: string, body: st
     [],
     [slug],
   );
+  if (vibe) setArticleVibe(db, slug, vibe, "save");
   db.close();
   return markdown;
 }
@@ -238,8 +248,8 @@ test("rewrite passes correct mode prompt to LLM", async (t) => {
 
   const streamCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
   assert.ok(streamCall, "LLM should receive a system prompt with Rewrite Mode");
-  assert.match(streamCall.system, /Preserve the existing tone/, "subtle mode prompt should be injected");
-  assert.doesNotMatch(streamCall.system, /expanded.*creative license/i, "aggressive mode should not leak into subtle");
+  assert.match(streamCall.system, /preserving its existing tone|minimal, targeted, surgical/i, "subtle mode prompt should be injected");
+  assert.doesNotMatch(streamCall.system, /entire article from scratch/i, "aggressive mode should not leak into subtle");
 
   llm.chatCalls.length = 0;
   await server.request("/api/article/mode-test/rewrite", {
@@ -250,7 +260,7 @@ test("rewrite passes correct mode prompt to LLM", async (t) => {
 
   const aggressiveCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
   assert.ok(aggressiveCall);
-  assert.match(aggressiveCall.system, /expanded.*creative license|restructure sections/i, "aggressive mode prompt should be injected");
+  assert.match(aggressiveCall.system, /entire article from scratch|restructure sections/i, "aggressive mode prompt should be injected");
   await server.shutdown();
 });
 
@@ -304,57 +314,6 @@ test("rewrite prompt scope rules match the edit scope", async (t) => {
   assert.ok(partialCall, "section rewrite should reach the LLM");
   assert.match(partialCall!.system, /only that rewritten section or fragment/);
   assert.doesNotMatch(partialCall!.system, /Return the full rewritten article/);
-  await server.shutdown();
-});
-
-test("rewrite can include the last two edit prompts with timestamps", async (t) => {
-  const { root, databasePath } = createTestDb();
-  seedArticle(
-    databasePath,
-    "history-context",
-    "History Context",
-    "Lead paragraph.\n\n## Notes\n\nOriginal notes.",
-  );
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-
-  const llm = new RewriteLlmClient("## Notes\n\nUpdated notes.");
-  const server = await createTestServer({ databasePath, llmClient: llm });
-
-  for (const instructions of ["first edit prompt", "second edit prompt"]) {
-    const res = await server.request("/api/article/history-context/rewrite", {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ sectionId: "notes", instructions }),
-    });
-    assert.equal(res.status, 200);
-    await res.json();
-  }
-
-  const res = await server.request("/api/article/history-context/rewrite", {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({
-      sectionId: "notes",
-      instructions: "third edit prompt",
-      includeRecentEditHistory: true,
-    }),
-  });
-  assert.equal(res.status, 200);
-  await res.json();
-
-  const rewriteCall = llm.chatCalls
-    .reverse()
-    .find((call) => call.system.includes("third edit prompt"));
-  assert.ok(rewriteCall, "should find call with third edit prompt in system prompt");
-  const systemPrompt = rewriteCall!.system;
-  assert.match(systemPrompt, /Recent edit history, oldest to newest:/);
-  assert.match(systemPrompt, /\d{4}-\d{2}-\d{2}T.*\(section-rewrite\): first edit prompt/);
-  assert.match(systemPrompt, /\d{4}-\d{2}-\d{2}T.*\(section-rewrite\): second edit prompt/);
-  assert.ok(
-    systemPrompt.indexOf("first edit prompt") < systemPrompt.indexOf("second edit prompt"),
-    "recent edit prompts should be chronological",
-  );
-  assert.doesNotMatch(systemPrompt, /Initial history snapshot/);
   await server.shutdown();
 });
 
@@ -490,20 +449,22 @@ test("rewrite returns 404 for non-existent article", async (t) => {
   await server.shutdown();
 });
 
-test("rewrite returns 400 for missing instructions", async (t) => {
+test("rewrite returns 400 when the article has no vibe to rewrite toward", async (t) => {
   const { root, databasePath } = createTestDb();
-  seedArticle(databasePath, "no-instr", "No Instr", "Content.");
+  // No vibe: the rewrite has no canonical edit channel and must be rejected.
+  seedArticle(databasePath, "no-vibe", "No Vibe", "Content.", "");
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   const llm = new RewriteLlmClient("whatever");
   const server = await createTestServer({ databasePath, llmClient: llm });
 
-  const res = await server.request("/api/article/no-instr/rewrite", {
+  const res = await server.request("/api/article/no-vibe/rewrite", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({}),
   });
   assert.equal(res.status, 400);
+  assert.equal(llm.chatCalls.length, 0, "should not call the LLM without a vibe");
   await server.shutdown();
 });
 
@@ -530,7 +491,9 @@ test("rewrite creates a revision entry in history", async (t) => {
     (r: any) => r.operation === "rewrite",
   );
   assert.ok(rewriteRevision, "should have a rewrite operation revision");
-  assert.match(rewriteRevision.instructions, /revise it/, "revision should capture the instructions");
+  // Per-edit free text is no longer the edit channel; the vibe is. The revision
+  // records the canonical "rewrite-to-vibe" marker rather than typed instructions.
+  assert.match(rewriteRevision.instructions, /rewrite-to-vibe/, "revision should record the canonical rewrite marker");
   await server.shutdown();
 });
 
@@ -564,6 +527,7 @@ test("section rewrite only modifies the targeted section", async (t) => {
     [],
     ["section-test"],
   );
+  setArticleVibe(db, "section-test", "Keep the encyclopedic tone.", "save");
   db.close();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -810,6 +774,7 @@ test("section edit: model receives only the section, not the full article", asyn
     [],
     ["prompt-check"],
   );
+  setArticleVibe(db2, "prompt-check", "Keep the encyclopedic tone.", "save");
   db2.close();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
@@ -863,6 +828,7 @@ test("section edit: full-article response from model is trimmed to target sectio
     [],
     ["leak-test"],
   );
+  setArticleVibe(db3, "leak-test", "Keep the encyclopedic tone.", "save");
   db3.close();
   t.after(() => rmSync(root, { recursive: true, force: true }));
 

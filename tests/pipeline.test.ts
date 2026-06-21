@@ -36,6 +36,7 @@ import {
   listIncomingHints,
   listArticleRevisions,
   setArticleProtection,
+  setArticleVibe,
 } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
@@ -107,6 +108,10 @@ function seedDbArticle(
   title: string,
   body = `${title} article body.`,
   summaryMarkdown = `Summary of ${title}.`,
+  // The vibe is the canonical edit channel: rewrites are rejected unless the
+  // article has one. Seed a neutral default so rewrite tests reach the edit
+  // logic instead of the empty-vibe gate.
+  vibe = "Keep the encyclopedic tone.",
 ) {
   const markdown = `# ${title}\n\n${body}`;
   const now = Date.now();
@@ -116,6 +121,7 @@ function seedDbArticle(
     [],
     [slug],
   );
+  if (vibe) setArticleVibe(db, slug, vibe, "save");
 }
 
 function makeRef(slug: string, title: string, pinned = false): ReferenceList[number] {

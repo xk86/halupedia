@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "smol-toml";
 
-import { setTomlTableValue, addTomlTable, tomlRender } from "../src/server/tomlEdit";
+import { setTomlTableValue, removeTomlTableKey, addTomlTable, tomlRender } from "../src/server/tomlEdit";
 
 const SAMPLE = `# Gemma models require temperature of 1
 [llm.host.cat-desktop]
@@ -60,6 +60,14 @@ test("setTomlTableValue appends a new table when absent", () => {
   const next = setTomlTableValue(SAMPLE, "llm.embeddings", "enabled", true);
   const parsed = parse(next) as any;
   assert.equal(parsed.llm.embeddings.enabled, true);
+});
+
+test("removeTomlTableKey removes only the active key", () => {
+  const withContext = setTomlTableValue(SAMPLE, "llm.chat", "num_ctx", 32768);
+  const next = removeTomlTableKey(withContext, "llm.chat", "num_ctx");
+  const parsed = parse(next) as any;
+  assert.equal(parsed.llm.chat.num_ctx, undefined);
+  assert.match(next, /#model = "gemma3:4b-it-qat"/);
 });
 
 test("addTomlTable appends a host block, preserving the rest", () => {

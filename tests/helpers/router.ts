@@ -12,6 +12,11 @@ type RoleLike = {
   model: string;
   temperature?: number;
   max_tokens?: number;
+  num_ctx?: number;
+  repeat_last_n?: number;
+  repeat_penalty?: number;
+  seed?: number;
+  draft_num_predict?: number;
   top_k?: number;
   top_p?: number;
   min_p?: number;
@@ -48,6 +53,11 @@ export function makeRouter(
     model: r.model,
     temperature: r.temperature ?? 1,
     max_tokens: r.max_tokens ?? 2400,
+    ...(r.num_ctx !== undefined ? { num_ctx: r.num_ctx } : {}),
+    ...(r.repeat_last_n !== undefined ? { repeat_last_n: r.repeat_last_n } : {}),
+    ...(r.repeat_penalty !== undefined ? { repeat_penalty: r.repeat_penalty } : {}),
+    ...(r.seed !== undefined ? { seed: r.seed } : {}),
+    ...(r.draft_num_predict !== undefined ? { draft_num_predict: r.draft_num_predict } : {}),
     ...(r.top_k !== undefined ? { top_k: r.top_k } : {}),
     ...(r.top_p !== undefined ? { top_p: r.top_p } : {}),
     ...(r.min_p !== undefined ? { min_p: r.min_p } : {}),

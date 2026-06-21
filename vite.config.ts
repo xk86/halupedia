@@ -18,5 +18,12 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Anchored + trailing-slash so these never swallow client source modules
+    // (e.g. a bare "/wiki" prefix would capture "/wikiPath.ts"). The SPA owns
+    // /wiki/* routing itself; only the API needs forwarding to the server.
+    proxy: {
+      "^/api/": "http://127.0.0.1:8787",
+      "^/media/": "http://127.0.0.1:8787",
+    },
   },
 });

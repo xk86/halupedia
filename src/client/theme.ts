@@ -597,7 +597,7 @@ export function normalizeThemeSettings(value: unknown): ThemeSettings {
     fixedFont: validFont(value.fixedFont, DEFAULT_THEME_SETTINGS.fixedFont),
     radius:
       typeof value.radius === "number" && Number.isFinite(value.radius)
-        ? Math.min(24, Math.max(0, value.radius))
+        ? Math.min(12, Math.max(0, value.radius))
         : DEFAULT_THEME_SETTINGS.radius,
     fontScale:
       typeof value.fontScale === "number" && Number.isFinite(value.fontScale)

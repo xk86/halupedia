@@ -41,7 +41,7 @@ describe("theme settings", () => {
     });
 
     expect(normalized.mode).toBe("dark");
-    expect(normalized.radius).toBe(24);
+    expect(normalized.radius).toBe(12);
     expect(normalized.articleFont).toBe("sf-mono");
     expect(normalized.light.accent).toBe("oklch(0.7 0.2 30)");
     expect(normalized.light.background).toBe(

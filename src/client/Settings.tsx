@@ -78,16 +78,19 @@ interface SettingsProps {
   onChange: (settings: ThemeSettings) => void;
 }
 
-/* The XS–XL corner scale, mirrored as a live preview under the roundness
- * slider. Each swatch grows with its step and rounds with its own token (full
- * class strings so Tailwind keeps them), so the scale reads at a glance and
- * responds the instant the slider moves. */
+/* The XS–2XL corner scale, mirrored as a live preview under the roundness
+ * slider. Each swatch is sized to the kind of element its step is meant for —
+ * a tiny chip at XS up to a card at 2XL — so the radius reads at its true
+ * proportion (a card corner, not a circle) and the "bigger shapes, bigger
+ * radii" rule is visible as the slider moves. Full class strings so Tailwind
+ * keeps the utilities. */
 const RADIUS_SCALE_PREVIEW = [
   { token: "rounded-xs", size: "size-5", label: "XS" },
-  { token: "rounded-sm", size: "size-6", label: "S" },
-  { token: "rounded-md", size: "size-7", label: "M" },
-  { token: "rounded-lg", size: "size-9", label: "L" },
-  { token: "rounded-xl", size: "size-11", label: "XL" },
+  { token: "rounded-sm", size: "size-7", label: "S" },
+  { token: "rounded-md", size: "size-9", label: "M" },
+  { token: "rounded-lg", size: "size-12", label: "L" },
+  { token: "rounded-xl", size: "size-14", label: "XL" },
+  { token: "rounded-2xl", size: "size-16", label: "2XL" },
 ] as const;
 
 const paletteFields: Array<{
@@ -838,8 +841,8 @@ export function Settings({ settings, onChange }: SettingsProps) {
                       Corner roundness
                     </FieldLabel>
                     <FieldDescription>
-                      One knob scales the whole XS–XL corner system — sharp at 0,
-                      rounder as it climbs, bigger shapes rounding more.
+                      One knob scales the whole XS–2XL corner system — sharp at
+                      0, rounder as it climbs, bigger shapes rounding more.
                     </FieldDescription>
                   </div>
                   <div className="flex items-center gap-1">
@@ -861,7 +864,7 @@ export function Settings({ settings, onChange }: SettingsProps) {
                 <Slider
                   id="theme-radius"
                   min={0}
-                  max={24}
+                  max={12}
                   step={1}
                   value={settings.radius}
                   onValueChange={(value) =>
@@ -872,7 +875,10 @@ export function Settings({ settings, onChange }: SettingsProps) {
                 {/* Live preview of the derived scale: each swatch is sized to
                     its step and rounded with its own token, so the "bigger
                     shapes, bigger radii" rule is visible as the slider moves. */}
-                <div className="mt-1 flex items-end gap-2.5" aria-hidden>
+                <div
+                  className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-2"
+                  aria-hidden
+                >
                   {RADIUS_SCALE_PREVIEW.map(({ token, size, label }) => (
                     <div
                       key={label}

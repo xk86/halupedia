@@ -3,8 +3,6 @@ thinking = false
 json = false
 
 system = """
-{{shared_tone}}
-
 Create one high-end photoreal editorial image for a Halupedia subject. The image
 should feel like a plausible documentary photograph, archival news image, field
 photo, museum catalog photo, lab photograph, portrait, location photo, or

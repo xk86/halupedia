@@ -20,6 +20,7 @@ import { Settings } from "./Settings";
 import { Sidebar } from "./Sidebar";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
+import { ArticleProse, articleProseClasses } from "./article/ArticleProse";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1796,7 +1797,7 @@ export function App() {
     if (route.kind === "disambiguation") {
       return (
         <article
-          className="article disambiguation-page prose-halu prose max-w-none"
+          className={clsx("article disambiguation-page", articleProseClasses)}
           onClick={interceptArticleLinks}
         >
           <div className="disambiguation-notice">
@@ -2538,12 +2539,7 @@ export function App() {
               </AlertDialog>
             </div>
             <article className="article old-revision-preview">
-              <div
-                className="prose-halu prose max-w-none"
-                dangerouslySetInnerHTML={{
-                  __html: stripLeadingH1(selectedRevision.html),
-                }}
-              />
+              <ArticleProse html={stripLeadingH1(selectedRevision.html)} />
             </article>
           </>
         ) : rawEditOpen ? (
@@ -2610,9 +2606,9 @@ export function App() {
               />
               {rawEditPreview && (
                 <div className="raw-edit-preview-pane">
-                  <div
+                  <ArticleProse
                     className="raw-edit-preview-html article-body"
-                    dangerouslySetInnerHTML={{ __html: rawEditPreview.html }}
+                    html={rawEditPreview.html}
                   />
                   {rawEditPreview.diagnostics.length > 0 && (
                     <div className="raw-edit-preview-diagnostics">
@@ -2639,12 +2635,7 @@ export function App() {
             className="article"
             onClick={interceptArticleLinks}
           >
-            <div
-              className="prose-halu prose max-w-none"
-              dangerouslySetInnerHTML={{
-                __html: stripLeadingH1(page.article.html),
-              }}
-            />
+            <ArticleProse html={stripLeadingH1(page.article.html)} />
             {page.statusMessage ? (
               <div className="mt-6 flex items-center gap-[0.6rem] border-t border-rule py-[0.6rem] font-mono text-[0.82rem] text-ink-fade">
                 <span className="size-[7px] animate-[pulse_1.1s_ease-in-out_infinite] rounded-full bg-accent" />

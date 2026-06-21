@@ -7,7 +7,16 @@ import {
   useState,
 } from "react";
 import clsx from "clsx";
-import { MoonIcon, SunIcon } from "lucide-react";
+import {
+  CopyIcon,
+  HistoryIcon,
+  LockIcon,
+  MoonIcon,
+  PencilIcon,
+  RefreshCwIcon,
+  SunIcon,
+  UnlockIcon,
+} from "lucide-react";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
 import { GraphView } from "./GraphView";
@@ -1841,7 +1850,7 @@ export function App() {
               type="button"
               variant="outline"
               size="icon"
-              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
+              className="text-accent hover:border-accent hover:bg-accent-wash"
               style={{
                 opacity: page.isProtected ? 1 : 0.35,
                 fontSize: "1.1rem",
@@ -1876,53 +1885,51 @@ export function App() {
                 }
               }}
             >
-              {page.isProtected ? "🔒" : "🔓"}
+              {page.isProtected ? (
+                <LockIcon data-icon="inline-start" />
+              ) : (
+                <UnlockIcon data-icon="inline-start" />
+              )}
             </Button>
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
+              className="text-accent hover:border-accent hover:bg-accent-wash"
               onClick={copyArticleSlug}
               aria-label="Copy slug"
               title="Copy slug"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1Zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H10V7h9v14Z" />
-              </svg>
+              <CopyIcon data-icon="inline-start" />
             </Button>
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
+              className="text-accent hover:border-accent hover:bg-accent-wash"
               onClick={refreshContext}
               disabled={refreshBusy}
               aria-label="Refresh with retrieved context"
               title="Refresh with retrieved context"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M17.7 6.3A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3l-3.3 3.3Z" />
-              </svg>
+              <RefreshCwIcon data-icon="inline-start" />
             </Button>
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
+              className="text-accent hover:border-accent hover:bg-accent-wash"
               onClick={loadHistory}
               aria-label="View history"
               title="View history"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M13 3a9 9 0 1 1-8.95 10H2l3-3.2L8 13H6.06A7 7 0 1 0 13 5a6.95 6.95 0 0 0-4.95 2.05L6.63 5.63A8.94 8.94 0 0 1 13 3Zm-1 4h2v5.15l3.2 1.9-1 1.72-4.2-2.5V7Z" />
-              </svg>
+              <HistoryIcon data-icon="inline-start" />
             </Button>
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="text-accent hover:border-accent hover:bg-accent-wash [&_svg]:fill-current"
+              className="text-accent hover:border-accent hover:bg-accent-wash"
               onClick={() => {
                 setEditOpen(true);
                 setEditError(null);
@@ -1930,9 +1937,7 @@ export function App() {
               aria-label="Edit article"
               title="Edit article"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25Zm14.71-9.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.96 1.96 3.75 3.75 2.13-1.79Z" />
-              </svg>
+              <PencilIcon data-icon="inline-start" />
             </Button>
           </div>
         </div>

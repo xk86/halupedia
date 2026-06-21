@@ -144,6 +144,8 @@ interface NodeSpan {
   prompt_chars?: number | null;
   prompt_text?: string | null;
   prompt_tokens?: number | null;
+  system_prompt_tokens?: number | null;
+  user_prompt_tokens?: number | null;
   cot_text?: string | null;
   cot_tokens?: number | null;
   response_text?: string | null;
@@ -712,10 +714,16 @@ function SlugCell({
   onNavigate: (e: MouseEvent, segment: string) => void;
   onNavigateHome?: () => void;
 }) {
+  // Slugs can be long and hyphen-free; break anywhere so they wrap inside the
+  // fixed-width Article column instead of overflowing it.
+  // whitespace-normal overrides the table cell's default nowrap so the slug can
+  // actually wrap; overflow-wrap:anywhere breaks long hyphen-free slugs.
+  const linkClass =
+    "font-mono text-xs text-primary underline underline-offset-4 whitespace-normal [overflow-wrap:anywhere]";
   if (slug === HOMEPAGE_PSEUDO_SLUG) {
     return (
       <a
-        className="font-mono text-xs text-primary underline underline-offset-4"
+        className={linkClass}
         href="/"
         onClick={(e) => {
           e.preventDefault();
@@ -729,7 +737,7 @@ function SlugCell({
   }
   return (
     <a
-      className="font-mono text-xs text-primary underline underline-offset-4"
+      className={linkClass}
       href={`/wiki/${segment}`}
       onClick={(e) => onNavigate(e, segment)}
     >
@@ -795,7 +803,7 @@ function NodeBreakdown({
         return (
           <Fragment key={i}>
             <div
-              className="grid grid-cols-[minmax(9rem,14rem)_5rem_minmax(5rem,1fr)_4.5rem_2.5rem_auto_auto] items-center gap-2 py-0.5 font-mono text-xs tabular-nums max-[700px]:grid-cols-[minmax(0,1fr)_4.5rem_auto_auto] max-[700px]:gap-1 max-[700px]:text-[0.7rem] max-lg:grid-cols-[minmax(8rem,1fr)_minmax(5rem,1fr)_4.5rem_auto_auto]"
+              className="grid grid-cols-[minmax(9rem,14rem)_5rem_minmax(5rem,1fr)_4.5rem_2.5rem_auto] items-center gap-2 py-0.5 font-mono text-xs tabular-nums max-[700px]:grid-cols-[minmax(0,1fr)_4.5rem_auto] max-[700px]:gap-1 max-[700px]:text-[0.7rem] max-lg:grid-cols-[minmax(8rem,1fr)_minmax(5rem,1fr)_4.5rem_2.5rem_auto]"
               data-testid="node-timing-row"
               data-node-kind={node.node_kind ?? "unknown"}
             >
@@ -830,7 +838,7 @@ function NodeBreakdown({
               <span className="text-right text-muted-foreground max-[700px]:hidden">
                 {pct}%
               </span>
-              <span className="flex justify-end">
+              <span className="flex items-center justify-end gap-1">
                 {node.prompt_text ? (
                   hasPrompt ? (
                     <Button
@@ -848,13 +856,11 @@ function NodeBreakdown({
                       />
                     </Button>
                   ) : (
-                    <Badge variant="outline">
+                    <Badge variant="outline" className="h-6">
                       {((node.prompt_tokens ?? 0) + (node.cot_tokens ?? 0) + (node.response_tokens ?? 0)).toLocaleString()}t
                     </Badge>
                   )
                 ) : null}
-              </span>
-              <span className="flex justify-end">
                 {hasRag ? (
                   <Button
                     type="button"
@@ -877,7 +883,12 @@ function NodeBreakdown({
               <div className="flex flex-col gap-1" data-testid="trace-detail">
                 {hasMetadata && <LlmMetadata node={node} />}
                 {node.prompt_text && (
-                  <PromptTraceSections text={node.prompt_text} promptTokens={node.prompt_tokens} />
+                  <PromptTraceSections
+                    text={node.prompt_text}
+                    promptTokens={node.prompt_tokens}
+                    systemTokens={node.system_prompt_tokens}
+                    userTokens={node.user_prompt_tokens}
+                  />
                 )}
                 {node.cot_text && (
                   <PromptSection
@@ -964,6 +975,16 @@ interface ReferenceTrace {
   source?: string;
 }
 
+interface EmbeddingTrace {
+  strategy: string;
+  model?: string;
+  host?: string;
+  baseUrl?: string;
+  dimensions?: number;
+  corpusChunks?: number;
+  embeddedChunks?: number;
+}
+
 interface RagTraceDetail {
   promptContext?: string;
   relatedTitlesPrompt?: string;
@@ -974,6 +995,7 @@ interface RagTraceDetail {
   references: ReferenceTrace[];
   ragTitles: string[];
   backlinks: Array<{ slug: string; title: string }>;
+  embedding?: EmbeddingTrace;
 }
 
 function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
@@ -1031,6 +1053,7 @@ function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
     references,
     ragTitles: retrieved?.ragTitles ?? [],
     backlinks: retrieved?.backlinks ?? [],
+    embedding: retrieved?.embedding,
   };
 }
 
@@ -1059,13 +1082,34 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
     [
       "Prompt context",
       detail.promptContext
-        ? `${detail.promptContext.length.toLocaleString()} chars`
+        ? `${detail.promptContext.length.toLocaleString()} chars · ~${estimateTokens(detail.promptContext).toLocaleString()}t`
         : null,
     ],
     [
       "Score range",
       scoreValues.length
         ? `${Math.min(...scoreValues).toFixed(3)}-${Math.max(...scoreValues).toFixed(3)}`
+        : null,
+    ],
+    ["Retrieval strategy", detail.embedding?.strategy ?? null],
+    ["Embedding model", detail.embedding?.model ?? null],
+    [
+      "Embedding host",
+      detail.embedding?.host
+        ? detail.embedding.baseUrl
+          ? `${detail.embedding.host} (${detail.embedding.baseUrl})`
+          : detail.embedding.host
+        : null,
+    ],
+    [
+      "Embedding dims",
+      detail.embedding?.dimensions ? String(detail.embedding.dimensions) : null,
+    ],
+    [
+      "Embedded chunks",
+      detail.embedding?.embeddedChunks != null &&
+      detail.embedding?.corpusChunks != null
+        ? `${detail.embedding.embeddedChunks} / ${detail.embedding.corpusChunks}`
         : null,
     ],
   ].filter((row): row is [string, string] => Boolean(row[1]));
@@ -1077,30 +1121,35 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
         <PromptSection
           label="RAG context in prompt"
           text={detail.promptContext}
+          approxTokens
         />
       )}
       {detail.sources.length > 0 && (
         <PromptSection
           label="Retrieved source segments"
           text={formatRagSources(detail.sources)}
+          approxTokens
         />
       )}
       {detail.references.length > 0 && (
         <PromptSection
           label="Reference list after step"
           text={formatReferences(detail.references)}
+          approxTokens
         />
       )}
       {detail.relatedTitlesPrompt && (
         <PromptSection
           label="Related titles in prompt"
           text={detail.relatedTitlesPrompt}
+          approxTokens
         />
       )}
       {detail.promptRefs && (
         <PromptSection
           label="Reference context in prompt"
           text={detail.promptRefs}
+          approxTokens
         />
       )}
       {detail.backlinks.length > 0 && (
@@ -1109,6 +1158,7 @@ function RagDetail({ detail }: { detail: RagTraceDetail }) {
           text={detail.backlinks
             .map((b) => `- ${b.title} (${b.slug})`)
             .join("\n")}
+          approxTokens
         />
       )}
     </div>
@@ -1150,6 +1200,7 @@ function normalizeRetrievedContext(value: unknown): {
   sources: RagSourceTrace[];
   ragTitles: string[];
   backlinks: Array<{ slug: string; title: string }>;
+  embedding?: EmbeddingTrace;
 } | null {
   const obj = asRecord(value);
   if (!obj) return null;
@@ -1166,9 +1217,31 @@ function normalizeRetrievedContext(value: unknown): {
         .map(normalizeBacklink)
         .filter((b): b is { slug: string; title: string } => Boolean(b))
     : [];
-  if (sources.length === 0 && ragTitles.length === 0 && backlinks.length === 0)
+  const embedding = normalizeEmbedding(obj.embedding);
+  if (
+    sources.length === 0 &&
+    ragTitles.length === 0 &&
+    backlinks.length === 0 &&
+    !embedding
+  )
     return null;
-  return { sources, ragTitles, backlinks };
+  return { sources, ragTitles, backlinks, embedding };
+}
+
+function normalizeEmbedding(value: unknown): EmbeddingTrace | undefined {
+  const obj = asRecord(value);
+  if (!obj || typeof obj.strategy !== "string") return undefined;
+  const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  return {
+    strategy: obj.strategy,
+    model: str(obj.model),
+    host: str(obj.host),
+    baseUrl: str(obj.baseUrl),
+    dimensions: num(obj.dimensions),
+    corpusChunks: num(obj.corpusChunks),
+    embeddedChunks: num(obj.embeddedChunks),
+  };
 }
 
 function normalizeReferences(value: unknown): ReferenceTrace[] | null {
@@ -1193,13 +1266,27 @@ function normalizeReference(value: unknown): ReferenceTrace | null {
   return { slug, title, content, kind, source, pinned, score };
 }
 
-function PromptTraceSections({ text, promptTokens }: { text: string; promptTokens?: number | null }) {
+function PromptTraceSections({
+  text,
+  promptTokens,
+  systemTokens,
+  userTokens,
+}: {
+  text: string;
+  promptTokens?: number | null;
+  systemTokens?: number | null;
+  userTokens?: number | null;
+}) {
   const split = splitPromptTrace(text);
   if (!split) return <PromptSection label="Prompt" text={text} promptTokens={promptTokens} />;
   return (
     <>
-      <PromptSection label="System prompt" text={split.system} />
-      <PromptSection label="User prompt" text={split.user} promptTokens={promptTokens} />
+      <PromptSection label="System prompt" text={split.system} promptTokens={systemTokens} />
+      <PromptSection
+        label="User prompt"
+        text={split.user}
+        promptTokens={userTokens ?? promptTokens}
+      />
     </>
   );
 }
@@ -1366,16 +1453,26 @@ function TraceMetadata({ rows }: { rows: Array<[string, string]> }) {
   );
 }
 
+/** Cheap client-side token estimate (~4 chars/token) for text the server
+ *  didn't tokenise — the RAG context blocks. Shown with a leading ~ so it's
+ *  never mistaken for the exact tiktoken counts on the prompt/output sections. */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
 const PromptSection = memo(function PromptSection({
   label,
   text,
   variant,
   promptTokens,
+  approxTokens = false,
 }: {
   label: string;
   text: string;
   variant?: "cot" | "output";
   promptTokens?: number | null;
+  /** Show an estimated (~) token count instead of an exact one. */
+  approxTokens?: boolean;
 }) {
   const [mode, setMode] = useState<"source" | "rendered">("rendered");
   const copy = () => {
@@ -1386,6 +1483,7 @@ const PromptSection = memo(function PromptSection({
     [mode, text],
   );
   const lineCount = text.split("\n").length;
+  const hasExact = promptTokens !== undefined && promptTokens !== null;
   return (
     <Card className="min-w-0" size="sm" data-testid="prompt-section">
       <CardHeader>
@@ -1393,12 +1491,17 @@ const PromptSection = memo(function PromptSection({
         <CardDescription>
           {text.length.toLocaleString()} chars · {lineCount.toLocaleString()}
           {" lines"}
-          {promptTokens !== undefined && promptTokens !== null && (
+          {hasExact ? (
             <>
               {" · "}
               {promptTokens.toLocaleString()}t
             </>
-          )}
+          ) : approxTokens && text.length > 0 ? (
+            <>
+              {" · ~"}
+              {estimateTokens(text).toLocaleString()}t
+            </>
+          ) : null}
         </CardDescription>
         <CardAction>
           <Button

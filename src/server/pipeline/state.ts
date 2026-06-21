@@ -142,6 +142,20 @@ export const RetrievedContextSchema = z.object({
   ),
   ragTitles: z.array(z.string()),
   backlinks: z.array(z.object({ slug: SlugSchema, title: z.string() })),
+  // Diagnostics about how retrieval ranked chunks (embeddings vs lexical
+  // fallback, which host served the query embedding). Surfaced in the admin
+  // RAG trace; absent when no semantic retrieval ran.
+  embedding: z
+    .object({
+      strategy: z.string(),
+      model: z.string().optional(),
+      host: z.string().optional(),
+      baseUrl: z.string().optional(),
+      dimensions: z.number().optional(),
+      corpusChunks: z.number().optional(),
+      embeddedChunks: z.number().optional(),
+    })
+    .optional(),
 });
 export type RetrievedContext = z.infer<typeof RetrievedContextSchema>;
 

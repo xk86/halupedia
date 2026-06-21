@@ -19,10 +19,33 @@ export interface RetrievedSourceArticle {
   score?: number;
 }
 
+/**
+ * Diagnostic metadata about how a retrieval pass ranked chunks — surfaced in the
+ * admin RAG trace so it's clear whether embeddings actually ran and which host
+ * served them, versus a lexical fallback.
+ */
+export interface RetrievalEmbeddingMeta {
+  /** embeddings | embeddings_mixed | lexical | lexical_fallback | lexical_no_embeddings */
+  strategy: string;
+  /** Configured embeddings model id (present whenever embeddings were attempted). */
+  model?: string;
+  /** Host id that served the query embedding. */
+  host?: string;
+  /** Base URL of the host that served the query embedding. */
+  baseUrl?: string;
+  /** Query embedding vector length. */
+  dimensions?: number;
+  /** Chunks in the corpus considered for ranking. */
+  corpusChunks?: number;
+  /** Corpus chunks that carried a stored embedding. */
+  embeddedChunks?: number;
+}
+
 export interface RetrievedContextPacket {
   context: string;
   relatedTitles: string[];
   sourceArticles: RetrievedSourceArticle[];
+  embedding?: RetrievalEmbeddingMeta;
 }
 
 export interface IndexArticleChunksResult {
@@ -281,6 +304,9 @@ export function mergeRetrievedContextPackets(
     context: [primary.context, secondary.context].filter(Boolean).join("\n"),
     relatedTitles,
     sourceArticles,
+    // The primary packet is the one that ran semantic retrieval; keep its
+    // embedding diagnostics (the secondary is a direct/backlink lookup).
+    embedding: primary.embedding ?? secondary.embedding,
   };
 }
 
@@ -574,17 +600,29 @@ export async function retrieveContext(
       .sort((a, b) => b.score - a.score);
   };
 
+  const embedInfo = llm.embeddingInfo?.();
+  const embedding: RetrievalEmbeddingMeta = {
+    strategy: useEmbeddings ? "embeddings" : "lexical",
+    corpusChunks: rows.length,
+    ...(useEmbeddings && embedInfo?.model ? { model: embedInfo.model } : {}),
+  };
+
   let ranked: Array<{ slug: string; title: string; content: string; score: number }> = [];
   let strategy = useEmbeddings ? "embeddings" : "lexical";
   if (useEmbeddings) {
     const rowsWithEmbeddings = rows.filter((row) => row.embedding_json);
+    embedding.embeddedChunks = rowsWithEmbeddings.length;
     if (rowsWithEmbeddings.length === 0) {
       strategy = "lexical_no_embeddings";
       ranked = rankLexically();
     } else {
       if (rowsWithEmbeddings.length < rows.length) strategy = "embeddings_mixed";
       try {
-        const [queryEmbedding] = await llm.embed([query]);
+        const [queryEmbedding] = await llm.embed([query], (endpoint) => {
+          embedding.host = endpoint.hostId;
+          embedding.baseUrl = endpoint.baseUrl;
+        });
+        embedding.dimensions = queryEmbedding?.length;
         ranked = rows
           .map((row) => ({
             slug: row.slug,
@@ -642,6 +680,7 @@ export async function retrieveContext(
     min_score: minScore,
     top_score: ranked[0]?.score ?? 0,
   });
+  embedding.strategy = strategy;
   return {
     context: picked
       .map((row) => formatContextLine(row, mode, summaryCap))
@@ -653,5 +692,6 @@ export async function retrieveContext(
       content: contextContent(row.content, mode, summaryCap),
       score: row.score,
     })),
+    embedding,
   };
 }

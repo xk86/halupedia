@@ -219,6 +219,7 @@ export const retrieveContextForRewriteNode = defineNode({
           const a = getArticleByLookup(deps.db, s);
           return { slug: s, title: a?.title ?? s };
         }),
+        embedding: merged.embedding,
       };
     } else {
       // Auto: backlinks + hint-based retrieval.
@@ -240,6 +241,7 @@ export const retrieveContextForRewriteNode = defineNode({
           const a = getArticleByLookup(deps.db, s);
           return { slug: s, title: a?.title ?? s };
         }),
+        embedding: merged.embedding,
       };
     }
 

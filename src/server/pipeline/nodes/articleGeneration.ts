@@ -205,6 +205,7 @@ export const retrieveContextNode = defineNode({
           slug: h.sourceSlug,
           title: h.sourceTitle,
         })),
+        embedding: merged.embedding,
       }, input.blacklistSlugs ?? []),
     };
   },

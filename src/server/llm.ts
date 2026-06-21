@@ -444,8 +444,17 @@ export interface LlmRouter {
     onChunk: (delta: string, accumulated: string) => void,
     options?: ChatOptions,
   ): Promise<{ content: string; finishReason: string; ttftMs?: number }>;
-  embed(input: string[]): Promise<number[][]>;
+  embed(input: string[], onDispatch?: (endpoint: HostEndpoint) => void): Promise<number[][]>;
+  /** Non-secret embeddings config for trace/UI display. */
+  embeddingInfo?(): EmbeddingInfo;
   probeConnections(): Promise<void>;
+}
+
+/** Resolved, non-secret embeddings metadata surfaced in the admin RAG trace. */
+export interface EmbeddingInfo {
+  enabled: boolean;
+  model: string;
+  hosts: string[];
 }
 
 function chatRequestFields(role: ChatLlmRole, config: ChatConfig, promptChars: number, options: ChatOptions) {
@@ -1137,12 +1146,20 @@ export class OpenAICompatRouter implements LlmRouter {
     );
   }
 
-  embed(input: string[]): Promise<number[][]> {
+  embed(input: string[], onDispatch?: (endpoint: HostEndpoint) => void): Promise<number[][]> {
     if (!this.llm.embeddings.enabled || input.length === 0) return Promise.resolve([]);
     const cfg = this.llm.embeddings;
-    return this.scheduler.dispatch("embeddings", cfg.hosts, cfg.model, (endpoint) =>
-      this.heavy.embed(endpoint, input),
-    );
+    return this.scheduler.dispatch("embeddings", cfg.hosts, cfg.model, (endpoint) => {
+      // Reports the host that actually served the request — on retry the final
+      // invocation wins, reflecting the endpoint whose result we return.
+      onDispatch?.(endpoint);
+      return this.heavy.embed(endpoint, input);
+    });
+  }
+
+  embeddingInfo(): EmbeddingInfo {
+    const cfg = this.llm.embeddings;
+    return { enabled: cfg.enabled, model: cfg.model, hosts: [...cfg.hosts] };
   }
 
   /** Live host state (queue depth, in-flight count, probed models) for the admin UI. */

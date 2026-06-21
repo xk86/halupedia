@@ -148,6 +148,8 @@ export function registerPipelineAdminRoutes(
         diff: safeParse(n.diff_json),
         warnings: safeParse(n.warnings_json),
         prompt_tokens: countTokens(n.prompt_text as string | null),
+        system_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).system,
+        user_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).user,
         cot_tokens: countTokens(n.cot_text as string | null),
         response_tokens: countTokens(n.response_text as string | null),
       })),
@@ -225,6 +227,8 @@ export function registerPipelineAdminRoutes(
           diff: safeParse(n.diff_json),
           warnings: safeParse(n.warnings_json),
           prompt_tokens: countTokens(n.prompt_text as string | null),
+          system_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).system,
+          user_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).user,
           cot_tokens: countTokens(n.cot_text as string | null),
           response_tokens: countTokens(n.response_text as string | null),
         })),
@@ -277,4 +281,18 @@ function countTokens(text: string | null | undefined): number {
   } catch {
     return 0;
   }
+}
+
+/**
+ * Token counts for the `### System` / `### User` halves of a captured prompt,
+ * so the admin trace can label each section instead of lumping the total onto
+ * the user prompt. Mirrors the client-side `splitPromptTrace` regex.
+ */
+function splitPromptTokens(
+  text: string | null | undefined,
+): { system: number | null; user: number | null } {
+  if (!text) return { system: null, user: null };
+  const match = text.match(/^### System\n([\s\S]*?)\n\n### User\n([\s\S]*)$/);
+  if (!match) return { system: null, user: countTokens(text) };
+  return { system: countTokens(match[1].trim()), user: countTokens(match[2].trim()) };
 }

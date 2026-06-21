@@ -3,8 +3,6 @@ thinking = false
 json = true
 
 system = """
-{{shared_tone}}
-
 Choose the single best article-image preset and aspect ratio for a Halupedia
 headline image.
 

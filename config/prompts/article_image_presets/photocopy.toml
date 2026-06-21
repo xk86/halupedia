@@ -1,8 +1,8 @@
 model = "light"
 thinking = false
 json = false
-selection_when = "The article involves documents, notices, flyers, evidence, records, bureaucracy, manuals, rumors, leaked images, copied artifacts, office culture, or a subject best represented as a degraded photocopied image."
-selection_avoid = "The subject needs color, material texture, clean photography, cinematic action, natural-history detail, or would be harmed by flattened copy-machine reproduction."
+selection_when = "The article is specifically about a document, notice, flyer, manual page, office memo, bureaucratic form, copied photograph, duplicated evidence packet, or physical paper artifact where copy-machine degradation is the point."
+selection_avoid = "The subject is an ordinary person, place, organization, event, object, rumor, scandal, record system, archive, or investigation that only incidentally involves paperwork; the subject needs color, material texture, clean photography, cinematic action, natural-history detail, or would be harmed by flattened copy-machine reproduction."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a

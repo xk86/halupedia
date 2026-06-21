@@ -1348,6 +1348,10 @@ describe("http", () => {
     assert.match(selectorPrompt.user, /- screenshot:\n  Select when: .*substantially about software/i);
     assert.match(selectorPrompt.user, /Select when: .*substantially about software/i);
     assert.match(selectorPrompt.user, /Avoid when: .*ordinary person, place, organization/i);
+    assert.match(selectorPrompt.user, /- photocopy:\n  Select when: .*specifically about a document/i);
+    assert.match(selectorPrompt.user, /Select when: .*copy-machine degradation is the point/i);
+    assert.match(selectorPrompt.user, /Avoid when: .*only incidentally involves paperwork/i);
+    assert.doesNotMatch(selectorPrompt.user, /photocopy:\n  Select when: .*rumors/i);
     assert.match(selectorPrompt.user, /Select when: .*grounded documentary/i);
     assert.doesNotMatch(selectorPrompt.user, /Create one editorial hero image/i);
     assert.doesNotMatch(selectorPrompt.user, /Core look:/i);

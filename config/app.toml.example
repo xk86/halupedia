@@ -105,8 +105,8 @@ output_format = "jpeg"
 output_compression = 70
 timeout_ms = 120000
 
-[images.generation.aspect_ratios.default]
-label = "default landscape"
+[images.generation.aspect_ratios.landscape]
+label = "landscape"
 size = "1088x624"
 selection_when = "Ordinary article headline images, places, scenes, objects, and general encyclopedia illustrations."
 

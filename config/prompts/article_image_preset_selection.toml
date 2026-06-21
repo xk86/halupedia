@@ -70,6 +70,6 @@ Allowed aspect ratios:
 Pick exactly one allowed preset key. Favor fitting variety over the safest
 generic answer, but keep the article's subject recognizable. Pick exactly one
 allowed aspect ratio key. Use portrait shapes for people, posters, covers, and
-tall designed artifacts when that would compose better than the default
-landscape. Include each reason as one short sentence. Return JSON only.
+tall designed artifacts when that would compose better than landscape. Include
+each reason as one short sentence. Return JSON only.
 """

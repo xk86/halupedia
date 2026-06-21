@@ -58,10 +58,10 @@ export function HeadlineImagePanel({
   ]);
   const [selectedPresetKey, setSelectedPresetKey] = useState("default");
   const [aspectRatios, setAspectRatios] = useState<ImageAspectRatioOption[]>([
-    { key: "default", label: "default landscape", size: "1088x624" },
+    { key: "landscape", label: "landscape", size: "1088x624" },
   ]);
   const [selectedAspectRatioKey, setSelectedAspectRatioKey] =
-    useState("default");
+    useState("landscape");
 
   // Search-existing state
   const [searchQuery, setSearchQuery] = useState("");
@@ -97,7 +97,7 @@ export function HeadlineImagePanel({
         const options =
           Array.isArray(body.aspectRatios) && body.aspectRatios.length > 0
             ? body.aspectRatios
-            : [{ key: "default", label: "default landscape", size: "1088x624" }];
+            : [{ key: "landscape", label: "landscape", size: "1088x624" }];
         const withAuto = [
           { key: "auto", label: "auto", size: "" },
           ...options,
@@ -106,7 +106,7 @@ export function HeadlineImagePanel({
         setSelectedAspectRatioKey((current) =>
           withAuto.some((option) => option.key === current)
             ? current
-            : "default",
+            : "landscape",
         );
       })
       .catch(() => {});

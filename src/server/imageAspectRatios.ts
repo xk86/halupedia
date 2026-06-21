@@ -1,6 +1,6 @@
 import type { ImageAspectRatioConfig, ImageGenerationConfig } from "./types";
 
-export const DEFAULT_IMAGE_ASPECT_RATIO_KEY = "default";
+export const DEFAULT_IMAGE_ASPECT_RATIO_KEY = "landscape";
 export const AUTO_IMAGE_ASPECT_RATIO_KEY = "auto";
 
 const MIN_OPENAI_IMAGE_PIXELS = 600_000;
@@ -15,8 +15,8 @@ export interface ArticleImageAspectRatioOption extends ImageAspectRatioConfig {
 }
 
 const BUILT_IN_ASPECT_RATIOS: Record<string, ImageAspectRatioConfig> = {
-  default: {
-    label: "default landscape",
+  landscape: {
+    label: "landscape",
     size: "1088x624",
     selection_when: "Use for ordinary article headline images, places, scenes, objects, and general encyclopedia illustrations.",
   },
@@ -82,14 +82,15 @@ export function listArticleImageAspectRatios(
   config: ImageGenerationConfig,
 ): ArticleImageAspectRatioOption[] {
   const configured = config.aspect_ratios ?? {};
+  const { default: legacyDefaultAspectRatio, ...configuredAspectRatios } = configured;
   const defaultFromOpenAI = {
-    ...BUILT_IN_ASPECT_RATIOS.default,
+    ...BUILT_IN_ASPECT_RATIOS.landscape,
     size: config.openai.size,
   };
   const merged = {
     ...BUILT_IN_ASPECT_RATIOS,
-    default: configured.default ?? defaultFromOpenAI,
-    ...configured,
+    landscape: configured.landscape ?? legacyDefaultAspectRatio ?? defaultFromOpenAI,
+    ...configuredAspectRatios,
   };
   return Object.entries(merged)
     .map(([key, option]) => ({

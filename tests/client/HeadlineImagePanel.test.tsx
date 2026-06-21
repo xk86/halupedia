@@ -242,6 +242,7 @@ describe("HeadlineImagePanel", () => {
       expect(generateCall).toBeTruthy();
       expect(JSON.parse(String((generateCall?.[1] as RequestInit).body))).toEqual({
         presetKey: "psychedelic_editorial",
+        aspectRatioKey: "landscape",
       });
     });
   });
@@ -281,6 +282,7 @@ describe("HeadlineImagePanel", () => {
       expect(generateCall).toBeTruthy();
       expect(JSON.parse(String((generateCall?.[1] as RequestInit).body))).toEqual({
         presetKey: "auto",
+        aspectRatioKey: "auto",
       });
     });
   });

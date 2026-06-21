@@ -513,7 +513,7 @@ describe("article image generation", () => {
     );
   });
 
-  test("default image aspect ratio follows configured OpenAI size", () => {
+  test("landscape image aspect ratio follows configured OpenAI size", () => {
     const ratios = listArticleImageAspectRatios({
       ...TEST_CONFIG.app.images.generation,
       ...enabledOpenAiImageGeneration,
@@ -523,7 +523,25 @@ describe("article image generation", () => {
       },
       ollama: TEST_CONFIG.app.images.generation.ollama,
     } as ImageGenerationConfig);
-    assert.equal(ratios.find((ratio) => ratio.key === "default")?.size, "1152x672");
+    assert.equal(ratios.find((ratio) => ratio.key === "landscape")?.size, "1152x672");
+    assert.equal(ratios.some((ratio) => ratio.key === "default"), false);
+  });
+
+  test("legacy default image aspect ratio config is folded into landscape", () => {
+    const ratios = listArticleImageAspectRatios({
+      ...TEST_CONFIG.app.images.generation,
+      ...enabledOpenAiImageGeneration,
+      aspect_ratios: {
+        default: {
+          label: "old configured landscape",
+          size: "1152x672",
+          selection_when: "Legacy configured landscape option.",
+        },
+      },
+      ollama: TEST_CONFIG.app.images.generation.ollama,
+    } as ImageGenerationConfig);
+    assert.equal(ratios.find((ratio) => ratio.key === "landscape")?.label, "old configured landscape");
+    assert.equal(ratios.some((ratio) => ratio.key === "default"), false);
   });
 
   test("OpenAI backend rejects missing API keys before calling the provider", async (t) => {

@@ -4764,7 +4764,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     articleSlug: string,
     _replace = false,
     presetKey = "default",
-    aspectRatioKey = "default",
+    aspectRatioKey = "landscape",
   ) {
     const generationConfig = runtime.app.images.generation;
     if (!generationConfig.enabled) {

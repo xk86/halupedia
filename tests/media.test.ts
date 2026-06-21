@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, insertMedia, updateMediaDescription, updateMediaId, listMediaRevisions, listMedia } from "../src/server/mediaDb";
+import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, insertMedia, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMediaRevisions, listMedia } from "../src/server/mediaDb";
 import { openDatabase, saveArticle, getArticleHeadlineMedia, upsertArticleHeadlineMedia, updateArticleMediaCaption, removeArticleMedia, getArticleMediaRows, getArticleInfobox, setArticleInfobox, listArticleRevisions, listImageBacklinks, type InfoboxData } from "../src/server/db";
 import { renderInfoboxHtml } from "../src/server/articleRender";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
@@ -283,6 +283,22 @@ describe("mediaDb", () => {
     assert.equal(revs.length, 1);
     assert.equal(revs[0].operation, "uploaded");
     assert.equal(revs[0].media_id, "img-rev");
+    db.close();
+  });
+
+  test("updateMediaGenerationMetadata stores structured generation details", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(db, baseMediaRecord("img-gen-meta"));
+    updateMediaGenerationMetadata(db, "img-gen-meta", JSON.stringify({
+      kind: "article-image",
+      presetKey: "psychedelic_editorial",
+      backend: "openai",
+      model: "gpt-image-2",
+    }));
+    const record = getMediaById(db, "img-gen-meta");
+    assert.ok(record);
+    assert.match(record.generation_metadata, /psychedelic_editorial/);
     db.close();
   });
 
@@ -1006,11 +1022,24 @@ describe("http", () => {
   test("GET /api/media/:id/info returns metadata without model_b64 or bytes", async (t) => {
     const s = await makeTestServer(); t.after(s.cleanup);
     seedMedia(s.mediaDatabasePath, "info-img");
+    const mediaDb = openMediaDatabase(s.mediaDatabasePath);
+    updateMediaGenerationMetadata(mediaDb, "info-img", JSON.stringify({
+      kind: "article-image",
+      presetKey: "psychedelic_editorial",
+      presetLabel: "psychedelic editorial",
+      aspectRatioKey: "landscape",
+      backend: "openai",
+      model: "gpt-image-2",
+    }));
+    mediaDb.close();
     const body = await (await s.go("/api/media/info-img/info")).json() as any;
     assert.equal(body.id, "info-img");
     assert.equal(body.width, 100);
     assert.equal(body.model_b64, undefined);
     assert.equal(body.bytes, undefined);
+    assert.equal(body.generation_metadata, undefined);
+    assert.equal(body.generation.presetKey, "psychedelic_editorial");
+    assert.equal(body.generation.backend, "openai");
   });
 
   test("PATCH /api/media/:id/description updates and is reflected in /info", async (t) => {
@@ -1105,6 +1134,12 @@ describe("http", () => {
     assert.equal(body.backend, "openai");
     const check = await (await s.go("/api/article/aspirin/image")).json() as any;
     assert.ok(check.image?.id);
+    const info = await (await s.go(`/api/media/${check.image.id}/info`)).json() as any;
+    assert.equal(info.generation.kind, "article-image");
+    assert.equal(info.generation.presetKey, "default");
+    assert.equal(info.generation.aspectRatioKey, "landscape");
+    assert.equal(info.generation.backend, "openai");
+    assert.equal(info.generation.model, enabledOpenAiImageGeneration.openai.model);
   });
 
   test("GET /api/admin/article-image-prompts lists image prompt variants", async (t) => {

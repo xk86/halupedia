@@ -9,6 +9,20 @@ interface MediaInfo {
   height: number;
   byte_size: number;
   description: string;
+  generation?: {
+    kind?: string;
+    articleSlug?: string;
+    articleTitle?: string;
+    presetKey?: string;
+    presetLabel?: string;
+    aspectRatioKey?: string;
+    aspectRatioLabel?: string;
+    size?: string;
+    backend?: string;
+    model?: string;
+    revisedPrompt?: string;
+    generatedAt?: number;
+  } | null;
   created_at: number;
 }
 
@@ -21,6 +35,10 @@ interface MediaRevision {
 }
 
 type EditMode = "ai" | "raw" | null;
+
+function formatPresetLabel(label: string | undefined, key: string | undefined): string {
+  return label || key || "";
+}
 
 interface Props {
   imageSlug: string;
@@ -195,6 +213,55 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
                   </tr>
                 )}
                 <tr><th>Added</th><td>{new Date(info.created_at).toLocaleDateString()}</td></tr>
+                {info.generation && (
+                  <>
+                    <tr><th>Generated</th><td>{info.generation.generatedAt ? new Date(info.generation.generatedAt).toLocaleDateString() : "yes"}</td></tr>
+                    {formatPresetLabel(info.generation.presetLabel, info.generation.presetKey) && (
+                      <tr>
+                        <th>Preset</th>
+                        <td>
+                          {formatPresetLabel(info.generation.presetLabel, info.generation.presetKey)}
+                          {info.generation.presetKey && info.generation.presetLabel && info.generation.presetKey !== info.generation.presetLabel && (
+                            <code className="media-page-meta-code">{info.generation.presetKey}</code>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    {(info.generation.aspectRatioLabel || info.generation.aspectRatioKey || info.generation.size) && (
+                      <tr>
+                        <th>Aspect ratio</th>
+                        <td>
+                          {[info.generation.aspectRatioLabel || info.generation.aspectRatioKey, info.generation.size].filter(Boolean).join(" · ")}
+                        </td>
+                      </tr>
+                    )}
+                    {(info.generation.backend || info.generation.model) && (
+                      <tr><th>Model</th><td>{[info.generation.backend, info.generation.model].filter(Boolean).join(" · ")}</td></tr>
+                    )}
+                    {info.generation.articleTitle && (
+                      <tr>
+                        <th>Article</th>
+                        <td>
+                          <a
+                            href={`/wiki/${info.generation.articleSlug || info.generation.articleTitle.replace(/\s+/g, "_")}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onNavigate(info.generation?.articleSlug || info.generation?.articleTitle?.replace(/\s+/g, "_") || "");
+                            }}
+                          >
+                            {info.generation.articleTitle}
+                          </a>
+                        </td>
+                      </tr>
+                    )}
+                    {info.generation.revisedPrompt && (
+                      <tr>
+                        <th>Revised prompt</th>
+                        <td className="media-page-meta-long">{info.generation.revisedPrompt}</td>
+                      </tr>
+                    )}
+                  </>
+                )}
               </tbody>
             </table>
           </div>

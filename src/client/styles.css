@@ -796,6 +796,19 @@ a:hover {
   vertical-align: top;
 }
 
+.media-page-meta-code {
+  display: inline-block;
+  margin-left: 0.45rem;
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+}
+
+.media-page-meta-long {
+  max-width: 36rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .media-source-url {
   word-break: break-all;
 }

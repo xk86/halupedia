@@ -26,6 +26,7 @@ export interface MediaRecord {
   model_width: number;
   model_height: number;
   description: string;
+  generation_metadata: string;
   created_at: number;
 }
 
@@ -58,6 +59,7 @@ export function openMediaDatabase(databasePath: string): DatabaseSync {
       model_width INTEGER NOT NULL,
       model_height INTEGER NOT NULL,
       description TEXT NOT NULL DEFAULT '',
+      generation_metadata TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
@@ -74,6 +76,9 @@ export function openMediaDatabase(databasePath: string): DatabaseSync {
   // Migrations
   if (!hasColumn(db, "media", "bytes")) {
     db.exec(`ALTER TABLE media ADD COLUMN bytes TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!hasColumn(db, "media", "generation_metadata")) {
+    db.exec(`ALTER TABLE media ADD COLUMN generation_metadata TEXT NOT NULL DEFAULT ''`);
   }
   if (!hasTable(db, "media_revisions")) {
     db.exec(`
@@ -96,7 +101,8 @@ export function getMediaById(mediaDb: DatabaseSync, id: string): MediaRecord | n
   return (mediaDb
     .prepare(
       `SELECT id, sha256, source_url, mime, width, height, byte_size,
-              model_b64, model_mime, model_width, model_height, description, created_at
+              model_b64, model_mime, model_width, model_height, description,
+              generation_metadata, created_at
        FROM media WHERE id = ?`,
     )
     .get(id) as MediaRecord | undefined) ?? null;
@@ -114,7 +120,8 @@ export function getMediaBySha256(mediaDb: DatabaseSync, sha256: string): MediaRe
   return (mediaDb
     .prepare(
       `SELECT id, sha256, source_url, mime, width, height, byte_size,
-              model_b64, model_mime, model_width, model_height, description, created_at
+              model_b64, model_mime, model_width, model_height, description,
+              generation_metadata, created_at
        FROM media WHERE sha256 = ?`,
     )
     .get(sha256) as MediaRecord | undefined) ?? null;
@@ -136,14 +143,16 @@ export function insertMedia(
     modelWidth: number;
     modelHeight: number;
     description: string;
+    generationMetadata?: string;
   },
 ): void {
   mediaDb
     .prepare(
       `INSERT INTO media
          (id, sha256, source_url, mime, width, height, bytes, byte_size,
-          model_b64, model_mime, model_width, model_height, description, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          model_b64, model_mime, model_width, model_height, description,
+          generation_metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       record.id,
@@ -159,12 +168,21 @@ export function insertMedia(
       record.modelWidth,
       record.modelHeight,
       record.description,
+      record.generationMetadata ?? "",
       Date.now(),
     );
   // Record the initial upload revision
   mediaDb
     .prepare(`INSERT INTO media_revisions (media_id, description, operation, changed_at) VALUES (?, ?, ?, ?)`)
     .run(record.id, record.description, "uploaded", Date.now());
+}
+
+export function updateMediaGenerationMetadata(
+  mediaDb: DatabaseSync,
+  id: string,
+  generationMetadata: string,
+): void {
+  mediaDb.prepare(`UPDATE media SET generation_metadata = ? WHERE id = ?`).run(generationMetadata, id);
 }
 
 export function updateMediaDescription(
@@ -198,7 +216,7 @@ export function listMediaRevisions(mediaDb: DatabaseSync, id: string): MediaRevi
     .all(id) as unknown as MediaRevision[];
 }
 
-export type MediaListRecord = Omit<MediaRecord, "model_b64">;
+export type MediaListRecord = Omit<MediaRecord, "model_b64" | "generation_metadata">;
 
 // Listing intentionally never selects model_b64 — that's a base64-encoded
 // image per row, and fetching it just to strip it server-side dominated the

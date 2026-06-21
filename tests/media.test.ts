@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, insertMedia, updateMediaDescription, updateMediaId, listMediaRevisions, listMedia } from "../src/server/mediaDb";
+import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, insertMedia, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMediaRevisions, listMedia } from "../src/server/mediaDb";
 import { openDatabase, saveArticle, getArticleHeadlineMedia, upsertArticleHeadlineMedia, updateArticleMediaCaption, removeArticleMedia, getArticleMediaRows, getArticleInfobox, setArticleInfobox, listArticleRevisions, listImageBacklinks, type InfoboxData } from "../src/server/db";
 import { renderInfoboxHtml } from "../src/server/articleRender";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
@@ -283,6 +283,22 @@ describe("mediaDb", () => {
     assert.equal(revs.length, 1);
     assert.equal(revs[0].operation, "uploaded");
     assert.equal(revs[0].media_id, "img-rev");
+    db.close();
+  });
+
+  test("updateMediaGenerationMetadata stores structured generation details", (t) => {
+    const { dir, cleanup } = tmpDir(); t.after(cleanup);
+    const db = openMediaDatabase(join(dir, "m.sqlite"));
+    insertMedia(db, baseMediaRecord("img-gen-meta"));
+    updateMediaGenerationMetadata(db, "img-gen-meta", JSON.stringify({
+      kind: "article-image",
+      presetKey: "psychedelic_editorial",
+      backend: "openai",
+      model: "gpt-image-2",
+    }));
+    const record = getMediaById(db, "img-gen-meta");
+    assert.ok(record);
+    assert.match(record.generation_metadata, /psychedelic_editorial/);
     db.close();
   });
 
@@ -1006,11 +1022,24 @@ describe("http", () => {
   test("GET /api/media/:id/info returns metadata without model_b64 or bytes", async (t) => {
     const s = await makeTestServer(); t.after(s.cleanup);
     seedMedia(s.mediaDatabasePath, "info-img");
+    const mediaDb = openMediaDatabase(s.mediaDatabasePath);
+    updateMediaGenerationMetadata(mediaDb, "info-img", JSON.stringify({
+      kind: "article-image",
+      presetKey: "psychedelic_editorial",
+      presetLabel: "psychedelic editorial",
+      aspectRatioKey: "landscape",
+      backend: "openai",
+      model: "gpt-image-2",
+    }));
+    mediaDb.close();
     const body = await (await s.go("/api/media/info-img/info")).json() as any;
     assert.equal(body.id, "info-img");
     assert.equal(body.width, 100);
     assert.equal(body.model_b64, undefined);
     assert.equal(body.bytes, undefined);
+    assert.equal(body.generation_metadata, undefined);
+    assert.equal(body.generation.presetKey, "psychedelic_editorial");
+    assert.equal(body.generation.backend, "openai");
   });
 
   test("PATCH /api/media/:id/description updates and is reflected in /info", async (t) => {
@@ -1105,6 +1134,12 @@ describe("http", () => {
     assert.equal(body.backend, "openai");
     const check = await (await s.go("/api/article/aspirin/image")).json() as any;
     assert.ok(check.image?.id);
+    const info = await (await s.go(`/api/media/${check.image.id}/info`)).json() as any;
+    assert.equal(info.generation.kind, "article-image");
+    assert.equal(info.generation.presetKey, "default");
+    assert.equal(info.generation.aspectRatioKey, "landscape");
+    assert.equal(info.generation.backend, "openai");
+    assert.equal(info.generation.model, enabledOpenAiImageGeneration.openai.model);
   });
 
   test("GET /api/admin/article-image-prompts lists image prompt variants", async (t) => {
@@ -1213,6 +1248,35 @@ describe("http", () => {
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
   });
 
+  test("POST /api/article/:slug/image/generate accepts mixed-case selected image preset keys", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "ARTICLE_IMAGE_PSYchEDELic_EDitorial", aspectRatioKey: "PoRtrait" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "psychedelic_editorial");
+    assert.equal(body.aspectRatioKey, "portrait");
+    assert.match(capturedBody.prompt, /conceptual editorial photo-illustration/i);
+    assert.equal(capturedBody.size, "832x1088");
+  });
+
   test("POST /api/article/:slug/image/generate uses logos preset without transparent output", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let capturedBody: any = null;
@@ -1270,20 +1334,23 @@ describe("http", () => {
     assert.equal(body.presetKey, "psychedelic_editorial");
     assert.match(capturedPrompt, /conceptual editorial photo-illustration/i);
     assert.ok(llm.capturedPrompts.some((prompt) => prompt.user.includes("Allowed presets:")));
-    assert.ok(llm.capturedPrompts.some((prompt) => /do not pick photo merely because\s+it is safe/i.test(prompt.system)));
     assert.ok(llm.capturedPrompts.some((prompt) => /preset owner's intended use case/i.test(prompt.system)));
     assert.ok(llm.capturedPrompts.some((prompt) => /favor fitting variety over the safest\s+generic answer/i.test(prompt.user)));
     assert.ok(llm.capturedPrompts.some((prompt) => /reason\s+as one short sentence/i.test(prompt.user)));
     const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.user.includes("Allowed presets:"));
     assert.ok(selectorPrompt);
     assert.match(selectorPrompt.system, /intentionally shuffled per article/i);
-    assert.match(selectorPrompt.system, /Screenshots are a narrow fit/i);
+    assert.doesNotMatch(selectorPrompt.system, /Screenshots are a narrow fit/i);
+    assert.doesNotMatch(selectorPrompt.system, /Do not pick photo merely because\s+it is safe/i);
     assert.ok(selectorPrompt.user.includes("- photo:"));
     assert.ok(selectorPrompt.user.includes("- psychedelic_editorial:"));
-    assert.match(selectorPrompt.user, /- screenshot: .*narrow preset/i);
+    assert.doesNotMatch(selectorPrompt.user, /Sidebar\/object facts:/i);
+    assert.match(selectorPrompt.user, /- screenshot:\n  Select when: .*substantially about software/i);
     assert.match(selectorPrompt.user, /Select when: .*substantially about software/i);
     assert.match(selectorPrompt.user, /Avoid when: .*ordinary person, place, organization/i);
     assert.match(selectorPrompt.user, /Select when: .*grounded documentary/i);
+    assert.doesNotMatch(selectorPrompt.user, /Create one editorial hero image/i);
+    assert.doesNotMatch(selectorPrompt.user, /Core look:/i);
     assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 1);
   });
 
@@ -1297,7 +1364,7 @@ describe("http", () => {
         { headers: { "content-type": "application/json" } },
       );
     });
-    const llm = new FakeLlm('{"presetKey":"photo","aspectRatioKey":"portrait","reason":"Photo keeps the portrait subject legible.","aspectRatioReason":"Portrait fits a person better than landscape."}');
+    const llm = new FakeLlm('{"presetKey":"photo","aspectRatioKey":"Portrait","reason":"Photo keeps the portrait subject legible.","aspectRatioReason":"Portrait fits a person better than landscape."}');
     const s = await makeTestServer(
       llm,
       { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
@@ -1321,6 +1388,37 @@ describe("http", () => {
     assert.ok(selectorPrompt);
     assert.match(selectorPrompt.user, /- portrait: portrait \(832x1088\)/);
     assert.match(selectorPrompt.user, /Use portrait shapes for people/i);
+  });
+
+  test("POST /api/article/:slug/image/generate accepts mixed-case auto preset responses", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm('{"presetKey":"Photo","reason":"Photo keeps the article subject grounded."}');
+    const s = await makeTestServer(
+      llm,
+      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
+    ); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "default");
+    assert.match(capturedBody.prompt, /high-end photoreal editorial image/i);
   });
 
   test("POST /api/article/:slug/image/generate retries malformed auto preset responses", async (t) => {
@@ -1363,6 +1461,58 @@ describe("http", () => {
     ));
   });
 
+  test("POST /api/article/:slug/image/generate retries image-prompt-shaped auto preset responses", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedPrompt = "";
+    setImageGenerationFetchForTests(async (_url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
+      capturedPrompt = body.prompt ?? "";
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const logEntries: Array<{ level: string; event: string; fields?: Record<string, unknown> }> = [];
+    const badPromptObject = JSON.stringify({
+      prompt: "A highly detailed, photorealistic image of a lone astronaut gazing out of a spacecraft window at a breathtaking nebula.",
+      style: "Photorealistic, Cinematic Lighting",
+      aspect_ratio: "16:9",
+    });
+    const llm = new FakeLlm([
+      badPromptObject,
+      '{"presetKey":"photo","reason":"Photo keeps the article subject grounded and legible."}',
+    ]);
+    const s = await makeTestServer(
+      llm,
+      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
+      captureLogger(logEntries),
+    ); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "default");
+    assert.match(capturedPrompt, /high-end photoreal editorial image/i);
+    assert.doesNotMatch(capturedPrompt, /lone astronaut gazing out of a spacecraft window/i);
+    const selectorPrompts = llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:"));
+    assert.equal(selectorPrompts.length, 2);
+    assert.match(selectorPrompts[0].system, /Never return\s+fields like "prompt", "style", or "aspect_ratio"/i);
+    assert.match(selectorPrompts[1].user, /do not return prompt\/style\/aspect_ratio fields/i);
+    assert.ok(logEntries.some((entry) =>
+      entry.event === "article_image.preset_selection_invalid" &&
+      entry.fields?.attempt === 1 &&
+      String(entry.fields?.raw ?? "").includes('"aspect_ratio":"16:9"')
+    ));
+  });
+
   test("POST /api/article/:slug/image/generate rejects auto preset responses after retry exhaustion", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let imageFetchCalls = 0;
@@ -1388,7 +1538,7 @@ describe("http", () => {
     });
     assert.equal(res.status, 400);
     const body = await res.json() as any;
-    assert.match(body.error, /preset selection returned invalid JSON/i);
+    assert.match(body.error, /preset selection returned invalid selector responses/i);
     assert.equal(imageFetchCalls, 0);
     assert.equal(llm.capturedPrompts.filter((prompt) => prompt.user.includes("Allowed presets:")).length, 3);
     assert.ok(logEntries.some((entry) =>

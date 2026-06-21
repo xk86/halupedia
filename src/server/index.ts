@@ -94,7 +94,7 @@ import {
   type InfoboxData,
   type SidebarOperation,
 } from "./db";
-import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
+import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -563,7 +563,7 @@ function articleImagePresetKeyFromName(name: string): string {
 }
 
 function normalizeArticleImagePresetKey(value: string | undefined): string {
-  const key = (value ?? "").trim();
+  const key = (value ?? "").trim().toLowerCase();
   if (!key || key === "default" || key === "article_image") return "default";
   if (key === "auto") return "auto";
   const normalized = key.replace(/^article_image_/, "");
@@ -594,6 +594,16 @@ function readArticleImagePromptSelection(key: string) {
   const preset = readArticleImagePresetFile(presetKey);
   if (!preset) throw new Error(`unknown image preset: ${presetKey}`);
   return preset;
+}
+
+function parseMediaGenerationMetadata(value: string | undefined): unknown {
+  if (!value?.trim()) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function formatRecentEditHistoryForPrompt(
@@ -4286,8 +4296,11 @@ export async function createApp(options: CreateAppOptions = {}) {
     const id = decodeURIComponent(c.req.param("id"));
     const record = getMediaById(mediaDb, id);
     if (!record) return c.json({ error: "not found" }, 404);
-    const { model_b64: _b64, ...safe } = record as any;
-    return c.json(safe);
+    const { model_b64: _b64, generation_metadata: generationMetadata, ...safe } = record as any;
+    return c.json({
+      ...safe,
+      generation: parseMediaGenerationMetadata(generationMetadata),
+    });
   });
 
   app.patch("/api/media/:id/description", async (c) => {
@@ -4825,6 +4838,18 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
       sourceLabel: `${generated.backend}:${generated.model}`,
     });
+    updateMediaGenerationMetadata(mediaDb, result.mediaId, JSON.stringify({
+      kind: "article-image",
+      presetKey: imagePreset.key,
+      presetLabel: imagePreset.label,
+      aspectRatioKey: aspectRatio.key,
+      aspectRatioLabel: aspectRatio.label,
+      size: aspectRatio.size,
+      backend: generated.backend,
+      model: generated.model,
+      revisedPrompt: generated.revisedPrompt,
+      generatedAt: Date.now(),
+    }));
     const attached = attachAndCaption(article.slug, result.mediaId, result.isNew, result.width, result.height, "image-generate");
     const response = buildArticleResponseFor(article.slug);
     if (response) {

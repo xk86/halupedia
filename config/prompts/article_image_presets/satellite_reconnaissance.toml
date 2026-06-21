@@ -50,7 +50,7 @@ Composition:
 
 Avoid:
 - Readable labels, map text, coordinate overlays, UI frames, crosshairs,
-  timestamps, fake agency logos, national flags, real-world military insignia,
+  timestamps, national flags, real-world military insignia,
   screenshots, posters, title cards, and images that are primarily text.
 - Fantasy cartography, clean vector maps, glossy drone cinematography,
   contemporary sci-fi concept art, orbiting satellite views with Earth as a
@@ -85,6 +85,6 @@ roads, rooftops, fields, coastlines, shadows, atmospheric haze, sensor banding,
 compression, false color or natural color as appropriate, and readable patterns
 that reveal the subject from scale and context.
 
-No readable text, labels, coordinates, UI overlays, logos, flags, crosshairs,
+No readable text, labels, coordinates, UI overlays, flags, crosshairs,
 screenshots, title cards, overt nudity, or explicit sexual content.
 """

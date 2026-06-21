@@ -29,7 +29,7 @@ Core look:
 - Keep the main subject dominant and article-specific. The magazine design
   should frame the subject, not become generic decor.
 - Use invented unreadable pseudo-text only as page texture. No readable article
-  text, publication names, captions, prices, logos, or real brand marks.
+  text, publication names, captions, or prices.
 
 Context rules:
 - Use the supplied Halupedia context as silent art direction. Prefer exact and
@@ -51,8 +51,8 @@ Composition:
 - Prefer one coherent spread over a collage of multiple magazines.
 
 Avoid:
-- Readable text, readable captions, real magazine names, real logos, real
-  public figures, exact publication replicas, direct brand marks, screenshots,
+- Readable text, readable captions, real
+  public figures, exact publication replicas, screenshots,
   modern internet aesthetics, clean modern fashion photography, futuristic UI,
   title cards, and images that are primarily typography.
 - Imitating a living artist or a specific copyrighted visual franchise.
@@ -83,6 +83,6 @@ spread crop, serif display typography as unreadable texture, ad-layout blocks,
 warm browns, golds, reds, chrome, velvet, wood paneling, shag carpet, page bend,
 ink density, and period lifestyle-editorial glamour.
 
-No readable article text, publication names, captions, prices, logos, real
-brand marks, screenshots, title cards, or modern internet aesthetics.
+No readable article text, publication names, captions, prices, screenshots,
+title cards, or modern internet aesthetics.
 """

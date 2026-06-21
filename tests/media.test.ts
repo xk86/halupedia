@@ -47,6 +47,7 @@ import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
 import { generateArticleImage, setImageGenerationFetchForTests } from "../src/server/imageGeneration";
 import { listArticleImageAspectRatios } from "../src/server/imageAspectRatios";
+import { readArticleImagePresetFile } from "../src/server/promptEditor";
 import type { ImageGenerationConfig } from "../src/server/types";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -1189,6 +1190,11 @@ describe("http", () => {
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "thermal_camera"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "trading_card"));
     assert.ok(body.prompts.some((prompt: any) => prompt.key === "ultraviolet_fluorescence"));
+    assert.equal(body.prompts.find((prompt: any) => prompt.key === "tabloid_cover")?.allowText, true);
+    assert.equal(body.prompts.find((prompt: any) => prompt.key === "movie_poster")?.allowText, true);
+    assert.equal(body.prompts.find((prompt: any) => prompt.key === "screenshot")?.allowText, true);
+    assert.equal(body.prompts.find((prompt: any) => prompt.key === "trading_card")?.allowText, true);
+    assert.equal(body.prompts.find((prompt: any) => prompt.key === "documentary_photo")?.allowText, false);
     assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_psychedelic_editorial"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;
@@ -1276,6 +1282,37 @@ describe("http", () => {
     assert.equal(capturedBody.size, "832x1088");
   });
 
+  test("text-capable image presets allow only exact context text", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const s = await makeTestServer(new FakeLlm(), enabledOpenAiImageGeneration); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "tabloid_cover" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    await res.json();
+    assert.equal(readArticleImagePresetFile("tabloid_cover")?.allowText, true);
+    assert.match(capturedBody.prompt, /Text policy:/);
+    assert.match(capturedBody.prompt, /Readable text is allowed only when it exactly copies text supplied in this prompt context/i);
+    assert.match(capturedBody.prompt, /Do not invent headlines, slogans, labels, prices, stats, UI strings, captions/i);
+    assert.match(capturedBody.prompt, /fake words, pseudo-text, glyph text, lorem ipsum, or gibberish/i);
+    assert.doesNotMatch(capturedBody.prompt, /EXCLUSIVE|SHOCK|INSIDE|SPECIAL/);
+  });
+
   test("POST /api/article/:slug/image/generate uses logos preset without transparent output", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let capturedBody: any = null;
@@ -1301,6 +1338,7 @@ describe("http", () => {
     const body = await res.json() as any;
     assert.equal(body.presetKey, "logos");
     assert.match(capturedBody.prompt, /standalone fictional logo/i);
+    assert.match(capturedBody.prompt, /Do not render readable text, captions, labels, UI text/i);
     assert.doesNotMatch(capturedBody.prompt, /transparent background/i);
     assert.equal("background" in capturedBody, false);
   });

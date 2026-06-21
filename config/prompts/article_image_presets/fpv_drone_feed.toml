@@ -59,7 +59,7 @@ Avoid:
 - Gore, visible severe injury, bodies, explicit violence, targeting reticles,
   crosshairs, weapons firing, impact moments, readable coordinates, real unit
   markings, real flags, real military insignia, propaganda symbols, timestamps,
-  readable telemetry, UI panels, captions, logos, or screenshots.
+  readable telemetry, UI panels, captions, or screenshots.
 - Clean cinematic drone footage, satellite views, helicopter news footage,
   polished travel aerials, perfectly stable gimbal shots, photo mode, glossy
   film color grading, or high-resolution nature photography.
@@ -93,6 +93,6 @@ crushed shadows, muddy colors, low-altitude approach, banking turn, foreground
 blur, and a subject seen through forward motion.
 
 No gore, bodies, targeting reticles, crosshairs, readable coordinates, readable
-telemetry, real flags, real military insignia, captions, logos, UI panels,
+telemetry, real flags, real military insignia, captions, UI panels,
 screenshots, overt nudity, or explicit sexual content.
 """

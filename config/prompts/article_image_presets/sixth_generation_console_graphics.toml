@@ -92,8 +92,8 @@ Avoid:
   crosshairs, objective markers, button prompts, inventory screens, menu
   frames, pause screens, subtitles, dialog boxes, loading screens, memory-card
   icons, watermarks, timestamps, usernames, or UI overlays.
-- Any readable text or branding: no readable signs, labels, captions, logos,
-  real console logos, controller icons, studio marks, title cards, fake text,
+- Any readable text or branding: no readable signs, labels, captions,
+  controller icons, studio marks, title cards, fake text,
   box art, posters, or screenshots with menus.
 - Specific copyrighted game franchises, recognizable characters, recognizable
   maps, or imitation of a specific studio's proprietary art direction.
@@ -148,7 +148,7 @@ layout, puzzle-room layout, doorways, platforms, props, fogged draw distance,
 and skybox depth. Keep the main subject readable and specific to the article.
 
 No HUD, no UI, no health bars, no minimap, no crosshair, no objective marker,
-no button prompts, no subtitles, no readable text, no labels, no logos, no
+no button prompts, no subtitles, no readable text, no labels, no
 title cards, no menu screens, no photo mode, no promotional key art, no
 screenshots with interface, no overt nudity, and no explicit sexual content.
 """

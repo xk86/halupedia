@@ -46,12 +46,11 @@ Composition:
 - Prefer one strong redacted file artifact over a collage of many documents.
 
 Avoid:
-- Readable names, readable document text, readable dates, real agency logos,
-  real seals, real flags, real public figures, exact replicas of known
-  government forms, fake news text, screenshots, futuristic UI, posters, title
-  cards, gore, pornographic framing, overt nudity, explicit sexual content,
-  sexualized minors, sexual violence, and images that are primarily readable
-  typography.
+- Readable names, readable document text, readable dates, real public figures,
+  exact replicas of known government forms, fake news text, screenshots,
+  futuristic UI, posters, title cards, gore, pornographic framing, overt
+  nudity, explicit sexual content, sexualized minors, sexual violence, and
+  images that are primarily readable typography.
 - Imitating a living artist or a specific copyrighted visual franchise.
 """
 
@@ -79,6 +78,6 @@ unreadable texture, hole-punch shadows, staple marks, paper folds, clipped
 photo or diagram inset, gray paper, smudges, and archive-copy degradation. Keep
 the main subject legible while making the file feel censored.
 
-No readable names, document text, dates, seals, logos, real agency marks,
-screenshots, title cards, gore, overt nudity, or explicit sexual content.
+No readable names, document text, dates, screenshots, title cards, gore, overt
+nudity, or explicit sexual content.
 """

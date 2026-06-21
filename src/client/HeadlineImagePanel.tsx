@@ -29,6 +29,7 @@ interface MediaSearchResult {
 interface ImagePromptOption {
   key: string;
   label: string;
+  allowText?: boolean;
 }
 
 interface ImageAspectRatioOption {

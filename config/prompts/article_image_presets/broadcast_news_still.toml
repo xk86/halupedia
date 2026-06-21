@@ -73,7 +73,7 @@ Composition:
 
 Avoid:
 - Readable lower-third text other than the short plausible main chyron, readable
-  tickers, readable captions, station logos, fake news branding, timestamps,
+  tickers, readable captions, fake news branding, timestamps,
   UI overlays outside the lower-third treatment, monitor frames, split-screen
   panels, title cards, screenshots, posters, and images that are primarily
   text.
@@ -122,7 +122,7 @@ small lower-third details may be unreadable blurred ticker marks or abstract
 filler, but the main chyron must be legible.
 
 No readable lower-third text except the short plausible main chyron, no
-readable captions, no readable tickers, no station logos, no timestamps, no
+readable captions, no readable tickers, no timestamps, no
 split screens, no screenshots, no title cards, no overt nudity, or explicit
 sexual content.
 """

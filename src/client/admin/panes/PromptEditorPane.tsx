@@ -58,6 +58,7 @@ interface PromptRevision {
 interface ImagePromptOption {
   key: string;
   label: string;
+  allowText?: boolean;
 }
 
 const BASE_IMAGE_PRESET: ImagePromptOption = {

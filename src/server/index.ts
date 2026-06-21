@@ -575,8 +575,12 @@ function normalizeArticleImagePresetKey(value: string | undefined): string {
 
 function listArticleImagePromptOptions() {
   return [
-    { key: "documentary_photo", label: "documentary_photo" },
-    ...listArticleImagePresetFiles().map((preset) => ({ key: preset.key, label: preset.label })),
+    { key: "documentary_photo", label: "documentary_photo", allowText: false },
+    ...listArticleImagePresetFiles().map((preset) => ({
+      key: preset.key,
+      label: preset.label,
+      allowText: preset.allowText === true,
+    })),
   ];
 }
 
@@ -594,6 +598,22 @@ function readArticleImagePromptSelection(key: string) {
   const preset = readArticleImagePresetFile(presetKey);
   if (!preset) throw new Error(`unknown image preset: ${presetKey}`);
   return preset;
+}
+
+function articleImageTextPolicy(allowText: boolean | undefined): string {
+  if (allowText === true) {
+    return [
+      "Text policy:",
+      "- Readable text is allowed only when it exactly copies text supplied in this prompt context, especially the subject name.",
+      "- Do not invent headlines, slogans, labels, prices, stats, UI strings, captions, fake words, pseudo-text, glyph text, lorem ipsum, or gibberish.",
+      "- When exact text is not needed, use blank areas, icons, shapes, crops, blur, or redaction instead of text-like filler.",
+    ].join("\n");
+  }
+  return [
+    "Text policy:",
+    "- Do not render readable text, captions, labels, UI text, headlines, signs, watermarks, fake words, pseudo-text, glyph text, lorem ipsum, or gibberish.",
+    "- Use blank areas, icons, shapes, crops, blur, or redaction instead of textual filler.",
+  ].join("\n");
 }
 
 function parseMediaGenerationMetadata(value: string | undefined): unknown {
@@ -3998,6 +4018,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       model: source.model,
       thinking: source.thinking,
       json: source.json,
+      allowText: source.allowText,
     });
     if ("error" in created) return c.json(created, /exists/i.test(created.error) ? 409 : 400);
     await reloadRuntime();
@@ -4827,7 +4848,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       related_context: formatImageRelatedContext(article.slug),
     });
     const generated = await generateArticleImage({
-      prompt: [rendered.system.trim(), rendered.user.trim()].filter(Boolean).join("\n\n"),
+      prompt: [
+        rendered.system.trim(),
+        rendered.user.trim(),
+        articleImageTextPolicy(imagePreset.allowText),
+      ].filter(Boolean).join("\n\n"),
       config: generationConfig,
       logger,
       size: aspectRatio.size,

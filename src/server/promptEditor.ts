@@ -58,6 +58,7 @@ export interface ArticleImagePresetContent {
   label: string;
   selectionWhen?: string;
   selectionAvoid?: string;
+  allowText?: boolean;
   system: string;
   user: string;
   path: string;
@@ -150,6 +151,7 @@ function readTomlPromptContent(path: string, key: string, displayPath: string): 
     key,
     selectionWhen: typeof raw.selection_when === "string" ? raw.selection_when : undefined,
     selectionAvoid: typeof raw.selection_avoid === "string" ? raw.selection_avoid : undefined,
+    allowText: typeof raw.allow_text === "boolean" ? raw.allow_text : undefined,
     system: typeof raw.system === "string" ? raw.system : "",
     user: typeof raw.user === "string" ? raw.user : "",
     model: raw.model === "light" ? "light" : raw.model === "heavy" ? "heavy" : undefined,
@@ -188,12 +190,13 @@ function writeTomlPromptFile(
   path: string,
   system: string,
   user: string,
-  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean } = {},
+  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean; allowText?: boolean } = {},
 ): void {
   const source = [
     `model = "${options.model ?? "light"}"`,
     `thinking = ${options.thinking === true ? "true" : "false"}`,
     `json = ${options.json === true ? "true" : "false"}`,
+    options.allowText === undefined ? "" : `allow_text = ${options.allowText ? "true" : "false"}`,
     "",
     `system = ${tomlMultilineValue(system)}`,
     "",
@@ -207,7 +210,7 @@ export function createArticleImagePresetFile(
   key: string,
   system: string,
   user: string,
-  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean } = {},
+  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean; allowText?: boolean } = {},
 ): { error: string } | ArticleImagePresetContent {
   if (!safeKey(key)) return { error: "invalid key" };
   if (key === "default" || key === "documentary_photo" || key === "article_image") {

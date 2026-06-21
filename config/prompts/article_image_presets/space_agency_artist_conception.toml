@@ -55,10 +55,9 @@ Composition:
   infographic panel.
 
 Avoid:
-- Readable labels, mission patches, NASA/ESA/JPL logos, real mission names,
-  real spacecraft branding, captions, arrows with text, UI overlays, title
-  cards, fake typography, posters, screenshots, and images that are primarily
-  text.
+- Readable labels, mission patches, mission names, captions, arrows with text,
+  UI overlays, title cards, fake typography, posters, screenshots, and images
+  that are primarily text.
 - Star Wars/Star Trek-like franchise language, fantasy space battles, sleek
   impossible sci-fi ships, cinematic movie-poster explosions, generic nebula
   wallpaper, or astrology/mystical imagery.
@@ -94,7 +93,7 @@ fields, regolith, ice, dust, atmospheric haze, solar panels, antennas, gold
 thermal foil, clear sunlight, educational scale, and a plausible mission or
 remote-sensing viewpoint tied to the subject.
 
-No readable labels, mission names, NASA/ESA/JPL logos, mission patches,
-captions, UI overlays, title cards, fake typography, posters, screenshots,
-overt nudity, or explicit sexual content.
+No readable labels, mission names, mission patches, captions, UI overlays,
+title cards, fake typography, posters, screenshots, overt nudity, or explicit
+sexual content.
 """

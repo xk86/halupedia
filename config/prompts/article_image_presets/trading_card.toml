@@ -1,6 +1,7 @@
 model = "light"
 thinking = false
 json = false
+allow_text = true
 selection_when = "The article involves a person, creature, object, vehicle, team, faction, artifact, product, champion, mascot, specimen, or collectible subject that would work as a printed trading card."
 selection_avoid = "The subject needs sober evidence, legal record treatment, large-scale geography, clean technical imaging, screen UI, or a medium where collectible-card design would make it too promotional or unserious."
 
@@ -17,14 +18,19 @@ Core look:
 - Use trading-card print language: cropped hero image window, card border,
   foil-like sheen, varnish glare, halftone print texture, worn corners, slight
   edge chipping, registration shift, cheap laminate, paper stock, and small
-  stat or info boxes rendered as unreadable texture.
+  stat or info boxes rendered as blank, icon-like, cropped, blurred, redacted,
+  or purely graphic areas unless they can use exact context text.
 - Choose a card genre that fits the article context: sports, creature,
   artifact, machine, faction, team, product, safety mascot, historical figure,
   specimen, tournament, game piece, or odd local collectible.
 - Keep the main subject dominant and collectible-card readable. The design
   should support the subject instead of becoming a page of text.
-- Use invented unreadable pseudo-text only as texture. No readable names,
-  stats, numbers, logos, brands, or claims.
+- If the card uses readable type, render the exact subject name
+  "{{requested_title}}" once as the card name or top label. Any other visible
+  text must be exact text copied from the supplied Halupedia context. Leave
+  stats, numbers, flavor text, legal lines, fine print, and data boxes blank,
+  icon-only, cropped, blurred, redacted, or purely graphic rather than fake. Do
+  not invent extra readable claims.
 - Let the card feel physically printed: photographed or scanned with mild
   glare, imperfect crop, wear, and material presence.
 
@@ -47,11 +53,11 @@ Composition:
 - Prefer one clear card artifact over a scattered collection.
 
 Avoid:
-- Readable names, readable stats, real logos, real teams, real brands, exact
-  replicas of existing card games, copyrighted card frames, readable labels,
-  screenshots, title cards, fake UI, gore, pornographic framing, overt nudity,
-  explicit sexual content, sexualized minors, sexual violence, and images that
-  are primarily text.
+- Readable text beyond exact context text, readable stats, fake words,
+  pseudo-text, gibberish, real teams, exact replicas
+  of existing card games, copyrighted card frames, screenshots, title cards,
+  fake UI, gore, pornographic framing, overt nudity, explicit sexual content,
+  sexualized minors, sexual violence, and images that are primarily text.
 - Imitating a living artist or a specific copyrighted visual franchise.
 """
 
@@ -75,9 +81,12 @@ Halupedia context above, as a printed trading card or collectible card artifact.
 
 Use card borders, a cropped hero image window, foil-like sheen, varnish glare,
 halftone print texture, worn corners, slight edge chipping, registration shift,
-cheap laminate, paper stock, and unreadable stat/info-box texture. Keep the
-main subject dominant and card-readable.
+cheap laminate, paper stock, and graphic stat/info-box shapes without fake
+text. Keep the main subject dominant and card-readable.
 
-No readable names, stats, numbers, logos, brands, labels, screenshots, exact
-card-game replicas, overt nudity, or explicit sexual content.
+If readable card text appears, include the exact card name
+"{{requested_title}}" once and otherwise only exact text copied from the
+supplied context. No readable stats, fake words, pseudo-text, gibberish,
+screenshots, exact card-game replicas, overt nudity, or explicit sexual
+content.
 """

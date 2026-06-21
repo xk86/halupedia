@@ -1365,12 +1365,30 @@ a:hover {
   margin: 0.15rem 0;
 }
 
-.mdedit-pm blockquote {
-  margin: 0 0 0.35rem;
+/*
+ * Shared blockquote look for the editor and the rendered article body, so a
+ * quote reads identically wherever it appears. `.prose-halu blockquote` also
+ * overrides the typography plugin's accent border / quote-mark defaults.
+ */
+.mdedit-pm blockquote,
+.prose-halu blockquote {
   padding-left: 0.9rem;
   border-left: 3px solid var(--rule);
   color: var(--ink-soft);
   font-style: italic;
+}
+
+.mdedit-pm blockquote {
+  margin: 0 0 0.35rem;
+}
+
+.prose-halu blockquote {
+  font-weight: inherit;
+}
+
+.prose-halu blockquote p:first-of-type::before,
+.prose-halu blockquote p:last-of-type::after {
+  content: none;
 }
 
 .mdedit-pm a {

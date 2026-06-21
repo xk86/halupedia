@@ -4,10 +4,9 @@ import { cn } from "@/lib/utils";
 
 const proseLayoutClasses = "prose prose-halu max-w-none";
 
-const proseQuoteClasses =
-  "[&_blockquote]:rounded-r-md [&_blockquote]:border-l-[3px] [&_blockquote]:[border-left-style:solid] [&_blockquote]:border-l-accent [&_blockquote]:bg-blockquote-bg [&_blockquote]:px-5 [&_blockquote]:py-3";
+const proseLinkClasses = "[&_a]:border-b-0";
 
-export const articleProseClasses = cn(proseLayoutClasses, proseQuoteClasses);
+export const articleProseClasses = cn(proseLayoutClasses, proseLinkClasses);
 
 interface ArticleProseProps extends Omit<
   HTMLAttributes<HTMLDivElement>,

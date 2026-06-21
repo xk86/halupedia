@@ -9,19 +9,19 @@ import {
 describe("ArticleProse", () => {
   afterEach(cleanup);
 
-  it("applies the shared article and quote presentation", () => {
+  it("applies the shared article presentation", () => {
     render(<ArticleProse html="<blockquote><p>Quoted text</p></blockquote>" />);
 
     const quote = screen.getByText("Quoted text").closest("blockquote");
     const prose = quote?.parentElement;
 
     expect(prose).toHaveClass("prose", "prose-halu", "max-w-none");
-    expect(articleProseClasses).toContain("[&_blockquote]:border-l-accent");
-    expect(articleProseClasses).toContain("[&_blockquote]:border-l-[3px]");
-    expect(articleProseClasses).toContain(
-      "[&_blockquote]:[border-left-style:solid]",
-    );
-    expect(articleProseClasses).toContain("[&_blockquote]:bg-blockquote-bg");
+  });
+
+  it("leaves quote styling to the shared blockquote rule", () => {
+    // Quotes share the editor's `.prose-halu blockquote` CSS rather than
+    // carrying bespoke prose utilities, so no blockquote classes are emitted.
+    expect(articleProseClasses).not.toContain("[&_blockquote]");
   });
 
   it("combines caller layout classes with the shared prose classes", () => {
@@ -33,5 +33,14 @@ describe("ArticleProse", () => {
       "article-body",
       "prose-halu",
     );
+  });
+
+  it("keeps one underline source on article links", () => {
+    render(<ArticleProse html='<a href="/wiki/Test">Linked article</a>' />);
+
+    const prose = screen.getByRole("link", { name: "Linked article" })
+      .parentElement;
+
+    expect(prose).toHaveClass("[&_a]:border-b-0");
   });
 });

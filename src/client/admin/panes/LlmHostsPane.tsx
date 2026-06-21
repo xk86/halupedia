@@ -93,7 +93,6 @@ interface ImageGenerationInfo {
     baseUrl: string;
     apiKey: string;
     model: string;
-    size: string;
     quality: string;
     outputFormat: string;
     outputCompression: number;
@@ -294,7 +293,6 @@ function ImageGenerationCard({
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState(info.openai.baseUrl);
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [openaiModel, setOpenaiModel] = useState(info.openai.model);
-  const [openaiSize, setOpenaiSize] = useState(info.openai.size);
   const [openaiQuality, setOpenaiQuality] = useState(info.openai.quality);
   const [openaiOutputFormat, setOpenaiOutputFormat] = useState(
     info.openai.outputFormat,
@@ -392,13 +390,6 @@ function ImageGenerationCard({
             <Input
               value={openaiModel}
               onChange={(e) => setOpenaiModel(e.target.value)}
-            />
-          </label>
-          <label className={LLM_FIELD}>
-            size
-            <Input
-              value={openaiSize}
-              onChange={(e) => setOpenaiSize(e.target.value)}
             />
           </label>
           <label className={LLM_FIELD}>
@@ -513,7 +504,6 @@ function ImageGenerationCard({
               baseUrl: openaiBaseUrl,
               ...(openaiApiKey ? { apiKey: openaiApiKey } : {}),
               model: openaiModel,
-              size: openaiSize,
               quality: openaiQuality,
               outputFormat: openaiOutputFormat,
               outputCompression: numberOrFallback(

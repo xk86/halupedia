@@ -549,6 +549,67 @@ describe("App", () => {
     });
   });
 
+  it("admin shows pipeline run error messages inline", async () => {
+    const overview = {
+      articleCount: 1,
+      linkCount: 0,
+      aliasCount: 0,
+      latestArticles: [],
+      model: "test-model",
+      databasePath: "test.sqlite",
+      promptConfigPath: "config/prompts",
+      ragMode: "full",
+      promptModelAssociations: [],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/admin/overview") {
+        return new Response(JSON.stringify(overview), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/admin/generation-queue") {
+        return new Response(JSON.stringify({ items: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/admin/pipeline/workflows") {
+        return new Response(JSON.stringify({ workflows: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url === "/api/admin/pipeline/runs?limit=100") {
+        return new Response(
+          JSON.stringify({
+            traceEnabled: true,
+            runs: [
+              {
+                run_id: "run-image-error",
+                workflow: "article.image_generate",
+                slug: "new-article",
+                started_at: 1715000000000,
+                duration_ms: 33,
+                status: "error",
+                nodes_executed: 2,
+                error_message: "unknown image aspect ratio: documentary_photo",
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/admin");
+
+    render(<App />);
+
+    expect(
+      await screen.findByText("unknown image aspect ratio: documentary_photo"),
+    ).toBeInTheDocument();
+  });
+
   it("refreshes pipeline runs immediately when an active run disappears", async () => {
     const polls: Array<() => void | Promise<void>> = [];
     vi.spyOn(window, "setInterval").mockImplementation((handler) => {

@@ -501,6 +501,18 @@ export function PipelinesPane({
                         </TableCell>
                       </TableRow>
                     ) : null}
+                    {!open && run.status === "error" && run.error_message ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell
+                          colSpan={6}
+                          className="px-2 pb-2 pt-0 whitespace-normal"
+                        >
+                          <p className={cn(ERROR_BOX, "m-0 text-xs")}>
+                            {run.error_message}
+                          </p>
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
                   </Fragment>
                 );
               })}

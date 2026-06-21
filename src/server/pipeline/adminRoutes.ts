@@ -184,6 +184,10 @@ export function registerPipelineAdminRoutes(
       pinnedSlugs: body.input?.pinnedSlugs ?? [],
       blacklistSlugs: body.input?.blacklistSlugs ?? [],
       selectedReferenceSlugs: body.input?.selectedReferenceSlugs ?? null,
+      imageId: body.input?.imageId,
+      imageReplace: body.input?.imageReplace,
+      imagePromptKey: body.input?.imagePromptKey,
+      imageAspectRatioKey: body.input?.imageAspectRatioKey,
     };
     const cfg = getTraceConfig();
     const recorder = getTraceRecorder(cfg);

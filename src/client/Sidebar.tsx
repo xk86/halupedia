@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { InfoboxData, HeadlineMedia } from "@/types";
 import { InfoboxCard } from "@/article/infobox/InfoboxCard";
+import { TopArticlesCard } from "@/article/sidebar/TopArticlesCard";
 
 // Compact field styling for the dense sidebar infobox editor — shrinks the
 // shadcn Input/Textarea defaults (height, padding, font) to sidebar scale.
@@ -43,64 +44,6 @@ interface SidebarProps {
   onNavigate: (slug: string) => void;
   onNavigateToMedia: (imageSlug: string) => void;
   onArticleUpdate?: (articleSlug: string) => void;
-}
-
-interface TopArticle {
-  slug: string;
-  title: string;
-  inboundCount: number;
-}
-
-/** Top-10 most-referenced articles — shown in the side pane on the homepage. */
-function TopArticlesPanel({
-  onNavigate,
-}: {
-  onNavigate: (slug: string) => void;
-}) {
-  const [topArticles, setTopArticles] = useState<TopArticle[]>([]);
-
-  useEffect(() => {
-    fetch("/api/top-articles?limit=10")
-      .then((r) => r.json())
-      .then((d) =>
-        setTopArticles((d as { articles: TopArticle[] }).articles ?? []),
-      )
-      .catch(() => {});
-  }, []);
-
-  if (topArticles.length === 0) return null;
-  return (
-    <section className="w-full border border-panel-border bg-panel-surface p-[0.85rem]">
-      <h2 className="m-0 mb-3 font-mono text-base tracking-[0.08em] text-ink-soft uppercase">
-        Top articles
-      </h2>
-      <ol className="m-0 flex w-full list-none flex-col gap-[0.15rem] p-0">
-        {topArticles.map((a, i) => (
-          <li
-            key={a.slug}
-            className="flex w-full items-baseline gap-2 py-[0.12rem] text-[0.9rem] [border-bottom:1px_solid_var(--rule)] last:border-b-0"
-          >
-            <span className="w-min min-w-[0.5rem] shrink-0 text-right font-mono text-[0.72rem] text-ink-fade">
-              {i + 1}
-            </span>
-            <a
-              className="w-1/2 flex-1 [overflow-wrap:break-word]"
-              href={`/wiki/${a.title.replace(/\s+/g, "_")}`}
-              onClick={(e) => {
-                e.preventDefault();
-                onNavigate(a.title);
-              }}
-            >
-              {a.title}
-            </a>
-            <span className="shrink-0 font-mono text-[0.72rem] text-ink-fade">
-              {a.inboundCount} {a.inboundCount === 1 ? "ref" : "refs"}
-            </span>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
 }
 
 type EditTab = "edit" | "ai" | "history";
@@ -789,7 +732,7 @@ export function Sidebar({
     if (showTopArticles) {
       return (
         <aside className={SIDEBAR} aria-label="Context">
-          <TopArticlesPanel onNavigate={onNavigate} />
+          <TopArticlesCard onNavigate={onNavigate} />
         </aside>
       );
     }

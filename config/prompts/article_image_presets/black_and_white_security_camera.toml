@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article centers on surveillance, trespass, institutional corridors, stores, parking lots, labs, night perimeters, anomalies caught by fixed cameras, or events defined by being monitored."
-selection_avoid = "The subject is not plausibly seen by a fixed security camera, needs color/detail, or is better represented by a document, formal photo, poster, map, or illustration."
 
 system = """
 Create one editorial hero image for a Halupedia subject that looks like a still
@@ -55,7 +54,7 @@ Composition:
 
 Avoid:
 - Clean modern security-camera UI, timestamps, overlays, crosshairs, captions,
-  readable labels, fake logos, fake monitor frames, split-screen grids,
+  readable labels, fake monitor frames, split-screen grids,
   screenshots, title cards, posters, or images that are primarily text.
 - Polished film stills, cinematic horror lighting, dramatic handheld camera
   work, professional documentary photography, crisp 4K detail, glossy
@@ -92,7 +91,7 @@ fluorescent lighting, blown highlights, crushed shadows, lens grime, wide-angle
 distortion, empty institutional space, and awkward incidental framing.
 
 The main subject should be readable but caught by surveillance rather than
-posed. No timestamps, overlays, text, logos, captions, readable labels, monitor
+posed. No timestamps, overlays, text, captions, readable labels, monitor
 frames, split-screen grids, title cards, posters, screenshots, overt nudity, or
 explicit sexual content.
 """

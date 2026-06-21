@@ -201,6 +201,15 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
   await router.chat("heavy", "system", "user");
   await router.chat("light", "system", "user", { thinking: true });
   await router.chat("heavy", "system", "user", { jsonMode: true });
+  await router.chat("heavy", "system", "user", {
+    jsonMode: true,
+    jsonSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { presetKey: { type: "string", enum: ["photo"] } },
+      required: ["presetKey"],
+    },
+  });
   await router.embed(["article chunk"]);
 
   assert.equal(logger.entries.find((entry) => entry.event === "llm.chat_request")?.fields.role, "heavy");
@@ -212,6 +221,12 @@ test("OpenAI-compatible LLM logs use explicit roles for heavy, light, and embedd
   assert.equal((chatBodies[0] as { think?: boolean }).think, false);
   assert.equal((chatBodies[1] as { think?: boolean }).think, true);
   assert.equal((chatBodies[2] as { format?: string }).format, "json");
+  assert.deepEqual((chatBodies[3] as { format?: unknown }).format, {
+    type: "object",
+    additionalProperties: false,
+    properties: { presetKey: { type: "string", enum: ["photo"] } },
+    required: ["presetKey"],
+  });
 });
 
 test("configured sampler params (top_k/top_p/min_p) are sent; unset ones are omitted", async (t) => {

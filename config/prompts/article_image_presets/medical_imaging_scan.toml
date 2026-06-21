@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves anatomy, illness, specimens, mutations, implants, parasites, fossils, forensic analysis, lab instruments, microscopy, clinical records, or hidden internal structure."
-selection_avoid = "The subject is mainly social, political, scenic, promotional, architectural, romantic, legal, or needs an exterior scene rather than diagnostic or laboratory imaging."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a medical,
@@ -53,7 +52,7 @@ Composition:
   software screenshot.
 
 Avoid:
-- Readable patient names, readable dates, readable labels, real hospital logos,
+- Readable patient names, readable dates, readable labels, real hospital,
   real app interfaces, futuristic HUDs, sci-fi holograms, cyberpunk monitors,
   fake news text, posters, title cards, gore, exposed wounds, pornographic
   framing, overt nudity, explicit sexual content, sexualized minors, sexual
@@ -86,6 +85,6 @@ endoscopy, pathology slide, thermal scan, radiograph, lightbox image, or lab
 instrument output. Show hidden internal structure with grain, sensor noise,
 falloff, clinical display artifacts, and unreadable calibration texture.
 
-No readable names, dates, labels, logos, patient records, futuristic HUDs,
+No readable names, dates, labels, patient records, futuristic HUDs,
 screenshots, gore, exposed wounds, overt nudity, or explicit sexual content.
 """

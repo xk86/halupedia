@@ -284,10 +284,10 @@ export const PipelineStateSchema = z.object({
   initialImagePromptKey: z.string().optional(),
   /** Single-sentence reason for the first-pass article-image preset selection. */
   initialImagePromptReason: z.string().optional(),
-  /** Best specialized article-image preset challenger when initial selection chose default. */
-  specializedImagePromptKey: z.string().optional(),
-  /** Single-sentence reason for the specialized article-image preset challenger. */
-  specializedImagePromptReason: z.string().optional(),
+  /** Best article-image preset challenger to compare with the first-pass selection. */
+  challengerImagePromptKey: z.string().optional(),
+  /** Single-sentence reason for the article-image preset challenger. */
+  challengerImagePromptReason: z.string().optional(),
   /** Concrete article-image preset selected for article.image_generate. */
   selectedImagePromptKey: z.string().optional(),
   /** Single-sentence reason for the final concrete article-image preset selection. */

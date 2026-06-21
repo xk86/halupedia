@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article suggests old encyclopedia plates, expeditions, natural history, antiquarian records, inventions, specimens, maps, monuments, ruins, taxonomy, or public-domain-style reference illustration."
-selection_avoid = "The subject is contemporary, intimate, screen-based, newsy, highly colorful, cinematic, or needs photographic proof rather than a historical plate."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the style of a
@@ -50,7 +49,7 @@ Avoid:
 - Named living artists, specific copyrighted franchises, modern fantasy cover
   art, clean vector line art, comic-book inking, manga/anime, photoreal
   documentary scenes, glossy 3D renderings, modern infographic panels, fake
-  readable captions, fake labels, title cards, logos, posters, screenshots, and
+  readable captions, fake labels, title cards, posters, screenshots, and
   images that are primarily text.
 - Gore, excessive horror, overt nudity, explicit sexual content, sexualized
   minors, sexual violence, or anything that makes the image feel exploitative
@@ -80,6 +79,6 @@ Use hatch marks, crosshatching, stippling, etched contour lines, worn ink, aged
 paper texture, slight foxing, imperfect reproduction, and restrained
 black-and-white or hand-tinted color. Keep the main subject clear and dominant.
 
-No readable text, logos, captions, labels, title cards, posters, screenshots,
+No readable text, captions, labels, title cards, posters, screenshots,
 overt nudity, or explicit sexual content.
 """

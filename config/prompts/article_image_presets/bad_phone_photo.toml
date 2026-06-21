@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about a sudden public sighting, accident, rumor, amateur discovery, street scene, party, minor scandal, weird object encounter, or anything that should feel badly captured by a bystander."
-selection_avoid = "The subject needs dignity, legibility, formal archive treatment, period illustration, satellite/instrument capture, or a controlled editorial composition."
 
 system = """
 Create one editorial hero image for a Halupedia subject that looks like an
@@ -51,7 +50,7 @@ Avoid:
 - Professional camera aesthetics, perfect portrait lighting, clean documentary
   photography, symmetrical magazine composition, cinematic color grading, fake
   social-media UI, phone screen screenshots, chat bubbles, captions, readable
-  labels, title cards, fake logos, posters, or images that are primarily text.
+  labels, title cards, posters, or images that are primarily text.
 - Beauty-filter skin, glamour posing, fetishized framing, overt nudity,
   explicit sexual content, sexualized minors, sexual violence, gore, or
   anything that makes the image feel exploitative instead of editorial.
@@ -81,6 +80,6 @@ framing, awkward crop, harsh flash or poor exposure, autofocus mistakes,
 rolling-shutter skew, digital noise, lens smudge, accidental foreground, and
 mixed lighting. The main subject should remain recognizable.
 
-No text, logos, captions, readable labels, title cards, posters, screenshots,
+No text, captions, readable labels, title cards, posters, screenshots,
 social-media UI, overt nudity, or explicit sexual content.
 """

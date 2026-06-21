@@ -1,8 +1,7 @@
 model = "light"
 thinking = false
 json = false
-selection_when = "The article is about obscure scholarship, taxonomy, invented creatures, rituals, diagrams, premodern notes, marginalia, strange plants, anatomical sketches, maps, coded lore, or an awkward archival folio."
-selection_avoid = "The subject needs a real scene, modern technology, public event, photo evidence, poster, broadcast still, or readable interface."
+selection_when = "The article is specifically about a manuscript, folio, codex, notebook page, marginal note, premodern diagram, coded page, archival drawing, or discovered paper artifact where the page itself is the best primary image."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a very simple crude
@@ -33,7 +32,7 @@ Core look:
   become a polished Renaissance master drawing.
 - Use invented cryptic glyphs and pseudo-writing as texture only. The page may
   contain one or two short rows of unreadable characters, but no full text
-  blocks, real readable words, captions, labels, modern typography, logos, or
+  blocks, real readable words, captions, labels, modern typography, or
   legible language.
 - Translate the article context into one rough manuscript subject: an impossible
   plant, creature, object, map fragment, ritual implement, small figure,
@@ -110,7 +109,7 @@ fragments, slight da Vinci notebook-study influence, rough construction lines,
 simple section-cut details, bad proportions, sparse linework, stains,
 abrasions, grime, and lots of empty parchment.
 
-No readable real text, labels, captions, logos, screenshots, modern typography,
+No readable real text, labels, captions, screenshots, modern typography,
 clean AI fantasy manuscript polish, elegant calligraphy, overt nudity, or
 explicit sexual content. Do not make a dense illustrated encyclopedia plate;
 do not fill every part of the page. Avoid polished natural-history rendering,

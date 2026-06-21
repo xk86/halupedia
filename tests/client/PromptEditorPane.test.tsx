@@ -55,7 +55,7 @@ describe("PromptEditorPane image presets", () => {
       if (url === "/api/admin/article-image-prompts" && method === "GET") {
         return jsonResponse({
           prompts: [
-            { key: "default", label: "default" },
+            { key: "documentary_photo", label: "documentary_photo" },
             { key: "psychedelic_editorial", label: "psychedelic_editorial" },
             { key: "neon", label: "neon" },
           ],
@@ -77,14 +77,14 @@ describe("PromptEditorPane image presets", () => {
           ok: true,
           prompt: { ...psychedelicEditorialPrompt, key: "neon", system: "neon system", path: "config/prompts/article_image_presets/neon.toml" },
           prompts: [
-            { key: "default", label: "default" },
+            { key: "documentary_photo", label: "documentary_photo" },
             { key: "psychedelic_editorial", label: "psychedelic_editorial" },
             { key: "neon", label: "neon" },
           ],
         });
       }
       if (url === "/api/admin/article-image-prompts/psychedelic_editorial" && method === "DELETE") {
-        return jsonResponse({ ok: true, prompts: [{ key: "default", label: "default" }] });
+        return jsonResponse({ ok: true, prompts: [{ key: "documentary_photo", label: "documentary_photo" }] });
       }
       return jsonResponse({ error: "not found" }, 404);
     });

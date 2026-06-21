@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about a synthetic object, strange landscape, diagrammatic idea, simulated place, early computer culture, uncanny artifact, or subject that benefits from obviously pre-2000 rendered artificiality."
-selection_avoid = "The article needs documentary evidence, a human candid moment, a legal/public-record artifact, a screen interface, or a modern physical scene."
 
 system = """
 Create one editorial hero image for a Halupedia subject that genuinely looks
@@ -124,7 +123,7 @@ Avoid:
   camera depth of field, complex PBR materials, dense kitbash geometry,
   fashionable neon lighting, modern bloom, or anything that looks like a
   current AI image pretending to be retro.
-- Literal side-by-side collages, meme captions, fake headlines, fake logos,
+- Literal side-by-side collages, meme captions, fake headlines,
   fake news branding, screenshots, title cards, readable labels, fake text,
   malformed hands, melted faces, plastic AI skin, gore, excessive horror, and
   database-generic imagery that ignores available context.
@@ -165,7 +164,7 @@ modern 3D art with a retro theme.
 Use one dominant subject interpretation. Let any primitives, vehicles, bases,
 buildings, or secondary objects serve the subject and stay clearly subordinate.
 
-16:9 horizontal hero image. No text, logos, captions, readable labels, pages,
+16:9 horizontal hero image. No text, captions, readable labels, pages,
 books, posters, screenshots, fake typography, infographic panels, overt nudity,
 or explicit sexual content.
 """

@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about fame, scandal, celebrity-like figures, public embarrassment, secretive meetings, tabloids, nightlife, public exits, or someone/something caught intrusively in public."
-selection_avoid = "The subject is not a public figure or candid public moment, or needs respectful archival, legal, technical, aerial, screen, or illustrative treatment."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a candid paparazzi
@@ -52,8 +51,8 @@ Composition:
 
 Avoid:
 - Real public figures, real celebrity likenesses, real tabloids, real magazine
-  logos, readable headlines, watermarks, timestamps, captions, fake UI,
-  screenshots, social-media frames, red-carpet step-and-repeat branding, or
+  readable headlines, watermarks, timestamps, captions, fake UI,
+  screenshots, social-media frames, or
   images that are primarily text.
 - Upskirt/downblouse framing, voyeuristic private interiors, sexualized minors,
   explicit sexual content, overt nudity, sexual violence, private bathroom or
@@ -88,7 +87,7 @@ telephoto compression, harsh flash, awkward crop, foreground obstruction,
 window glare, car-door framing, sidewalk or entrance setting, motion blur,
 autofocus mistakes, noisy night curbside light, and an unposed public sighting.
 
-No readable headlines, logos, watermarks, timestamps, social-media UI,
+No readable headlines, watermarks, timestamps, social-media UI,
 screenshots, real public figures, exploitative body exposure, overt nudity, or
 explicit sexual content.
 """

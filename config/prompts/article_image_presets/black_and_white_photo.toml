@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article suggests early twentieth-century history, archival documentary records, reform photography, old institutions, expeditions, formal portraits, public works, factories, laboratories, or period field evidence."
-selection_avoid = "The subject is contemporary, screen-based, fantastical, poster-like, heavily colored, or better served by a drawing, map, modern photo, or degraded video."
 
 system = """
 Create one editorial hero image for a Halupedia subject as an early 1900s
@@ -80,7 +79,7 @@ Avoid:
   noir movie stills, glossy fashion photography, modern photojournalism,
   sentimental costume-drama stills, clean museum object photography, tasteful
   studio portraits unless context demands them, readable labels, captions, fake
-  dates, fake archive stamps, logos, screenshots, posters, and images that are
+  dates, fake archive stamps, screenshots, posters, and images that are
   primarily text.
 - Real public figures, real-world political symbols, specific copyrighted
   visual franchises, or imitation of a living artist.
@@ -123,7 +122,7 @@ labor investigation records, protest documentation, courthouse crowds, world's
 fair documentation, municipal-event photos, and public archives. Do not add
 those subjects unless they are already implied by the article.
 
-No readable captions, labels, fake dates, archive stamps, logos, screenshots,
+No readable captions, labels, fake dates, archive stamps, screenshots,
 modern digital black-and-white styling, overt nudity, or explicit sexual
 content.
 """

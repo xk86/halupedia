@@ -1,8 +1,8 @@
 model = "light"
 thinking = false
 json = false
+allow_text = true
 selection_when = "The article feels like a fictional film, legend, public myth, dramatic character, threat, romance, monster, spectacle, or cultural phenomenon best represented as theatrical campaign art."
-selection_avoid = "The article needs evidence, restraint, a mundane place, a technical object, a legal record, a screenshot, or would become misleading if made too promotional."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a promotional movie
@@ -25,6 +25,12 @@ Core look:
   thriller, courtroom drama, creature feature, political thriller, biopic,
   sci-fi spectacle, sports movie, romance, procedural, or documentary poster.
 - Keep the subject readable and visually dominant at thumbnail size.
+- If the poster uses readable title type, include one crisp title treatment
+  with the exact subject name only: "{{requested_title}}". Keep it integrated
+  into the poster design, as title typography near the lower third or in clear
+  negative space. Do not add taglines, release dates, billing blocks, credits,
+  reviews, studio names, ratings, laurels, fake words, pseudo-text, gibberish,
+  or any other readable text.
 
 Context rules:
 - Use the supplied Halupedia context as silent art direction. Prefer exact and
@@ -49,11 +55,11 @@ Composition:
 - Prefer one coherent poster image over a collage of unrelated vignettes.
 
 Avoid:
-- Readable text, movie titles, taglines, credits, billing blocks, studio logos,
-  review quotes, laurels, release dates, fake typography, watermarks, box art,
+- Taglines, credits, billing blocks, review quotes, laurels,
+  release dates, fake typography beyond the exact title, watermarks, box art,
   DVD covers, streaming UI, screenshots, or images that are primarily text.
 - Specific copyrighted movie franchises, recognizable actors, real public
-  figures, real studio branding, or imitation of a living artist.
+  figures, or imitation of a living artist.
 - Excessively modern AI gloss, malformed faces, extra fingers, melted hands,
   generic stock-poster imagery, and subject-agnostic action explosions.
 - Gore, overt nudity, explicit sexual content, sexualized minors, sexual
@@ -84,7 +90,8 @@ silhouettes or symbolic background, composited lighting, atmosphere, rim light,
 genre-appropriate color grade, and strong thumbnail readability. Keep the
 subject specific to the article.
 
-No readable text, titles, taglines, credits, billing blocks, logos, release
-dates, review quotes, UI, screenshots, overt nudity, or explicit sexual
-content.
+If readable title type appears, include the exact title "{{requested_title}}"
+once as the only readable poster text. No taglines, credits, billing blocks,
+release dates, review quotes, UI, screenshots, fake words, pseudo-text,
+gibberish, overt nudity, or explicit sexual content.
 """

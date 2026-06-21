@@ -57,7 +57,7 @@ export interface ArticleImagePresetContent {
   key: string;
   label: string;
   selectionWhen?: string;
-  selectionAvoid?: string;
+  allowText?: boolean;
   system: string;
   user: string;
   path: string;
@@ -149,7 +149,7 @@ function readTomlPromptContent(path: string, key: string, displayPath: string): 
   return {
     key,
     selectionWhen: typeof raw.selection_when === "string" ? raw.selection_when : undefined,
-    selectionAvoid: typeof raw.selection_avoid === "string" ? raw.selection_avoid : undefined,
+    allowText: typeof raw.allow_text === "boolean" ? raw.allow_text : undefined,
     system: typeof raw.system === "string" ? raw.system : "",
     user: typeof raw.user === "string" ? raw.user : "",
     model: raw.model === "light" ? "light" : raw.model === "heavy" ? "heavy" : undefined,
@@ -175,7 +175,7 @@ export function listArticleImagePresetFiles(): ArticleImagePresetContent[] {
 }
 
 export function readArticleImagePresetFile(key: string): ArticleImagePresetContent | null {
-  if (!safeKey(key) || key === "default") return null;
+  if (!safeKey(key) || key === "default" || key === "documentary_photo" || key === "article_image") return null;
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return null;
   return {
@@ -188,12 +188,13 @@ function writeTomlPromptFile(
   path: string,
   system: string,
   user: string,
-  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean } = {},
+  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean; allowText?: boolean } = {},
 ): void {
   const source = [
     `model = "${options.model ?? "light"}"`,
     `thinking = ${options.thinking === true ? "true" : "false"}`,
     `json = ${options.json === true ? "true" : "false"}`,
+    options.allowText === undefined ? "" : `allow_text = ${options.allowText ? "true" : "false"}`,
     "",
     `system = ${tomlMultilineValue(system)}`,
     "",
@@ -207,10 +208,12 @@ export function createArticleImagePresetFile(
   key: string,
   system: string,
   user: string,
-  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean } = {},
+  options: { model?: "heavy" | "light"; thinking?: boolean; json?: boolean; allowText?: boolean } = {},
 ): { error: string } | ArticleImagePresetContent {
   if (!safeKey(key)) return { error: "invalid key" };
-  if (key === "default") return { error: "default preset is reserved" };
+  if (key === "default" || key === "documentary_photo" || key === "article_image") {
+    return { error: "base image preset is reserved" };
+  }
   mkdirSync(ARTICLE_IMAGE_PRESET_DIR, { recursive: true });
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (existsSync(path)) return { error: "preset already exists" };
@@ -225,7 +228,9 @@ export function writeArticleImagePresetFile(
   user: string,
 ): { error: string } | null {
   if (!safeKey(key)) return { error: "invalid key" };
-  if (key === "default") return { error: "default preset is edited through article_image" };
+  if (key === "default" || key === "documentary_photo" || key === "article_image") {
+    return { error: "base image preset is edited through article_image" };
+  }
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return { error: "preset not found" };
   let source = readFileSync(path, "utf8");
@@ -237,7 +242,9 @@ export function writeArticleImagePresetFile(
 
 export function deleteArticleImagePresetFile(key: string): { error: string } | null {
   if (!safeKey(key)) return { error: "invalid key" };
-  if (key === "default") return { error: "default preset cannot be deleted" };
+  if (key === "default" || key === "documentary_photo" || key === "article_image") {
+    return { error: "base image preset cannot be deleted" };
+  }
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return { error: "preset not found" };
   unlinkSync(path);

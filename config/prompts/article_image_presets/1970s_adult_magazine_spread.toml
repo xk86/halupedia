@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves adult entertainment, scandal, nightlife, glamour, celebrity-like figures, eroticized consumer culture, retro lifestyle media, taboo products, intimate social scenes, bachelor-pad luxury, or a subject that benefits from a 1970s adult-magazine editorial treatment."
-selection_avoid = "The article is child-focused, technical, legalistic, tragic, medical, natural-history, screen-based, or needs documentary evidence, formal records, technical imaging, or respectful non-glamour treatment."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a
@@ -29,7 +28,7 @@ Core look:
 - Keep the main subject dominant and article-specific. The magazine design
   should frame the subject, not become generic decor.
 - Use invented unreadable pseudo-text only as page texture. No readable article
-  text, publication names, captions, prices, logos, or real brand marks.
+  text, publication names, captions, or prices.
 
 Context rules:
 - Use the supplied Halupedia context as silent art direction. Prefer exact and
@@ -51,8 +50,8 @@ Composition:
 - Prefer one coherent spread over a collage of multiple magazines.
 
 Avoid:
-- Readable text, readable captions, real magazine names, real logos, real
-  public figures, exact publication replicas, direct brand marks, screenshots,
+- Readable text, readable captions, real
+  public figures, exact publication replicas, screenshots,
   modern internet aesthetics, clean modern fashion photography, futuristic UI,
   title cards, and images that are primarily typography.
 - Imitating a living artist or a specific copyrighted visual franchise.
@@ -83,6 +82,6 @@ spread crop, serif display typography as unreadable texture, ad-layout blocks,
 warm browns, golds, reds, chrome, velvet, wood paneling, shag carpet, page bend,
 ink density, and period lifestyle-editorial glamour.
 
-No readable article text, publication names, captions, prices, logos, real
-brand marks, screenshots, title cards, or modern internet aesthetics.
+No readable article text, publication names, captions, prices, screenshots,
+title cards, or modern internet aesthetics.
 """

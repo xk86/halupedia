@@ -364,6 +364,9 @@ export interface ChatOptions {
   /** Request JSON-mode output — passes `format:"json"` to the API so the
    *  model is constrained to emit valid JSON. Use for structured-output prompts. */
   jsonMode?: boolean;
+  /** Request schema-constrained JSON output. Ollama accepts a JSON Schema object
+   *  in `format`, which is stronger than plain JSON mode for routing decisions. */
+  jsonSchema?: Record<string, unknown>;
   /** Attach images to the user turn (multimodal). OpenAI-compatible format. */
   images?: ChatImageAttachment[];
   /** Internal trace hook: called with the model's reasoning/thinking text when
@@ -474,6 +477,10 @@ function chatResultFields(
     completion_chars: fields.completionChars,
     ...(fields.tokens === undefined ? {} : { tokens: fields.tokens }),
   };
+}
+
+function jsonFormatForOptions(options: ChatOptions): string | Record<string, unknown> | undefined {
+  return options.jsonSchema ?? (options.jsonMode ? "json" : undefined);
 }
 
 function llmErrorFields(role: LlmRole, model: string, status: number, body: string) {
@@ -615,6 +622,7 @@ class OpenAICompatClient {
     const url = ollamaChatUrl(endpoint.baseUrl);
     this.logger.info("llm.chat_request", { ...chatRequestFields(this.role, this.chatConfig, system.length + user.length, options), host: endpoint.hostId });
     const timeoutMs = this.chatConfig.request_timeout_ms ?? 180_000;
+    const format = jsonFormatForOptions(options);
     let response: Response;
     try {
       response = await llmFetch(url, {
@@ -629,7 +637,7 @@ class OpenAICompatClient {
           messages: nativeMessages(system, user, options.images),
           stream: false,
           think: options.thinking ?? false,
-          ...(options.jsonMode ? { format: "json" } : {}),
+          ...(format ? { format } : {}),
           options: this.nativeOptions(),
         }),
       });
@@ -711,6 +719,7 @@ class OpenAICompatClient {
     const startedAt = Date.now();
     const url = ollamaChatUrl(endpoint.baseUrl);
     this.logger.info("llm.stream_request", { ...chatRequestFields(this.role, this.chatConfig, system.length + user.length, options), host: endpoint.hostId });
+    const format = jsonFormatForOptions(options);
     // Idle-based abort: fires when no token has arrived for request_timeout_ms,
     // covering both a hung connection (no headers) and a mid-stream stall. The
     // timer is reset on every chunk so a healthy long generation is never cut.
@@ -741,7 +750,7 @@ class OpenAICompatClient {
           messages: nativeMessages(system, user, options.images),
           stream: true,
           think: options.thinking ?? false,
-          ...(options.jsonMode ? { format: "json" } : {}),
+          ...(format ? { format } : {}),
           options: this.nativeOptions(),
         }),
       });

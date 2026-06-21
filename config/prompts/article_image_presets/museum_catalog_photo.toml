@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about a physical artifact, specimen, device, relic, award, fossil, tool, product, craft object, collection item, or object whose material details matter more than a scene."
-selection_avoid = "The subject is primarily an event, landscape, software interface, public performance, legal proceeding, broad institution, or anything that needs people, motion, environment, or narrative context."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a museum catalog,
@@ -55,7 +54,7 @@ Composition:
   unrelated props.
 
 Avoid:
-- Readable labels, accession numbers, captions, logos, title cards, posters,
+- Readable labels, accession numbers, captions, title cards, posters,
   screenshots, UI, fake typography, glamour-ad reflections, floating objects,
   collage, infographics, staged action scenes, and images that are primarily
   pages or documents.
@@ -88,6 +87,6 @@ lighting: neutral backdrop, tabletop or conservation tray, soft shadows,
 material texture, patina, wear, dust, supports, archive cloth, glass vitrine,
 or collection-storage details. Keep the object clear, tactile, and dominant.
 
-No readable text, labels, accession numbers, logos, captions, title cards,
+No readable text, labels, accession numbers, captions, title cards,
 posters, screenshots, overt nudity, or explicit sexual content.
 """

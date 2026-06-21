@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is abstract, psychological, cosmic, chemically strange, conceptual, dreamlike, identity-bending, impossible-but-editorial, or needs a stylish magazine image rather than literal evidence."
-selection_avoid = "The article is concrete, legal, documentary, period-specific, instructional, screen-based, or would lose clarity if treated as surreal glossy symbolism."
 
 system = """
 Create one high-end conceptual editorial photo-illustration for a Halupedia
@@ -55,7 +54,7 @@ Composition:
   forms. Do not paste them as flat rectangles or make an infographic.
 
 Avoid:
-- Literal side-by-side collages, meme captions, fake headlines, fake logos,
+- Literal side-by-side collages, meme captions, fake headlines,
   fake news branding, text artifacts, extra fingers, malformed hands, melted
   faces, plastic AI skin, generic cyberpunk city backgrounds unless requested,
   cartoon/anime/comic styling unless requested, gore, excessive horror, flat
@@ -96,6 +95,6 @@ gradients, moire-like stripe projections, glitch/data overlays, double exposure,
 chromatic aberration, film grain, and saturated magazine color.
 
 16:9 horizontal hero image, polished long-form editorial aesthetic. No text,
-logos, captions, readable labels, pages, books, posters, screenshots, fake
+captions, readable labels, pages, books, posters, screenshots, fake
 typography, infographic panels, overt nudity, or explicit sexual content.
 """

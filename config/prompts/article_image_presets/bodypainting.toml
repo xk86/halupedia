@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is funny, embarrassing, ceremonial, fan-made, amateur, body-as-canvas, local-fair, protest, dare, beach-party, or otherwise specifically improved by a crude painted stomach image."
-selection_avoid = "The article is serious, tragic, institutional, child-focused, explicit, body-horror, or needs a respectful documentary, archival, or artifact-based image."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a crude painting on
@@ -55,7 +54,7 @@ Avoid:
   catalog polish, erotic posing, fetish framing, pornographic styling,
   explicit nudity, sexualized minors, sexual violence, voyeuristic crops, or
   anything that makes the image feel exploitative instead of awkward/editorial.
-- Readable text, captions, logos, fake typography, screenshots, posters,
+- Readable text, captions, fake typography, screenshots, posters,
   generic fantasy body art, cosplay of real franchises, and imitation of a
   living artist or specific copyrighted visual franchise.
 """
@@ -83,5 +82,5 @@ and amateur documentary-photo energy.
 
 No full-body bodypaint, elegant body-art performance, explicit nudity, erotic
 posing, fetish framing, sexualized minors, readable text, labels, captions,
-logos, screenshots, or explicit sexual content.
+screenshots, or explicit sexual content.
 """

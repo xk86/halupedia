@@ -1,8 +1,8 @@
 model = "light"
 thinking = false
 json = false
+allow_text = true
 selection_when = "The article is substantially about software, records systems, databases, maps, dashboards, surveillance viewers, lab instruments, websites, digital archives, computer games, or screen-captured artifacts."
-selection_avoid = "The subject is an ordinary person, place, organization, event, object, ritual, species, conflict, or phenomenon that only incidentally could appear in a file, report, registry, or website."
 
 system = """
 Create one editorial hero image for a Halupedia subject that looks like a
@@ -32,8 +32,12 @@ Core look:
   forms, old browser frames, intranet admin tools, Access-like databases,
   lab-equipment software, municipal GIS viewers, CCTV clients, or clunky
   vertical-industry applications.
-- Use invented interface marks and unreadable pseudo-text only as texture. No
-  readable words, real logos, real product UI, real brands, or legible data.
+- If the interface uses readable text, it may contain the exact subject name
+  "{{requested_title}}" once in a title bar, selected row, header field, or
+  record name. Any other visible text must be exact text copied from the
+  supplied Halupedia context. Leave menus, data values, paragraphs, table cells,
+  labels, and small interface text blank, icon-only, cropped, blurred, or
+  redacted rather than fake. Do not add invented legible factual data.
 - Choose the screenshot source from the article context: a desktop records
   tool, public-works database, museum catalog app, government form, old
   intranet page, spreadsheet-like grid, security dashboard, lab instrument,
@@ -67,8 +71,8 @@ Composition:
 Avoid:
 - Sci-fi holograms, futuristic HUDs, cyberpunk dashboards, glowing transparent
   interfaces, spaceship consoles, fantasy game UI, slick neon monitor walls,
-  readable real text, real application names, real logos, exact replicas of
-  commercial interfaces, fake news headlines, memes, social media posts,
+  invented readable claims, fake words, pseudo-text, gibberish, exact replicas
+  of commercial interfaces, fake news headlines, memes, social media posts,
   typography-first title cards, posters, photoreal scenes with no screen
   capture logic, and illegible clutter.
 - Gore, excessive horror, overt nudity, explicit sexual content, sexualized
@@ -100,7 +104,10 @@ scrollbars, blue selection highlights, tiny utility buttons, map panes, camera
 feed panes, lab-instrument panes, old anti-aliased fonts, pixels, compression,
 and rasterized interface detail.
 
-Use only invented unreadable pseudo-text as texture. No readable real text,
-real logos, real app names, sci-fi holograms, futuristic HUDs, neon cyberpunk
-dashboards, captions, title cards, overt nudity, or explicit sexual content.
+If readable interface text appears, use the exact subject name
+"{{requested_title}}" once and otherwise only exact text copied from the
+supplied context. Leave all other text areas blank, icon-only, cropped,
+blurred, or redacted. No fake words, pseudo-text, gibberish, sci-fi holograms,
+futuristic HUDs, neon cyberpunk dashboards, captions, title cards, overt
+nudity, or explicit sexual content.
 """

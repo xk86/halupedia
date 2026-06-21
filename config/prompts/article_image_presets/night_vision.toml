@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves darkness, searches, surveillance, nocturnal activity, field observation, trespass, wildlife, conflict, hazards, hidden movement, or a subject best seen through low-light imaging."
-selection_avoid = "The subject needs color accuracy, daylight detail, formal archive treatment, clean illustration, technical diagrams, or a medium where darkness and low-light artifacts would distract from recognition."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of night
@@ -48,7 +47,7 @@ Composition:
   do not make the image primarily a UI screenshot.
 
 Avoid:
-- Readable overlays, timestamps, crosshairs, real camera UI, real logos,
+- Readable overlays, timestamps, crosshairs,
   futuristic HUDs, neon cyberpunk, clean cinematic horror lighting, daylight
   photography with a green filter, posters, title cards, screenshots, fake
   captions, gore, pornographic framing, overt nudity, explicit sexual content,
@@ -78,6 +77,6 @@ Use green phosphor or monochrome low-light imaging, heavy gain noise, bloom,
 vignetting, soft focus, crushed shadows, sensor speckle, compression, and
 limited depth cues. Preserve darkness while keeping the main subject readable.
 
-No readable overlays, timestamps, labels, logos, crosshairs, screenshots,
+No readable overlays, timestamps, labels, crosshairs, screenshots,
 futuristic HUDs, gore, overt nudity, or explicit sexual content.
 """

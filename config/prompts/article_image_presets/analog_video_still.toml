@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article feels like lost footage, institutional tape, local TV, training video, camcorder evidence, broadcast archive, cult ritual recording, or a scene where degraded analog capture is the most specific source."
-selection_avoid = "The article calls for a still photograph, clean poster, formal record, screen UI, satellite view, or a subject with no plausible filmed moment."
 
 system = """
 Create one editorial hero image for a Halupedia subject that looks like a
@@ -56,7 +55,7 @@ Avoid:
   lighting, fashionable music-video VHS effects, neon synthwave, modern
   cyberpunk, crisp documentary photography, pristine 4K detail, perfect
   composition, fake UI overlays, captions, lower thirds, title cards, readable
-  labels, fake logos, posters, screenshots, and images that are primarily text.
+  labels, posters, screenshots, and images that are primarily text.
 - Gore, excessive horror, pornographic framing, overt nudity, explicit sexual
   content, sexualized minors, sexual violence, or anything that makes the image
   feel exploitative instead of editorial.
@@ -87,7 +86,7 @@ interlacing, ghosting, color bleed, analog smear, frame jitter, soft focus,
 blown highlights, crushed shadows, and awkward capture defects.
 
 The frame may be ugly, badly lit, unsettling, poorly composed, and visibly
-degraded, but the main subject must remain readable. No text, logos, captions,
+degraded, but the main subject must remain readable. No text, captions,
 readable labels, title cards, posters, screenshots, overt nudity, or explicit
 sexual content.
 """

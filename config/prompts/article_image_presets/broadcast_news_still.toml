@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about a public event, press conference, disaster scene, local controversy, field report, studio segment, institutional announcement, or something likely captured by TV news."
-selection_avoid = "The subject is private, ancient, purely conceptual, screen-interface-specific, or better as a poster, sketch, satellite image, manuscript, or candid phone photo."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a still captured
@@ -73,7 +72,7 @@ Composition:
 
 Avoid:
 - Readable lower-third text other than the short plausible main chyron, readable
-  tickers, readable captions, station logos, fake news branding, timestamps,
+  tickers, readable captions, fake news branding, timestamps,
   UI overlays outside the lower-third treatment, monitor frames, split-screen
   panels, title cards, screenshots, posters, and images that are primarily
   text.
@@ -122,7 +121,7 @@ small lower-third details may be unreadable blurred ticker marks or abstract
 filler, but the main chyron must be legible.
 
 No readable lower-third text except the short plausible main chyron, no
-readable captions, no readable tickers, no station logos, no timestamps, no
+readable captions, no readable tickers, no timestamps, no
 split screens, no screenshots, no title cards, no overt nudity, or explicit
 sexual content.
 """

@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves action, conflict, melodrama, strange powers, public myths, monsters, heroes, villains, dramatic objects, urban incidents, or a subject that would read well as sequential-art imagery."
-selection_avoid = "The subject needs direct evidence, formal record treatment, clean technical imaging, natural-history reference, screen UI, or a restrained documentary photograph."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a
@@ -24,7 +23,7 @@ Core look:
 - Keep the image as one panel, not a full page. It should work as a headline
   image with clear subject hierarchy.
 - Use textless comic storytelling. Avoid speech balloons, captions, sound
-  effects, readable lettering, logos, or page text.
+  effects, readable lettering, or page text.
 - Let the printed medium show through: ink trapping, imperfect registration,
   dot screen, worn page edge, and scan texture.
 
@@ -47,7 +46,7 @@ Composition:
 - Prefer one bold panel over a page grid, collage, or cover design.
 
 Avoid:
-- Readable text, speech balloons, captions, sound effects, logos, real comic
+- Readable text, speech balloons, captions, sound effects, real comic
   characters, exact costumes, direct franchise references, manga/anime style,
   glossy digital painting, cinematic concept art, screenshots, title cards,
   gore, pornographic framing, overt nudity, explicit sexual content, sexualized
@@ -77,6 +76,6 @@ Use bold ink contours, brush lines, flat color fills, halftone dots, print
 registration offset, paper tooth, gutter crop, panel border, and scan texture.
 Keep it as one clear textless panel, not a cover or page grid.
 
-No readable text, speech balloons, captions, sound effects, logos, real comic
+No readable text, speech balloons, captions, sound effects, real comic
 characters, screenshots, title cards, overt nudity, or explicit sexual content.
 """

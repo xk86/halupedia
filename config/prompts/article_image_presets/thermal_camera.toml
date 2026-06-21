@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves heat, bodies, animals, vehicles, buildings, night operations, searches, hazards, energy, hidden presence, surveillance, field observation, or anything best revealed by infrared thermal imaging."
-selection_avoid = "The subject needs visible color, fine surface detail, readable identity, historical print treatment, formal portraiture, or a medium where heat signatures would not add useful article-specific information."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a
@@ -47,7 +46,7 @@ Composition:
   acceptable, but the image should not become a software screenshot.
 
 Avoid:
-- Readable overlays, readable numbers, real logos, real camera UI, futuristic
+- Readable overlays, readable numbers, futuristic
   holograms, cyberpunk dashboards, normal full-color photography, clean
   infographics, posters, title cards, screenshots, fake captions, gore,
   pornographic framing, overt nudity, explicit sexual content, sexualized
@@ -78,6 +77,6 @@ zones, low spatial detail, compression noise, edge halos, lens falloff, and
 unreadable instrument artifacts. The subject should be legible through heat
 signatures rather than normal visible-light detail.
 
-No readable overlays, numbers, labels, logos, captions, screenshots, futuristic
+No readable overlays, numbers, labels, captions, screenshots, futuristic
 HUDs, gore, overt nudity, or explicit sexual content.
 """

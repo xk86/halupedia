@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves classrooms, training sessions, office briefings, diagrams, obsolete instruction, bureaucratic explanation, safety lectures, amateur charts, or ideas best shown as projected acetate."
-selection_avoid = "The subject needs a direct scene, real person, archival photo, screen capture, dramatic poster, or detailed physical rendering rather than a teaching aid."
 
 system = """
 Create one editorial hero image for a Halupedia subject as if it were captured
@@ -54,7 +53,7 @@ Composition:
 Avoid:
 - Readable labels, equations, paragraphs, title cards, modern PowerPoint
   slides, clean vector infographics, LCD projector looks, screenshots, fake
-  UI, logos, school names, real-world seals, and images that are primarily
+  UI, school names, real-world seals, and images that are primarily
   text.
 - Slick contemporary graphic design, neon cyberpunk, glossy 3D, anime, comic
   styling, and pristine digital illustration.
@@ -87,6 +86,6 @@ fingerprints, smudges, curled plastic edges, projected light spill, keystone
 distortion, color fringing, translucent stacked diagrams, and a classroom or
 briefing-room projection feel. The subject must remain readable without text.
 
-No readable labels, equations, slide titles, logos, screenshots, modern digital
+No readable labels, equations, slide titles, screenshots, modern digital
 slides, title cards, overt nudity, or explicit sexual content.
 """

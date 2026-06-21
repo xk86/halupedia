@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves evidence, crimes, scandals, disappearances, accidents, strange objects, contested incidents, recovered items, official investigations, or procedural documentation."
-selection_avoid = "The subject is celebratory, mythic, purely natural-history, screen-based, romantic, promotional, scenic, or needs respectful portraiture rather than an evidentiary object or scene."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a police evidence,
@@ -54,7 +53,7 @@ Composition:
 Avoid:
 - Gore, exposed wounds, bodies, sexualized framing, sensational crime-scene
   drama, readable case numbers, readable labels, readable documents, police
-  logos, real-world badges, fake news text, screenshots, posters, title cards,
+  fake news text, screenshots, posters, title cards,
   cinematic noir lighting, glossy thriller-poster composition, and images that
   are primarily text.
 - Overt nudity, explicit sexual content, sexualized minors, sexual violence, or
@@ -86,6 +85,6 @@ evidence bag, ruler or scale marks as unreadable texture, marker shapes,
 storage tray, gloved hand at the edge, concrete floor, tabletop, or case-room
 lighting. Keep the main evidence clear and dominant.
 
-No readable text, case numbers, labels, logos, badges, captions, documents,
+No readable text, case numbers, labels, badges, captions, documents,
 screenshots, gore, bodies, overt nudity, or explicit sexual content.
 """

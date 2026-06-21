@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves trials, inquiries, hearings, scandals, testimony, disciplinary boards, public accountability, disputed events, contested inventions, or evidence presented to officials."
-selection_avoid = "There is no plausible proceeding or public-record angle, or the article needs direct field evidence, a screen interface, poster art, aerial view, or physical artifact image."
 
 system = """
 Create one editorial hero image for a Halupedia subject in the style of a
@@ -50,7 +49,7 @@ Composition:
 
 Avoid:
 - Readable text, court seals, real-world flags, real public figures, fake news
-  branding, captions, labels, title cards, logos, screenshots, comic-book
+  branding, captions, labels, title cards, screenshots, comic-book
   speech bubbles, manga/anime, polished courtroom-drama cinematography, and
   images that are primarily documents.
 - Gore, excessive horror, pornographic framing, overt nudity, explicit sexual
@@ -83,6 +82,6 @@ subject should feel observed during a fictional public proceeding, tribunal,
 council hearing, disciplinary board, inquiry, witness testimony, or evidence
 presentation.
 
-No readable text, seals, labels, logos, captions, screenshots, title cards,
+No readable text, seals, labels, captions, screenshots, title cards,
 real public figures, overt nudity, or explicit sexual content.
 """

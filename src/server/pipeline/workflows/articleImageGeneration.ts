@@ -2,9 +2,9 @@ import type { WorkflowDefinition } from "../runtime/graph";
 import type { PipelineDeps } from "../deps";
 import {
   generateArticleImageAttachmentNode,
-  judgeArticleImagePresetDefaultNode,
+  judgeArticleImagePresetFinalNode,
   selectArticleImagePresetNode,
-  selectSpecializedArticleImagePresetNode,
+  selectChallengerArticleImagePresetNode,
 } from "../nodes/articleImageGeneration";
 
 export const articleImageGenerationWorkflow: WorkflowDefinition<PipelineDeps> = {
@@ -13,19 +13,19 @@ export const articleImageGenerationWorkflow: WorkflowDefinition<PipelineDeps> = 
   edges: [
     { node: selectArticleImagePresetNode },
     {
-      node: selectSpecializedArticleImagePresetNode,
+      node: selectChallengerArticleImagePresetNode,
       when: (state, deps) =>
         deps.runtime.app.images.generation.auto_preset_multipass &&
         state.input.imagePromptKey === "auto" &&
-        state.initialImagePromptKey === "default",
+        Boolean(state.initialImagePromptKey),
     },
     {
-      node: judgeArticleImagePresetDefaultNode,
+      node: judgeArticleImagePresetFinalNode,
       when: (state, deps) =>
         deps.runtime.app.images.generation.auto_preset_multipass &&
         state.input.imagePromptKey === "auto" &&
-        state.initialImagePromptKey === "default" &&
-        Boolean(state.specializedImagePromptKey),
+        Boolean(state.initialImagePromptKey) &&
+        Boolean(state.challengerImagePromptKey),
     },
     { node: generateArticleImageAttachmentNode },
   ],

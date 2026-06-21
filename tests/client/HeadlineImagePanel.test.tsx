@@ -228,7 +228,7 @@ describe("HeadlineImagePanel", () => {
       if (String(url).endsWith("/article-image-prompts")) {
         return jsonResponse({
           prompts: [
-            { key: "default", label: "default" },
+            { key: "documentary_photo", label: "documentary_photo" },
             { key: "psychedelic_editorial", label: "psychedelic_editorial" },
           ],
         });
@@ -270,7 +270,7 @@ describe("HeadlineImagePanel", () => {
       if (String(url).endsWith("/article-image-prompts")) {
         return jsonResponse({
           prompts: [
-            { key: "default", label: "default" },
+            { key: "documentary_photo", label: "documentary_photo" },
             { key: "psychedelic_editorial", label: "psychedelic_editorial" },
           ],
         });

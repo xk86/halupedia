@@ -29,6 +29,7 @@ interface MediaSearchResult {
 interface ImagePromptOption {
   key: string;
   label: string;
+  allowText?: boolean;
 }
 
 interface ImageAspectRatioOption {
@@ -36,6 +37,11 @@ interface ImageAspectRatioOption {
   label: string;
   size: string;
 }
+
+const DEFAULT_IMAGE_PRESET: ImagePromptOption = {
+  key: "documentary_photo",
+  label: "documentary_photo",
+};
 
 const DEFAULT_IMAGE_ASPECT_RATIOS: ImageAspectRatioOption[] = [
   { key: "landscape", label: "landscape", size: "1088x624" },
@@ -62,9 +68,9 @@ export function HeadlineImagePanel({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imagePrompts, setImagePrompts] = useState<ImagePromptOption[]>([
-    { key: "default", label: "default" },
+    DEFAULT_IMAGE_PRESET,
   ]);
-  const [selectedPresetKey, setSelectedPresetKey] = useState("default");
+  const [selectedPresetKey, setSelectedPresetKey] = useState(DEFAULT_IMAGE_PRESET.key);
   const [aspectRatios, setAspectRatios] = useState<ImageAspectRatioOption[]>(
     DEFAULT_IMAGE_ASPECT_RATIOS,
   );
@@ -87,7 +93,7 @@ export function HeadlineImagePanel({
         const prompts =
           Array.isArray(body.prompts) && body.prompts.length > 0
             ? body.prompts
-            : [{ key: "default", label: "default" }];
+            : [DEFAULT_IMAGE_PRESET];
         setImagePrompts(prompts);
         setSelectedPresetKey((current) =>
           prompts.some((prompt) => prompt.key === current)

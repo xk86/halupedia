@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article concerns a historical figure, institution, myth, memorial, public commission, sacred or civic image, museum object, ceremonial scene, or subject that suits a painted reproduction."
-selection_avoid = "The subject is specifically photographic, screen-based, surveillance-derived, modern candid, instructional, or needs a technological/instrumental capture."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a painted image:
@@ -51,7 +50,7 @@ Composition:
 Avoid:
 - Imitating a living artist, named contemporary painter, or specific
   copyrighted visual franchise.
-- Readable text, museum labels, captions, signatures, fake plaques, logos,
+- Readable text, museum labels, captions, signatures, fake plaques,
   title cards, screenshots, posters, and images that are primarily typography.
 - Generic fantasy cover art, anime, comic styling, clean vector art, or glossy
   digital concept painting unless the article context strongly calls for it.
@@ -84,6 +83,6 @@ craquelure, worn surface, and a fitting painting mode such as portrait,
 historical scene, landscape, civic mural, still life, object study, or public
 commission. Keep the subject specific and readable.
 
-No readable text, labels, captions, signatures, logos, title cards,
+No readable text, labels, captions, signatures, title cards,
 screenshots, overt nudity, or explicit sexual content.
 """

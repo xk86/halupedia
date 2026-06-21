@@ -2,7 +2,6 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves civic events, disasters, arrests, public ceremonies, scandals, sightings, old local news, historical controversies, municipal records, or a scene best remembered through a printed newspaper photograph."
-selection_avoid = "The subject needs color accuracy, object detail, clean documentary photography, screen UI, poster art, technical imaging, or a non-news artifact rather than a degraded printed press image."
 
 system = """
 Create one editorial hero image for a Halupedia subject as a degraded newspaper
@@ -52,7 +51,7 @@ Composition:
 
 Avoid:
 - Readable headlines, readable captions, readable article text, real newspaper
-  names, real logos, real public figures, exact replicas of known publications,
+  names, real public figures, exact replicas of known publications,
   fake dates, clean modern monochrome photography, glossy magazine treatment,
   posters, screenshots, title cards, comic art, anime, gore, pornographic
   framing, overt nudity, explicit sexual content, sexualized minors, sexual
@@ -84,6 +83,6 @@ bleed, muddy shadows, crushed contrast, cheap paper fiber, yellowed or gray
 paper, registration wobble, fold marks, scanner moire, uneven crop, and
 low-resolution press-photo detail. Keep the subject legible.
 
-No readable headlines, captions, article text, newspaper names, logos, fake
+No readable headlines, captions, article text, newspaper names, fake
 dates, screenshots, title cards, overt nudity, or explicit sexual content.
 """

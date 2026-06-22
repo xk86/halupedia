@@ -1743,7 +1743,7 @@ describe("http", () => {
     assert.equal(revisions[1].headlineMediaCaption, "Removed caption");
   });
 
-  test("POST .../image/upload with raw image/* body stores and attaches image", async (t) => {
+  test("POST /api/article/:slug/image/upload with raw image/* body stores and attaches image", async (t) => {
     const s = await makeTestServer(); t.after(s.cleanup);
     const r = await s.go("/api/article/aspirin/image/upload", { method: "POST", headers: { "content-type": "image/png" }, body: TINY_PNG });
     if (r.status !== 200) {
@@ -1757,6 +1757,42 @@ describe("http", () => {
     assert.equal(body.isNew, true);
     const check = await (await s.go("/api/article/aspirin/image")).json() as any;
     assert.equal(check.image?.id, body.mediaId);
+  });
+
+  test("POST /api/article/:slug/image/upload keeps media id after generated caption", async (t) => {
+    const s = await makeTestServer(new FakeLlm([
+      "A caption-derived title that used to rename uploaded media.",
+      JSON.stringify({ caption: "Generated caption" }),
+    ]));
+    t.after(s.cleanup);
+
+    const r = await s.go("/api/article/aspirin/image/upload", { method: "POST", headers: { "content-type": "image/png" }, body: TINY_PNG });
+    if (r.status !== 200) {
+      const b = await r.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+    }
+    assert.equal(r.status, 200, `unexpected status: ${r.status}`);
+    const body = await r.json() as any;
+    assert.match(body.mediaId, /^img-/);
+
+    for (let i = 0; i < 20; i += 1) {
+      const mediaDb = openMediaDatabase(s.mediaDatabasePath);
+      const record = getMediaById(mediaDb, body.mediaId);
+      mediaDb.close();
+      if (record?.description === "A caption-derived title that used to rename uploaded media.") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const mediaDb = openMediaDatabase(s.mediaDatabasePath);
+    const originalRecord = getMediaById(mediaDb, body.mediaId);
+    const renamedRecord = getMediaById(mediaDb, "a-captionderived-title-that-used-to");
+    mediaDb.close();
+    assert.equal(originalRecord?.description, "A caption-derived title that used to rename uploaded media.");
+    assert.equal(renamedRecord, null);
+
+    const check = await (await s.go("/api/article/aspirin/image")).json() as any;
+    assert.equal(check.image?.id, body.mediaId);
+    assert.equal(check.image?.articleCaption, "Generated caption");
   });
 
   test("POST .../image/upload with multipart form-data works", async (t) => {
@@ -1998,10 +2034,6 @@ describe("pipeline-nodes", () => {
 
     const patch = await generateImageCaptionNode.run(state as any, depsWithMedia as any);
     assert.ok(patch.imageCaptionResult);
-    // titleSlug is derived from the first words of the (plain-prose) description —
-    // see captionImage.ts, which slugifies the response rather than parsing JSON
-    // (image_description.toml sets json = false).
-    assert.equal(patch.imageCaptionResult.titleSlug, "a-fictional-compound-used-in-metallurgy");
     assert.equal(patch.imageCaptionResult.description, description);
 
     // Verify no vision images were attached (text-only model)
@@ -2020,7 +2052,7 @@ describe("pipeline-nodes", () => {
     const deps = { ...makeDeps(db, new FakeLlm()), mediaDb };
     const state = {
       ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "img-aabbcc112233" }),
-      imageCaptionResult: { titleSlug: "nice-slug", description: "A nice image.", articleCaption: "Sidebar caption text." },
+      imageCaptionResult: { description: "A nice image.", articleCaption: "Sidebar caption text." },
     };
 
     persistImageCaptionNode.run(state as any, deps as any);
@@ -2070,7 +2102,7 @@ describe("pipeline-nodes", () => {
     const state = {
       ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "some-img" }),
       loadedArticle: { slug: "test-article", canonicalSlug: "test-article", title: "Test Article", body: "# Test\n\nBody.", summary: "", generatedAt: Date.now() },
-      imageCaptionResult: { titleSlug: "some-img", description: "A test image description." },
+      imageCaptionResult: { description: "A test image description." },
     };
     const patch = await generateArticleCaptionNode.run(state as any, deps as any);
     assert.ok(patch.imageCaptionResult);
@@ -2086,7 +2118,7 @@ describe("pipeline-nodes", () => {
       override async chat() { throw new Error("LLM error"); }
     }
     const deps = makeDeps(db, new ThrowingLlm());
-    const original = { titleSlug: "some-img", description: "A description." };
+    const original = { description: "A description." };
     const state = {
       ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "some-img" }),
       loadedArticle: { slug: "test-article", canonicalSlug: "test-article", title: "Test Article", body: "# Test\n\nBody.", summary: "", generatedAt: Date.now() },

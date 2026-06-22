@@ -98,7 +98,7 @@ import {
   type InfoboxData,
   type SidebarOperation,
 } from "./db";
-import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
+import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, listMedia, listMediaRevisions } from "./mediaDb";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -5010,18 +5010,6 @@ export async function createApp(options: CreateAppOptions = {}) {
               logger.info("image.caption_stale_attachment", { slug: articleSlug, mediaId });
               return;
             }
-            // Rename the temp id (img-xxxx) to the title_slug from the description
-            // pipeline. Only at ingest — never during regeneration.
-            const titleSlug = result.state.imageCaptionResult?.titleSlug;
-            if (titleSlug && titleSlug !== mediaId) {
-              const renamed = updateMediaId(mediaDb, mediaId, titleSlug);
-              if (renamed) {
-                const articleCaption = result.state.imageCaptionResult?.articleCaption ?? "";
-                upsertArticleHeadlineMedia(db, articleSlug, titleSlug, articleCaption);
-                updateLatestArticleRevisionMediaSnapshot(db, articleSlug, titleSlug, articleCaption);
-                logger.info("media.renamed_after_ingest", { from: mediaId, to: titleSlug });
-              }
-            }
             invalidateArticleHtml(articleSlug);
             // Fire post-process so the infobox regenerates with the new image
             // context — but only when the article row actually exists. If the
@@ -5031,7 +5019,6 @@ export async function createApp(options: CreateAppOptions = {}) {
               logger.info("image.post_process_deferred_no_article", { slug: articleSlug, mediaId });
               return;
             }
-            const finalSlug = titleSlug && titleSlug !== mediaId ? titleSlug : mediaId;
             trackGeneration(
               runWorkflow(postProcessWorkflow, {
                 input: {
@@ -5044,7 +5031,7 @@ export async function createApp(options: CreateAppOptions = {}) {
                 recorder: getTraceRecorder(runtime.app.pipeline.trace),
                 logger,
               }).then(() => {
-                logger.info("image.post_process_done", { slug: articleSlug, mediaId: finalSlug });
+                logger.info("image.post_process_done", { slug: articleSlug, mediaId });
               }).catch(() => {}),
             );
           } else {

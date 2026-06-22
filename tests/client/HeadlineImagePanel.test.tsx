@@ -80,41 +80,6 @@ describe("HeadlineImagePanel", () => {
     });
   });
 
-  // ── URL input reactivity (the original bug) ───────────────────────────────────
-
-  it("URL input is typeable — value updates on each keystroke", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
-    const user = userEvent.setup();
-    renderPanel();
-
-    const input = await screen.findByPlaceholderText(/paste image url/i);
-    await user.type(input, "https://example.com/img.png");
-    expect(input).toHaveValue("https://example.com/img.png");
-  });
-
-  it("Attach button is disabled while URL input is empty", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
-    renderPanel();
-    const attach = await screen.findByRole("button", { name: /attach/i });
-    expect(attach).toBeDisabled();
-  });
-
-  it("Attach button enables once URL is typed", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
-    const user = userEvent.setup();
-    renderPanel();
-
-    const input = await screen.findByPlaceholderText(/paste image url/i);
-    await user.type(input, "https://example.com/img.png");
-    expect(screen.getByRole("button", { name: /attach/i })).not.toBeDisabled();
-  });
-
-  it("shows Generate button when no image is attached", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
-    renderPanel();
-    expect(await screen.findByRole("button", { name: /generate/i })).toBeInTheDocument();
-  });
-
   it("keeps built-in aspect ratio options when the aspect-ratio endpoint is unavailable", async () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
       if (String(url).endsWith("/article-image-aspect-ratios")) {

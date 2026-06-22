@@ -101,7 +101,11 @@ import {
   type SidebarOperation,
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
-import { createRagRuntime, type RagRuntime } from "./rag";
+import {
+  createRagRuntime,
+  registerRagAdminRoutes,
+  type RagRuntime,
+} from "./rag";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -3582,6 +3586,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   registerPipelineAdminRoutes(app, () => runtime.app.pipeline.trace, () => buildPipelineDeps());
+  registerRagAdminRoutes(app, () => rag, () => runtime.app.rag.min_score);
 
   app.get("/api/admin/overview", (c) => {
     const modelConfigs = {

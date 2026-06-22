@@ -9,6 +9,7 @@ import { PromptEditorPane } from "./admin/panes/PromptEditorPane";
 import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
 import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
 import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
+import { RagTesterPane } from "./admin/panes/RagTesterPane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { LiveLlmView } from "./admin/LiveLlmViews";
@@ -531,6 +532,8 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
       </div>
 
       <div className="grid [grid-auto-flow:row_dense] grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-3">
+        <RagTesterPane />
+
         <PipelinesPane
           workflows={pipelineWorkflows}
           runs={pipelineRuns}

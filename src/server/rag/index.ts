@@ -40,3 +40,4 @@ export {
   type RagRuntime,
   type RagRuntimeOptions,
 } from "./runtime";
+export { registerRagAdminRoutes } from "./adminRoutes";

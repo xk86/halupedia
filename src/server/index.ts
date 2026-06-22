@@ -582,11 +582,12 @@ function normalizeArticleImagePresetKey(value: string | undefined): string {
 
 function listArticleImagePromptOptions() {
   return [
-    { key: "documentary_photo", label: "documentary_photo", allowText: false },
+    { key: "documentary_photo", label: "documentary_photo", allowText: false, recommendedAspectRatios: [] },
     ...listArticleImagePresetFiles().map((preset) => ({
       key: preset.key,
       label: preset.label,
       allowText: preset.allowText === true,
+      recommendedAspectRatios: preset.recommendedAspectRatios,
     })),
   ];
 }
@@ -600,6 +601,8 @@ function readArticleImagePromptSelection(key: string) {
       ...meta,
       key: "documentary_photo",
       label: "documentary_photo",
+      allowText: false,
+      recommendedAspectRatios: [],
     };
   }
   const preset = readArticleImagePresetFile(presetKey);

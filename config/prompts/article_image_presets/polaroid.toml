@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves private snapshots, parties, family records, field evidence, disappearances, youth culture, informal rituals, amateur discovery, personal archives, or a subject that benefits from instant-film intimacy."
+recommended_aspect_ratios = ["square"]
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of an
@@ -36,7 +37,7 @@ Context rules:
   like a discovered personal snapshot tied to the article.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer square composition for the instant-film photo area, with border or surrounding surface used as needed by the requested frame.
 - Place one dominant instant photograph within the frame, using border, table,
   folder, wall, or shadow as negative space.
 - Leave plausible headline negative space in the instant-photo border, tabletop,

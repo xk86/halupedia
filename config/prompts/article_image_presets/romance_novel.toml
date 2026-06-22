@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves melodrama, lovers, longing, seduction-as-comedy, sentimental rivalry, gothic estates, campy passion, scandalous relationships, or would benefit from earnest paperback excess."
+recommended_aspect_ratios = ["poster"]
 
 system = """
 Create one editorial hero image for a Halupedia subject as an embarrassingly
@@ -42,7 +43,7 @@ Context rules:
   context-specific romance-cover interpretation.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer a portrait paperback-cover composition when the requested aspect ratio allows it; otherwise adapt the cover tableau cleanly to the requested frame.
 - Use a cover-like central couple, single yearning figure, dramatic object, or
   symbolic landscape. Compose with sweeping diagonals, soft vignettes, glowing
   sky, and decorative foreground shapes.

@@ -3,6 +3,7 @@ thinking = false
 json = false
 allow_text = true
 selection_when = "The article involves a person, creature, object, vehicle, team, faction, artifact, product, champion, mascot, specimen, or collectible subject that would work as a printed trading card."
+recommended_aspect_ratios = ["poster"]
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a
@@ -44,7 +45,7 @@ Context rules:
   makes the subject feel most article-specific and collectible.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer a portrait poster composition when the requested aspect ratio allows it; otherwise adapt the card artifact cleanly to the requested frame.
 - Show one dominant trading card or a close crop of one card, with strong
   subject hierarchy and card-material detail.
 - Leave plausible headline negative space in border fields, blank foil,

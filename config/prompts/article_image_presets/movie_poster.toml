@@ -3,6 +3,7 @@ thinking = false
 json = false
 allow_text = true
 selection_when = "The article feels like a fictional film, legend, public myth, dramatic character, threat, romance, monster, spectacle, or cultural phenomenon best represented as theatrical campaign art."
+recommended_aspect_ratios = ["poster"]
 
 system = """
 Create one editorial hero image for a Halupedia subject as a promotional movie
@@ -45,7 +46,7 @@ Context rules:
   campaign image while remaining tied to the article context.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer a portrait poster composition when the requested aspect ratio allows it; otherwise adapt the theatrical key art cleanly to the requested frame.
 - Use dramatic poster hierarchy: central subject, supporting background forms,
   clear silhouette, large sky or atmospheric field, foreground object, or
   staged ensemble.

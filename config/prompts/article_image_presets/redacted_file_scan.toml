@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves dossiers, secrecy, investigations, intelligence records, declassified files, scandals, institutions, disappearances, bureaucracy, conspiracies, or subjects best framed as a redacted archival file."
+recommended_aspect_ratios = ["poster", "portrait"]
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a
@@ -37,7 +38,7 @@ Context rules:
   text.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer a portrait page composition when the redacted artifact is a file page, dossier sheet, form, or clipped investigation record.
 - Frame one dominant scanned file page, clipped photo, censored diagram, or
   redacted record spread with clear subject hierarchy.
 - Leave plausible headline negative space in blank paper, redaction blocks,

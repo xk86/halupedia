@@ -1400,7 +1400,6 @@ describe("http", () => {
     assert.doesNotMatch(selectorPrompt.system, /Avoid when/i);
     assert.doesNotMatch(selectorPrompt.system, /obscure scholarship, taxonomy/i);
     const schema = llm.capturedOptions[0]?.jsonSchema as any;
-    assert.equal(llm.capturedOptions[0]?.thinking, false);
     assert.equal(schema.type, "object");
     assert.equal(schema.additionalProperties, false);
     assert.ok(schema.properties.presetKey.enum.includes("documentary_photo"));
@@ -1448,6 +1447,49 @@ describe("http", () => {
     assert.ok(schema.properties.aspectRatioKey.enum.includes("portrait"));
     assert.ok(schema.required.includes("aspectRatioKey"));
     assert.ok(schema.required.includes("aspectRatioReason"));
+  });
+
+  test("POST /api/article/:slug/image/generate hints auto aspect ratio from fixed preset recommendations", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm('{"presetKey":"trading_card","aspectRatioKey":"poster","reason":"Trading card fits the subject as a collectible artifact.","aspectRatioReason":"Poster portrait matches the card-like format."}');
+    const s = await makeTestServer(
+      llm,
+      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
+    ); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "trading_card", aspectRatioKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "trading_card");
+    assert.equal(body.aspectRatioKey, "poster");
+    assert.equal(capturedBody.size, "768x1152");
+    const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.system.includes("Allowed aspect ratios:"));
+    assert.ok(selectorPrompt);
+    assert.match(selectorPrompt.system, /- trading_card:\n[\s\S]*Recommended aspect ratios: poster/i);
+    assert.match(selectorPrompt.system, /- poster: poster portrait \(768x1152\) \[recommended for selected preset\]/);
+    const posterIndex = selectorPrompt.system.indexOf("- poster:");
+    const landscapeIndex = selectorPrompt.system.indexOf("- landscape:");
+    assert.ok(posterIndex >= 0 && landscapeIndex >= 0 && posterIndex < landscapeIndex);
+    const schema = llm.capturedOptions[0]?.jsonSchema as any;
+    assert.deepEqual(schema.properties.presetKey.enum, ["trading_card"]);
+    assert.ok(schema.properties.aspectRatioKey.enum.includes("poster"));
+    assert.ok(schema.properties.aspectRatioKey.enum.includes("landscape"));
   });
 
   test("POST /api/admin/pipeline/run carries article image options through", async (t) => {

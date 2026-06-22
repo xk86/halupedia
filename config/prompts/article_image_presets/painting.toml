@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article concerns a historical figure, institution, myth, memorial, public commission, sacred or civic image, museum object, ceremonial scene, or subject that suits a painted reproduction."
+recommended_aspect_ratios = ["landscape", "portrait"]
 
 system = """
 Create one editorial hero image for a Halupedia subject as a painted image:
@@ -39,7 +40,7 @@ Context rules:
   that gives the clearest article hero image.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer landscape or portrait composition depending on whether the article is better served by a scene, place, object study, or central figure.
 - Use strong painted composition: clear subject hierarchy, controlled palette,
   deliberate light, readable silhouette, and atmospheric negative space.
 - Leave plausible headline negative space in sky, wall, curtain, tabletop,
@@ -74,7 +75,7 @@ Sidebar/object facts:
 Related world context:
 {{related_context}}
 
-Create a horizontal editorial hero image of the main subject, informed by the
+Create one editorial hero image of the main subject, informed by the
 Halupedia context above, as a painted artifact from the subject's fictional
 world.
 

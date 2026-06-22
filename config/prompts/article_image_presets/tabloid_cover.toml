@@ -3,6 +3,7 @@ thinking = false
 json = false
 allow_text = true
 selection_when = "The article involves scandal, celebrity-like figures, sightings, conspiracies, public feuds, romantic disasters, sensational claims, local myths, nightlife, or events that became trashy mass-media spectacle."
+recommended_aspect_ratios = ["poster"]
 
 system = """
 Create one editorial hero image for a Halupedia subject as a trashy tabloid,
@@ -44,8 +45,7 @@ Context rules:
   tabloid angle specific rather than generic.
 
 Composition:
-- Horizontal 16:9 hero image that crops or frames a tabloid cover as the
-  headline image.
+- Prefer a portrait cover composition when the requested aspect ratio allows it; otherwise crop or frame the tabloid cover cleanly as the headline image.
 - Use one dominant cover subject with loud surrounding blocks, bursts, and
   print artifacts.
 - Leave plausible headline negative space in empty color blocks, shelf shadow,

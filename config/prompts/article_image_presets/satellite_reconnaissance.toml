@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about geography, borders, remote sites, environmental scars, infrastructure, military/intelligence observation, large-scale anomalies, settlements, landscapes, or orbital survey evidence."
+recommended_aspect_ratios = ["wide", "landscape"]
 
 system = """
 Create one editorial hero image for a Halupedia subject as if it were captured

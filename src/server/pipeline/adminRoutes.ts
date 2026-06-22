@@ -152,6 +152,7 @@ export function registerPipelineAdminRoutes(
         user_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).user,
         cot_tokens: countTokens(n.cot_text as string | null),
         response_tokens: countTokens(n.response_text as string | null),
+        rag: parseRagTrace(n.rag_json),
       })),
     });
   });
@@ -231,6 +232,7 @@ export function registerPipelineAdminRoutes(
           user_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).user,
           cot_tokens: countTokens(n.cot_text as string | null),
           response_tokens: countTokens(n.response_text as string | null),
+          rag: parseRagTrace(n.rag_json),
         })),
       },
     });
@@ -281,6 +283,29 @@ function countTokens(text: string | null | undefined): number {
   } catch {
     return 0;
   }
+}
+
+/**
+ * Parse a node's `rag_json` capture and attach tiktoken counts per section, so
+ * the admin RAG view can show — byte-exact and with token sizes — the evidence
+ * and link allowlist the model actually received. Returns null for non-render
+ * nodes (no capture).
+ */
+function parseRagTrace(raw: unknown): Record<string, unknown> | null {
+  const parsed = safeParse(raw);
+  if (!parsed || typeof parsed !== "object") return null;
+  const r = parsed as Record<string, unknown>;
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  return {
+    ...r,
+    tokens: {
+      evidence: countTokens(str(r.evidenceContext)),
+      links: countTokens(str(r.linkAllowlist)),
+      relatedTitles: countTokens(str(r.relatedTitles)),
+      linkHints: countTokens(str(r.linkHints)),
+      vibe: countTokens(str(r.articleVibe)),
+    },
+  };
 }
 
 /**

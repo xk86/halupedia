@@ -165,6 +165,42 @@ interface NodeSpan {
   llm_json_mode?: number | boolean | null;
   llm_image_count?: number | null;
   llm_ttft_ms?: number | null;
+  /** Byte-exact RAG values placed into the prompt (render nodes); server-tokenized. */
+  rag?: RagExactCapture | null;
+}
+
+/**
+ * The exact RAG variable values a render node interpolated into the prompt, with
+ * server-side tiktoken counts. Distinct from the reconstructed view: these are
+ * the literal strings the model received — evidence and link allowlist kept
+ * separate. Surfaced via the `rag_json` trace column at every trace level.
+ */
+interface RagExactCapture {
+  promptKey: string;
+  evidenceContext: string;
+  linkAllowlist: string;
+  relatedTitles: string;
+  linkHints: string;
+  articleVibe: string;
+  retrieval: {
+    strategy?: string;
+    model?: string;
+    host?: string;
+    dimensions?: number;
+    candidates: Array<{
+      slug: string;
+      title: string;
+      score?: number;
+      contentChars: number;
+    }>;
+  };
+  tokens: {
+    evidence: number;
+    links: number;
+    relatedTitles: number;
+    linkHints: number;
+    vibe: number;
+  };
 }
 
 /** An article whose pipeline is still running — sourced from the live
@@ -998,9 +1034,37 @@ interface RagTraceDetail {
   ragTitles: string[];
   backlinks: Array<{ slug: string; title: string }>;
   embedding?: EmbeddingTrace;
+  /** Byte-exact capture (render nodes) — authoritative over the reconstruction. */
+  exact?: RagExactCapture;
 }
 
 function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
+  // Prefer the byte-exact render-node capture when present: it is the literal
+  // text the model received, with server-computed token counts.
+  const exact =
+    node.rag && typeof node.rag === "object" ? (node.rag as RagExactCapture) : undefined;
+  if (exact) {
+    return {
+      promptContext: exact.evidenceContext || undefined,
+      relatedTitlesPrompt: exact.relatedTitles || undefined,
+      promptRefs: exact.linkAllowlist || undefined,
+      displayCount: exact.retrieval.candidates.length,
+      promptRefCount: countPromptRefs(exact.linkAllowlist),
+      sources: [],
+      references: [],
+      ragTitles: [],
+      backlinks: [],
+      embedding: exact.retrieval.strategy
+        ? {
+            strategy: exact.retrieval.strategy,
+            model: exact.retrieval.model,
+            host: exact.retrieval.host,
+            dimensions: exact.retrieval.dimensions,
+          }
+        : undefined,
+      exact,
+    };
+  }
   const patch = asRecord(node.patch);
   const inputs = asRecord(node.inputs);
   const diff = asRecord(node.diff);
@@ -1059,7 +1123,102 @@ function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
   };
 }
 
+/**
+ * Byte-exact RAG view: the literal values a render node placed into the prompt,
+ * with server-side token counts. Evidence and the link allowlist are shown as
+ * separate sections — a reference being linkable does not mean its text was in
+ * the prompt. This is exactly what the model received.
+ */
+function RagExactDetail({ capture }: { capture: RagExactCapture }) {
+  const r = capture.retrieval;
+  const scoreValues = r.candidates
+    .map((c) => c.score)
+    .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
+  const rows = [
+    ["Prompt template", capture.promptKey],
+    ["Retrieval strategy", r.strategy ?? null],
+    ["Embedding model", r.model ?? null],
+    ["Embedding host", r.host ?? null],
+    ["Embedding dims", r.dimensions ? String(r.dimensions) : null],
+    ["Candidate articles", String(r.candidates.length)],
+    [
+      "Score range",
+      scoreValues.length
+        ? `${Math.min(...scoreValues).toFixed(3)}–${Math.max(...scoreValues).toFixed(3)}`
+        : null,
+    ],
+    ["Evidence tokens", `${capture.tokens.evidence.toLocaleString()}t`],
+    ["Link allowlist tokens", `${capture.tokens.links.toLocaleString()}t`],
+  ].filter((row): row is [string, string] => Boolean(row[1]));
+
+  const candidatesText = r.candidates
+    .map((c, i) => {
+      const meta = [
+        `slug: ${c.slug}`,
+        typeof c.score === "number" ? `score: ${c.score.toFixed(3)}` : null,
+        `${c.contentChars.toLocaleString()} chars`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return `${i + 1}. ${c.title}\n   ${meta}`;
+    })
+    .join("\n");
+
+  return (
+    <div className="flex flex-col gap-2" data-testid="trace-detail">
+      <p className="m-0 text-[0.7rem] text-muted-foreground">
+        Byte-exact — the literal RAG values placed into this prompt. Evidence and
+        the link allowlist are separate: a linkable reference does not imply its
+        text was included.
+      </p>
+      <TraceMetadata rows={rows} />
+      {candidatesText && (
+        <PromptSection
+          label={`Candidate articles (${r.candidates.length})`}
+          text={candidatesText}
+        />
+      )}
+      {capture.evidenceContext && (
+        <PromptSection
+          label="Evidence context — sent to model"
+          text={capture.evidenceContext}
+          promptTokens={capture.tokens.evidence}
+        />
+      )}
+      {capture.linkAllowlist && (
+        <PromptSection
+          label="Link allowlist — sent to model"
+          text={capture.linkAllowlist}
+          promptTokens={capture.tokens.links}
+        />
+      )}
+      {capture.relatedTitles && (
+        <PromptSection
+          label="Related titles — sent to model"
+          text={capture.relatedTitles}
+          promptTokens={capture.tokens.relatedTitles}
+        />
+      )}
+      {capture.linkHints && capture.linkHints !== "(none)" && (
+        <PromptSection
+          label="Link hints — sent to model"
+          text={capture.linkHints}
+          promptTokens={capture.tokens.linkHints}
+        />
+      )}
+      {capture.articleVibe && (
+        <PromptSection
+          label="Article vibe — sent to model"
+          text={capture.articleVibe}
+          promptTokens={capture.tokens.vibe}
+        />
+      )}
+    </div>
+  );
+}
+
 function RagDetail({ detail }: { detail: RagTraceDetail }) {
+  if (detail.exact) return <RagExactDetail capture={detail.exact} />;
   const scoreValues = detail.sources
     .map((s) => s.score)
     .filter((s): s is number => typeof s === "number" && Number.isFinite(s));

@@ -178,6 +178,7 @@ import {
   type ReferenceStatus,
   type ReferenceStatusEntry,
 } from "./article";
+import { isCurrentHomepageNews } from "./todaysNews";
 import {
   assembleArticleMarkdownForRender,
   renderArticleDisplayHtml,
@@ -1036,6 +1037,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   // so we don't re-fire on every page load before the infobox is written.
   const autoPostProcessed = new Set<string>();
   const homepageFeaturedImageQueued = new Set<string>();
+  const homepageNewsImageQueued = new Set<string>();
   function notifySidecar(slug: string, event: unknown) {
     const listeners = articleListeners.get(slug);
     if (!listeners) return;
@@ -1895,8 +1897,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (hasHeadlineImage) return;
     if (homepageFeaturedImageQueued.has(featured.slug)) return;
 
+    const article = getArticleByLookup(db, featured.slug);
+    if (!article) {
+      logger.warn("homepage_featured_image.auto_skipped_missing_article", {
+        slug: featured.slug,
+      });
+      return;
+    }
+
     homepageFeaturedImageQueued.add(featured.slug);
-    const title = getArticleByLookup(db, featured.slug)?.title ?? featured.title ?? featured.slug;
+    const title = article.title ?? featured.title ?? featured.slug;
     const imageOp = trackActiveOperation(featured.slug, title, "article.image_generate");
     const imagePromise = runArticleImageGenerationWorkflow(
       featured.slug,
@@ -1925,6 +1935,65 @@ export async function createApp(options: CreateAppOptions = {}) {
     );
   }
 
+  function queueHomepageNewsImageIfMissing(news: { slug: string; title?: string } | null | undefined) {
+    const imageConfigured = runtime.app.images.generation.enabled;
+    const hasHeadlineImage = news?.slug ? Boolean(getArticleHeadlineMedia(db, news.slug)) : false;
+    const autoCheckFields = {
+      slug: news?.slug ?? "",
+      enabled: runtime.app.images.generation.enabled,
+      backend: runtime.app.images.generation.backend,
+      presetKey: "broadcast_news_still",
+      aspectRatioKey: "landscape",
+      configured: imageConfigured,
+      has_headline_image: hasHeadlineImage,
+    };
+    if (imageConfigured) {
+      logger.info("homepage_news_image.auto_check", autoCheckFields);
+    } else {
+      logger.debug("homepage_news_image.auto_check", autoCheckFields);
+    }
+    if (!imageConfigured || !news?.slug) return;
+    if (hasHeadlineImage) return;
+    if (homepageNewsImageQueued.has(news.slug)) return;
+
+    const article = getArticleByLookup(db, news.slug);
+    if (!article) {
+      logger.warn("homepage_news_image.auto_skipped_missing_article", {
+        slug: news.slug,
+      });
+      return;
+    }
+
+    homepageNewsImageQueued.add(news.slug);
+    const title = article.title ?? news.title ?? news.slug;
+    const imageOp = trackActiveOperation(news.slug, title, "article.image_generate");
+    const imagePromise = runArticleImageGenerationWorkflow(
+      news.slug,
+      false,
+      "broadcast_news_still",
+      "landscape",
+      title,
+      imageOp.onNode,
+    );
+    imageOp.register(imagePromise);
+    logger.info("homepage_news_image.auto_queued", { slug: news.slug });
+    trackGeneration(
+      imagePromise
+        .then(() => {
+          logger.info("homepage_news_image.auto_done", { slug: news.slug });
+        })
+        .catch((err) => {
+          logger.warn("homepage_news_image.auto_failed", {
+            slug: news.slug,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          homepageNewsImageQueued.delete(news.slug);
+        }),
+    );
+  }
+
   app.get("/api/health", (c) =>
     c.json({
       ok: true,
@@ -1940,6 +2009,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       nextDelayMs: () => {
         const cached = getHomepageCache(db);
         if (!cached) return 0;
+        if (!isCurrentHomepageNews(cached.todaysNews, runtime.app)) return 0;
         return (
           cached.generatedAt +
           HOMEPAGE_TTL_MS -
@@ -1964,6 +2034,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           await reloadRuntime();
           const payload = await ensureHomepageCache(buildPipelineDeps());
           queueHomepageFeaturedImageIfMissing(payload.featured);
+          queueHomepageNewsImageIfMissing(payload.todaysNews);
           logger.info("homepage.refresh_done", {
             facts: payload.didYouKnow.length,
             featured: payload.featured?.slug ?? "",
@@ -2023,27 +2094,41 @@ export async function createApp(options: CreateAppOptions = {}) {
     },
   });
 
-  /** Attach `imageId`/`imageCaption` (headline image, when present) to a featured-article payload. */
-  function withFeaturedImage<T extends { featured: { slug: string } | null }>(payload: T): T & {
-    featured: (T["featured"] & { imageId?: string; imageCaption?: string }) | null;
-  } {
-    if (!payload.featured) return payload as T & { featured: null };
-    const media = getHeadlineMediaForSlugs(db, [payload.featured.slug]);
-    const headline = media.get(payload.featured.slug);
+  /** Attach headline media, when present, to homepage article payloads. */
+  function withHomepageImages<T extends {
+    featured: { slug: string } | null;
+    todaysNews?: { slug: string } | null;
+  }>(payload: T): T {
+    const slugs = [
+      payload.featured?.slug,
+      payload.todaysNews?.slug,
+    ].filter((slug): slug is string => Boolean(slug));
+    if (slugs.length === 0) return payload;
+    const media = getHeadlineMediaForSlugs(db, slugs);
+    const featured = payload.featured ? media.get(payload.featured.slug) : undefined;
+    const todaysNews = payload.todaysNews ? media.get(payload.todaysNews.slug) : undefined;
     return {
       ...payload,
-      featured: headline
-        ? { ...payload.featured, imageId: headline.mediaId, imageCaption: headline.caption || undefined }
+      featured: featured && payload.featured
+        ? { ...payload.featured, imageId: featured.mediaId, imageCaption: featured.caption || undefined }
         : payload.featured,
-    };
+      todaysNews: todaysNews && payload.todaysNews
+        ? { ...payload.todaysNews, imageId: todaysNews.mediaId, imageCaption: todaysNews.caption || undefined }
+        : payload.todaysNews,
+    } as T;
   }
 
   app.get("/api/homepage", (c) => {
     const cached = getHomepageCache(db);
     const now = Date.now();
-    if (cached && cached.generatedAt + HOMEPAGE_TTL_MS > now) {
+    if (
+      cached
+      && cached.generatedAt + HOMEPAGE_TTL_MS > now
+      && isCurrentHomepageNews(cached.todaysNews, runtime.app)
+    ) {
       queueHomepageFeaturedImageIfMissing(cached.featured);
-      return c.json(withFeaturedImage({
+      queueHomepageNewsImageIfMissing(cached.todaysNews);
+      return c.json(withHomepageImages({
         ...cached,
         expiresAt: cached.generatedAt + HOMEPAGE_TTL_MS,
       }));
@@ -2053,14 +2138,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       HOMEPAGE_MAINTENANCE_TASK,
       cached ? "expired_cache_request" : "missing_cache_request",
     );
-    if (cached) {
-      return c.json(withFeaturedImage({
+    if (cached && isCurrentHomepageNews(cached.todaysNews, runtime.app)) {
+      queueHomepageNewsImageIfMissing(cached.todaysNews);
+      return c.json(withHomepageImages({
         ...cached,
         expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,
       }));
     }
     return c.json({
       featured: null,
+      todaysNews: null,
       didYouKnow: [],
       generatedAt: now,
       expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,

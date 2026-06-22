@@ -412,8 +412,15 @@ function normalizeSidebarMarkers(markdown: string): string {
   return markdown.replace(/^:::end_sidebar\s*$/gm, ":::");
 }
 
+function stripInternalMarkdownComments(markdown: string): string {
+  return markdown
+    .replace(/<!--\s*todays-news-generator-version:\s*[^>]+-->/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function renderMarkdown(markdown: string): string {
-  return md.render(normalizeSidebarMarkers(normalizeHaluLinks(markdown)));
+  return md.render(normalizeSidebarMarkers(normalizeHaluLinks(stripInternalMarkdownComments(markdown))));
 }
 
 /** Render a single line of markdown as inline HTML — no wrapping block element.

@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, saveArticle, saveArticleReferences, saveHomepageCache, listArticleRevisions, setArticleInfobox } from "../src/server/db";
+import { openDatabase, saveArticle, saveArticleReferences, saveHomepageCache, listArticleRevisions, setArticleInfobox, getArticleByLookup, upsertArticleHeadlineMedia } from "../src/server/db";
 import { loadConfig } from "../src/server/config";
 import { createApp } from "../src/server/index";
 import type { LlmRouter } from "../src/server/llm";
+import type { ImageGenerationConfig } from "../src/server/types";
 import type { LogFields, Logger } from "../src/server/logger";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
+import { getWorldDate, todaysNewsSlug, todaysNewsTitle } from "../src/server/worldClock";
 
 interface CapturedLogEntry {
   level: "debug" | "info" | "warn" | "error";
@@ -306,7 +308,7 @@ function createSeedDatabasePath() {
   return { root, databasePath };
 }
 
-async function createTestServer(options: { logger?: Logger; llmClient?: LlmRouter; seed?: boolean; homepagePrepare?: boolean } = {}) {
+async function createTestServer(options: { logger?: Logger; llmClient?: LlmRouter; seed?: boolean; homepagePrepare?: boolean; imageGenerationConfig?: Partial<ImageGenerationConfig> } = {}) {
   const seeded = options.seed ?? true;
   const { root, databasePath } = seeded
     ? createSeedDatabasePath()
@@ -320,6 +322,7 @@ async function createTestServer(options: { logger?: Logger; llmClient?: LlmRoute
     skipHomepagePrepare: options.homepagePrepare !== true,
     logger: options.logger,
     llmClient: options.llmClient ?? DEFAULT_TEST_LLM,
+    imageGenerationConfig: options.imageGenerationConfig,
   });
   return {
     root,
@@ -333,7 +336,7 @@ async function createTestServer(options: { logger?: Logger; llmClient?: LlmRoute
 async function createServerForDatabase(
   root: string,
   databasePath: string,
-  options: { logger?: Logger; llmClient?: LlmRouter; homepagePrepare?: boolean } = {}
+  options: { logger?: Logger; llmClient?: LlmRouter; homepagePrepare?: boolean; imageGenerationConfig?: Partial<ImageGenerationConfig> } = {}
 ) {
   const { app, shutdown } = await createApp({
     databasePath,
@@ -341,6 +344,7 @@ async function createServerForDatabase(
     skipHomepagePrepare: options.homepagePrepare !== true,
     logger: options.logger,
     llmClient: options.llmClient ?? DEFAULT_TEST_LLM,
+    imageGenerationConfig: options.imageGenerationConfig,
   });
   return {
     root,
@@ -1471,13 +1475,18 @@ test("homepage prepares DB-backed content in background and serves cached reques
     async probeConnections() {},
   };
 
-  const server = await createTestServer({ seed: true, llmClient: llm, homepagePrepare: true });
+  const server = await createTestServer({
+    seed: true,
+    llmClient: llm,
+    homepagePrepare: true,
+    imageGenerationConfig: { enabled: false },
+  });
   cleanupTestServer(t, server);
   await waitForHomepage(
     server,
     (payload) => payload.didYouKnow?.length === 2,
   );
-  assert.equal(chatCalls, 2, "seed database has two live articles, so background prep should ask once per article");
+  assert.equal(chatCalls, 3, "background prep should generate one news article and one DYK fact per seed article");
 
   const res = await server.request("/api/homepage");
   assert.equal(res.status, 200);
@@ -1489,7 +1498,8 @@ test("homepage prepares DB-backed content in background and serves cached reques
   assert.ok(cachedBody.featured.summaryMarkdown !== undefined, "featured article should have summaryMarkdown");
   assert.ok(Array.isArray(cachedBody.didYouKnow), "didYouKnow should be an array");
   assert.equal(cachedBody.didYouKnow.length, 2, "DYK facts should be ready in the cached response");
-  assert.equal(chatCalls, 2, "cached homepage request must not call the LLM");
+  assert.ok(cachedBody.todaysNews, "today's news should be ready in the cached response");
+  assert.equal(chatCalls, 3, "cached homepage request must not call the LLM");
   assert.ok(!("didYouKnowPending" in cachedBody), "homepage no longer exposes request-time generation state");
 });
 
@@ -1502,6 +1512,7 @@ test("homepage returns empty state when no articles exist", async (t) => {
   const body = await res.json();
 
   assert.equal(body.featured, null, "no featured when DB is empty");
+  assert.equal(body.todaysNews, null, "no news when DB is empty");
   assert.deepEqual(body.didYouKnow, [], "no DYK when DB is empty");
   assert.ok(body.generatedAt, "empty homepage state is still persisted");
 });
@@ -1549,7 +1560,11 @@ test("homepage featured article uses the literal first paragraph", async (t) => 
     async probeConnections() {},
   };
 
-  const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: true,
+    imageGenerationConfig: { enabled: false },
+  });
   cleanupTestServer(t, server);
 
   const body = await waitForHomepage(
@@ -1603,7 +1618,11 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
     async probeConnections() {},
   };
 
-  const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: true,
+    imageGenerationConfig: { enabled: false },
+  });
   cleanupTestServer(t, server);
 
   const body = await waitForHomepage(
@@ -1613,8 +1632,14 @@ test("homepage generates one startup DYK fact for a single article", async (t) =
   assert.equal(body.featured.title, "Index Lamp");
   assert.equal(body.didYouKnow.length, 1);
   assert.equal(body.didYouKnow[0].slug, "index-lamp");
-  assert.equal(body.didYouKnow[0].fact, '... [Index Lamp](halu:index-lamp "Index Lamp") secretly reconcile canal tax ledgers after dusk?');
-  assert.equal(chatCalls, 1);
+  assert.equal(body.didYouKnow[0].fact, '... that [Index Lamp](halu:index-lamp "Index Lamp") secretly reconcile canal tax ledgers after dusk?');
+  assert.ok(body.todaysNews, "news is generated alongside the DYK fact");
+  const checkDb = openDatabase(databasePath);
+  const savedNews = getArticleByLookup(checkDb, body.todaysNews.slug);
+  checkDb.close();
+  assert.ok(savedNews, "today's news preview should link to a persisted article");
+  assert.equal(savedNews.title, body.todaysNews.title);
+  assert.equal(chatCalls, 2);
 });
 
 test("homepage handles DYK generation failure gracefully", async (t) => {
@@ -1631,7 +1656,12 @@ test("homepage handles DYK generation failure gracefully", async (t) => {
     async probeConnections() {},
   };
 
-  const server = await createTestServer({ seed: true, llmClient: llm, homepagePrepare: true });
+  const server = await createTestServer({
+    seed: true,
+    llmClient: llm,
+    homepagePrepare: true,
+    imageGenerationConfig: { enabled: false },
+  });
   cleanupTestServer(t, server);
 
   const body = await waitForHomepage(
@@ -1639,6 +1669,7 @@ test("homepage handles DYK generation failure gracefully", async (t) => {
     (payload) => payload.featured && Array.isArray(payload.didYouKnow),
   );
   assert.ok(body.featured, "featured article should still be present even when DYK fails");
+  assert.equal(body.todaysNews, null, "news should be null on failure, not error");
   assert.deepEqual(body.didYouKnow, [], "DYK should be empty array on failure, not error");
 });
 
@@ -1647,12 +1678,25 @@ test("homepage uses a current DB cache without regenerating at startup", async (
   const databasePath = join(root, TEST_CONFIG.database_path);
   const db = openDatabase(databasePath);
   const now = Date.now();
+  const worldDate = getWorldDate(loadConfig().app, now);
+  const newsSlug = todaysNewsSlug(worldDate);
   saveHomepageCache(db, {
     featured: { slug: "cached", title: "Cached", summaryMarkdown: "Cached lead." },
+    todaysNews: {
+      slug: newsSlug,
+      title: todaysNewsTitle(worldDate),
+      worldDate: worldDate.label,
+      worldDay: worldDate.day,
+      kirkLabel: worldDate.kirkLabel,
+      generatorVersion: "1",
+      summaryMarkdown: "Cached news.",
+      headlines: [],
+    },
     didYouKnow: [{ slug: "cached", title: "Cached", fact: "... [Cached](halu:cached \"Cached\") already knows." }],
     generatedAt: now,
     expiresAt: now + 60_000,
   });
+  upsertArticleHeadlineMedia(db, newsSlug, "news-cache-img", "Cached broadcast still.");
   db.close();
 
   let chatCalled = false;
@@ -1670,14 +1714,70 @@ test("homepage uses a current DB cache without regenerating at startup", async (
     async probeConnections() {},
   };
 
-  const server = await createServerForDatabase(root, databasePath, { llmClient: llm, homepagePrepare: true });
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: true,
+    imageGenerationConfig: { enabled: false },
+  });
   cleanupTestServer(t, server);
 
   const res = await server.request("/api/homepage");
   const body = await res.json();
   assert.equal(chatCalled, false, "current homepage cache should prevent startup generation");
   assert.equal(body.featured.title, "Cached");
+  assert.equal(body.todaysNews.imageId, "news-cache-img");
+  assert.equal(body.todaysNews.imageCaption, "Cached broadcast still.");
   assert.equal(body.didYouKnow[0].fact, "... [Cached](halu:cached \"Cached\") already knows.");
+});
+
+test("homepage skips news image generation when cached news article is missing", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  const worldDate = getWorldDate(loadConfig().app, now);
+  const newsSlug = todaysNewsSlug(worldDate);
+  saveHomepageCache(db, {
+    featured: null,
+    todaysNews: {
+      slug: newsSlug,
+      title: todaysNewsTitle(worldDate),
+      worldDate: worldDate.label,
+      worldDay: worldDate.day,
+      kirkLabel: worldDate.kirkLabel,
+      generatorVersion: "1",
+      summaryMarkdown: "Cached news without a persisted article.",
+      headlines: [],
+    },
+    didYouKnow: [],
+    generatedAt: now,
+    expiresAt: now + 60_000,
+  });
+  db.close();
+
+  const logEntries: CapturedLogEntry[] = [];
+  const server = await createServerForDatabase(root, databasePath, {
+    logger: createMemoryLogger(logEntries),
+    llmClient: new FailingGenerationLlmClient(),
+    homepagePrepare: true,
+    imageGenerationConfig: { enabled: true, backend: "openai" },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  assert.ok(
+    logEntries.some((entry) =>
+      entry.event === "homepage_news_image.auto_skipped_missing_article"
+      && entry.fields?.slug === newsSlug
+    ),
+    "missing cached news article should be skipped before image workflow creation",
+  );
+  assert.equal(
+    logEntries.some((entry) => entry.event === "homepage_news_image.auto_queued"),
+    false,
+    "missing cached news article should not queue an image-generation workflow",
+  );
 });
 
 test("homepage request regenerates expired cache and logs refresh lifecycle", async (t) => {
@@ -1731,6 +1831,7 @@ test("homepage request regenerates expired cache and logs refresh lifecycle", as
     llmClient: llm,
     logger: createMemoryLogger(logEntries),
     homepagePrepare: true,
+    imageGenerationConfig: { enabled: false },
   });
   cleanupTestServer(t, server);
 
@@ -1741,7 +1842,8 @@ test("homepage request regenerates expired cache and logs refresh lifecycle", as
 
   assert.equal(body.featured.title, "Fresh Featured");
   assert.equal(body.didYouKnow.length, 1);
-  assert.equal(chatCalls, 1);
+  assert.ok(body.todaysNews, "expired cache refresh should regenerate today's news");
+  assert.equal(chatCalls, 2);
   assert.ok(
     logEntries.some((entry) => entry.event === "homepage.refresh_start" && entry.fields?.reason === "expired"),
     "expired homepage refresh should log a standalone start event"

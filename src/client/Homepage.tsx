@@ -28,8 +28,28 @@ interface DykItem {
   fact: string;
 }
 
+interface NewsHeadline {
+  text: string;
+  summary: string;
+  slug?: string;
+}
+
+interface TodaysNews {
+  slug: string;
+  title: string;
+  worldDate: string;
+  worldDay: number;
+  kirkLabel: string;
+  generatorVersion?: string;
+  summaryMarkdown: string;
+  headlines: NewsHeadline[];
+  imageId?: string;
+  imageCaption?: string;
+}
+
 interface HomepageData {
   featured: FeaturedArticle | null;
+  todaysNews?: TodaysNews | null;
   didYouKnow: DykItem[];
   generatedAt: number;
   expiresAt: number;
@@ -113,6 +133,11 @@ export function Homepage({ onNavigate }: Props) {
     onNavigate(toWikiSegment(slug));
   };
 
+  const handleSlugClick = (slug: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    onNavigate(slug);
+  };
+
   const handleRenderedClick = (e: React.MouseEvent<HTMLElement>) => {
     const target = (e.target as HTMLElement).closest("a");
     if (!target) return;
@@ -151,6 +176,109 @@ export function Homepage({ onNavigate }: Props) {
     historyOpen && history && historyIndex !== null
       ? (history[historyIndex] ?? null)
       : data;
+  const displayNews = displayData?.todaysNews ?? null;
+  const newsSection = displayNews ? (
+    <section>
+      <h2 className={PANEL_HEADING}>Today's News</h2>
+      <Card size="sm">
+        <CardHeader>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[0.78rem] text-ink-fade">
+            {displayNews.worldDate}
+            {displayNews.kirkLabel.endsWith("BK") && (
+              <span className="inline-flex items-center rounded border border-rule bg-parchment-deep px-2 py-[0.12rem] text-[0.7rem]">
+                Sponsored by{" "}
+                <a
+                  href="/wiki/Burger_King"
+                  onClick={handleClick("Burger King")}
+                  className="ml-1 text-accent hover:text-accent-hover"
+                >
+                  Burger King
+                </a>
+              </span>
+            )}
+          </div>
+          <CardTitle>
+            <a
+              href={`/wiki/${displayNews.slug}`}
+              onClick={handleSlugClick(displayNews.slug)}
+              className="font-serif text-2xl leading-tight font-medium text-accent hover:text-accent-hover"
+            >
+              {displayNews.title}
+            </a>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {displayNews.imageId && (
+            <figure className="m-0">
+              <a
+                href={`/wiki/${displayNews.slug}`}
+                onClick={handleSlugClick(displayNews.slug)}
+                className="block border-b-0"
+              >
+                <img
+                  className="homepage-news-image rounded-sm border border-rule"
+                  src={`/api/media/${encodeURIComponent(displayNews.imageId)}`}
+                  alt={displayNews.imageCaption || ""}
+                  loading="lazy"
+                />
+              </a>
+              {displayNews.imageCaption && (
+                <figcaption
+                  className="homepage-featured-image-caption"
+                  dangerouslySetInnerHTML={{
+                    __html: renderInlineHtml(displayNews.imageCaption),
+                  }}
+                />
+              )}
+            </figure>
+          )}
+          {displayNews.headlines.length > 0 && (
+            <ul className="m-0 divide-y divide-rule border-y border-rule pl-0">
+              {displayNews.headlines.map((headline) => (
+                <li key={headline.text} className="list-none py-2">
+                  <a
+                    href={`/wiki/${headline.slug ?? displayNews.slug}`}
+                    onClick={handleSlugClick(headline.slug ?? displayNews.slug)}
+                    className="block border-b-0 text-accent hover:text-accent-hover"
+                  >
+                    <span className="block font-serif text-[1.05rem] leading-snug font-semibold">
+                      {headline.text}
+                    </span>
+                    {headline.summary && (
+                      <>
+                        {" "}
+                        <span className="mt-1 block text-[0.92rem] leading-snug text-ink">
+                          {headline.summary}
+                        </span>
+                      </>
+                    )}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+          {displayNews.summaryMarkdown && (
+            <div
+              className="homepage-summary"
+              onClick={handleRenderedClick}
+              dangerouslySetInnerHTML={{
+                __html: renderInlineHtml(displayNews.summaryMarkdown),
+              }}
+            />
+          )}
+        </CardContent>
+        <CardFooter>
+          <a
+            className="font-mono text-[0.82rem] tracking-[0.02em] text-accent hover:text-accent-hover"
+            href={`/wiki/${displayNews.slug}`}
+            onClick={handleSlugClick(displayNews.slug)}
+          >
+            Read full edition →
+          </a>
+        </CardFooter>
+      </Card>
+    </section>
+  ) : null;
 
   return (
     <article className="article font-serif">
@@ -240,6 +368,7 @@ export function Homepage({ onNavigate }: Props) {
 
       {displayData &&
         !displayData.featured &&
+        !displayNews &&
         displayData.didYouKnow.length === 0 && (
           <p className="text-ink-fade italic">
             No articles yet. Search for a topic to generate your first entry.
@@ -247,94 +376,97 @@ export function Homepage({ onNavigate }: Props) {
         )}
 
       {displayData && (
-        <div className="mt-8 grid grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)] items-start gap-6 max-[760px]:grid-cols-1">
-          {displayData.featured && (
-            <section>
-              <h2 className={PANEL_HEADING}>Featured article</h2>
-              <Card size="sm">
-                <CardHeader>
-                  <CardTitle>
-                    <a
-                      href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
-                      onClick={handleClick(displayData.featured.title)}
-                      className="font-serif text-2xl leading-tight font-medium text-accent hover:text-accent-hover"
-                    >
-                      {displayData.featured.title}
-                    </a>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {displayData.featured.imageId && (
-                    <figure className="m-0">
+        <div className="mt-8 space-y-6">
+          <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)] items-start gap-6 max-[760px]:grid-cols-1">
+            {displayData.featured && (
+              <section>
+                <h2 className={PANEL_HEADING}>Featured article</h2>
+                <Card size="sm">
+                  <CardHeader>
+                    <CardTitle>
                       <a
                         href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
                         onClick={handleClick(displayData.featured.title)}
-                        className="block border-b-0"
+                        className="font-serif text-2xl leading-tight font-medium text-accent hover:text-accent-hover"
                       >
-                        <img
-                          className="homepage-featured-image block max-h-64 w-full rounded-sm border border-rule object-cover"
-                          src={`/api/media/${encodeURIComponent(displayData.featured.imageId)}`}
-                          alt={displayData.featured.imageCaption || ""}
-                          loading="lazy"
-                        />
+                        {displayData.featured.title}
                       </a>
-                      {displayData.featured.imageCaption && (
-                        <figcaption
-                          className="homepage-featured-image-caption"
-                          dangerouslySetInnerHTML={{
-                            __html: renderInlineHtml(
-                              displayData.featured.imageCaption,
-                            ),
-                          }}
-                        />
-                      )}
-                    </figure>
-                  )}
-                  {displayData.featured.summaryMarkdown && (
-                    <div
-                      className="homepage-summary"
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {displayData.featured.imageId && (
+                      <figure className="m-0">
+                        <a
+                          href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
+                          onClick={handleClick(displayData.featured.title)}
+                          className="block border-b-0"
+                        >
+                          <img
+                            className="homepage-featured-image block max-h-64 w-full rounded-sm border border-rule object-cover"
+                            src={`/api/media/${encodeURIComponent(displayData.featured.imageId)}`}
+                            alt={displayData.featured.imageCaption || ""}
+                            loading="lazy"
+                          />
+                        </a>
+                        {displayData.featured.imageCaption && (
+                          <figcaption
+                            className="homepage-featured-image-caption"
+                            dangerouslySetInnerHTML={{
+                              __html: renderInlineHtml(
+                                displayData.featured.imageCaption,
+                              ),
+                            }}
+                          />
+                        )}
+                      </figure>
+                    )}
+                    {displayData.featured.summaryMarkdown && (
+                      <div
+                        className="homepage-summary"
+                        onClick={handleRenderedClick}
+                        dangerouslySetInnerHTML={{
+                          __html: renderInlineHtml(
+                            displayData.featured.summaryMarkdown,
+                          ),
+                        }}
+                      />
+                    )}
+                  </CardContent>
+                  <CardFooter>
+                    <a
+                      className="font-mono text-[0.82rem] tracking-[0.02em] text-accent hover:text-accent-hover"
+                      href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
+                      onClick={handleClick(displayData.featured.title)}
+                    >
+                      Read full article →
+                    </a>
+                  </CardFooter>
+                </Card>
+              </section>
+            )}
+
+            <section className="homepage-dyk">
+              <h2 className={PANEL_HEADING}>Did you know...</h2>
+              {displayData.didYouKnow.length > 0 ? (
+                <ul>
+                  {displayData.didYouKnow.map((item) => (
+                    <li
+                      key={item.slug}
                       onClick={handleRenderedClick}
                       dangerouslySetInnerHTML={{
-                        __html: renderInlineHtml(
-                          displayData.featured.summaryMarkdown,
-                        ),
+                        __html: renderInlineHtml(item.fact),
                       }}
                     />
-                  )}
-                </CardContent>
-                <CardFooter>
-                  <a
-                    className="font-mono text-[0.82rem] tracking-[0.02em] text-accent hover:text-accent-hover"
-                    href={`/wiki/${toWikiSegment(displayData.featured.title)}`}
-                    onClick={handleClick(displayData.featured.title)}
-                  >
-                    Read full article →
-                  </a>
-                </CardFooter>
-              </Card>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-ink-fade italic">
+                  Add or generate an article to seed the first featured fact.
+                </p>
+              )}
             </section>
-          )}
-
-          <section className="homepage-dyk">
-            <h2 className={PANEL_HEADING}>Did you know...</h2>
-            {displayData.didYouKnow.length > 0 ? (
-              <ul>
-                {displayData.didYouKnow.map((item) => (
-                  <li
-                    key={item.slug}
-                    onClick={handleRenderedClick}
-                    dangerouslySetInnerHTML={{
-                      __html: renderInlineHtml(item.fact),
-                    }}
-                  />
-                ))}
-              </ul>
-            ) : (
-              <p className="text-ink-fade italic">
-                Add or generate an article to seed the first featured fact.
-              </p>
-            )}
-          </section>
+          </div>
+          {newsSection}
         </div>
       )}
     </article>

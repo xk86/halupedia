@@ -184,6 +184,14 @@ export interface HomepageConfig {
   rotation_hours: number;
 }
 
+export interface WorldConfig {
+  epoch_real_time: string;
+  epoch_day: number;
+  epoch_date: string;
+  kirk_death_date: string;
+  calendar_name: string;
+}
+
 export interface RandomPageConfig {
   inspiration_count: number;
 }
@@ -290,6 +298,7 @@ export interface AppConfig {
   search: SearchConfig;
   rag: RagConfig;
   homepage: HomepageConfig;
+  world: WorldConfig;
   random_page: RandomPageConfig;
   generation: GenerationConfig;
   tests: TestConfig;
@@ -488,12 +497,32 @@ export interface HomepageFact {
   fact: string;
 }
 
+export interface HomepageNewsHeadline {
+  text: string;
+  summary: string;
+  slug?: string;
+}
+
+export interface HomepageNews {
+  slug: string;
+  title: string;
+  worldDate: string;
+  worldDay: number;
+  kirkLabel: string;
+  generatorVersion?: string;
+  summaryMarkdown: string;
+  headlines: HomepageNewsHeadline[];
+  imageId?: string;
+  imageCaption?: string;
+}
+
 export interface HomepagePayload {
   featured: {
     slug: string;
     title: string;
     summaryMarkdown: string;
   } | null;
+  todaysNews?: HomepageNews | null;
   didYouKnow: HomepageFact[];
   generatedAt: number;
   expiresAt: number;

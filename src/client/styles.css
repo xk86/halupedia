@@ -1000,6 +1000,17 @@ a:hover {
   line-height: 1.4;
 }
 
+.homepage-news-image {
+  display: block;
+  width: auto;
+  max-width: min(100%, 42rem);
+  max-height: 18rem;
+  height: auto;
+  margin: 0 auto;
+  object-fit: contain;
+  background: var(--parchment);
+}
+
 .homepage-summary p {
   margin: 0;
 }

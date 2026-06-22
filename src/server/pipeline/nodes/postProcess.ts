@@ -53,6 +53,7 @@ import {
   flattenInfoboxForRag,
 } from "../../retrieval";
 import { slugify } from "../../slug";
+import { relinkTodaysNewsBriefHeadings } from "../../todaysNews";
 import type { ReferenceEntry } from "../state";
 import type { ReferenceListEntry } from "../../types";
 import { hashValue } from "../runtime/trace";
@@ -227,6 +228,9 @@ export const resolveLinksPostProcessNode = defineNode({
     body = linkReferences(body, refs, slug, deps.db);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
     body = stripSelfLinks(body, slug);
+    if (/^todays-news-day-\d+$/.test(slug)) {
+      body = relinkTodaysNewsBriefHeadings(body);
+    }
     return { finalArticleBody: body };
   },
 });

@@ -822,6 +822,185 @@ export function getRandomArticles(db: DatabaseSync, count: number) {
   }));
 }
 
+export function listHomepageNewsSourceArticles(
+  db: DatabaseSync,
+  cutoffGeneratedAt: number,
+  count: number,
+) {
+  const rows = db
+    .prepare(
+      `SELECT slug,
+              COALESCE(canonical_slug, slug) AS canonicalSlug,
+              title,
+              summary_markdown AS summaryMarkdown,
+              markdown,
+              plain_text AS plainText,
+              generated_at AS generatedAt
+       FROM articles
+       WHERE is_disambiguation = 0
+         AND generated_at <= ?
+         AND slug NOT LIKE 'todays-news-day-%'
+       ORDER BY generated_at DESC, title COLLATE NOCASE
+       LIMIT ?`,
+    )
+    .all(cutoffGeneratedAt, Math.max(1, count)) as Array<{
+      slug: string;
+      canonicalSlug: string;
+      title: string;
+      summaryMarkdown: string;
+      markdown: string;
+      plainText: string;
+      generatedAt: number;
+    }>;
+  return rows.map((row) => ({
+    ...row,
+    summaryMarkdown: row.summaryMarkdown?.trim() || summaryMarkdownFromArticle(row.markdown),
+  }));
+}
+
+export function listHomepageNewsTemporalArticles(
+  db: DatabaseSync,
+  cutoffGeneratedAt: number,
+  terms: string[],
+  count: number,
+) {
+  const normalizedTerms = [...new Set(terms.map((term) => term.trim()).filter(Boolean))]
+    .slice(0, 12);
+  if (normalizedTerms.length === 0) return [];
+
+  const predicates = normalizedTerms.map(
+    () => `(title LIKE ? ESCAPE '\\'
+       OR summary_markdown LIKE ? ESCAPE '\\'
+       OR plain_text LIKE ? ESCAPE '\\'
+       OR markdown LIKE ? ESCAPE '\\')`,
+  ).join(" OR ");
+  const params = normalizedTerms.flatMap((term) => {
+    const pattern = `%${escapeLike(term)}%`;
+    return [pattern, pattern, pattern, pattern];
+  });
+
+  const rows = db
+    .prepare(
+      `SELECT slug,
+              COALESCE(canonical_slug, slug) AS canonicalSlug,
+              title,
+              summary_markdown AS summaryMarkdown,
+              markdown,
+              plain_text AS plainText,
+              generated_at AS generatedAt
+       FROM articles
+       WHERE is_disambiguation = 0
+         AND generated_at <= ?
+         AND slug NOT LIKE 'todays-news-day-%'
+         AND (${predicates})
+       ORDER BY generated_at DESC, title COLLATE NOCASE
+       LIMIT ?`,
+    )
+    .all(cutoffGeneratedAt, ...params, Math.max(1, count)) as Array<{
+      slug: string;
+      canonicalSlug: string;
+      title: string;
+      summaryMarkdown: string;
+      markdown: string;
+      plainText: string;
+      generatedAt: number;
+    }>;
+  return rows.map((row) => ({
+    ...row,
+    summaryMarkdown: row.summaryMarkdown?.trim() || summaryMarkdownFromArticle(row.markdown),
+  }));
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+export interface HomepageNewsWeatherPlaceCandidate {
+  slug: string;
+  name: string;
+  sourceTitle: string;
+  sourceKind: "article" | "link";
+  generatedAt: number;
+}
+
+export function listHomepageNewsWeatherPlaceCandidates(
+  db: DatabaseSync,
+  cutoffGeneratedAt: number,
+  count: number,
+): HomepageNewsWeatherPlaceCandidate[] {
+  const placeTerms = [
+    " city",
+    "city of ",
+    " capital",
+    " harbor",
+    " port",
+    " district",
+    " settlement",
+    " town",
+    " village",
+    " metropolis",
+    " citadel",
+    " station",
+    " province",
+    " prefecture",
+  ];
+  const articlePredicates = placeTerms.map(() => `(lower(title) LIKE ? OR lower(summary_markdown) LIKE ? OR lower(plain_text) LIKE ?)`).join(" OR ");
+  const linkPredicates = placeTerms.map(() => `(lower(l.visible_label) LIKE ? OR lower(l.hidden_hint) LIKE ?)`).join(" OR ");
+  const articleParams = placeTerms.flatMap((term) => {
+    const pattern = `%${escapeLike(term)}%`;
+    return [pattern, pattern, pattern];
+  });
+  const linkParams = placeTerms.flatMap((term) => {
+    const pattern = `%${escapeLike(term)}%`;
+    return [pattern, pattern];
+  });
+
+  const rows = db
+    .prepare(
+      `SELECT slug, name, sourceTitle, sourceKind, generatedAt
+       FROM (
+         SELECT a.slug AS slug,
+                a.title AS name,
+                a.title AS sourceTitle,
+                'article' AS sourceKind,
+                a.generated_at AS generatedAt
+         FROM articles a
+         WHERE a.is_disambiguation = 0
+           AND a.generated_at <= ?
+           AND a.slug NOT LIKE 'todays-news-day-%'
+           AND (${articlePredicates})
+         UNION ALL
+         SELECT l.target_slug AS slug,
+                l.visible_label AS name,
+                COALESCE(a.title, l.source_slug) AS sourceTitle,
+                'link' AS sourceKind,
+                COALESCE(a.generated_at, l.created_at) AS generatedAt
+         FROM article_links l
+         LEFT JOIN articles a ON a.slug = l.source_slug
+         WHERE COALESCE(a.generated_at, l.created_at) <= ?
+           AND l.source_slug NOT LIKE 'todays-news-day-%'
+           AND l.target_slug NOT LIKE 'todays-news-day-%'
+           AND (${linkPredicates})
+       )
+       ORDER BY generatedAt DESC, name COLLATE NOCASE
+       LIMIT ?`,
+    )
+    .all(
+      cutoffGeneratedAt,
+      ...articleParams,
+      cutoffGeneratedAt,
+      ...linkParams,
+      Math.max(1, count),
+    ) as unknown as HomepageNewsWeatherPlaceCandidate[];
+  const byName = new Map<string, HomepageNewsWeatherPlaceCandidate>();
+  for (const row of rows) {
+    const key = row.name.trim().toLowerCase();
+    if (!key || byName.has(key)) continue;
+    byName.set(key, { ...row, name: row.name.trim(), sourceTitle: row.sourceTitle.trim() });
+  }
+  return [...byName.values()];
+}
+
 export function getRandomSuggestions(db: DatabaseSync, count: number, excludeSlugs: string[] = []) {
   const placeholders = excludeSlugs.map(() => "?").join(",");
   const whereClause = excludeSlugs.length

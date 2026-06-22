@@ -239,8 +239,12 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
     loadOverview();
     loadGenerationQueue();
     loadPipelineStatus();
-    const interval = window.setInterval(loadGenerationQueue, 1000);
-    return () => window.clearInterval(interval);
+    const queueInterval = window.setInterval(loadGenerationQueue, 1000);
+    const pipelineInterval = window.setInterval(loadPipelineStatus, 5000);
+    return () => {
+      window.clearInterval(queueInterval);
+      window.clearInterval(pipelineInterval);
+    };
   }, [loadOverview, loadGenerationQueue, loadPipelineStatus]);
 
   const reloadRuntime = useCallback(async () => {

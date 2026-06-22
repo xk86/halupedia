@@ -14,6 +14,7 @@ import {
   ensureDykHasSourceLink,
   generateDidYouKnowFact,
 } from "../../dyk";
+import { ensureTodaysNewsArticle, isCurrentHomepageNews } from "../../todaysNews";
 
 export const refreshHomepageCacheNode = defineNode({
   name: "write.refresh_homepage_cache",
@@ -26,7 +27,11 @@ export const refreshHomepageCacheNode = defineNode({
     const ttlMs = deps.runtime.app.homepage.rotation_hours * 60 * 60 * 1000;
     const now = Date.now();
     const cached = getHomepageCache(deps.db);
-    if (cached && cached.generatedAt + ttlMs > now) {
+    if (
+      cached
+      && cached.generatedAt + ttlMs > now
+      && isCurrentHomepageNews(cached.todaysNews, deps.runtime.app)
+    ) {
       return {
         homepagePayload: {
           ...cached,
@@ -41,12 +46,22 @@ export const refreshHomepageCacheNode = defineNode({
     if (sources.length === 0) {
       const empty = {
         featured: null,
+        todaysNews: null,
         didYouKnow: [],
         generatedAt,
         expiresAt: generatedAt + ttlMs,
       };
       saveHomepageCache(deps.db, empty);
       return { homepagePayload: empty, persistedAt: generatedAt };
+    }
+
+    let todaysNews = null;
+    try {
+      todaysNews = await ensureTodaysNewsArticle(deps.db, deps.llm, deps.runtime, deps.logger);
+    } catch (error) {
+      deps.logger.warn("homepage.todays_news_generation_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     const didYouKnow = [];
@@ -86,6 +101,7 @@ export const refreshHomepageCacheNode = defineNode({
       : null;
     const payload = {
       featured,
+      todaysNews,
       didYouKnow,
       generatedAt,
       expiresAt: generatedAt + ttlMs,

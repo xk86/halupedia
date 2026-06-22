@@ -113,6 +113,13 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     homepage: {
       rotation_hours: app.homepage?.rotation_hours ?? 4,
     },
+    world: {
+      epoch_real_time: app.world?.epoch_real_time ?? "2026-01-01T00:00:00.000Z",
+      epoch_day: Math.max(1, Math.floor(app.world?.epoch_day ?? 1)),
+      epoch_date: app.world?.epoch_date ?? "2026-01-01",
+      kirk_death_date: app.world?.kirk_death_date ?? "2025-09-10",
+      calendar_name: app.world?.calendar_name ?? "Halu Era",
+    },
     random_page: {
       inspiration_count: app.random_page?.inspiration_count ?? 12,
     },

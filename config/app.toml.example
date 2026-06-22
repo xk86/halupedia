@@ -59,6 +59,15 @@ refresh_related_titles_max = 6
 [homepage]
 rotation_hours = 4
 
+[world]
+# One in-universe day advances every homepage rotation. Change the epoch to
+# re-anchor the fictional calendar without changing article content.
+epoch_real_time = "2026-01-01T00:00:00.000Z"
+epoch_day = 1
+epoch_date = "2026-01-01"
+kirk_death_date = "2025-09-10"
+calendar_name = "Halu Era"
+
 [random_page]
 inspiration_count = 50
 

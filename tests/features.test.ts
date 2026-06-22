@@ -29,6 +29,7 @@ import {
 import { loadConfig } from "../src/server/config";
 import { createApp, findSelectionRangeInMarkdown, ensureDykHasSourceLink } from "../src/server/index";
 import { normalizeHomepageFact } from "../src/server/dyk";
+import { getWorldDate, todaysNewsSlug, todaysNewsTitle } from "../src/server/worldClock";
 import type { LlmRouter } from "../src/server/llm";
 import type { LogFields, Logger } from "../src/server/logger";
 import {
@@ -443,8 +444,19 @@ test("POST /api/admin/reset-featured-article invalidates the cache so the homepa
   // cache is still within its TTL. Resetting must force it regardless.
   const db = openDatabase(databasePath);
   const generatedAt = Date.now();
+  const worldDate = getWorldDate(loadConfig().app, generatedAt);
   saveHomepageCache(db, {
     featured: { slug: "glow-fruit", title: "Glow Fruit", summaryMarkdown: "A luminous orchard product." },
+    todaysNews: {
+      slug: todaysNewsSlug(worldDate),
+      title: todaysNewsTitle(worldDate),
+      worldDate: worldDate.label,
+      worldDay: worldDate.day,
+      kirkLabel: worldDate.kirkLabel,
+      generatorVersion: "1",
+      summaryMarkdown: "Cached news.",
+      headlines: [],
+    },
     didYouKnow: [{ slug: "glow-fruit", title: "Glow Fruit", fact: "... Glow Fruit glows at night." }],
     generatedAt,
     expiresAt: generatedAt + 3_600_000,

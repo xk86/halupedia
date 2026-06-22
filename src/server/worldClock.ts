@@ -6,8 +6,8 @@ export interface WorldDate {
   month: number;
   dayOfMonth: number;
   monthName: string;
-  kirkYear: number;
-  kirkLabel: string;
+  eraYear: number;
+  eraLabel: string;
   label: string;
   slugPart: string;
   startsAt: number;
@@ -25,16 +25,16 @@ export function getWorldDate(app: AppConfig, now = Date.now()): WorldDate {
   const month = date.getUTCMonth() + 1;
   const dayOfMonth = date.getUTCDate();
   const monthName = MONTH_NAMES[date.getUTCMonth()] ?? "January";
-  const kirkDeath = parseKirkDeathDate(app.world.kirk_death_date);
-  const beforeKirk =
-    year < kirkDeath.year ||
-    (year === kirkDeath.year && month < kirkDeath.month) ||
-    (year === kirkDeath.year && month === kirkDeath.month && dayOfMonth < kirkDeath.day);
-  const kirkEraYear = beforeKirk
-    ? Math.max(1, kirkDeath.year - year)
-    : year - kirkDeath.year;
-  const kirkYear = beforeKirk ? -kirkEraYear : kirkEraYear;
-  const kirkLabel = beforeKirk ? `${kirkEraYear} BK` : `${kirkEraYear} AK`;
+  const eraPivot = parseEraPivotDate(app.world.era_pivot_date);
+  const beforePivot =
+    year < eraPivot.year ||
+    (year === eraPivot.year && month < eraPivot.month) ||
+    (year === eraPivot.year && month === eraPivot.month && dayOfMonth < eraPivot.day);
+  const eraDistance = beforePivot
+    ? Math.max(1, eraPivot.year - year)
+    : year - eraPivot.year;
+  const eraYear = beforePivot ? -eraDistance : eraDistance;
+  const eraLabel = beforePivot ? `${eraDistance} BK` : `${eraDistance} AK`;
   const startsAt = epoch + elapsedDays * dayMs;
   return {
     day,
@@ -42,9 +42,9 @@ export function getWorldDate(app: AppConfig, now = Date.now()): WorldDate {
     month,
     dayOfMonth,
     monthName,
-    kirkYear,
-    kirkLabel,
-    label: `${monthName} ${dayOfMonth}, ${year} (${kirkLabel})`,
+    eraYear,
+    eraLabel,
+    label: `${monthName} ${dayOfMonth}, ${year} (${eraLabel})`,
     slugPart: `day-${day.toString().padStart(6, "0")}`,
     startsAt,
     endsAt: startsAt + dayMs,
@@ -77,8 +77,8 @@ function addUtcDays(date: Date, days: number): Date {
   return next;
 }
 
-function parseKirkDeathDate(value: string): { year: number; month: number; day: number } {
-  return parseDateParts(value) ?? { year: 2025, month: 9, day: 10 };
+function parseEraPivotDate(value: string): { year: number; month: number; day: number } {
+  return parseDateParts(value) ?? { year: 2000, month: 1, day: 1 };
 }
 
 function parseDateParts(value: string): { year: number; month: number; day: number } | null {

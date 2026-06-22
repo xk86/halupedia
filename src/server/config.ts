@@ -117,7 +117,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       epoch_real_time: app.world?.epoch_real_time ?? "2026-01-01T00:00:00.000Z",
       epoch_day: Math.max(1, Math.floor(app.world?.epoch_day ?? 1)),
       epoch_date: app.world?.epoch_date ?? "2026-01-01",
-      kirk_death_date: app.world?.kirk_death_date ?? "2025-09-10",
+      era_pivot_date: app.world?.era_pivot_date ?? "2000-01-01",
       calendar_name: app.world?.calendar_name ?? "Halu Era",
     },
     random_page: {

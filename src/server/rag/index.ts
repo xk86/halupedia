@@ -27,3 +27,9 @@ export {
   type ProfileConfig,
 } from "./retriever";
 export { processJobs, type ProcessJobsDeps, type ProcessJobsResult } from "./jobs";
+export {
+  assembleEvidence,
+  renderLinkAllowlist,
+  type AssembledEvidence,
+  type LinkAllowlistEntry,
+} from "./promptAssembly";

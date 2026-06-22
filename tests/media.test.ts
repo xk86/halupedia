@@ -1220,6 +1220,39 @@ describe("http", () => {
     assert.doesNotMatch(preset.user, /exact title "\{\{requested_title\}\}"/i);
   });
 
+  test("trading card preset defines card layout and portrait-friendly card text", () => {
+    const preset = readArticleImagePresetFile("trading_card");
+    assert.ok(preset);
+    assert.match(preset.selectionWhen ?? "", /poster portrait aspect ratio/i);
+    assert.match(preset.system, /one consistent fictional card-game template/i);
+    assert.match(preset.system, /Template proportions/i);
+    assert.match(preset.system, /Top title band\s+takes about 10 percent/i);
+    assert.match(preset.system, /art window.+takes\s+about 52 percent/i);
+    assert.match(preset.system, /thick dark outer border/i);
+    assert.match(preset.system, /thin bright inner keyline/i);
+    assert.match(preset.system, /rounded hexagonal or shield-shaped badge/i);
+    assert.match(preset.system, /Type colors and motifs/i);
+    assert.match(preset.system, /large rounded-rectangle portrait window/i);
+    assert.match(preset.system, /one or two horizontal ruled rows/i);
+    assert.match(preset.system, /Use at most two compact\s+abilities/i);
+    assert.match(preset.system, /matching circular medallions/i);
+    assert.match(preset.system, /Available types are Valor, Lore, Relic, Wild,\s+Machine,\s+Veil,\s+Civic,\s+Flux,\s+and Void/i);
+    assert.match(preset.system, /Ability Name - effect phrase/i);
+    assert.match(preset.system, /ATK[\s\S]+DEF/i);
+    assert.match(preset.system, /POW[\s\S]+STB/i);
+    assert.match(preset.system, /Art: Halupedia Archives/i);
+    assert.match(preset.user, /thick dark outer border/i);
+    assert.match(preset.user, /matching circular\s+bottom-corner power medallions/i);
+    assert.match(preset.user, /Use at most two compact abilities/i);
+    assert.match(preset.user, /does not need to exactly match\s+"\{\{requested_title\}\}"/i);
+    assert.doesNotMatch(preset.system, /one to three compact\s+abilities/i);
+    assert.doesNotMatch(preset.user, /one to three compact abilities/i);
+    assert.doesNotMatch(preset.system, /render the exact subject name\s+"\{\{requested_title\}\}" once/i);
+    assert.doesNotMatch(preset.user, /include the exact card name\s+"\{\{requested_title\}\}" once/i);
+    assert.doesNotMatch(preset.system, /Horizontal 16:9 hero image/i);
+    assert.doesNotMatch(preset.user, /horizontal editorial hero image/i);
+  });
+
   test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {
     const suffix = randomUUID().replace(/-/g, "_");
     const key = `test_${suffix}`;

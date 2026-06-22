@@ -308,6 +308,114 @@ export function openDatabase(databasePath: string): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS idx_sidebar_revisions_slug
       ON sidebar_revisions(article_slug, changed_at DESC, id DESC);
+
+    -- ===== RAG indexing coordination (LanceDB is the vector store) =====
+    -- Transactional outbox: content saves enqueue durable indexing work in the
+    -- same transaction; a processor drains jobs into LanceDB. Coalesced by source.
+    -- operation: 'upsert' | 'delete' | 'rebuild'
+    CREATE TABLE IF NOT EXISTS rag_index_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      source_kind TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      operation TEXT NOT NULL DEFAULT 'upsert',
+      expected_hash TEXT,
+      created_at INTEGER NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      completed_at INTEGER,
+      UNIQUE(article_slug, source_kind, source_id, operation)
+    );
+    CREATE INDEX IF NOT EXISTS idx_rag_index_jobs_pending
+      ON rag_index_jobs(completed_at, created_at);
+
+    -- Expected vs indexed state per source row (drives reconciliation/coverage).
+    -- status: 'pending' | 'current' | 'failed' | 'deleted'
+    CREATE TABLE IF NOT EXISTS rag_source_state (
+      source_kind TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      article_slug TEXT NOT NULL,
+      expected_hash TEXT,
+      indexed_hash TEXT,
+      indexed_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      PRIMARY KEY (source_kind, source_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_rag_source_state_article
+      ON rag_source_state(article_slug);
+
+    -- ===== Ontology / typed-entity layer (foundational) =====
+    -- Canonical entities; an entity may or may not have its own article.
+    CREATE TABLE IF NOT EXISTS entities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_name TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      article_slug TEXT,
+      description TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(canonical_name, entity_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_entities_article ON entities(article_slug);
+
+    CREATE TABLE IF NOT EXISTS entity_aliases (
+      entity_id INTEGER NOT NULL,
+      alias TEXT NOT NULL,
+      PRIMARY KEY (entity_id, alias),
+      FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_entity_aliases_alias ON entity_aliases(alias);
+
+    -- scheme: 'ticker' | 'iso_date' | 'coordinate' | 'isin' | ...
+    CREATE TABLE IF NOT EXISTS entity_identifiers (
+      entity_id INTEGER NOT NULL,
+      scheme TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (entity_id, scheme, value),
+      FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+    );
+
+    -- Category taxonomy: is_core marks controlled-vocabulary categories.
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      parent_id INTEGER,
+      is_core INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL
+    );
+
+    -- source: 'extracted' | 'curated'
+    CREATE TABLE IF NOT EXISTS article_categories (
+      article_slug TEXT NOT NULL,
+      category_id INTEGER NOT NULL,
+      source TEXT NOT NULL DEFAULT 'extracted',
+      confidence REAL NOT NULL DEFAULT 1,
+      PRIMARY KEY (article_slug, category_id),
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_article_categories_cat ON article_categories(category_id);
+
+    -- Typed relations. object_entity_id XOR object_literal carries the object.
+    -- source: 'extracted' | 'curated' | 'infobox'
+    CREATE TABLE IF NOT EXISTS entity_relations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_entity_id INTEGER NOT NULL,
+      predicate TEXT NOT NULL,
+      object_entity_id INTEGER,
+      object_literal TEXT,
+      provenance_slug TEXT,
+      provenance_revision_id INTEGER,
+      source TEXT NOT NULL DEFAULT 'extracted',
+      confidence REAL NOT NULL DEFAULT 1,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (subject_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+      FOREIGN KEY (object_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+      UNIQUE(subject_entity_id, predicate, object_entity_id, object_literal, source)
+    );
+    CREATE INDEX IF NOT EXISTS idx_entity_relations_subject ON entity_relations(subject_entity_id);
+    CREATE INDEX IF NOT EXISTS idx_entity_relations_object ON entity_relations(object_entity_id);
+    CREATE INDEX IF NOT EXISTS idx_entity_relations_provenance ON entity_relations(provenance_slug);
   `);
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {
@@ -2443,4 +2551,156 @@ export function reconstructArticleVibeRevision(
     if (row.id === targetId) return content;
   }
   return null;
+}
+
+// ===== RAG indexing job queue + source state =====
+// Low-level SQL owner for the transactional outbox. Orchestration (build docs,
+// embed, upsert to LanceDB) lives in src/server/rag/jobs.ts.
+
+export type RagJobOperation = "upsert" | "delete" | "rebuild";
+
+export interface RagIndexJobRow {
+  id: number;
+  articleSlug: string;
+  sourceKind: string;
+  sourceId: string;
+  operation: RagJobOperation;
+  expectedHash: string | null;
+  createdAt: number;
+  attempts: number;
+  lastError: string | null;
+}
+
+export interface EnqueueRagJobInput {
+  articleSlug: string;
+  sourceKind: string;
+  sourceId: string;
+  operation?: RagJobOperation;
+  expectedHash?: string | null;
+}
+
+/**
+ * Enqueue (or coalesce) a durable indexing job. Re-enqueuing the same
+ * (article, kind, source, operation) refreshes the expected hash and re-opens
+ * the job rather than creating a duplicate. Safe to call inside the same
+ * transaction as the content save.
+ */
+export function enqueueRagIndexJob(db: DatabaseSync, input: EnqueueRagJobInput): void {
+  const operation = input.operation ?? "upsert";
+  prepared(
+    db,
+    `INSERT INTO rag_index_jobs
+       (article_slug, source_kind, source_id, operation, expected_hash, created_at, attempts, last_error, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL)
+     ON CONFLICT(article_slug, source_kind, source_id, operation)
+     DO UPDATE SET expected_hash = excluded.expected_hash,
+                   created_at = excluded.created_at,
+                   attempts = 0,
+                   last_error = NULL,
+                   completed_at = NULL`,
+  ).run(
+    input.articleSlug,
+    input.sourceKind,
+    input.sourceId,
+    operation,
+    input.expectedHash ?? null,
+    Date.now(),
+  );
+}
+
+/** Pending (incomplete) jobs oldest-first. */
+export function listPendingRagJobs(db: DatabaseSync, limit = 500): RagIndexJobRow[] {
+  return prepared(
+    db,
+    `SELECT id, article_slug AS articleSlug, source_kind AS sourceKind,
+            source_id AS sourceId, operation, expected_hash AS expectedHash,
+            created_at AS createdAt, attempts, last_error AS lastError
+     FROM rag_index_jobs
+     WHERE completed_at IS NULL
+     ORDER BY created_at ASC, id ASC
+     LIMIT ?`,
+  ).all(limit) as unknown as RagIndexJobRow[];
+}
+
+export function countPendingRagJobs(db: DatabaseSync): number {
+  const row = prepared(
+    db,
+    `SELECT COUNT(*) AS n FROM rag_index_jobs WHERE completed_at IS NULL`,
+  ).get() as { n: number };
+  return row.n;
+}
+
+export function markRagJobComplete(db: DatabaseSync, id: number): void {
+  prepared(db, `UPDATE rag_index_jobs SET completed_at = ?, last_error = NULL WHERE id = ?`).run(
+    Date.now(),
+    id,
+  );
+}
+
+export function markRagJobFailed(db: DatabaseSync, id: number, error: string): void {
+  prepared(
+    db,
+    `UPDATE rag_index_jobs SET attempts = attempts + 1, last_error = ? WHERE id = ?`,
+  ).run(error.slice(0, 2000), id);
+}
+
+export interface RagSourceStateInput {
+  sourceKind: string;
+  sourceId: string;
+  articleSlug: string;
+  expectedHash?: string | null;
+  indexedHash?: string | null;
+  status: "pending" | "current" | "failed" | "deleted";
+}
+
+export function upsertRagSourceState(db: DatabaseSync, input: RagSourceStateInput): void {
+  prepared(
+    db,
+    `INSERT INTO rag_source_state
+       (source_kind, source_id, article_slug, expected_hash, indexed_hash, indexed_at, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(source_kind, source_id)
+     DO UPDATE SET article_slug = excluded.article_slug,
+                   expected_hash = excluded.expected_hash,
+                   indexed_hash = excluded.indexed_hash,
+                   indexed_at = excluded.indexed_at,
+                   status = excluded.status`,
+  ).run(
+    input.sourceKind,
+    input.sourceId,
+    input.articleSlug,
+    input.expectedHash ?? null,
+    input.indexedHash ?? null,
+    input.status === "current" ? Date.now() : null,
+    input.status,
+  );
+}
+
+/** Remove all source-state rows for an article (used on delete). */
+export function deleteRagSourceStateForArticle(db: DatabaseSync, slug: string): void {
+  prepared(db, `DELETE FROM rag_source_state WHERE article_slug = ?`).run(slug);
+}
+
+export interface OutboundLinkHint {
+  targetSlug: string;
+  targetTitle: string;
+  hint: string;
+}
+
+/**
+ * Distinct outbound links from an article with the target's title and the
+ * hidden hint recorded at link time. Feeds `link_hint` RAG documents.
+ */
+export function listOutboundLinkHints(db: DatabaseSync, slug: string): OutboundLinkHint[] {
+  return prepared(
+    db,
+    `SELECT l.target_slug AS targetSlug,
+            COALESCE(a.title, l.target_slug) AS targetTitle,
+            l.hidden_hint AS hint
+     FROM article_links l
+     LEFT JOIN articles a ON a.slug = l.target_slug
+     WHERE l.source_slug = ?
+       AND TRIM(COALESCE(l.hidden_hint, '')) <> ''
+     GROUP BY l.target_slug`,
+  ).all(slug) as unknown as OutboundLinkHint[];
 }

@@ -26,6 +26,9 @@
     "format:check": "prettier --check \"src/client/**/*.{ts,tsx,css}\"",
     "lint:css": "stylelint \"src/client/**/*.css\"",
     "rag:audit": "node --import tsx/esm scripts/rag-audit.ts",
+    "rag:check": "node --import tsx/esm scripts/rag-check.ts",
+    "rag:rebuild": "node --import tsx/esm scripts/rag-rebuild.ts",
+    "rag:process-jobs": "node --import tsx/esm scripts/rag-process-jobs.ts",
     "generate:emoji-names": "node --import tsx/esm scripts/generate-emoji-names.ts",
     "rag:audit:dry": "node --import tsx/esm scripts/rag-audit.ts --dry-run",
     "db:slug-dupe-check": "node --import tsx/esm scripts/slug-dupe-check.ts"

@@ -1,0 +1,87 @@
+# Controlled core ontology vocabulary.
+#
+# Entity types and relation predicates are a fixed, controlled set: LLM-extracted
+# relations whose predicate or subject/object type signature don't match are
+# dropped. Category tags are emergent (not listed here) but normalized against
+# this file. Bump `version` to invalidate extractions and force re-derivation.
+version = 1
+
+entity_types = [
+  "person",
+  "place",
+  "organization",
+  "event",
+  "work",
+  "concept",
+  "thing",
+  "date",
+]
+
+# Relation predicates with subject -> object type signatures. "*" matches any
+# type. `related_to` is the permissive fallback for genuine but untyped links.
+[[predicates]]
+name = "located_in"
+subject = "place"
+object = "place"
+
+[[predicates]]
+name = "founded_by"
+subject = "organization"
+object = "person"
+
+[[predicates]]
+name = "created_by"
+subject = "work"
+object = "person"
+
+[[predicates]]
+name = "member_of"
+subject = "person"
+object = "organization"
+
+[[predicates]]
+name = "born_in"
+subject = "person"
+object = "place"
+
+[[predicates]]
+name = "born_on"
+subject = "person"
+object = "date"
+
+[[predicates]]
+name = "occurred_on"
+subject = "event"
+object = "date"
+
+[[predicates]]
+name = "part_of"
+subject = "thing"
+object = "thing"
+
+[[predicates]]
+name = "related_to"
+subject = "*"
+object = "*"
+
+# Maps common infobox row labels (lowercased) to a core predicate, so
+# deterministic infobox extraction yields typed relations where possible.
+[label_predicates]
+founder = "founded_by"
+"founded by" = "founded_by"
+creator = "created_by"
+"created by" = "created_by"
+author = "created_by"
+location = "located_in"
+headquarters = "located_in"
+"based in" = "located_in"
+birthplace = "born_in"
+born = "born_on"
+
+# Infobox labels (lowercased) that denote a typed identifier rather than a relation.
+[identifier_labels]
+ticker = "ticker"
+symbol = "ticker"
+"stock symbol" = "ticker"
+"ticker symbol" = "ticker"
+isin = "isin"

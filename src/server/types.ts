@@ -188,7 +188,6 @@ export interface WorldConfig {
   epoch_real_time: string;
   epoch_day: number;
   epoch_date: string;
-  era_pivot_date: string;
   calendar_name: string;
 }
 
@@ -508,7 +507,6 @@ export interface HomepageNews {
   title: string;
   worldDate: string;
   worldDay: number;
-  eraLabel?: string;
   generatorVersion?: string;
   summaryMarkdown: string;
   headlines: HomepageNewsHeadline[];

@@ -104,53 +104,7 @@ describe("Homepage", () => {
     expect(container.querySelectorAll("img")).toHaveLength(0);
   });
 
-  it("shows the Burger King sponsorship pill for BK news dates", async () => {
-    const now = Date.now();
-    const onNavigate = vi.fn();
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/homepage/history"))
-        return Promise.resolve(jsonResponse({ history: [] }));
-      if (url.startsWith("/api/homepage")) {
-        return Promise.resolve(
-          jsonResponse({
-            featured: null,
-            todaysNews: {
-              slug: "todays-news-day-000252",
-              title: "Today's News: September 9, 2025 (1 BK)",
-              worldDate: "September 9, 2025 (1 BK)",
-              worldDay: 252,
-              eraLabel: "1 BK",
-              generatorVersion: "1",
-              summaryMarkdown: "A sponsored edition.",
-              headlines: [
-                {
-                  text: "Canal ledgers wobble",
-                  summary: "Accountants deny moonlight errors.",
-                },
-              ],
-            },
-            didYouKnow: [],
-            generatedAt: now,
-            expiresAt: now + 60_000,
-          }),
-        );
-      }
-      return Promise.resolve(jsonResponse({}));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<Homepage onNavigate={onNavigate} />);
-
-    const sponsorLink = await screen.findByRole("link", {
-      name: "Burger King",
-    });
-    expect(screen.getByText(/Sponsored by/)).toBeInTheDocument();
-    sponsorLink.click();
-    expect(onNavigate).toHaveBeenCalledWith("Burger_King");
-  });
-
-  it("does not show the Burger King sponsorship pill for AK news dates", async () => {
+  it("renders today's news dates without era labels", async () => {
     const now = Date.now();
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -162,10 +116,9 @@ describe("Homepage", () => {
             featured: null,
             todaysNews: {
               slug: "todays-news-day-000253",
-              title: "Today's News: September 10, 2025 (0 AK)",
-              worldDate: "September 10, 2025 (0 AK)",
+              title: "Today's News: September 10, 2025",
+              worldDate: "September 10, 2025",
               worldDay: 253,
-              eraLabel: "0 AK",
               generatorVersion: "1",
               summaryMarkdown: "A regular edition.",
               headlines: [
@@ -187,9 +140,7 @@ describe("Homepage", () => {
 
     render(<Homepage onNavigate={vi.fn()} />);
 
-    await screen.findByText("September 10, 2025 (0 AK)");
-    expect(screen.queryByText(/Sponsored by/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Burger King" })).not.toBeInTheDocument();
+    await screen.findByText("September 10, 2025");
   });
 
   it("renders today's news below featured and DYK with its broadcast image", async () => {
@@ -208,10 +159,9 @@ describe("Homepage", () => {
             },
             todaysNews: {
               slug: "todays-news-day-000252",
-              title: "Today's News: September 9, 2025 (1 BK)",
-              worldDate: "September 9, 2025 (1 BK)",
+              title: "Today's News: September 9, 2025",
+              worldDate: "September 9, 2025",
               worldDay: 252,
-              eraLabel: "1 BK",
               generatorVersion: "1",
               summaryMarkdown: "A sponsored edition.",
               imageId: "news-img",

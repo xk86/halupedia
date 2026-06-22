@@ -959,6 +959,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     "/api/admin/llm",
     "/api/admin/runs",
     "/api/admin/pipeline/workflows",
+    "/api/admin/pipeline/runs",
   ]);
   app.use("*", async (c, next) => {
     const { method } = c.req;

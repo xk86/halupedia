@@ -38,6 +38,7 @@ import {
   getLatestArticleReferences,
   getLatestArticleSeeAlso,
 } from "./db";
+import { parseMarkdownLinks } from "./text/markdownLinkParser";
 
 /**
  * Brand a string as the URL-visible wiki segment ("Ford_Focus"). Use
@@ -327,8 +328,8 @@ export function assertValidSlug(slug: string): void {
  */
 function computeLinkedSlugs(body: string): Set<string> {
   const linked = new Set<string>();
-  for (const m of body.matchAll(/\]\(ref:([\w-]+)\)/g)) {
-    linked.add(m[1]);
+  for (const link of parseMarkdownLinks(body).links) {
+    if (link.kind === "ref" && link.slug) linked.add(link.slug);
   }
   return linked;
 }

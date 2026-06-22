@@ -16,6 +16,7 @@ import {
   saveArticleReferences,
 } from "../src/server/db";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
+import { loadArticle } from "../src/server/article";
 import { buildReferenceList } from "../src/server/referenceList";
 import { formatRagContextForPrompt, retrieveDirectArticleContext } from "../src/server/retrieval";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "../src/server/referenceEdits";
@@ -119,6 +120,34 @@ test("refs-only edit replaces sidecar refs without touching the article body", (
   assert.deepEqual(stored.map((r) => `${r.slug}:${r.pinned}`), ["ref-two:true"]);
   assert.equal(listArticleBlacklistSlugs(db, "alpha").includes("ref-one"), true);
   assert.equal(getArticle(db, "alpha")!.markdown, before.markdown, "body must be untouched");
+});
+
+test("loadArticle marks references with Unicode slugs as linked", (t) => {
+  const db = makeDb(t);
+  save(db, "source-page", "Source Page", [
+    "[Celestial archive](ref:星界-記録) and",
+    "[Northern observatory](ref:étoile-boréale) are cited.",
+  ].join(" "));
+  save(db, "星界-記録", "星界 記録");
+  save(db, "étoile-boréale", "Étoile Boréale");
+  save(db, "uncited-source", "Uncited Source");
+  saveArticleReferences(db, "source-page", 200, [
+    { slug: "星界-記録", title: "星界 記録", content: "", kind: "summary", pinned: false, revisionId: "current", source: "user" },
+    { slug: "étoile-boréale", title: "Étoile Boréale", content: "", kind: "summary", pinned: false, revisionId: "current", source: "user" },
+    { slug: "uncited-source", title: "Uncited Source", content: "", kind: "summary", pinned: false, revisionId: "current", source: "user" },
+  ]);
+
+  const article = loadArticle(db, "source-page");
+
+  assert.ok(article);
+  assert.deepEqual(
+    Object.fromEntries(article.metadata.references.map((ref) => [ref.slug, ref.linked])),
+    {
+      "星界-記録": true,
+      "étoile-boréale": true,
+      "uncited-source": false,
+    },
+  );
 });
 
 test("blacklist-only edit removes blocked refs from the sidecar and syncs the stored blocklist", (t) => {

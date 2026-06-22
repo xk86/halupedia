@@ -1,0 +1,239 @@
+model = "light"
+thinking = false
+json = false
+recommended_aspect_ratios = ["landscape"]
+selection_when = "The article fits a classic old-Roblox-style user-built place: improvised places, amateur architecture, fan communities, strange institutions, obstacle courses, blocky vehicles, simple simulations, homemade monuments, or a subject that benefits from mid-2000s-to-early-2010s online game-building aesthetics."
+
+system = """
+Create one menu-free editorial hero image for a Halupedia subject as a classic
+Roblox place from the mid-2000s to early 2010s: chunky smooth plastic Parts,
+R6 block avatars, yellow cylindrical heads, classic face decals, catalog hats,
+flat T-shirt and pants textures, user-made architecture, bright flat materials,
+and the earnest handmade look of an early online game-building place.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery, not as real-world documentation or claims.
+
+Core look:
+- Make the image feel like a freecam screenshot taken inside a classic
+  user-built game place with all interface elements hidden. It should look like
+  an in-engine place assembled from old game-engine primitive Parts, captured
+  by moving an invisible camera into the world.
+- Use the visual vocabulary of classic Roblox-like place construction: smooth
+  rectangular Parts, wedge Parts, cylinders, spheres, flat plates, flat terrain
+  planes, truss pieces, transparent colored panes, decals reduced to unreadable
+  marks, anchored props, and obvious seams between large Parts.
+- Use period-authentic classic Roblox surface and place cues: gray studded
+  baseplates as large floor surfaces, SpawnLocation-like pads, simple TrussPart
+  bridges or supports, basic transparent bricks, flat skybox blue, old Plastic
+  and SmoothPlastic material response, and simple decal panels. Studs should
+  read as shallow surface texture on large plates, not as separate small pieces.
+- Keep the whole build at classic-place fidelity: simple block approximations
+  of buildings, animals, vehicles, machines, furniture, skylines, landscapes,
+  and symbols. Use obvious primitive assembly, square corners, visible seams,
+  repeated default-like parts, low-resolution decals, and flat color choices.
+- Build the scene with a low part count. Surfaces read as single large cuboids,
+  slabs, panels, simple wall sections, or coarse wedge forms with flat faces.
+  Details read as broad color bands, simple decals, and large placed
+  primitives.
+- Represent granular materials, crowds, rubble, collections, archives, money,
+  food, specimens, or repeated items as one or two coarse low-poly volumes,
+  flat colored patches, or a single simplified emblem-like prop. Keep the
+  old-engine simplification visible.
+- Treat large quantities in the article as world context, not as a rendering
+  count. If the context says hundreds, thousands, millions, or any absurdly
+  large number of small things, show the idea through one oversized symbolic
+  item, one crate/bin, one interactable machine, or one smooth colored mass.
+- If the article subject is naturally a pile, pyramid, heap, archive, treasure,
+  stockpile, or mass of small objects, reduce it to a single chunky game-model
+  feature with smooth sides and broad color regions, integrated into the floor,
+  wall, water, path, machine, vehicle, or playable room.
+- For food-stick, rod, bar, capsule, coin, file, paper, bottle, or specimen
+  subjects, prefer one giant simplified representative object or one coarse
+  container with a flat colored top surface.
+- For burgers, sandwiches, candy, snacks, coins, pills, capsules, sticks, or
+  other countable small objects, make one oversized iconic game-model version
+  of the object, one simple machine, or one smooth bin surface. The subject
+  should read through a playable-place silhouette.
+- For animals, creatures, specimens, fossils, bodies, organs, or biological
+  subjects, construct the subject from simple old-game primitives: cuboids,
+  cylinders, wedges, spheres, flat plates, and blocky limbs. Use broad flat
+  color regions and a few large joints or segments. Animals should look like
+  classic user-built models with rectangular torsos, block legs, wedge heads,
+  cylinder horns or tails, simple decal eyes, and awkward part seams.
+- Use simple plastic materials: bright primary colors, flat gray, tan, grass
+  green, sky blue, matte black, simple transparency, crude reflective metal,
+  and occasional neon-like glowing parts. Keep materials flat, plastic, and
+  low-detail, with matte diffuse surfaces and only simple hard highlights.
+- Render in-world screens, banners, flags, murals, charts, diagrams, books,
+  and papers as simple Part-built panels, flat color blocks, glowing
+  rectangles, or geometric emblems. They should look made inside the same old
+  game place, with no detailed picture-within-picture imagery.
+- Use classic R6 block-avatar proportions when people appear: yellow cylindrical
+  heads, rectangular torsos, rectangular arms, rectangular legs, simple block
+  hands, stiff poses, and duplicated body parts.
+- Give avatars period-authentic classic Roblox customization: decal-like faces
+  in the old catalog style with black dot eyes, curved smiles, frowns, silly
+  grins, worried mouths, eyebrows, or simple sunglasses; hats that look like
+  old catalog accessories such as baseball caps, top hats, bowlers, fedoras,
+  construction helmets, visors, beanies, simple hair hats, crowns, bucket hats,
+  or helmets; and flat T-shirt/torso decals with broad color blocks, stripes,
+  badges, simple symbols, or simple unreadable graphics.
+- Avatar clothing should feel like old user-made shirts and pants mapped onto
+  block torsos and limbs: flat colors, simple seams, square sleeves, basic
+  collars, jackets, vests, uniforms, overalls, or themed costumes made from
+  blocky texture regions.
+- When avatars are part of the scene, at least a few should visibly carry
+  classic face decals, hats, T-shirt/torso graphics, or shirt/pants texture
+  regions so they read as customized Roblox players rather than plain yellow
+  mannequins.
+- Preserve the old-engine feel: hard shadows or simple blob-like shadowing,
+  basic sun lighting, flat ambient fill, low-detail skybox, simple fog or draw
+  distance limits, jagged silhouettes, low-resolution texture filtering,
+  visible aliasing, and awkward collision-readable geometry.
+- Keep the main article subject readable and visually dominant. The game-place
+  treatment should interpret the specific article context, not turn every
+  subject into a generic obstacle course, tycoon base, battlefield, or town.
+- The image should feel like a built place captured by freecam with the HUD
+  hidden. The camera is invisible and detached from any player body.
+
+Context rules:
+- Use the supplied Halupedia context as silent art direction. Prefer exact and
+  strongly related details from the title, summary, excerpt, sidebar facts,
+  outgoing links, backlinks, hidden hints, and related summaries.
+- Translate Halupedia-specific people, objects, places, institutions,
+  technologies, conflicts, rituals, materials, emotional tone, and
+  relationships into a user-built game place, active room, outdoor area,
+  hazard course, working machine, vehicle, base, storefront, lab, courtroom,
+  memorial plaza, or traversable themed build.
+- For abstract, political, historical, bureaucratic, or scientific subjects,
+  make a playable place built from simple Parts: a themed room, trial area,
+  training course, simplified city, machine room, meeting hall, control room,
+  ritual space, obstacle route, or improvised simulation.
+- For subjects with real-world institutions, nations, companies, factions, or
+  belief systems, invent a broad geometric color motif, simplified emblem, or
+  generic civic building from Parts rather than reproducing exact flags, seals,
+  logos, uniforms, or documents.
+- For real places, cities, landmarks, government buildings, or historical
+  settings, use blocky homage architecture with simplified silhouettes, default
+  material colors, and old-Roblox part geometry instead of accurate real-world
+  reproduction.
+- If multiple interpretations are plausible, choose the one that gives the
+  clearest classic block-building article hero while remaining tied to the
+  context.
+
+Composition:
+- Horizontal 16:9 hero image.
+- Compose it like an in-game freecam screenshot with UI hidden: an invisible
+  camera placed in a hallway, room, plaza, worksite, town square, vehicle-use
+  area, arena, base, exterior path, or interior corner of the place.
+- Frame the subject through build geometry rather than photography: blocky
+  floors, platforms, walls, doorways, trusses, simple vehicles, control panels,
+  ramps, pipes, colored walls, skybox horizon, and collision-readable paths.
+- Use practical freecam behavior: readable mid-distance framing, clear
+  silhouettes, visible ground plane, modest field of view, slight elevated or
+  corner-of-room placement when useful, no realistic lens bokeh, no cinematic
+  depth of field, and no modern physically accurate camera effects.
+- Leave empty screen area as part of the place: skybox, flat wall, floor plate,
+  flat green ground plane, water plane, simple road, open platform, or fogged distance.
+  Do not make it feel like photographic negative space.
+- Prefer one coherent old-Roblox-style place over a collage, poster, box art,
+  catalog render, title screen, or interface screenshot.
+
+Avoid:
+- Any HUD or interface: no health bars, chat windows, player lists, usernames,
+  menus, toolbar icons, mouse cursors, inventory bars, dialog boxes, badges,
+  watermarks, timestamps, crosshairs, objective markers, or button prompts.
+- Any readable text or branding: no readable signs, labels, captions, logos,
+  game names, studio marks, title cards, fake text, glyph text, or readable
+  decals.
+- Recognizable copyrighted characters, official game logos, official avatar
+  faces copied exactly, real platform screenshots, real platform UI, or
+  imitation of a specific current creator's proprietary build. Use
+  period-authentic classic Roblox face, hat, T-shirt, shirt, and pants
+  conventions without readable text or logos.
+- Modern rendering: physically based materials, ray tracing, global
+  illumination, high-resolution photogrammetry, cinematic post-processing,
+  modern volumetric clouds, realistic skin or fabric, dense foliage, current
+  AAA lighting, modern smooth character rigs, detailed organic sculpting,
+  accurate city skylines, realistic animal anatomy, pixel art, Minecraft-like
+  voxels, anime, comic styling, or seventh-generation console shooter
+  aesthetics.
+- Gore, excessive horror, overt nudity, explicit sexual content, sexualized
+  minors, sexual violence, or anything that makes the image feel exploitative
+  instead of editorial.
+- Imitating a living artist or a specific copyrighted visual franchise beyond
+  the broad classic block-building-game construction language requested here.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal menu-free editorial hero image of the main subject,
+informed by the Halupedia context above, as a classic mid-2000s-to-early-2010s
+Roblox online game-building place.
+
+Frame it as an in-game freecam screenshot: the camera is invisible, detached
+from any player body, placed somewhere inside the world, and all HUD/interface
+elements are hidden. Avatars may appear anywhere in the scene, including near
+the camera, as long as they are inhabitants, workers, spectators, characters,
+or players in the place rather than the camera owner's visible body.
+
+Make it look built inside the old Roblox engine: large smooth rectangular
+Parts, wedge Parts, cylinders, plates, trusses, gray studded baseplate floors,
+SpawnLocation-like pads, flat terrain planes, basic sun lighting, flat ambient
+fill, low-detail skybox, bright Plastic and SmoothPlastic materials, jagged
+silhouettes, visible aliasing, simple fog or draw distance, modular seams, R6
+block avatars when people appear, and an earnest user-made scene assembled from
+primitive Parts.
+Keep every subject at classic-place fidelity: blocky approximations, square
+corners, visible seams, default-like parts, low-resolution decals, flat color
+choices, and old-engine simplicity. Real places and landmarks should become
+simplified homage builds, not accurate reproductions.
+
+Use a low part count: broad smooth cuboids, slabs, panels, and simple wedge
+forms carry the scene. Translate collections, granular materials, crowds,
+rubble, money, food, or repeated objects into one or two smooth low-poly
+volumes, flat colored patches, a single simplified emblem-like prop, or one
+coarse container with a flat colored top surface. Treat huge quantities as
+context, not a count to draw. Make characters read as old R6 block avatars with
+rectangular arms and legs, simple square heads, block hands, and stiff poses.
+For countable food, coins, pills, capsules, sticks, or snacks, use one
+oversized iconic object, one smooth bin surface, or one simple machine
+as the article symbol. For animals, creatures, fossils, organs, or specimens,
+build the subject from cuboids, cylinders, wedges, spheres, plates, blocky
+limbs, broad color regions, and a few large joints or segments.
+When avatars appear as inhabitants, workers, spectators, scene characters, or
+players in the place, make them feel like classic customized R6 Roblox players:
+yellow cylindrical heads, rectangular limbs, simple block hands, old catalog
+face decals, classic hats, flat T-shirt/torso graphics, old user-made shirt
+and pants textures, square sleeves, collars, jackets, vests, uniforms,
+overalls, or simple themed costumes. Keep face and shirt details broad and
+unreadable.
+Make any in-world screens, banners, charts, flags, books, papers, or murals
+into simple colored Part panels or geometric emblems, built from the same
+low-detail game pieces.
+
+Use freecam game viewport framing, not photography: an invisible camera inside
+the place, slightly elevated corner view, hallway view, room view, town-square
+view, simple interior, vehicle-use area, arena view, base exterior, obby route,
+or worksite view. Frame the article subject through blocky floors, platforms,
+walls, doorways, trusses, props, control panels, pipes, and collision-readable
+paths.
+
+No HUD, no UI, no chat, no player list, no usernames, no toolbar, no cursor, no
+health bar, no visible camera-owner body, no readable signs, no labels, no
+logos, no title cards, no watermarks, no menus, no screenshots with interface,
+no overt nudity, and no explicit sexual content.
+"""

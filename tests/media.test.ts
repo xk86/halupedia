@@ -1150,8 +1150,10 @@ describe("http", () => {
 
     assert.ok(promptKeys.has("documentary_photo"));
     assert.ok(promptKeys.has("bad_middle_school_blender_cgi"));
+    assert.ok(promptKeys.has("classic_roblox_build"));
     assert.ok(promptKeys.has("psychedelic_editorial"));
     assert.ok(promptKeys.has("trading_card"));
+    assert.equal(body.prompts.find((prompt: any) => prompt.key === "classic_roblox_build")?.allowText, false);
     assert.equal(body.prompts.find((prompt: any) => prompt.key === "trading_card")?.allowText, true);
     assert.equal(body.prompts.find((prompt: any) => prompt.key === "documentary_photo")?.allowText, false);
     assert.equal(promptKeys.has("article_image_psychedelic_editorial"), false);

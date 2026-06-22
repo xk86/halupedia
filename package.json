@@ -31,10 +31,10 @@
     "db:slug-dupe-check": "node --import tsx/esm scripts/slug-dupe-check.ts"
   },
   "dependencies": {
-    "3d-force-graph": "^1.80.0",
     "@base-ui/react": "^1.5.0",
     "@fontsource/inter": "^5.2.8",
     "@hono/node-server": "^2.0.5",
+    "@lancedb/lancedb": "^0.30.0",
     "@langchain/core": "^1.1.49",
     "@langchain/langgraph": "^1.4.2",
     "@prosekit/extensions": "^0.17.4",
@@ -42,6 +42,7 @@
     "@tailwindcss/vite": "^4.3.1",
     "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^4.7.0",
+    "3d-force-graph": "^1.80.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "culori": "^4.0.2",

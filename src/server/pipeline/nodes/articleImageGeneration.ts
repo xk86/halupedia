@@ -60,6 +60,7 @@ interface PresetPromptRow {
   presetKey: string;
   description: string;
   selectionWhen?: string;
+  recommendedAspectRatios: string[];
 }
 
 interface AspectRatioPromptRow {
@@ -67,6 +68,7 @@ interface AspectRatioPromptRow {
   label: string;
   size: string;
   selectionWhen?: string;
+  recommended?: boolean;
 }
 
 function imagePresetRowsForPrompt(
@@ -81,6 +83,7 @@ function imagePresetRowsForPrompt(
       presetKey: preset.key,
       description: promptSummary(`${preset.system}\n${preset.user}`),
       selectionWhen: preset.selectionWhen,
+      recommendedAspectRatios: preset.recommendedAspectRatios,
     })),
     ...(includeDefault
       ? [
@@ -92,6 +95,7 @@ function imagePresetRowsForPrompt(
               : "Photoreal editorial/documentary article image.",
             selectionWhen:
               "The article is best served by a grounded documentary, archival, field, portrait, location, museum, lab, or editorial photograph.",
+            recommendedAspectRatios: [],
           },
         ]
       : []),
@@ -107,6 +111,9 @@ function formatImagePresetRows(rows: PresetPromptRow[]): string {
     .map((row) => [
       `- ${row.key}:`,
       row.selectionWhen ? `  ${selectionSummary(row.selectionWhen)}` : `  Style: ${promptSummary(row.description)}`,
+      row.recommendedAspectRatios.length > 0
+        ? `  Recommended aspect ratios: ${row.recommendedAspectRatios.join(", ")}`
+        : "",
     ].filter(Boolean).join("\n"))
     .join("\n");
 }
@@ -114,7 +121,7 @@ function formatImagePresetRows(rows: PresetPromptRow[]): string {
 function formatAspectRatioRows(rows: AspectRatioPromptRow[]): string {
   return rows
     .map((row) => [
-      `- ${row.key}: ${row.label} (${row.size})`,
+      `- ${row.key}: ${row.label} (${row.size})${row.recommended ? " [recommended for selected preset]" : ""}`,
       row.selectionWhen ? `  ${promptSummary(row.selectionWhen)}` : "",
     ].filter(Boolean).join("\n"))
     .join("\n");
@@ -295,13 +302,15 @@ function articleImagePresetSelectionContext(input: { slug?: string }, deps: Pipe
   return { article, seed, renderSelectionPrompt };
 }
 
-function aspectRatioRowsForPrompt(deps: PipelineDeps, requested: string): AspectRatioPromptRow[] {
+function aspectRatioRowsForPrompt(deps: PipelineDeps, requested: string, presetRows: PresetPromptRow[] = []): AspectRatioPromptRow[] {
+  const recommendedKeys = new Set(presetRows.flatMap((row) => row.recommendedAspectRatios));
   const rows = listArticleImageAspectRatios(deps.runtime.app.images.generation).map((option) => ({
     key: option.key,
     label: option.label,
     size: option.size,
     selectionWhen: option.selection_when,
-  }));
+    recommended: recommendedKeys.has(option.key),
+  })).sort((a, b) => Number(b.recommended) - Number(a.recommended));
   if (requested === AUTO_IMAGE_ASPECT_RATIO_KEY) return rows;
   return rows.filter((row) => row.key === requested);
 }
@@ -334,7 +343,11 @@ export const selectArticleImagePresetNode = defineNode({
     const rows = requested === "auto"
       ? imagePresetRowsForPrompt(seed)
       : imagePresetRowsForPrompt(seed, { onlyPresetKeys: new Set([requested]) });
-    const aspectRows = aspectRatioRowsForPrompt(deps, requestedAspect);
+    const aspectRows = aspectRatioRowsForPrompt(
+      deps,
+      requestedAspect,
+      requested === "auto" ? [] : rows,
+    );
     if (rows.length === 0) throw new Error(`unknown image preset: ${requested}`);
     if (aspectRows.length === 0) throw new Error(`unknown image aspect ratio: ${requestedAspect}`);
     const selected = await selectPresetWithRetries({

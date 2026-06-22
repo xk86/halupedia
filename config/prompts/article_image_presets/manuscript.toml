@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is specifically about a manuscript, folio, codex, notebook page, marginal note, premodern diagram, coded page, archival drawing, or discovered paper artifact where the page itself is the best primary image."
+recommended_aspect_ratios = ["portrait", "landscape"]
 
 system = """
 Create one editorial hero image for a Halupedia subject as a very simple crude
@@ -56,7 +57,7 @@ Context rules:
   the subject most specific and visually legible.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer portrait composition for a single folio or notebook page, and landscape composition for an open spread or wide diagram.
 - Show one strong manuscript folio or open spread with clear subject hierarchy
   and generous parchment negative space.
 - Use crude borders, lopsided circular diagrams, specimen doodles, marginal

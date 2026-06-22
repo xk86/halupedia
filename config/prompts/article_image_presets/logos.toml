@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is about a fictional company, institution, team, faction, product, event, seal, emblem, mascot, publication, project, club, or branded organization where a standalone logo, badge, crest, or mark would be more useful than a scene."
+recommended_aspect_ratios = ["square"]
 
 system = """
 Create one standalone logo, emblem, badge, seal, or wordless brand mark for a

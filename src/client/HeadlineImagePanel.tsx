@@ -43,13 +43,33 @@ const DEFAULT_IMAGE_PRESET: ImagePromptOption = {
   label: "documentary_photo",
 };
 
-const DEFAULT_IMAGE_ASPECT_RATIOS: ImageAspectRatioOption[] = [
+const AUTO_IMAGE_ASPECT_RATIO: ImageAspectRatioOption = {
+  key: "auto",
+  label: "auto",
+  size: "",
+};
+
+const CONFIGURED_IMAGE_ASPECT_RATIOS: ImageAspectRatioOption[] = [
   { key: "landscape", label: "landscape", size: "1088x624" },
   { key: "square", label: "square", size: "832x832" },
   { key: "portrait", label: "portrait", size: "832x1088" },
   { key: "poster", label: "poster portrait", size: "768x1152" },
   { key: "wide", label: "wide landscape", size: "1152x672" },
 ];
+
+const DEFAULT_IMAGE_ASPECT_RATIOS: ImageAspectRatioOption[] = [
+  AUTO_IMAGE_ASPECT_RATIO,
+  ...CONFIGURED_IMAGE_ASPECT_RATIOS,
+];
+
+function withAutoAspectRatioOption(
+  options: ImageAspectRatioOption[],
+): ImageAspectRatioOption[] {
+  return [
+    AUTO_IMAGE_ASPECT_RATIO,
+    ...options.filter((option) => option.key !== AUTO_IMAGE_ASPECT_RATIO.key),
+  ];
+}
 
 interface Props {
   articleSlug: string;
@@ -112,10 +132,7 @@ export function HeadlineImagePanel({
           Array.isArray(body.aspectRatios) && body.aspectRatios.length > 0
             ? body.aspectRatios
             : DEFAULT_IMAGE_ASPECT_RATIOS;
-        const withAuto = [
-          { key: "auto", label: "auto", size: "" },
-          ...options,
-        ];
+        const withAuto = withAutoAspectRatioOption(options);
         setAspectRatios(withAuto);
         setSelectedAspectRatioKey((current) =>
           withAuto.some((option) => option.key === current)
@@ -124,10 +141,7 @@ export function HeadlineImagePanel({
         );
       })
       .catch(() => {
-        setAspectRatios([
-          { key: "auto", label: "auto", size: "" },
-          ...DEFAULT_IMAGE_ASPECT_RATIOS,
-        ]);
+        setAspectRatios(DEFAULT_IMAGE_ASPECT_RATIOS);
       });
   }, []);
 

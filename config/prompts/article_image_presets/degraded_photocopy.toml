@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article is specifically about a document, notice, flyer, manual page, office memo, bureaucratic form, copied photograph, duplicated evidence packet, or physical paper artifact where copy-machine degradation is the point."
+recommended_aspect_ratios = ["poster", "portrait"]
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a
@@ -36,7 +37,7 @@ Context rules:
   feels most like a durable article image.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer a portrait page composition when the copied artifact is a sheet, notice, flyer, manual page, or evidence packet.
 - Frame the copied artifact as a page, cropped page detail, stack, binder
   sheet, copier-bed output, or desk surface with strong subject hierarchy.
 - Leave plausible headline negative space in blank paper, margins, white

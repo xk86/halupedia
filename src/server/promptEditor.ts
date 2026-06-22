@@ -57,6 +57,7 @@ export interface ArticleImagePresetContent {
   key: string;
   label: string;
   selectionWhen?: string;
+  recommendedAspectRatios: string[];
   allowText?: boolean;
   system: string;
   user: string;
@@ -149,6 +150,12 @@ function readTomlPromptContent(path: string, key: string, displayPath: string): 
   return {
     key,
     selectionWhen: typeof raw.selection_when === "string" ? raw.selection_when : undefined,
+    recommendedAspectRatios: Array.isArray(raw.recommended_aspect_ratios)
+      ? raw.recommended_aspect_ratios
+          .filter((value): value is string => typeof value === "string")
+          .map((value) => value.trim().toLowerCase())
+          .filter((value) => safeKey(value))
+      : [],
     allowText: typeof raw.allow_text === "boolean" ? raw.allow_text : undefined,
     system: typeof raw.system === "string" ? raw.system : "",
     user: typeof raw.user === "string" ? raw.user : "",

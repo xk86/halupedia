@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article concerns identity, aliases, citizenship, bureaucracy, minor officials, vanished people, membership records, permits, dossiers, institutional registration, or a person best represented through an official ID portrait."
+recommended_aspect_ratios = ["portrait", "square"]
 
 system = """
 Create one editorial hero image for a Halupedia subject as an official passport,
@@ -42,7 +43,7 @@ Context rules:
   makes the article feel like it has an official record attached to it.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer portrait or square composition for an ID portrait, file photo, permit image, or badge crop.
 - Use an ID-photo or file-photo composition placed within a larger neutral
   field, scan bed, folder surface, desk, or document crop when useful.
 - Leave plausible headline negative space in the neutral backdrop, blank wall,

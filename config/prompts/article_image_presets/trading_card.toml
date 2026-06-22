@@ -2,7 +2,8 @@ model = "light"
 thinking = false
 json = false
 allow_text = true
-selection_when = "The article involves a person, creature, object, vehicle, team, faction, artifact, product, champion, mascot, specimen, or collectible subject that would work as a printed trading card. Prefer the poster portrait aspect ratio for this preset because vertical card artifacts compose best as tall collectible cards."
+selection_when = "The article involves a person, creature, object, vehicle, team, faction, artifact, product, champion, mascot, specimen, or collectible subject that would work as a printed trading card."
+recommended_aspect_ratios = ["poster"]
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a

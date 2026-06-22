@@ -1149,6 +1149,7 @@ describe("http", () => {
     const promptKeys = new Set(body.prompts.map((prompt: any) => prompt.key));
 
     assert.ok(promptKeys.has("documentary_photo"));
+    assert.ok(promptKeys.has("bad_middle_school_blender_cgi"));
     assert.ok(promptKeys.has("psychedelic_editorial"));
     assert.ok(promptKeys.has("trading_card"));
     assert.equal(body.prompts.find((prompt: any) => prompt.key === "trading_card")?.allowText, true);

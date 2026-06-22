@@ -20,6 +20,7 @@ import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
 import type { loadConfig } from "../config";
 import type { PromptRegistry } from "./prompts/registry";
+import type { RagRuntime } from "../rag";
 
 export interface PipelineDeps {
   db: DatabaseSync;
@@ -30,6 +31,10 @@ export interface PipelineDeps {
   prompts: PromptRegistry;
   logger: Logger;
   runtime: ReturnType<typeof loadConfig>;
+  /** LanceDB-backed RAG runtime. Optional so test harnesses can omit it; the
+   *  new indexing path enqueues durable jobs that a background drainer
+   *  processes. Absent in unit tests that don't exercise retrieval. */
+  rag?: RagRuntime;
   /**
    * Optional streaming progress callback. When set, LLM call nodes use
    * `streamChat` instead of `chat` and fire this on each partial body

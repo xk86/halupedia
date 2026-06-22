@@ -26,6 +26,7 @@ import {
   getArticleHeadlineMedia,
   updateArticleInPlace,
   updateArticleMediaCaption,
+  enqueueRagIndexJob,
   type InfoboxData,
 } from "../../db";
 import { getMediaById } from "../../mediaDb";
@@ -562,6 +563,15 @@ export const indexRagChunksNode = defineNode({
     if (result.embeddingError) {
       throw new Error(`RAG chunk embeddings failed: ${result.embeddingError}`);
     }
+    // Dual-run: also enqueue a durable LanceDB indexing job. The background
+    // drainer re-derives all of this article's documents (body, summary,
+    // infobox, link hints, image text, ontology facts) and upserts them.
+    enqueueRagIndexJob(deps.db, {
+      articleSlug: slug,
+      sourceKind: "article_body",
+      sourceId: slug,
+      operation: "upsert",
+    });
     return { ragIndexed: true };
   },
 });

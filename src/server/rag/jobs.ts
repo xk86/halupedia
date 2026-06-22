@@ -23,6 +23,7 @@ import {
   type RagIndexJobRow,
 } from "../db";
 import type { Logger } from "../logger";
+import { deleteArticleOntology } from "../ontology";
 import {
   buildBodyDocuments,
   buildImageTextDocuments,
@@ -163,6 +164,7 @@ async function reindexArticle(deps: ProcessJobsDeps, slug: string): Promise<numb
 async function deleteArticle(deps: ProcessJobsDeps, slug: string): Promise<void> {
   await deps.store.deleteByArticle(slug);
   deleteRagSourceStateForArticle(deps.db, slug);
+  deleteArticleOntology(deps.db, slug);
 }
 
 export async function processJobs(deps: ProcessJobsDeps): Promise<ProcessJobsResult> {

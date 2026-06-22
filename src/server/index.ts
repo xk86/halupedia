@@ -46,6 +46,8 @@ import {
   listIncomingHints,
   openDatabase,
   renameArticleSlug,
+  enqueueRagIndexJob,
+  countPendingRagJobs,
   saveArticle,
   saveArticleReferences,
   saveArticleSeeAlso,
@@ -99,6 +101,7 @@ import {
   type SidebarOperation,
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
+import { createRagRuntime, type RagRuntime } from "./rag";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -943,6 +946,61 @@ export async function createApp(options: CreateAppOptions = {}) {
   let llm: LlmRouter =
     options.llmClient ??
     new OpenAICompatRouter(runtime.llm, logger);
+
+  // ---- LanceDB RAG runtime (dual-run alongside the legacy article_chunks
+  // path during cutover). Content saves enqueue durable jobs that the
+  // background drainer below processes into LanceDB. ----
+  const ragPath = (runtime.app.rag as { path?: string }).path ?? "data/rag.lance";
+  const rag: RagRuntime = await createRagRuntime({
+    db,
+    llm,
+    path: ragPath,
+    logger,
+    imageDescriptions: (ids) => {
+      const map = new Map<string, string>();
+      for (const id of ids) {
+        const desc = getMediaById(mediaDb, id)?.description ?? "";
+        if (desc) map.set(id, desc);
+      }
+      return map;
+    },
+  });
+  {
+    // Warn (don't refuse, while dual-running) if the corpus is missing/stale,
+    // and drain any jobs left pending by a prior crash.
+    const meta = await rag.store.readMeta().catch(() => null);
+    if (!meta) {
+      logger.warn("rag.startup_no_corpus", { path: ragPath, hint: "run: npm run rag:rebuild" });
+    } else if (!meta.buildComplete || meta.textEmbeddingModel !== rag.embedder.model) {
+      logger.warn("rag.startup_corpus_stale", {
+        path: ragPath,
+        build_complete: meta.buildComplete,
+        meta_model: meta.textEmbeddingModel,
+        config_model: rag.embedder.model,
+        hint: "run: npm run rag:rebuild",
+      });
+    }
+    const pending = countPendingRagJobs(db);
+    if (pending > 0) {
+      logger.info("rag.startup_drain", { pending });
+      await rag.drain().catch((err) => logger.warn("rag.startup_drain_failed", { error: String(err) }));
+    }
+  }
+  // Background drainer: process enqueued indexing jobs without blocking request
+  // handlers. Re-entrancy guarded; timer unref'd so it never holds the process.
+  let ragDraining = false;
+  const ragDrainTimer = setInterval(() => {
+    if (ragDraining || countPendingRagJobs(db) === 0) return;
+    ragDraining = true;
+    void rag
+      .drain()
+      .catch((err) => logger.warn("rag.drain_failed", { error: String(err) }))
+      .finally(() => {
+        ragDraining = false;
+      });
+  }, 2000);
+  ragDrainTimer.unref?.();
+
   const app = new Hono();
 
   // Log every request that reaches the server — method, path, status, and
@@ -1354,6 +1412,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger.info("shutdown.drained", { elapsed_ms: elapsed });
     }
     logger.info("shutdown.closing_database");
+    clearInterval(ragDrainTimer);
+    await rag.close().catch(() => {});
     db.close();
     mediaDb.close();
     logger.info("shutdown.complete");
@@ -1476,8 +1536,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       requestedSlug !== repaired.slug &&
       titleDerivedSlug === requestedSlug
     ) {
+      const fromSlug = repaired.slug;
       const renamed = renameArticleSlug(db, repaired.slug, requestedSlug);
       if (renamed) {
+        // Old slug's RAG docs are now orphaned; drop them and index the new slug.
+        enqueueRagIndexJob(db, { articleSlug: fromSlug, sourceKind: "article_body", sourceId: fromSlug, operation: "delete" });
+        enqueueRagIndexJob(db, { articleSlug: requestedSlug, sourceKind: "article_body", sourceId: requestedSlug, operation: "upsert" });
         logger.info("page.slug_repair", { slug: requestedSlug, from: repaired.slug });
         const fresh = getArticleByLookup(db, requestedSlug);
         if (fresh) repaired = fresh;
@@ -1734,6 +1798,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       prompts: buildPromptRegistry(runtime.prompts),
       logger,
       runtime,
+      rag,
       onSidecarUpdate: notifySidecar,
       onLlmUpdate: recordLiveLlmUpdate,
       generateArticleImageAttachment: generateAndAttachArticleImage,
@@ -3969,6 +4034,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     const slug = slugify(body.slug ?? "");
     if (!slug) return c.json({ error: "missing slug" }, 400);
     const deleted = deleteArticleBySlug(db, slug);
+    if (deleted) {
+      enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "delete" });
+    }
     return c.json({ ok: deleted, slug });
   });
 
@@ -4072,6 +4140,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (displaced) {
       archiveArticle(db, displaced, `displaced by canonical redirect → ${canonicalSlug}`);
       deleteArticleBySlug(db, displaced.slug);
+      enqueueRagIndexJob(db, { articleSlug: displaced.slug, sourceKind: "article_body", sourceId: displaced.slug, operation: "delete" });
       logger.info("admin.article_archived", { slug: displaced.slug, reason: "canonical_redirect", canonicalSlug });
     }
 

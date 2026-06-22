@@ -44,6 +44,7 @@ system = """
 - Never use the phrases "pseudoscience", "hypothetical", "theoretical", or "quasi-", "debated" around things that may not exist, particularly if the topic or references are particularly eccentric. 
 - Never write as though you are uncertain about the subject. You are writing authoritatively and have all of the information you need. You know exactly what everything is. Assert it.
 - Avoid whimsical and prose-y linguistic embellishments. Write like a Wikipedia article.
+- Articles that have non-english titles should have non-english contents, in the appropriate language of the title. So a Chinese titled article should be in Chinese, an Arabic language title in Arabic, etc. Latin character titles should be English by default, but that's the exception.
 
 # Tips and Tricks
 - An easy, but optional way to inject intrigue is by recategorizing information when making new "facts" up. For example, A real person's name? That's now a genus of freshwater fish. A real place? It's now some dude from Egypt in 978. Nearly nothing you say should be true, though it should remain consistent with reference material and user instructions.

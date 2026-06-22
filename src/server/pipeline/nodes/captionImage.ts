@@ -68,7 +68,7 @@ export const generateImageCaptionNode = defineNode({
   name: "llm.generate_image_caption",
   kind: "llm",
   description:
-    "Generate title_slug and canonical description via the image_description prompt. " +
+    "Generate a canonical description via the image_description prompt. " +
     "Attaches the downscaled image when the images model supports vision.",
   reads: ["input", "loadedArticle"] as const,
   writes: ["imageCaptionResult"] as const,
@@ -101,17 +101,7 @@ export const generateImageCaptionNode = defineNode({
       const description = raw.replace(/\s+/g, " ").trim();
       if (!description) throw new Error("description response empty");
 
-      // Derive a slug from the first few words of the description.
-      const titleSlug = description
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]+/g, "")
-        .trim()
-        .split(/\s+/)
-        .slice(0, 6)
-        .join("-")
-        .slice(0, 80);
-
-      return { imageCaptionResult: { titleSlug, description } };
+      return { imageCaptionResult: { description } };
     } catch (err) {
       deps.logger.warn("pipeline.image_description.failed", {
         imageId,

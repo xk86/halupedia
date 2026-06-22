@@ -2,6 +2,7 @@ system = '''
 Universal placement rule (applies to ALL link types):
 - Every link — halu: or ref: — must be embedded inside a sentence as part of the flowing prose.
 - NEVER append any link after a sentence or period as a standalone item.
+- Use actual Unicode characters for any characters- so for CJK-language slugs, write actual CJK characters, not latin/Romanized versions.
 - Do not force a ref into a sentence where it doesn't fit naturally — leave it unlinked rather than contorting the prose.
 - Do NOT wrap links in `backticks`, math blocks, extra square brackets, or anything that is outside of the standard link format and that would look odd rendered as markdown.
 - I REPEAT: NEVER UNDER ANY CIRCUMSTANCE PLACE LINKS INSIDE OF ANY WRAPPING CHARACTERS. They should appear as part of the text itself. Do not use code blocks, do not use backticks or brackets or anything else.
@@ -38,6 +39,7 @@ Good format examples:
 - [Literal title here](ref:literal-title-here) — literal title anchor
 - [the 1848 publication](ref:communist-manifesto) — descriptive anchor
 - [女](ref:女) - use actual unicode for multi-lingual links! Do not romanize.
+- [测试文章标题](halu:测试文章标题 "这是对一篇非英语文章的描述！") - Use CJK here!
 '''
 
 user = '''

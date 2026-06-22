@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import MarkdownIt from "markdown-it";
-import { toWikiSegment } from "./wikiPath";
+import {
+  entryTitleWikiPath,
+  entryTitleWikiSegment,
+  plainEntryTitle,
+  renderEntryTitleHtml,
+} from "./entryTitle";
 
-const titleMarkdown = new MarkdownIt({
-  html: false,
-  linkify: false,
-  typographer: false,
-});
+export {
+  entryTitleWikiPath,
+  entryTitleWikiSegment,
+  plainEntryTitle,
+  renderEntryTitleHtml,
+} from "./entryTitle";
 
 interface IndexItem {
   slug: string;
@@ -27,35 +32,10 @@ interface Props {
   onNavigate: (slugOrTitleSegment: string, explicitTitle?: string) => void;
 }
 
-export function renderEntryTitleHtml(title: string): string {
-  return titleMarkdown.renderInline(title);
-}
-
-export function plainEntryTitle(title: string): string {
-  const html = renderEntryTitleHtml(title);
-  if (typeof document === "undefined") {
-    return html
-      .replace(/<[^>]+>/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-  const el = document.createElement("span");
-  el.innerHTML = html;
-  return (el.textContent ?? "").replace(/\s+/g, " ").trim();
-}
-
 export function entryTitleSortKey(title: string): string {
   return plainEntryTitle(title)
     .replace(/^the\s+/i, "")
     .trim();
-}
-
-export function entryTitleWikiPath(title: string): string {
-  return `/wiki/${entryTitleWikiSegment(title)}`;
-}
-
-export function entryTitleWikiSegment(title: string): string {
-  return toWikiSegment(plainEntryTitle(title));
 }
 
 function entryGroupKey(title: string): string {

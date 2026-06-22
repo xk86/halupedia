@@ -3,9 +3,28 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MarkdownEditor } from "../../src/client/MarkdownEditor";
+import {
+  editorLinkHref,
+  MarkdownEditor,
+} from "../../src/client/MarkdownEditor";
 
 afterEach(() => cleanup());
+
+describe("editorLinkHref", () => {
+  it("preserves Chinese slugs", () => {
+    expect(editorLinkHref("halu", "地表居民拟态")).toBe("halu:地表居民拟态");
+  });
+
+  it("accepts a complete internal link pasted into the slug field", () => {
+    expect(editorLinkHref("ref", "halu:地表居民拟态")).toBe(
+      "halu:地表居民拟态",
+    );
+  });
+
+  it("normalizes Unicode to NFC", () => {
+    expect(editorLinkHref("ref", "cafe\u0301")).toBe("ref:café");
+  });
+});
 
 // The rich (ProseKit) editor mounts web components that aren't jsdom-friendly,
 // so it's exercised in-browser rather than here. These tests cover the

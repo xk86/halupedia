@@ -1,4 +1,5 @@
 import { Separator } from "@/components/ui/separator";
+import { entryTitlePresentation } from "../entryTitle";
 
 interface Backlink {
   slug: string;
@@ -8,7 +9,7 @@ interface Backlink {
 interface ArticleBacklinksProps {
   existing: Backlink[];
   unwritten: Backlink[];
-  onNavigate: (title: string) => void;
+  onNavigate: (titleSegment: string, explicitTitle?: string) => void;
 }
 
 const backlinkListClasses = "m-0 flex list-none flex-wrap gap-x-3 gap-y-1 p-0";
@@ -23,17 +24,21 @@ export function ArticleBacklinks({
   if (count === 0) return null;
 
   const renderLink = (backlink: Backlink, isUnwritten: boolean) => {
-    const titlePath = backlink.title.replace(/\s+/g, "_");
+    const title = entryTitlePresentation(backlink.title);
     return (
       <li key={backlink.slug} className={backlinkItemClasses}>
         <a
-          href={`/wiki/${titlePath}`}
+          href={title.wikiPath}
           onClick={(event) => {
             event.preventDefault();
-            onNavigate(titlePath);
+            onNavigate(title.wikiSegment, title.plainTitle);
           }}
         >
-          {backlink.title}
+          <span
+            dangerouslySetInnerHTML={{
+              __html: title.html,
+            }}
+          />
         </a>
         {isUnwritten ? (
           <span className="text-muted-foreground"> (unwritten)</span>

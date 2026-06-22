@@ -300,7 +300,8 @@ export function ensureLeadingTitleHeading(markdown: string, title: string): stri
 
   const isHeading = /^#{1,6}\s+\S/.test(firstLine);
   const bold = firstLine.match(/^\*\*(.+?)\*\*$/) ?? firstLine.match(/^__(.+?)__$/);
-  const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const key = (s: string) =>
+    s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
   const boldRestatesTitle = bold ? key(bold[1]) === key(cleanTitle) : false;
 
   if (isHeading || boldRestatesTitle) return `${heading}${rest}`;

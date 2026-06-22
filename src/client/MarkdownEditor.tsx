@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { htmlToMarkdown, markdownToHtml } from "./markdown/mdBridge";
+import { normalizeSlug } from "../server/slug";
 
 interface MarkdownEditorProps {
   value: string;
@@ -529,7 +530,7 @@ function ContextReadout({ context }: { context: ContextInfo }) {
 // No Preflight in this project, so a bare <button> keeps its UA chrome (grey
 // fill, black border) — zero it explicitly with border-0 bg-transparent.
 const BUBBLE_BTN =
-  "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center gap-1 rounded-md border-0 bg-transparent px-2 text-sm text-primary-foreground hover:bg-primary-foreground/15";
+  "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center gap-1 rounded-md border-0 bg-transparent px-2 text-sm text-primary-foreground hover:bg-primary-foreground/15 [&_svg]:size-4 [&_svg]:shrink-0";
 
 function SelectionPopover({
   editor,
@@ -553,29 +554,29 @@ function SelectionPopover({
             <button
               type="button"
               className={cn(BUBBLE_BTN, s.bold.active && "bg-accent")}
-              style={{ fontWeight: 700 }}
+              aria-label="Bold"
               title="Bold"
               onClick={() => cmd.toggleBold?.()}
             >
-              B
+              <BoldIcon aria-hidden="true" />
             </button>
             <button
               type="button"
               className={cn(BUBBLE_BTN, s.italic.active && "bg-accent")}
-              style={{ fontStyle: "italic" }}
+              aria-label="Italic"
               title="Italic"
               onClick={() => cmd.toggleItalic?.()}
             >
-              I
+              <ItalicIcon aria-hidden="true" />
             </button>
             <button
               type="button"
               className={cn(BUBBLE_BTN, s.code.active && "bg-accent")}
-              style={{ fontFamily: "var(--mono)" }}
+              aria-label="Inline code"
               title="Inline code"
               onClick={() => cmd.toggleCode?.()}
             >
-              {"<>"}
+              <CodeIcon aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -583,10 +584,12 @@ function SelectionPopover({
                 BUBBLE_BTN,
                 s.context?.kind === "link" && "bg-accent",
               )}
+              aria-label={s.context?.kind === "link" ? "Edit link" : "Add link"}
               title={s.context?.kind === "link" ? "Edit link" : "Add link"}
               onClick={onEditLink}
             >
-              🔗 {s.context?.kind === "link" ? "Edit link" : "Link"}
+              <LinkIcon data-icon="inline-start" aria-hidden="true" />
+              {s.context?.kind === "link" ? "Edit link" : "Link"}
             </button>
           </div>
         </InlinePopoverPopup>
@@ -642,7 +645,8 @@ function LinkPopoverBody({
       const sc = over?.scheme ?? scheme;
       const raw = (over?.slug ?? slug).trim();
       if (!raw) return;
-      const href = sc === "url" ? raw : `${sc}:${slugify(raw)}`;
+      const href = editorLinkHref(sc, raw);
+      if (!href) return;
       applyLink(editor, href, over?.text ?? initial.text);
       onClose();
     },
@@ -830,13 +834,16 @@ function applyLink(editor: Editor, href: string, text: string): void {
   view.focus();
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
+export function editorLinkHref(scheme: LinkScheme, input: string): string {
+  const raw = input.normalize("NFC").trim();
+  if (!raw) return "";
+  if (scheme === "url") return raw;
+
+  const prefixed = /^(ref|halu):/i.exec(raw);
+  const resolvedScheme =
+    (prefixed?.[1].toLowerCase() as LinkScheme | undefined) ?? scheme;
+  const slug = normalizeSlug(prefixed ? raw.slice(prefixed[0].length) : raw);
+  return slug ? `${resolvedScheme}:${slug}` : "";
 }
 
 /** Conservative test: does this plain-text paste contain markdown syntax? */

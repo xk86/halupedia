@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ArticleBacklinks } from "./article/ArticleBacklinks";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 interface MediaInfo {
@@ -335,23 +336,11 @@ export function MediaPage({ imageSlug, onNavigate }: Props) {
             </p>
           )}
 
-          {backlinks.length > 0 && (
-            <div className="media-page-backlinks">
-              <h3 className="media-page-backlinks-heading">Referenced by</h3>
-              <ul className="media-page-backlinks-list">
-                {backlinks.map((a) => (
-                  <li key={a.slug}>
-                    <a
-                      href={`/wiki/${a.title.replace(/\s+/g, "_")}`}
-                      onClick={(e) => { e.preventDefault(); onNavigate(a.title.replace(/\s+/g, "_")); }}
-                    >
-                      {a.title}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <ArticleBacklinks
+            existing={backlinks}
+            unwritten={[]}
+            onNavigate={onNavigate}
+          />
         </div>
       </div>
 

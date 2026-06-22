@@ -31,6 +31,7 @@ import {
   extractDisplayTitle,
   extractInternalLinks,
   extractTitle,
+  ensureLeadingTitleHeading,
   leadBoldsTitle,
   markdownToPlainText,
   normalizeHaluLinks,
@@ -626,6 +627,21 @@ test("renderInlineMarkdown stringifies invalid sidecar values instead of throwin
   const html = renderInlineMarkdown({ value: "bad infobox row" } as unknown);
   assert.match(html, /bad infobox row/);
   assert.doesNotMatch(html, /href=/);
+});
+
+test("renderInlineMarkdown preserves Markdown emphasis around Chinese text", () => {
+  assert.equal(renderInlineMarkdown("**女***作品*"), "<strong>女</strong><em>作品</em>");
+});
+
+test("ensureLeadingTitleHeading compares bold title restatements with Unicode letters", () => {
+  assert.equal(
+    ensureLeadingTitleHeading("**女**\n\nBody.", "女"),
+    "# 女\n\nBody.",
+  );
+  assert.equal(
+    ensureLeadingTitleHeading("**男**\n\nBody.", "女"),
+    "# 女\n\n**男**\n\nBody.",
+  );
 });
 
 test("parseMarkdownLinks classifies supported and fallback internal links in one pass", () => {

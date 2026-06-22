@@ -953,38 +953,6 @@ a:hover {
   font-size: 0.78rem;
 }
 
-/* ── Media page backlinks ───────────────────────────────────────────────── */
-
-.media-page-backlinks {
-  border-top: 1px solid var(--rule-soft);
-  margin-top: 1.25rem;
-  padding-top: 0.75rem;
-}
-
-.media-page-backlinks-heading {
-  color: var(--ink-soft);
-  font-size: 0.88rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  margin: 0 0 0.4rem;
-}
-
-.media-page-backlinks-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.media-page-backlinks-list li {
-  font-size: 0.9rem;
-  padding: 0.1rem 0;
-}
-
-.media-page-backlinks-list li+li {
-  border-top: 1px solid var(--rule-soft);
-  padding-top: 0.2rem;
-}
-
 /* Editor mobile view */
 @media (max-width: 600px) {
   .edit-tray-row {

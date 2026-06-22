@@ -18,6 +18,7 @@ import { join } from "node:path";
 import {
   openDatabase,
   saveArticle,
+  setArticleVibe,
   saveHomepageCache,
   getHomepageCache,
   invalidateHomepageCache,
@@ -60,6 +61,10 @@ function seedArticle(
   slug: string,
   title: string,
   body: string,
+  // The vibe is the canonical edit channel: the rewrite endpoint rejects edits
+  // without one. Seed a neutral default so rewrite tests reach the edit logic
+  // instead of the empty-vibe gate. Pass "" to exercise the no-vibe path.
+  vibe = "Keep the encyclopedic tone.",
 ) {
   const markdown = `# ${title}\n\n${body}`;
   const db = openDatabase(databasePath);
@@ -77,6 +82,7 @@ function seedArticle(
     [],
     [slug],
   );
+  if (vibe) setArticleVibe(db, slug, vibe, "save");
   db.close();
   return markdown;
 }

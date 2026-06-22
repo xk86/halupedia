@@ -92,12 +92,17 @@ class CapturingChatLlmClient implements LlmRouter {
   }
 
   async streamChat(
-    _role: "heavy" | "light",
-    _system: string,
-    _user: string,
+    role: "heavy" | "light",
+    system: string,
+    user: string,
     onChunk: (delta: string, accumulated: string) => void,
   ): Promise<{ content: string; finishReason: string }> {
-    const content = "# Placeholder\n\nPlaceholder body.";
+    // The rewrite endpoint always passes an onProgress callback (live admin
+    // CoT), so callRewriteModelNode generates via streamChat even for
+    // non-streaming requests. Record the prompt and drain the queued response
+    // here exactly as chat() does so RAG assertions on `calls` still see it.
+    this.calls.push({ role, system, user });
+    const content = this.responses.shift() ?? "# Placeholder\n\nPlaceholder body.";
     onChunk(content, content);
     return { content, finishReason: "stop" };
   }

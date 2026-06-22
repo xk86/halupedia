@@ -65,6 +65,9 @@ describe("PipelinesPane", () => {
                   duration_ms: 5,
                   status: "ok",
                   prompt_chars: 123,
+                  prompt_tokens: 100,
+                  cot_tokens: 20,
+                  response_tokens: 3,
                   prompt_text:
                     '### System\nUse **bold** [Alpha](ref:alpha) rules.\n\n### User\nWrite **user** [Beta](halu:beta-topic "hint") content.',
                   cot_text: "## Thought\nConsider **constraints**.",
@@ -127,7 +130,7 @@ describe("PipelinesPane", () => {
     expect(
       screen.getByTestId("node-timing-bar-mobile").parentElement,
     ).toHaveClass("max-[700px]:block");
-    await userEvent.click(await screen.findByRole("button", { name: /123c/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /123t/ }));
 
     const detail = screen
       .getByText("System prompt")

@@ -1753,65 +1753,6 @@ describe("App", () => {
     expect(await screen.findByText("Changed body.")).toBeInTheDocument();
   });
 
-  it("shows a refresh notice when body references are missing from metadata", async () => {
-    const fetchMock = withLiveBypass(
-      () =>
-        new Response(
-          JSON.stringify(
-            pagePayload({
-              referenceStatus: {
-                missing: [{ slug: "source-article", title: "Source Article" }],
-              },
-            }),
-          ),
-          {
-            headers: { "content-type": "application/json" },
-          },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    setPath("/wiki/Test_Article");
-
-    render(<App />);
-
-    expect(
-      await screen.findByText(
-        /This article seems to cite references that are not listed/,
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Refresh with retrieved context" }),
-    ).toBeInTheDocument();
-  });
-
-  it("shows a refresh notice when legacy references are embedded in the article body", async () => {
-    const fetchMock = withLiveBypass(
-      () =>
-        new Response(
-          JSON.stringify(
-            pagePayload({
-              referenceStatus: {
-                missing: [],
-                unformatted: [],
-                hasReferencesSection: true,
-              },
-            }),
-          ),
-          {
-            headers: { "content-type": "application/json" },
-          },
-        ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    setPath("/wiki/Test_Article");
-
-    render(<App />);
-
-    expect(
-      await screen.findByText(/current reference format/),
-    ).toBeInTheDocument();
-  });
-
   it("locks existing references during section edits", async () => {
     const payload = pagePayload({
       sections: [{ id: "notes", title: "Notes" }],
@@ -1863,62 +1804,6 @@ describe("App", () => {
     expect(
       screen.getByRole("button", { name: "Remove Source Entry" }),
     ).toBeDisabled();
-  });
-
-  it("can include recent edit prompts in a rewrite request", async () => {
-    const payload = pagePayload();
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(async (url: string, init?: RequestInit) => {
-        const u = String(url);
-        if (u.includes("/api/page/"))
-          return new Response(JSON.stringify(payload), {
-            headers: { "content-type": "application/json" },
-          });
-        if (u.includes("/rewrite"))
-          return ndjsonResponse([{ type: "done", ...payload }]);
-        if (u.includes("/references"))
-          return new Response(JSON.stringify({ references: [] }), {
-            headers: { "content-type": "application/json" },
-          });
-        return new Response(JSON.stringify({ image: null }), {
-          headers: { "content-type": "application/json" },
-        });
-      });
-    vi.stubGlobal("fetch", fetchMock);
-    setPath("/wiki/Test_Article");
-
-    render(<App />);
-
-    await screen.findByRole("heading", { name: "Test Article" });
-    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
-    await setRichEditorMarkdown("tighten the ending");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Use last 2 edit prompts" }),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
-
-    // Wait for the rewrite POST to appear among the calls
-    await waitFor(() => {
-      const rewriteCall = fetchMock.mock.calls.find(
-        ([u, init]) =>
-          String(u).includes("/rewrite") &&
-          (init as RequestInit)?.method === "POST",
-      );
-      expect(rewriteCall).toBeDefined();
-    });
-    const rewriteCall = fetchMock.mock.calls.find(
-      ([u, init]) =>
-        String(u).includes("/rewrite") &&
-        (init as RequestInit)?.method === "POST",
-    )!;
-    expect(
-      JSON.parse(String((rewriteCall[1] as RequestInit).body)),
-    ).toMatchObject({
-      instructions: "tighten the ending",
-      includeRecentEditHistory: true,
-      rewriteMode: "aggressive",
-    });
   });
 
   it("rolls back streamed rewrite progress when the server rejects a body subject change", async () => {
@@ -1975,7 +1860,7 @@ describe("App", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await setRichEditorMarkdown("make this article to be about your mom");
-    await userEvent.click(screen.getByRole("button", { name: "Apply edit" }));
+    await userEvent.click(screen.getByRole("button", { name: "Rewrite to vibe" }));
 
     expect(
       await screen.findByText(

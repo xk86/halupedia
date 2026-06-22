@@ -141,7 +141,7 @@ async function buildTodaysNewsLoreSources(
     buildTemporalSearchTerms(worldDate),
     16,
   )) {
-    addSource({ ...article, reason: "date-or-era match" });
+    addSource({ ...article, reason: "date match" });
   }
 
   const ragSources = await retrieveNewsWorldStateSources(db, llm, runtime, worldDate, slug, logger);
@@ -172,7 +172,7 @@ async function buildTodaysNewsLoreSources(
   logger?.info("homepage.todays_news_lore_sources", {
     slug,
     sources: sorted.length,
-    temporal: sorted.filter((source) => source.reason?.includes("date-or-era match")).length,
+    temporal: sorted.filter((source) => source.reason?.includes("date match")).length,
     rag: sorted.filter((source) => source.reason?.includes("RAG world-state match")).length,
     recent: sorted.filter((source) => source.reason?.includes("recent canon")).length,
     picked: sorted.slice(0, 20).map((source) => source.slug).join(", "),
@@ -192,7 +192,6 @@ async function retrieveNewsWorldStateSources(
   const query = [
     `news for ${worldDate.label}`,
     `${worldDate.monthName} ${worldDate.year}`,
-    `${worldDate.year} ${worldDate.eraLabel}`,
     `ongoing world state during ${worldDate.monthName} ${worldDate.year}`,
     "current conditions aftermath disaster war election law crisis climate darkness blocked sun ash famine evacuation rationing quarantine",
     "events that are still happening, effects that last weeks or months, public notices, government response, infrastructure disruption",
@@ -220,7 +219,6 @@ function buildTemporalSearchTerms(worldDate: WorldDate): string[] {
     `${worldDate.monthName} ${worldDate.dayOfMonth}, ${worldDate.year}`,
     `${worldDate.monthName} ${worldDate.year}`,
     String(worldDate.year),
-    worldDate.eraLabel,
     `day ${worldDate.day}`,
     `world day ${worldDate.day}`,
     `absolute world day ${worldDate.day}`,
@@ -233,7 +231,7 @@ function buildTemporalSearchTerms(worldDate: WorldDate): string[] {
 
 function sourcePriority(article: SourceArticle): number {
   let priority = 0;
-  if (article.reason?.includes("date-or-era match")) priority += 4;
+  if (article.reason?.includes("date match")) priority += 4;
   if (article.reason?.includes("RAG world-state match")) priority += 3 + (article.score ?? 0);
   if (article.reason?.includes("recent canon")) priority += 1;
   if (isGeneratedNewsSlug(article.slug)) priority -= 5;
@@ -264,7 +262,6 @@ async function generateTodaysNewsMarkdown(
       world_date: worldDate.label,
       world_day: String(worldDate.day),
       world_year: String(worldDate.year),
-      era_label: worldDate.eraLabel,
       world_month: worldDate.monthName,
       day_of_month: String(worldDate.dayOfMonth),
       lore_source_count: String(sources.length),
@@ -564,7 +561,7 @@ function normalizeMarketName(name: string): string {
 }
 
 function isUsefulMarketName(name: string): boolean {
-  return Boolean(name && !/^(Today|News|Report|The|A|An|Before Era|After Era|Weather|Markets)$/i.test(name));
+  return Boolean(name && !/^(Today|News|Report|The|A|An|Weather|Markets)$/i.test(name));
 }
 
 function marketSourceLinks(sources: SourceArticle[]): string[] {
@@ -704,7 +701,7 @@ function extractPlaceCandidates(title: string): string[] {
   }
   for (const match of title.matchAll(/\b[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,2}\b/g)) {
     const value = match[0].trim();
-    if (!/^(Today|News|Report|The|A|An|Before Era|After Era)$/i.test(value)) candidates.push(value);
+    if (!/^(Today|News|Report|The|A|An)$/i.test(value)) candidates.push(value);
   }
   return candidates;
 }
@@ -717,7 +714,7 @@ function normalizeWeatherPlaceName(name: string): string {
 }
 
 function isUsefulWeatherPlace(name: string): boolean {
-  return Boolean(name && !/^(Today|News|Report|The|A|An|Before Era|After Era|Burger King|Weather|Markets)$/i.test(name));
+  return Boolean(name && !/^(Today|News|Report|The|A|An|Weather|Markets)$/i.test(name));
 }
 
 function deterministicScore(input: string): number {
@@ -739,7 +736,6 @@ export function homepageNewsFromMarkdown(
     title: todaysNewsTitle(worldDate),
     worldDate: worldDate.label,
     worldDay: worldDate.day,
-    eraLabel: worldDate.eraLabel,
     generatorVersion: hasLinkedHeadlineStories(markdown) ? TODAYS_NEWS_GENERATOR_VERSION : undefined,
     summaryMarkdown: firstParagraphMarkdownFromArticle(markdown),
     headlines: extractHeadlines(markdown),

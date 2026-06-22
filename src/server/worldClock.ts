@@ -6,8 +6,6 @@ export interface WorldDate {
   month: number;
   dayOfMonth: number;
   monthName: string;
-  eraYear: number;
-  eraLabel: string;
   label: string;
   slugPart: string;
   startsAt: number;
@@ -25,16 +23,6 @@ export function getWorldDate(app: AppConfig, now = Date.now()): WorldDate {
   const month = date.getUTCMonth() + 1;
   const dayOfMonth = date.getUTCDate();
   const monthName = MONTH_NAMES[date.getUTCMonth()] ?? "January";
-  const eraPivot = parseEraPivotDate(app.world.era_pivot_date);
-  const beforePivot =
-    year < eraPivot.year ||
-    (year === eraPivot.year && month < eraPivot.month) ||
-    (year === eraPivot.year && month === eraPivot.month && dayOfMonth < eraPivot.day);
-  const eraDistance = beforePivot
-    ? Math.max(1, eraPivot.year - year)
-    : year - eraPivot.year;
-  const eraYear = beforePivot ? -eraDistance : eraDistance;
-  const eraLabel = beforePivot ? `${eraDistance} BK` : `${eraDistance} AK`;
   const startsAt = epoch + elapsedDays * dayMs;
   return {
     day,
@@ -42,9 +30,7 @@ export function getWorldDate(app: AppConfig, now = Date.now()): WorldDate {
     month,
     dayOfMonth,
     monthName,
-    eraYear,
-    eraLabel,
-    label: `${monthName} ${dayOfMonth}, ${year} (${eraLabel})`,
+    label: `${monthName} ${dayOfMonth}, ${year}`,
     slugPart: `day-${day.toString().padStart(6, "0")}`,
     startsAt,
     endsAt: startsAt + dayMs,
@@ -67,7 +53,7 @@ const MONTH_NAMES = [
 ];
 
 function parseWorldDate(value: string): Date {
-  const parsed = parseDateParts(value) ?? { year: 2026, month: 1, day: 1 };
+  const parsed = parseDateParts(value) ?? { year: 2000, month: 1, day: 1 };
   return new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day));
 }
 
@@ -75,10 +61,6 @@ function addUtcDays(date: Date, days: number): Date {
   const next = new Date(date.getTime());
   next.setUTCDate(next.getUTCDate() + days);
   return next;
-}
-
-function parseEraPivotDate(value: string): { year: number; month: number; day: number } {
-  return parseDateParts(value) ?? { year: 2000, month: 1, day: 1 };
 }
 
 function parseDateParts(value: string): { year: number; month: number; day: number } | null {

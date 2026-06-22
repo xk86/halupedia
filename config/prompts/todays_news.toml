@@ -39,10 +39,8 @@ Constraints:
 - Put the strongest, most visual, most broadcast-reportable story first. The homepage image will depict that top headline.
 - Treat the daily story mix as global: include cross-border, planetary, interregional, institutional, trade, climate, infrastructure, or cosmological effects when the lore supports them.
 - If a source says a condition lasts for a duration, has aftermath, blocks travel, changes climate, disrupts infrastructure, creates legal obligations, or otherwise alters public life, the headlines must account for those active effects when the world date falls inside or near that period.
-- Prefer dated or era-matched sources over unrelated recent articles. Use RAG world-state matches to infer active background conditions.
+- Prefer dated sources over unrelated recent articles. Use RAG world-state matches to infer active background conditions.
 - Do not write headlines that contradict active world conditions in the packet. For example, if the lore packet indicates the sun is blocked, ordinary outdoor headlines must reflect darkness, ash, emergency lighting, rationing, or the relevant adaptation.
-- Use normal years and the supplied AK/BK era code from the date context.
-- When the supplied era code is BK, include "(Sponsored by [Burger King](halu:burger-king "BK date-format sponsor"))" in the dateline paragraph.
 - Link to relevant internal topics with halu: links when useful, including hidden hints.
 - Headline and brief links should point to normal encyclopedia topics, not one-off generated news-story pages.
 - Do not claim an invented event is directly documented by a source unless the source article says so.
@@ -59,7 +57,6 @@ World date:
 Calendar details:
 - Absolute world day: {{world_day}}
 - Normal year: {{world_year}}
-- Era code: {{era_label}}
 - Month: {{world_month}}
 - Day of month: {{day_of_month}}
 

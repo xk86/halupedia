@@ -109,6 +109,54 @@ function rrf(rank: number): number {
   return 1 / (RRF_K + rank + 1);
 }
 
+/**
+ * Legacy-shaped view of a retrieval result.
+ *
+ * Bridges the new structured retriever into the `retrievedContext` shape the
+ * generation/rewrite/refresh nodes and `buildReferenceList` already consume, so
+ * the new store can feed prompts without rewriting every downstream node at
+ * once. Each article's selected text documents are concatenated into a single
+ * `content` block, matching what the old per-article chunk packets produced.
+ */
+export interface LegacyRetrievalView {
+  sourceArticles: Array<{ slug: string; title: string; content: string; score?: number }>;
+  relatedTitles: string[];
+  embedding: {
+    strategy: string;
+    model?: string;
+    host?: string;
+    dimensions?: number;
+    corpusChunks?: number;
+  };
+}
+
+export function toLegacyView(result: RetrievalResult): LegacyRetrievalView {
+  const contentBySlug = new Map<string, string[]>();
+  for (const doc of result.textDocuments) {
+    const list = contentBySlug.get(doc.articleSlug) ?? [];
+    list.push(doc.content);
+    contentBySlug.set(doc.articleSlug, list);
+  }
+  const sourceArticles = result.sourceArticles.map((c) => ({
+    slug: c.slug,
+    title: c.title,
+    content: (contentBySlug.get(c.slug) ?? []).join("\n\n"),
+    score: c.score,
+  }));
+  const diag = result.diagnostics;
+  return {
+    sourceArticles,
+    relatedTitles: result.relatedTitles,
+    embedding: {
+      strategy: diag.degraded ? "lexical_fallback" : "embeddings",
+      model: diag.textEmbeddingModel,
+      host: diag.servingHost,
+      dimensions: diag.vectorDimensions,
+      corpusChunks: diag.candidateTextCount,
+    },
+  };
+}
+
 export async function retrieveContext(
   deps: RetrieverDeps,
   args: RetrieveContextArgs,
@@ -217,6 +265,9 @@ export async function retrieveContext(
     if (existing) {
       existing.score = Math.max(existing.score, doc.rawScore);
       if (!existing.contributingKinds.includes(doc.sourceKind)) existing.contributingKinds.push(doc.sourceKind);
+      // Promote to the strongest provenance: an article reached both directly
+      // and semantically is still an explicit reference.
+      if (doc.provenance === "direct") existing.provenance = "direct";
     } else {
       candidateMap.set(doc.articleSlug, {
         slug: doc.articleSlug,
@@ -227,7 +278,18 @@ export async function retrieveContext(
       });
     }
   }
-  const sourceArticles = [...candidateMap.values()].sort((a, b) => b.score - a.score);
+  // Direct (explicitly-referenced) articles are prioritised over semantically /
+  // symbolically discovered ones regardless of raw score — the latter come from
+  // `fetchByArticle` and carry no vector distance (score 0), so a pure score
+  // sort would otherwise bury explicit references at the bottom.
+  const provenanceRank: Record<RetrievedTextDocument["provenance"], number> = {
+    direct: 0,
+    semantic: 1,
+    symbolic: 2,
+  };
+  const sourceArticles = [...candidateMap.values()].sort(
+    (a, b) => provenanceRank[a.provenance] - provenanceRank[b.provenance] || b.score - a.score,
+  );
 
   for (const hit of semanticHits) {
     if (!textDocuments.some((d) => d.documentId === hit.documentId)) {

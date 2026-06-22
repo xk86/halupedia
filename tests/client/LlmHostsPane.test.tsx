@@ -57,6 +57,7 @@ const payload = {
     enabled: false,
     autoGenerateForNewArticles: false,
     autoGenerateForFeaturedArticle: false,
+    homepageAutoImageMaxAttempts: 3,
     autoPresetMultipass: false,
     backend: "openai",
     aspectRatios: [],

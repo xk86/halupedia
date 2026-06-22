@@ -258,6 +258,7 @@ export interface ImageGenerationConfig {
   enabled: boolean;
   auto_generate_for_new_articles: boolean;
   auto_generate_for_featured_article: boolean;
+  homepage_auto_image_max_attempts: number;
   auto_preset_multipass: boolean;
   backend: ImageGenerationBackend;
   aspect_ratios: Record<string, ImageAspectRatioConfig>;

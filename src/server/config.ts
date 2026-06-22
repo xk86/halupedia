@@ -151,6 +151,10 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
         enabled: app.images?.generation?.enabled ?? false,
         auto_generate_for_new_articles: app.images?.generation?.auto_generate_for_new_articles ?? false,
         auto_generate_for_featured_article: app.images?.generation?.auto_generate_for_featured_article ?? false,
+        homepage_auto_image_max_attempts: Math.max(
+          0,
+          Math.floor(app.images?.generation?.homepage_auto_image_max_attempts ?? 3),
+        ),
         auto_preset_multipass: app.images?.generation?.auto_preset_multipass ?? false,
         backend: app.images?.generation?.backend === "ollama" ? "ollama" : "openai",
         aspect_ratios: aspectRatios,

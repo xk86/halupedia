@@ -243,7 +243,7 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
     assert.doesNotMatch(savedEdition.markdown, /\*\*Ash Convoys Reach Harbor\*\*:/);
     assert.doesNotMatch(savedEdition.markdown, /todays-news-generator-version/);
     assert.doesNotMatch(savedEdition.markdown, /^## Context$/m);
-    assert.match(savedEdition.markdown, /^## World Briefing$/m);
+    assert.doesNotMatch(savedEdition.markdown, /^## World Briefing$/m);
     assert.match(savedEdition.markdown, /^## Travel & Infrastructure$/m);
     assert.match(savedEdition.markdown, /\| Network \| Status \| Advisory \|/);
     assert.match(savedEdition.markdown, /^## Public Notices$/m);

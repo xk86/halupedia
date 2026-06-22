@@ -313,7 +313,6 @@ function normalizeNewsMarkdown(
   const withoutContext = stripTopLevelSections(withoutInternalMarkers, [
     "Context",
     "Edition Context",
-    "World Briefing",
     "Travel & Infrastructure",
     "Public Notices",
     "Culture & Sport",
@@ -335,7 +334,6 @@ function ensureNewsServiceSections(
 ): string {
   return normalizeMarkdown([
     markdown.trim(),
-    buildWorldBriefingSection(worldDate, sources),
     buildTravelInfrastructureSection(worldDate, sources),
     buildPublicNoticesSection(worldDate, sources),
     buildCultureSportSection(worldDate, sources),
@@ -344,20 +342,6 @@ function ensureNewsServiceSections(
     buildWeatherSection(worldDate, sources, weatherPlaces),
     buildCorrectionsContinuitySection(worldDate, sources),
   ].join("\n\n"));
-}
-
-function buildWorldBriefingSection(worldDate: WorldDate, sources: SourceArticle[]): string {
-  const links = marketSourceLinks(sources);
-  const primary = links[0] ?? "the active canon packet";
-  const secondary = links[1] ?? "recent civic conditions";
-  const tertiary = links[2] ?? "ongoing infrastructure reports";
-  return [
-    "## World Briefing",
-    "",
-    `- Global desks are treating ${primary} as the lead condition for ${worldDate.label}.`,
-    `- Regional planning remains tied to ${secondary}, with local details varying by article context.`,
-    `- Background risk remains elevated around ${tertiary}, especially where public systems are already strained.`,
-  ].join("\n");
 }
 
 function buildTravelInfrastructureSection(worldDate: WorldDate, sources: SourceArticle[]): string {
@@ -788,7 +772,6 @@ function hasLinkedHeadlineStories(markdown: string): boolean {
 }
 
 function hasNewsServiceSections(markdown: string): boolean {
-  const worldBriefing = extractTopLevelSection(markdown, "World Briefing");
   const travel = extractTopLevelSection(markdown, "Travel & Infrastructure");
   const notices = extractTopLevelSection(markdown, "Public Notices");
   const culture = extractTopLevelSection(markdown, "Culture & Sport");
@@ -797,8 +780,7 @@ function hasNewsServiceSections(markdown: string): boolean {
   const weather = extractTopLevelSection(markdown, "Weather");
   const corrections = extractTopLevelSection(markdown, "Corrections & Continuity");
   return Boolean(
-    worldBriefing
-      && travel
+    travel
       && notices
       && culture
       && science

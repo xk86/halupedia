@@ -638,11 +638,17 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("refreshes pipeline runs immediately when an active run disappears", async () => {
-    const polls: Array<() => void | Promise<void>> = [];
-    vi.spyOn(window, "setInterval").mockImplementation((handler) => {
-      polls.push(handler as () => void | Promise<void>);
-      return {} as ReturnType<typeof setInterval>;
+  it("refreshes pipeline runs on a background poll and when an active run disappears", async () => {
+    const polls: Array<{
+      delay?: number;
+      handler: () => void | Promise<void>;
+    }> = [];
+    vi.spyOn(window, "setInterval").mockImplementation((handler, delay) => {
+      polls.push({
+        delay: typeof delay === "number" ? delay : undefined,
+        handler: handler as () => void | Promise<void>,
+      });
+      return polls.length as unknown as ReturnType<typeof setInterval>;
     });
     vi.spyOn(window, "clearInterval").mockImplementation(() => {});
 
@@ -706,12 +712,21 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Admin" });
     await waitFor(() => expect(runRequests).toBe(1));
     expect(screen.getByText("Live Article")).toBeInTheDocument();
+    const queuePoll = polls.find((poll) => poll.delay === 1000);
+    const pipelinePoll = polls.find((poll) => poll.delay === 5000);
+    expect(queuePoll).toBeDefined();
+    expect(pipelinePoll).toBeDefined();
+
+    await act(async () => {
+      await pipelinePoll!.handler();
+    });
+    await waitFor(() => expect(runRequests).toBe(2));
 
     active = false;
     await act(async () => {
-      await Promise.all(polls.map((poll) => poll()));
+      await queuePoll!.handler();
     });
-    await waitFor(() => expect(runRequests).toBe(2));
+    await waitFor(() => expect(runRequests).toBe(3));
   });
 
   it("admin can reset the featured article, forcing a regenerate of featured/DYK/timer together", async () => {

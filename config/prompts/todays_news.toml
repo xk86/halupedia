@@ -26,7 +26,6 @@ Constraints:
 - A short dateline paragraph naming the world date.
 - A "## Headlines" section with 4 to 6 bullet headlines.
 - A "## Briefs" section with one `### Headline text` subheading per headline followed by one paragraph of brief copy.
-- A "## World Briefing" section with concise global context notes for active conditions.
 - A "## Travel & Infrastructure" section with advisories for routes, ports, transit, public works, portals, orbital corridors, or equivalent canon infrastructure.
 - A "## Public Notices" section with civic advisories, rationing, safety, schedule, sponsorship, or administrative notices when relevant.
 - A "## Culture & Sport" section with a lighter public-life angle that still respects the active world-state.

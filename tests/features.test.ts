@@ -452,7 +452,7 @@ test("POST /api/admin/reset-featured-article invalidates the cache so the homepa
       title: todaysNewsTitle(worldDate),
       worldDate: worldDate.label,
       worldDay: worldDate.day,
-      kirkLabel: worldDate.kirkLabel,
+      eraLabel: worldDate.eraLabel,
       generatorVersion: "1",
       summaryMarkdown: "Cached news.",
       headlines: [],

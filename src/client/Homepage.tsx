@@ -39,7 +39,7 @@ interface TodaysNews {
   title: string;
   worldDate: string;
   worldDay: number;
-  kirkLabel: string;
+  eraLabel?: string;
   generatorVersion?: string;
   summaryMarkdown: string;
   headlines: NewsHeadline[];
@@ -184,7 +184,7 @@ export function Homepage({ onNavigate }: Props) {
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2 font-mono text-[0.78rem] text-ink-fade">
             {displayNews.worldDate}
-            {displayNews.kirkLabel.endsWith("BK") && (
+            {displayNews.eraLabel?.endsWith("BK") && (
               <span className="inline-flex items-center rounded border border-rule bg-parchment-deep px-2 py-[0.12rem] text-[0.7rem]">
                 Sponsored by{" "}
                 <a

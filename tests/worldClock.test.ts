@@ -25,21 +25,29 @@ function appWithWorldClock() {
       epoch_real_time: "2025-01-01T00:00:00.000Z",
       epoch_day: 1,
       epoch_date: "2025-01-01",
-      kirk_death_date: "2025-09-10",
+      era_pivot_date: "2025-09-10",
     },
   };
 }
 
-test("world date uses Charlie Kirk death date as the BK/AK pivot", () => {
+test("world date uses the configured era pivot for BK/AK labels", () => {
   const app = appWithWorldClock();
 
   const before = getWorldDate(app, Date.parse("2025-09-09T12:00:00.000Z"));
   assert.equal(before.label, "September 9, 2025 (1 BK)");
-  assert.equal(before.kirkLabel, "1 BK");
+  assert.equal(before.eraLabel, "1 BK");
 
   const after = getWorldDate(app, Date.parse("2025-09-10T12:00:00.000Z"));
   assert.equal(after.label, "September 10, 2025 (0 AK)");
-  assert.equal(after.kirkLabel, "0 AK");
+  assert.equal(after.eraLabel, "0 AK");
+});
+
+test("default world config starts the AK/BK era on January 1, 2000", () => {
+  const app = loadConfig().app;
+  const epoch = Date.parse(app.world.epoch_real_time);
+  const worldDate = getWorldDate(app, epoch);
+  assert.equal(app.world.era_pivot_date, "2000-01-01");
+  assert.equal(worldDate.eraLabel, "26 AK");
 });
 
 test("homepage news preview keeps at least three headlines when briefs provide fallback rows", () => {
@@ -145,7 +153,7 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
       epoch_real_time: new Date(now).toISOString(),
       epoch_day: 1,
       epoch_date: "2028-10-29",
-      kirk_death_date: "2025-09-10",
+      era_pivot_date: "2025-09-10",
     };
 
     const markdown = [

@@ -38,6 +38,14 @@ import {
   type TraceRecorder,
 } from "./trace";
 
+// Wall-clock time (Date.now) can jump backward under NTP/clock corrections,
+// which produced negative node and run durations in pipeline traces. Measure
+// every *elapsed* duration with a monotonic clock instead; Date.now() is kept
+// only for the displayed start timestamps (which must stay wall-clock).
+const monoNow = (): number => performance.now();
+const elapsedMs = (startMono: number): number =>
+  Math.max(0, Math.round(monoNow() - startMono));
+
 /** Optional skip predicate — if it returns false, the node is skipped. */
 export type SkipPredicate<Deps> = (state: PipelineState, deps: Deps) => boolean;
 
@@ -93,6 +101,7 @@ export async function runWorkflow<Deps>(
 ): Promise<WorkflowRunResult> {
   const runId = newRunId();
   const startedAt = Date.now();
+  const startedAtMono = monoNow();
   const requestId = options.input.requestId;
   const slug = options.input.slug;
   let state: PipelineState = initialPipelineState(options.input);
@@ -123,12 +132,13 @@ export async function runWorkflow<Deps>(
       if (parallelNodes) {
         // Run all nodes in the parallel group concurrently against the same
         // input state; merge their patches once all complete.
-        const groupStart = Date.now();
+        const groupStartMono = monoNow();
         const before = state;
         const results = await Promise.all(
           parallelNodes.map(async (node) => {
             options.onNode?.(node.name, node.kind);
             const nodeStart = Date.now();
+            const nodeStartMono = monoNow();
             let llmCapture: LlmCapture | undefined;
             const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; }, {
               workflow: workflow.name,
@@ -146,7 +156,7 @@ export async function runWorkflow<Deps>(
                 nodeName: node.name,
                 nodeKind: node.kind,
                 startedAt: nodeStart,
-                durationMs: Date.now() - nodeStart,
+                durationMs: elapsedMs(nodeStartMono),
                 status: "ok",
                 reads: node.reads,
                 writes: node.writes,
@@ -179,7 +189,7 @@ export async function runWorkflow<Deps>(
                 slug,
                 node: node.name,
                 kind: node.kind,
-                duration_ms: Date.now() - nodeStart,
+                duration_ms: elapsedMs(nodeStartMono),
                 writes: node.writes.join(",") || "(none)",
               });
               return { patch, error: undefined };
@@ -191,7 +201,7 @@ export async function runWorkflow<Deps>(
                 nodeName: node.name,
                 nodeKind: node.kind,
                 startedAt: nodeStart,
-                durationMs: Date.now() - nodeStart,
+                durationMs: elapsedMs(nodeStartMono),
                 status: "error",
                 reads: node.reads,
                 writes: node.writes,
@@ -242,7 +252,7 @@ export async function runWorkflow<Deps>(
           run_id: runId,
           slug,
           nodes: parallelNodes.map((n) => n.name).join(","),
-          duration_ms: Date.now() - groupStart,
+          duration_ms: elapsedMs(groupStartMono),
         });
         if (error) break;
         continue;
@@ -250,6 +260,7 @@ export async function runWorkflow<Deps>(
 
       // ── serial node ──────────────────────────────────────────────────────────
       const nodeStart = Date.now();
+      const nodeStartMono = monoNow();
       options.onNode?.(edge.node.name, edge.node.kind);
       const before = state;
       let llmCapture: LlmCapture | undefined;
@@ -272,7 +283,7 @@ export async function runWorkflow<Deps>(
           nodeName: edge.node.name,
           nodeKind: edge.node.kind,
           startedAt: nodeStart,
-          durationMs: Date.now() - nodeStart,
+          durationMs: elapsedMs(nodeStartMono),
           status: "ok",
           reads: edge.node.reads,
           writes: edge.node.writes,
@@ -305,7 +316,7 @@ export async function runWorkflow<Deps>(
           slug,
           node: edge.node.name,
           kind: edge.node.kind,
-          duration_ms: Date.now() - nodeStart,
+          duration_ms: elapsedMs(nodeStartMono),
           writes: edge.node.writes.join(",") || "(none)",
           state_hash: hashValue(after),
         });
@@ -317,7 +328,7 @@ export async function runWorkflow<Deps>(
           nodeName: edge.node.name,
           nodeKind: edge.node.kind,
           startedAt: nodeStart,
-          durationMs: Date.now() - nodeStart,
+          durationMs: elapsedMs(nodeStartMono),
           status: "error",
           reads: edge.node.reads,
           writes: edge.node.writes,
@@ -356,7 +367,7 @@ export async function runWorkflow<Deps>(
       }
     }
   } finally {
-    const durationMs = Date.now() - startedAt;
+    const durationMs = elapsedMs(startedAtMono);
     // Prefer the input slug, but for slug-less workflows (e.g. random.page)
     // fall back to a slug the run produced so the trace row names its target.
     const recordedSlug =
@@ -389,7 +400,7 @@ export async function runWorkflow<Deps>(
   return {
     state,
     runId,
-    durationMs: Date.now() - startedAt,
+    durationMs: elapsedMs(startedAtMono),
     nodesExecuted,
     status,
     error,
@@ -561,13 +572,13 @@ function wrapLlmDeps<Deps>(
       if (prop === "streamChat") {
         return async (role: unknown, system: unknown, user: unknown, ...rest: unknown[]) => {
           let cot = "";
-          const streamStartedAt = Date.now();
+          const streamStartedMono = monoNow();
           let ttftMs: number | undefined;
           const args = withReasoning(rest, 1, (r) => { cot = r; });
           const onChunk = args[0];
           if (typeof onChunk === "function") {
             args[0] = (delta: unknown, accumulated: unknown) => {
-              if (ttftMs === undefined) ttftMs = Date.now() - streamStartedAt;
+              if (ttftMs === undefined) ttftMs = elapsedMs(streamStartedMono);
               if (typeof accumulated === "string") emitLive({ response: accumulated });
               return onChunk(delta, accumulated);
             };

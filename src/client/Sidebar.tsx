@@ -18,6 +18,12 @@ const ROW_FIELD =
   "h-auto max-h-28 min-h-[1.5rem] min-w-0 rounded-sm px-[0.3rem] py-[0.2rem] text-[0.72rem] shadow-none";
 // Small square delete (×) button used per section/row.
 const DEL_BTN = "size-5 shrink-0 p-0 text-[0.75rem] hover:text-danger";
+// Filled primary-action button (Save, Regenerate). shadcn's default variant
+// paints with `--primary` (a fixed magenta), which ignores the per-article
+// accent the rest of the sidebar is themed with. Override to the accent so
+// these buttons follow the active theme like `.edit-modal-submit` does.
+const ACCENT_BTN =
+  "bg-accent text-parchment hover:bg-accent-hover aria-expanded:bg-accent-hover";
 
 // The sticky right-rail shell. Desktop: spans both content rows in column 2 and
 // pins to the viewport bottom. Mobile (<=680px): collapses into the single
@@ -359,7 +365,7 @@ function InfoboxStructuredEditor({
         <Button
           type="button"
           size="sm"
-          className="h-auto flex-1 py-[0.3rem] text-[0.75rem]"
+          className={cn("h-auto flex-1 py-[0.3rem] text-[0.75rem]", ACCENT_BTN)}
           onClick={save}
           disabled={busy || !draft}
         >
@@ -435,7 +441,7 @@ function InfoboxAiEditor({
         <Button
           type="button"
           size="sm"
-          className="h-auto flex-1 py-[0.3rem] text-[0.75rem]"
+          className={cn("h-auto flex-1 py-[0.3rem] text-[0.75rem]", ACCENT_BTN)}
           onClick={regenerate}
           disabled={busy}
         >

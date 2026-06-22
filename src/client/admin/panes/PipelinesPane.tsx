@@ -381,7 +381,9 @@ export function PipelinesPane({
                         <TableCell>
                           <SlugCell
                             slug={active.slug}
-                            segment={toWikiSegment(active.title || active.slug)}
+                            segment={toWikiSegment(
+                              active.title || slugToTraceTitle(active.slug),
+                            )}
                             onNavigate={navigateTo}
                             onNavigateHome={onNavigateHome}
                           />
@@ -455,7 +457,7 @@ export function PipelinesPane({
                         {run.slug ? (
                           <SlugCell
                             slug={run.slug}
-                            segment={toWikiSegment(run.slug)}
+                            segment={toWikiSegment(slugToTraceTitle(run.slug))}
                             onNavigate={navigateTo}
                             onNavigateHome={onNavigateHome}
                           />

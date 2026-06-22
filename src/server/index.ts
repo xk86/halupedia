@@ -4557,10 +4557,42 @@ export async function createApp(options: CreateAppOptions = {}) {
     return { infobox, caption };
   }
 
+  // Resolve an article from a /wiki/-style path segment the same way the page
+  // endpoint does. A naive slugify of a hyphenated-title URL (e.g. the
+  // "Regulation-of-semen-flow-…" links emitted in pipeline traces) dash-mangles
+  // into a slug that no single lookup matches, so fall back through legacy,
+  // title, exact-slug, and equivalent lookups. The sidebar editor endpoints
+  // pass the raw wiki segment from the URL, so they must resolve as robustly as
+  // page loads do — otherwise editing/regenerating a reachable article 404s.
+  function resolveArticleFromSegment(segment: string): ArticleRecord | null {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      decoded = segment;
+    }
+    decoded = decoded.replace(/^\/+|\/+$/g, "");
+    const segmentTitle = normalizeCanonicalTitle(
+      wikiSegmentToRequestedTitle(decoded),
+    );
+    const lookupSlug = slugify(segmentTitle);
+    const legacyLookup = legacySlugify(segmentTitle);
+    return (
+      getArticleByLookup(db, lookupSlug) ??
+      (legacyLookup !== lookupSlug
+        ? getArticleByLookup(db, legacyLookup)
+        : null) ??
+      getArticleByTitle(db, segmentTitle) ??
+      (isSlugForm(decoded) ? getArticleByLookup(db, decoded) : null) ??
+      getArticleByEquivalentLookup(db, lookupSlug)
+    );
+  }
+
   // GET /api/article/:slug/infobox — raw (unrendered) infobox data for the editor.
   app.get("/api/article/:slug/infobox", (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
     const rawInfobox = getArticleInfobox(db, slug);
     const headlineMediaRow = getArticleHeadlineMedia(db, slug);
     return c.json({
@@ -4571,10 +4603,9 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   // PATCH /api/article/:slug/infobox — raw save of infobox JSON + optional caption.
   app.patch("/api/article/:slug/infobox", async (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const article = getArticleByLookup(db, slug);
+    const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
 
     const body = await c.req.json().catch(() => ({})) as { infobox?: InfoboxData; caption?: string };
     if (!body.infobox || typeof body.infobox !== "object") return c.json({ error: "infobox required" }, 400);
@@ -4599,10 +4630,9 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   // POST /api/article/:slug/infobox/regenerate — AI re-generation with optional instructions.
   app.post("/api/article/:slug/infobox/regenerate", async (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const article = getArticleByLookup(db, slug);
+    const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
 
     const body = await c.req.json().catch(() => ({})) as { instructions?: string };
     const instructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
@@ -4647,18 +4677,17 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   // GET /api/article/:slug/infobox/history — list sidebar revisions.
   app.get("/api/article/:slug/infobox/history", (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const revisions = listSidebarRevisions(db, slug);
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const revisions = listSidebarRevisions(db, article.slug);
     return c.json({ revisions });
   });
 
   // POST /api/article/:slug/infobox/restore — restore a prior sidebar revision.
   app.post("/api/article/:slug/infobox/restore", async (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
-    if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const article = getArticleByLookup(db, slug);
+    const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
 
     const body = await c.req.json().catch(() => ({})) as { revisionId?: number };
     if (typeof body.revisionId !== "number") return c.json({ error: "revisionId required" }, 400);
@@ -4695,7 +4724,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   // infobox, caption, or article body for this slug. Clients subscribe on
   // page load and receive updates without polling.
   app.get("/api/article/:slug/live", (c) => {
-    const slug = slugify(decodeURIComponent(c.req.param("slug")));
+    // Key the listener channel on the canonical slug so it matches what
+    // notifySidecar pushes to — a naive slugify of a hyphenated-title URL would
+    // register a dash-mangled channel that never receives updates.
+    const slug =
+      resolveArticleFromSegment(c.req.param("slug"))?.slug ||
+      slugify(decodeURIComponent(c.req.param("slug")));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
     const enc = new TextEncoder();
     let open = true;

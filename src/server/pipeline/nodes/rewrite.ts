@@ -41,6 +41,7 @@ import {
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
 } from "../../retrieval";
+import { toLegacyView } from "../../rag";
 import {
   findFuzzyTitleMatchesInEditText,
   findReferencedArticlesInEditText,
@@ -160,6 +161,72 @@ export const retrieveContextForRewriteNode = defineNode({
     const backlinkSlugs = [...new Set(hints.map((h) => h.sourceSlug).filter(Boolean))];
     const priorRefs = loadPriorReferenceList(deps.db, slug) ?? [];
     const priorSlugs = priorRefs.map((r) => r.slug);
+
+    const backlinkEntries = () =>
+      backlinkSlugs.map((s) => {
+        const a = getArticleByLookup(deps.db, s);
+        return { slug: s, title: a?.title ?? s };
+      });
+
+    // ---- new LanceDB retrieval path (behind rag.use_lancedb_retrieval) ----
+    // Collapses the three legacy branches: the unified retriever fuses semantic,
+    // direct, and symbolic paths, so each branch only needs to supply a query
+    // and the set of explicitly-referenced (direct) slugs.
+    if (rag.use_lancedb_retrieval && deps.rag && useEmbeddings) {
+      const hintStrings = hints.map((h) => h.hiddenHint);
+      let directSlugs: string[];
+      let queryText: string;
+      if (explicitSlugs.length > 0) {
+        directSlugs = [...new Set([...explicitSlugs, ...priorSlugs])];
+        queryText =
+          [loadedArticle?.title ?? "", loadedArticle?.body.slice(0, 500) ?? ""]
+            .filter(Boolean)
+            .join("\n\n") || slug;
+      } else if (ragEnabled) {
+        const editReferences = findReferencedArticlesInEditText(deps.db, ragQuery, slug);
+        const fuzzyTitleMatches = findFuzzyTitleMatchesInEditText(
+          deps.db,
+          ragQuery,
+          slug,
+          rag.max_results,
+          editReferences.articles.map((a) => a.slug),
+        );
+        directSlugs = [
+          ...new Set([
+            ...priorSlugs,
+            ...editReferences.articles.map((a) => a.slug),
+            ...fuzzyTitleMatches.map((a) => a.slug),
+          ]),
+        ];
+        queryText = (ragQuery || hintStrings.join("\n")) || slug;
+      } else {
+        directSlugs = backlinkSlugs;
+        queryText =
+          [loadedArticle?.title ?? "", loadedArticle?.body.slice(0, 500) ?? "", ...hintStrings]
+            .filter(Boolean)
+            .join("\n") || slug;
+      }
+      const result = await deps.rag.retrieve({
+        targetSlug: slug,
+        queryText,
+        directSlugs,
+        profile: "article_rewrite",
+      });
+      const view = toLegacyView(result);
+      return {
+        retrievedContext: excludeBlacklistedSources(
+          deps.db,
+          slug,
+          {
+            sourceArticles: view.sourceArticles,
+            ragTitles: view.relatedTitles,
+            backlinks: backlinkEntries(),
+            embedding: view.embedding,
+          },
+          input.blacklistSlugs ?? [],
+        ),
+      };
+    }
 
     let retrieved: RetrievedContext;
 

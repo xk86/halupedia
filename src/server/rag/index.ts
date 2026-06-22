@@ -33,3 +33,8 @@ export {
   type AssembledEvidence,
   type LinkAllowlistEntry,
 } from "./promptAssembly";
+export {
+  createRagRuntime,
+  type RagRuntime,
+  type RagRuntimeOptions,
+} from "./runtime";

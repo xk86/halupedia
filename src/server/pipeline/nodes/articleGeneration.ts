@@ -37,6 +37,7 @@ import {
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
 } from "../../retrieval";
+import { toLegacyView } from "../../rag";
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
@@ -172,6 +173,36 @@ export const retrieveContextNode = defineNode({
         ].filter(Boolean).join("\n\n")
       : input.requestedTitle || slug;
 
+    const referencedSlugsForHints = hints
+      .map((h) => slugify(h.sourceSlug))
+      .filter(Boolean);
+
+    // ---- new LanceDB retrieval path (behind rag.use_lancedb_retrieval) ----
+    // Maps the structured result into the legacy retrievedContext shape so the
+    // reference list and prompt render nodes work unchanged during cutover.
+    if (rag.use_lancedb_retrieval && deps.rag && useEmbeddings) {
+      const result = await deps.rag.retrieve({
+        targetSlug: slug,
+        queryText: [queryOverride, ...hintStrings].filter(Boolean).join("\n"),
+        directSlugs: referencedSlugsForHints,
+        profile: "article_generation",
+      });
+      const view = toLegacyView(result);
+      return {
+        retrievedContext: excludeBlacklistedSources(
+          deps.db,
+          slug,
+          {
+            sourceArticles: view.sourceArticles,
+            ragTitles: view.relatedTitles,
+            backlinks: hints.map((h) => ({ slug: h.sourceSlug, title: h.sourceTitle })),
+            embedding: view.embedding,
+          },
+          input.blacklistSlugs ?? [],
+        ),
+      };
+    }
+
     const primary = await retrieveContextLegacy(
       deps.db,
       deps.llm,
@@ -187,9 +218,7 @@ export const retrieveContextNode = defineNode({
       { enabled: rag.summary_cap_enabled, chars: rag.summary_cap_chars },
     );
 
-    const referencedSlugs = hints
-      .map((h) => slugify(h.sourceSlug))
-      .filter(Boolean);
+    const referencedSlugs = referencedSlugsForHints;
     const direct = referencedSlugs.length
       ? retrieveDirectArticleContext(
           deps.db,

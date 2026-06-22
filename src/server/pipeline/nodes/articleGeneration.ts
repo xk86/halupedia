@@ -37,7 +37,7 @@ import {
   retrieveDirectArticleContext,
   mergeRetrievedContextPackets,
 } from "../../retrieval";
-import { toLegacyView } from "../../rag";
+import { toLegacyView, type RetrievalProfile } from "../../rag";
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
@@ -149,11 +149,18 @@ export const readArticleVibeNode = defineNode({
   },
 });
 
-export const retrieveContextNode = defineNode({
-  name: "read.retrieve_context",
+/**
+ * Retrieval node factory. Generation and refresh share the same retrieval logic
+ * but want different budgets, so each gets its own node bound to a profile (the
+ * profile only affects the new LanceDB path; the legacy path applies its caps at
+ * render time).
+ */
+function makeRetrieveContextNode(opts: { name: string; profile: RetrievalProfile }) {
+  return defineNode({
+  name: opts.name,
   kind: "read",
   description:
-    "Run RAG retrieval against article_chunks; merge direct-reference context.",
+    "Run RAG retrieval; merge direct-reference context.",
   reads: ["input", "loadedArticle"] as const,
   writes: ["retrievedContext"] as const,
   async run({ input, loadedArticle }, deps: PipelineDeps) {
@@ -185,7 +192,7 @@ export const retrieveContextNode = defineNode({
         targetSlug: slug,
         queryText: [queryOverride, ...hintStrings].filter(Boolean).join("\n"),
         directSlugs: referencedSlugsForHints,
-        profile: "article_generation",
+        profile: opts.profile,
       });
       const view = toLegacyView(result);
       return {
@@ -253,6 +260,18 @@ export const retrieveContextNode = defineNode({
       }, input.blacklistSlugs ?? []),
     };
   },
+  });
+}
+
+export const retrieveContextNode = makeRetrieveContextNode({
+  name: "read.retrieve_context",
+  profile: "article_generation",
+});
+
+/** Refresh shares the retrieval logic but uses the tighter article_refresh profile. */
+export const retrieveContextRefreshNode = makeRetrieveContextNode({
+  name: "read.retrieve_context_refresh",
+  profile: "article_refresh",
 });
 
 export const buildReferenceListNode = defineNode({

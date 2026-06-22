@@ -11,6 +11,8 @@
  * replaces exactly its prior rows.
  */
 import * as lancedb from "@lancedb/lancedb";
+import { makeArrowTable } from "@lancedb/lancedb";
+import { Float32 } from "apache-arrow";
 import type {
   EmbeddedTextDocument,
   RagCorpusMeta,
@@ -115,14 +117,49 @@ export class RagStore {
     return this.conn.openTable(TEXT_TABLE);
   }
 
-  /** Idempotent upsert keyed on `document_id`. Creates the table on first write. */
+  /** Vector dimension of the existing text table, or null if absent/unknown. */
+  private async textVectorDim(): Promise<number | null> {
+    const table = await this.textTable();
+    if (!table) return null;
+    const schema = await table.schema();
+    const field = schema.fields.find((f) => f.name === "vector");
+    const size = (field?.type as { listSize?: number } | undefined)?.listSize;
+    return typeof size === "number" ? size : null;
+  }
+
+  /**
+   * Idempotent upsert keyed on `document_id`. Creates the table on first write.
+   *
+   * Validates that every vector shares one non-degenerate dimension, and refuses
+   * to merge into a table whose vector dimension differs — otherwise a stale or
+   * mis-inferred schema silently mangles vectors (e.g. a corpus pinned to
+   * `FixedSizeList[1]`), breaking all queries with no error.
+   */
   async upsertTextDocuments(docs: EmbeddedTextDocument[]): Promise<void> {
     if (docs.length === 0) return;
+    const dim = docs[0].vector.length;
+    if (dim < 2) {
+      throw new Error(`rag store: degenerate embedding dimension ${dim} (document ${docs[0].documentId})`);
+    }
+    for (const d of docs) {
+      if (d.vector.length !== dim) {
+        throw new Error(
+          `rag store: inconsistent embedding dimension ${d.vector.length} != ${dim} (document ${d.documentId})`,
+        );
+      }
+    }
     const rows = docs.map(toRow) as unknown as Record<string, unknown>[];
     const names = await this.conn.tableNames();
     if (!names.includes(TEXT_TABLE)) {
-      await this.conn.createTable(TEXT_TABLE, rows);
+      const tbl = makeArrowTable(rows, { vectorColumns: { vector: { type: new Float32() } } });
+      await this.conn.createTable(TEXT_TABLE, tbl);
       return;
+    }
+    const existingDim = await this.textVectorDim();
+    if (existingDim != null && existingDim !== dim) {
+      throw new Error(
+        `rag store: corpus vector dimension ${existingDim} != incoming ${dim}; the corpus is stale — run: npm run rag:rebuild`,
+      );
     }
     const table = await this.conn.openTable(TEXT_TABLE);
     await table
@@ -130,6 +167,12 @@ export class RagStore {
       .whenMatchedUpdateAll()
       .whenNotMatchedInsertAll()
       .execute(rows);
+  }
+
+  /** Drop the text table (used by a clean full rebuild). */
+  async dropTextTable(): Promise<void> {
+    const names = await this.conn.tableNames();
+    if (names.includes(TEXT_TABLE)) await this.conn.dropTable(TEXT_TABLE);
   }
 
   async deleteByArticle(slug: string): Promise<void> {

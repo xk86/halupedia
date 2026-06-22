@@ -31,6 +31,14 @@ async function main() {
       return;
     }
 
+    // A full rebuild starts from a clean table so a stale/mis-inferred schema
+    // can't survive (and so articles deleted since the last build leave no
+    // orphan rows). A single-article rebuild merges into the existing corpus.
+    if (!onlySlug) {
+      await ctx.rag.store.dropTextTable();
+      console.log("dropped existing rag_text_documents table for a clean rebuild");
+    }
+
     for (const slug of slugs) {
       enqueueRagIndexJob(ctx.db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
     }

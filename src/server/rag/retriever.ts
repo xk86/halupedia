@@ -297,24 +297,38 @@ export async function retrieveContext(
     }
   }
 
+  const diagnostics: RetrievalResult["diagnostics"] = {
+    profile: args.profile,
+    queryText,
+    textEmbeddingModel: embedModel,
+    servingHost: host,
+    vectorDimensions: queryVector.length || undefined,
+    candidateTextCount: semanticHits.length + symbolicHits.length,
+    candidateImageCount: 0,
+    selectedTextCount: textDocuments.length,
+    selectedImageCount: 0,
+    selectedKinds: [...new Set(textDocuments.map((d) => d.sourceKind))],
+    exclusions,
+    degraded,
+  };
+
+  deps.logger?.info("rag.retrieve", {
+    profile: args.profile,
+    target: targetSlug,
+    candidates: diagnostics.candidateTextCount,
+    selected: diagnostics.selectedTextCount,
+    kinds: diagnostics.selectedKinds.join(","),
+    articles: sourceArticles.length,
+    model: embedModel,
+    host,
+    degraded,
+  });
+
   return {
     textDocuments,
     imageDocuments: [], // Phase 2
     sourceArticles,
     relatedTitles: sourceArticles.map((c) => c.title),
-    diagnostics: {
-      profile: args.profile,
-      queryText,
-      textEmbeddingModel: embedModel,
-      servingHost: host,
-      vectorDimensions: queryVector.length || undefined,
-      candidateTextCount: semanticHits.length + symbolicHits.length,
-      candidateImageCount: 0,
-      selectedTextCount: textDocuments.length,
-      selectedImageCount: 0,
-      selectedKinds: [...new Set(textDocuments.map((d) => d.sourceKind))],
-      exclusions,
-      degraded,
-    },
+    diagnostics,
   };
 }

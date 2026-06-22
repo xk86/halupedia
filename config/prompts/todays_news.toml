@@ -55,7 +55,6 @@ World date:
 {{world_date}}
 
 Calendar details:
-- Absolute world day: {{world_day}}
 - Normal year: {{world_year}}
 - Month: {{world_month}}
 - Day of month: {{day_of_month}}

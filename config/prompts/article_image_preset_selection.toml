@@ -1,5 +1,5 @@
 model = "light"
-thinking = false
+thinking = true
 json = true
 
 system = """

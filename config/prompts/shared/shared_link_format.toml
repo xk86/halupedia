@@ -1,4 +1,4 @@
-system = """
+system = '''
 Universal placement rule (applies to ALL link types):
 - Every link — halu: or ref: — must be embedded inside a sentence as part of the flowing prose.
 - NEVER append any link after a sentence or period as a standalone item.
@@ -33,14 +33,13 @@ RIGHT — full title used as anchor, embedded where it fits:
 RIGHT — short phrase anchor, also valid (only when it's already clear in the paragraph what is being talked about, use this only rarely!):
   `...the [Society](ref:society-for-really-long-names) is well understood to...` (in a sentence about them)
 
-Format examples:
+Good format examples:
 - [Visible Title](halu:visible-title 'concise hidden context hint')
 - [Literal title here](ref:literal-title-here) — literal title anchor
 - [the 1848 publication](ref:communist-manifesto) — descriptive anchor
-"""
+- [女](ref:女) - use actual unicode for multi-lingual links! Do not romanize.
+'''
 
-user = """
+user = '''
 
-
-
-"""
+'''

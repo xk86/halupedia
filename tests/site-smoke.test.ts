@@ -11,6 +11,7 @@ import type { ImageGenerationConfig } from "../src/server/types";
 import type { LogFields, Logger } from "../src/server/logger";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 import { getWorldDate, todaysNewsSlug, todaysNewsTitle } from "../src/server/worldClock";
+import { setImageGenerationFetchForTests } from "../src/server/imageGeneration";
 
 interface CapturedLogEntry {
   level: "debug" | "info" | "warn" | "error";
@@ -97,6 +98,27 @@ class FailingGenerationLlmClient implements LlmRouter {
 
   async streamChat(): Promise<{ content: string; finishReason: string }> {
     throw new Error("generation should not run for cached lookup regressions");
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
+class FixedImagePresetLlmClient implements LlmRouter {
+  async chat(): Promise<string> {
+    return JSON.stringify({
+      presetKey: "broadcast_news_still",
+      aspectRatioKey: "landscape",
+      reason: "A broadcast still fits this homepage article.",
+      aspectRatioReason: "Landscape fits the homepage image slot.",
+    });
+  }
+
+  async streamChat(): Promise<{ content: string; finishReason: string }> {
+    throw new Error("article generation should not run for cached homepage image tests");
   }
 
   async embed(): Promise<number[][]> {
@@ -1775,6 +1797,190 @@ test("homepage skips news image generation when cached news article is missing",
     logEntries.some((entry) => entry.event === "homepage_news_image.auto_queued"),
     false,
     "missing cached news article should not queue an image-generation workflow",
+  );
+});
+
+test("homepage featured image auto generation stops after configured failures", async (t) => {
+  t.after(() => setImageGenerationFetchForTests(null));
+  setImageGenerationFetchForTests(async () =>
+    new Response(JSON.stringify({ error: { message: "blocked by safety system" } }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  const markdown = "# Safety Blocked\n\nA cached homepage article with no image.";
+  saveArticle(
+    db,
+    {
+      slug: "safety-blocked",
+      canonicalSlug: "safety-blocked",
+      title: "Safety Blocked",
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: now,
+    },
+    [],
+    ["safety-blocked"],
+  );
+  saveHomepageCache(db, {
+    featured: { slug: "safety-blocked", title: "Safety Blocked", summaryMarkdown: "A cached homepage article." },
+    todaysNews: null,
+    didYouKnow: [],
+    generatedAt: now,
+    expiresAt: now + 60_000,
+  });
+  db.close();
+
+  const logEntries: CapturedLogEntry[] = [];
+  const server = await createServerForDatabase(root, databasePath, {
+    logger: createMemoryLogger(logEntries),
+    llmClient: new FixedImagePresetLlmClient(),
+    homepagePrepare: true,
+    imageGenerationConfig: {
+      enabled: true,
+      auto_generate_for_featured_article: true,
+      auto_preset_multipass: false,
+      homepage_auto_image_max_attempts: 2,
+      backend: "openai",
+      openai: {
+        base_url: "https://api.openai.test/v1",
+        api_key: "test-key",
+        model: "gpt-image-2",
+        size: "1088x624",
+        quality: "low",
+        output_format: "jpeg",
+        output_compression: 70,
+        timeout_ms: 1000,
+      },
+    },
+  });
+  cleanupTestServer(t, server);
+
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_featured_image.auto_failed" &&
+    entry.fields?.slug === "safety-blocked" &&
+    entry.fields?.attempt === 1
+  );
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_featured_image.auto_failed" &&
+    entry.fields?.slug === "safety-blocked" &&
+    entry.fields?.attempt === 2
+  );
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_featured_image.auto_skipped_attempt_limit" &&
+    entry.fields?.slug === "safety-blocked" &&
+    entry.fields?.attempts === 2 &&
+    entry.fields?.max_attempts === 2
+  );
+
+  assert.equal(
+    logEntries.filter((entry) => entry.event === "homepage_featured_image.auto_queued").length,
+    2,
+  );
+});
+
+test("homepage news image auto generation stops after configured failures", async (t) => {
+  t.after(() => setImageGenerationFetchForTests(null));
+  setImageGenerationFetchForTests(async () =>
+    new Response(JSON.stringify({ error: { message: "blocked by safety system" } }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  const worldDate = getWorldDate(loadConfig().app, now);
+  const newsSlug = todaysNewsSlug(worldDate);
+  const markdown = `# ${todaysNewsTitle(worldDate)}\n\nA cached news article with no image.`;
+  saveArticle(
+    db,
+    {
+      slug: newsSlug,
+      canonicalSlug: newsSlug,
+      title: todaysNewsTitle(worldDate),
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: now,
+    },
+    [],
+    [newsSlug],
+  );
+  saveHomepageCache(db, {
+    featured: null,
+    todaysNews: {
+      slug: newsSlug,
+      title: todaysNewsTitle(worldDate),
+      worldDate: worldDate.label,
+      worldDay: worldDate.day,
+      generatorVersion: "1",
+      summaryMarkdown: "Cached news.",
+      headlines: [],
+    },
+    didYouKnow: [],
+    generatedAt: now,
+    expiresAt: now + 60_000,
+  });
+  db.close();
+
+  const logEntries: CapturedLogEntry[] = [];
+  const server = await createServerForDatabase(root, databasePath, {
+    logger: createMemoryLogger(logEntries),
+    llmClient: new FailingGenerationLlmClient(),
+    homepagePrepare: true,
+    imageGenerationConfig: {
+      enabled: true,
+      homepage_auto_image_max_attempts: 2,
+      backend: "openai",
+      openai: {
+        base_url: "https://api.openai.test/v1",
+        api_key: "test-key",
+        model: "gpt-image-2",
+        size: "1088x624",
+        quality: "low",
+        output_format: "jpeg",
+        output_compression: 70,
+        timeout_ms: 1000,
+      },
+    },
+  });
+  cleanupTestServer(t, server);
+
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_news_image.auto_failed" &&
+    entry.fields?.slug === newsSlug &&
+    entry.fields?.attempt === 1
+  );
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_news_image.auto_failed" &&
+    entry.fields?.slug === newsSlug &&
+    entry.fields?.attempt === 2
+  );
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_news_image.auto_skipped_attempt_limit" &&
+    entry.fields?.slug === newsSlug &&
+    entry.fields?.attempts === 2 &&
+    entry.fields?.max_attempts === 2
+  );
+
+  assert.equal(
+    logEntries.filter((entry) => entry.event === "homepage_news_image.auto_queued").length,
+    2,
   );
 });
 

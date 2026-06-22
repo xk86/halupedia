@@ -1069,6 +1069,7 @@ describe("http", () => {
     const s = await makeTestServer(new FakeLlm(), { enabled: false, auto_generate_for_featured_article: false }); t.after(s.cleanup);
     const body = await (await s.go("/api/admin/llm")).json() as any;
     assert.equal(body.imageGeneration.autoGenerateForFeaturedArticle, false);
+    assert.equal(body.imageGeneration.homepageAutoImageMaxAttempts, 3);
     assert.equal(body.imageGeneration.autoPresetMultipass, false);
   });
 

@@ -100,6 +100,8 @@ allow_private_hosts = false
 enabled = false
 auto_generate_for_new_articles = false
 auto_generate_for_featured_article = false
+# Caps automatic homepage image attempts per article/news slug while the server is running.
+homepage_auto_image_max_attempts = 3
 auto_preset_multipass = false
 backend = "openai" # openai | ollama
 

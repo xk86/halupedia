@@ -90,3 +90,40 @@ test("toLegacyView leaves content empty for a candidate with no selected docs", 
   );
   assert.equal(view.sourceArticles[0].content, "");
 });
+
+test("toLegacyView attributes link-hint text to its target and removes exact duplicates", () => {
+  const hint = "Aweewawowe: target-specific canonical context.";
+  const view = toLegacyView(
+    result({
+      textDocuments: [
+        doc({
+          documentId: "hint-1",
+          articleSlug: "geomancy-institute",
+          sourceKind: "link_hint",
+          content: hint,
+          metadata: { targetSlug: "aweewawowe", targetTitle: "Aweewawowe" },
+        }),
+        doc({
+          documentId: "hint-2",
+          articleSlug: "wawawawa",
+          sourceKind: "link_hint",
+          content: hint,
+          metadata: { targetSlug: "aweewawowe", targetTitle: "Aweewawowe" },
+        }),
+      ],
+      sourceArticles: [
+        {
+          slug: "aweewawowe",
+          title: "Aweewawowe",
+          score: 0.4,
+          contributingKinds: ["link_hint"],
+          provenance: "semantic",
+        },
+      ],
+    }),
+  );
+
+  assert.deepEqual(view.sourceArticles, [
+    { slug: "aweewawowe", title: "Aweewawowe", content: hint, score: 0.4 },
+  ]);
+});

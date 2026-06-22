@@ -188,10 +188,11 @@ function makeRetrieveContextNode(opts: { name: string; profile: RetrievalProfile
     // ---- new LanceDB retrieval path (behind rag.use_lancedb_retrieval) ----
     // Maps the structured result into the legacy retrievedContext shape so the
     // reference list and prompt render nodes work unchanged during cutover.
-    if (rag.use_lancedb_retrieval && deps.rag && useEmbeddings) {
+    if (rag.use_lancedb_retrieval && deps.rag) {
       const result = await deps.rag.retrieve({
         targetSlug: slug,
         queryText: [queryOverride, ...hintStrings].filter(Boolean).join("\n"),
+        minScore: rag.min_score,
         directSlugs: referencedSlugsForHints,
         profile: opts.profile,
       });

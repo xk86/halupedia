@@ -269,6 +269,8 @@ function articleLookupSlugFromInput(input: string): string {
 export interface CreateAppOptions {
   databasePath?: string;
   mediaDatabasePath?: string;
+  /** Override the LanceDB directory. Tests use this to isolate RAG state. */
+  ragPath?: string;
   distRoot?: string;
   skipLlmProbe?: boolean;
   skipHomepagePrepare?: boolean;
@@ -947,10 +949,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     options.llmClient ??
     new OpenAICompatRouter(runtime.llm, logger);
 
-  // ---- LanceDB RAG runtime (dual-run alongside the legacy article_chunks
-  // path during cutover). Content saves enqueue durable jobs that the
-  // background drainer below processes into LanceDB. ----
-  const ragPath = (runtime.app.rag as { path?: string }).path ?? "data/rag.lance";
+  // ---- Canonical LanceDB RAG runtime. Content saves enqueue durable jobs that
+  // the background drainer below processes into LanceDB. Legacy article_chunks
+  // indexing remains temporarily available as a rollback path. ----
+  const ragPath =
+    options.ragPath ??
+    (runtime.app.rag as { path?: string }).path ??
+    "data/rag.lance";
   const rag: RagRuntime = await createRagRuntime({
     db,
     llm,
@@ -970,14 +975,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     // and drain any jobs left pending by a prior crash.
     const meta = await rag.store.readMeta().catch(() => null);
     if (!meta) {
-      logger.warn("rag.startup_no_corpus", { path: ragPath, hint: "run: npm run rag:rebuild" });
+      logger.warn("rag.startup_no_corpus", { path: ragPath, hint: "run: pnpm run rag:rebuild" });
     } else if (!meta.buildComplete || meta.textEmbeddingModel !== rag.embedder.model) {
       logger.warn("rag.startup_corpus_stale", {
         path: ragPath,
         build_complete: meta.buildComplete,
         meta_model: meta.textEmbeddingModel,
         config_model: rag.embedder.model,
-        hint: "run: npm run rag:rebuild",
+        hint: "run: pnpm run rag:rebuild",
       });
     }
     const pending = countPendingRagJobs(db);
@@ -1012,6 +1017,8 @@ export async function createApp(options: CreateAppOptions = {}) {
   const NOISY_POLL_PATHS = new Set([
     "/api/admin/generation-queue",
     "/api/admin/llm",
+    "/api/admin/pipeline/workflows",
+    "/api/admin/pipeline/runs",
   ]);
   app.use("*", async (c, next) => {
     const { method } = c.req;

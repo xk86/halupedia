@@ -10,6 +10,9 @@ limit = 20
 
 [rag]
 enabled = true
+# LanceDB is the canonical retrieval store. Rebuild it after changing the
+# embedding model, ontology vocabulary, or document schema.
+use_lancedb_retrieval = true
 mode = "summary" # options: "full" or "summary"
 max_results = 12
 # Changing chunk size after initialization is risky

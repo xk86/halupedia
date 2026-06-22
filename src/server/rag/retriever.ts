@@ -110,6 +110,24 @@ function rrf(rank: number): number {
 }
 
 /**
+ * Link hints are owned by the article containing the link, but their text is
+ * evidence about the link target. Keep storage ownership intact while
+ * attributing prompt evidence and link candidates to the described subject.
+ */
+function evidenceSubject(doc: RetrievedTextDocument): { slug: string; title?: string } {
+  if (doc.sourceKind !== "link_hint") return { slug: doc.articleSlug };
+  const targetSlug = typeof doc.metadata?.targetSlug === "string"
+    ? slugify(doc.metadata.targetSlug)
+    : "";
+  const targetTitle = typeof doc.metadata?.targetTitle === "string"
+    ? doc.metadata.targetTitle.trim()
+    : "";
+  return targetSlug
+    ? { slug: targetSlug, title: targetTitle || undefined }
+    : { slug: doc.articleSlug };
+}
+
+/**
  * Legacy-shaped view of a retrieval result.
  *
  * Bridges the new structured retriever into the `retrievedContext` shape the
@@ -133,9 +151,10 @@ export interface LegacyRetrievalView {
 export function toLegacyView(result: RetrievalResult): LegacyRetrievalView {
   const contentBySlug = new Map<string, string[]>();
   for (const doc of result.textDocuments) {
-    const list = contentBySlug.get(doc.articleSlug) ?? [];
-    list.push(doc.content);
-    contentBySlug.set(doc.articleSlug, list);
+    const subjectSlug = evidenceSubject(doc).slug;
+    const list = contentBySlug.get(subjectSlug) ?? [];
+    if (!list.includes(doc.content)) list.push(doc.content);
+    contentBySlug.set(subjectSlug, list);
   }
   const sourceArticles = result.sourceArticles.map((c) => ({
     slug: c.slug,
@@ -188,9 +207,16 @@ export async function retrieveContext(
   }
 
   const overFetch = Math.max(profile.textTopK * 3, profile.textTopK + 10);
-  const semanticHits = queryVector.length
+  const rawSemanticHits = queryVector.length
     ? await deps.store.queryText(queryVector, { k: overFetch, includeKinds, excludeSlugs })
     : [];
+  const minScore = args.minScore ?? Number.NEGATIVE_INFINITY;
+  const semanticHits = rawSemanticHits.filter((hit) => hit.score >= minScore);
+  for (const hit of rawSemanticHits) {
+    if (hit.score < minScore) {
+      exclusions.push({ documentId: hit.documentId, reason: "below_min_score" });
+    }
+  }
 
   // Split semantic hits into ontology vs the rest so we can fuse with a quota.
   const semanticOntology = semanticHits.filter((h) => h.sourceKind === "ontology_fact");
@@ -261,7 +287,8 @@ export async function retrieveContext(
   // ---- article candidates (feed the reference list) ----
   const candidateMap = new Map<string, RetrievedArticleCandidate>();
   for (const doc of textDocuments) {
-    const existing = candidateMap.get(doc.articleSlug);
+    const subject = evidenceSubject(doc);
+    const existing = candidateMap.get(subject.slug);
     if (existing) {
       existing.score = Math.max(existing.score, doc.rawScore);
       if (!existing.contributingKinds.includes(doc.sourceKind)) existing.contributingKinds.push(doc.sourceKind);
@@ -269,9 +296,9 @@ export async function retrieveContext(
       // and semantically is still an explicit reference.
       if (doc.provenance === "direct") existing.provenance = "direct";
     } else {
-      candidateMap.set(doc.articleSlug, {
-        slug: doc.articleSlug,
-        title: titleFor(deps.db, doc.articleSlug),
+      candidateMap.set(subject.slug, {
+        slug: subject.slug,
+        title: subject.title ?? titleFor(deps.db, subject.slug),
         score: doc.rawScore,
         contributingKinds: [doc.sourceKind],
         provenance: doc.provenance,
@@ -303,7 +330,7 @@ export async function retrieveContext(
     textEmbeddingModel: embedModel,
     servingHost: host,
     vectorDimensions: queryVector.length || undefined,
-    candidateTextCount: semanticHits.length + symbolicHits.length,
+    candidateTextCount: rawSemanticHits.length + symbolicHits.length,
     candidateImageCount: 0,
     selectedTextCount: textDocuments.length,
     selectedImageCount: 0,

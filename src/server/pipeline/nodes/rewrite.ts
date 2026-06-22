@@ -173,7 +173,7 @@ export const retrieveContextForRewriteNode = defineNode({
     // Collapses the three legacy branches: the unified retriever fuses semantic,
     // direct, and symbolic paths, so each branch only needs to supply a query
     // and the set of explicitly-referenced (direct) slugs.
-    if (rag.use_lancedb_retrieval && deps.rag && useEmbeddings) {
+    if (rag.use_lancedb_retrieval && deps.rag) {
       const hintStrings = hints.map((h) => h.hiddenHint);
       let directSlugs: string[];
       let queryText: string;
@@ -210,6 +210,7 @@ export const retrieveContextForRewriteNode = defineNode({
       const result = await deps.rag.retrieve({
         targetSlug: slug,
         queryText,
+        minScore: rag.min_score,
         directSlugs,
         profile: "article_rewrite",
       });

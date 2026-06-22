@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getArticle, getArticleByLookup, getLatestArticleReferences, listArticleRevisions, openDatabase, saveArticle, saveArticleReferences, setArticleVibe } from "../src/server/db";
 import { slugify } from "../src/server/slug";
 import { loadConfig } from "../src/server/config";
@@ -15,6 +15,7 @@ import {
   renderMarkdown,
 } from "../src/server/markdown";
 import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
+import { buildBodyDocuments, RagStore } from "../src/server/rag";
 
 const TEST_CONFIG = loadConfig().app.tests;
 
@@ -156,8 +157,10 @@ function saveMarkdownArticle(
 }
 
 async function createServer(databasePath: string, llmClient: LlmRouter) {
+  const ragPath = join(dirname(databasePath), "rag.lance");
   const { app } = await createApp({
     databasePath,
+    ragPath,
     skipLlmProbe: true,
     skipHomepagePrepare: true,
     llmClient,
@@ -166,6 +169,24 @@ async function createServer(databasePath: string, llmClient: LlmRouter) {
     request: (path: string, init?: RequestInit) =>
       app.fetch(new Request(`http://halupedia.test${path}`, init)),
   };
+}
+
+async function indexRagArticle(
+  databasePath: string,
+  slug: string,
+  markdown: string,
+  vector: number[] = [1, 0],
+): Promise<void> {
+  const store = await RagStore.open(join(dirname(databasePath), "rag.lance"));
+  const docs = buildBodyDocuments({ slug, markdown, updatedAt: 1 });
+  await store.upsertTextDocuments(
+    docs.map((doc) => ({
+      ...doc,
+      embeddingModel: "test-embedding",
+      vector,
+    })),
+  );
+  await store.close();
 }
 
 function parseNdjson<T>(payload: string): T[] {
@@ -483,18 +504,17 @@ test("new article generation searches RAG with the requested title even without 
     title: "Source Topic",
     markdown: "# Source Topic\n\nSource material about target page optimization.",
   });
-  const db = openDatabase(databasePath);
-  db.prepare(
-    `INSERT INTO article_chunks (slug, chunk_index, content, embedding_json)
-     VALUES (?, ?, ?, ?)`,
-  ).run("source-topic", 0, "Source material about target page optimization.", "[1]");
-  db.close();
+  await indexRagArticle(
+    databasePath,
+    "source-topic",
+    "# Source Topic\n\nSource material about target page optimization.",
+  );
 
   const llm = new QueueLlmClient(
     "# Target Page\n\nUses [Source Topic](ref:source-topic).",
     [JSON.stringify({ items: [] }), "Target summary."],
     undefined,
-    [1],
+    [1, 0],
   );
   const server = await createServer(databasePath, llm);
 
@@ -1138,22 +1158,15 @@ test("rewrite endpoint includes explicitly referenced articles in edit RAG", asy
       "The Municipal Weather Bureau coordinates cloud permits, civic umbrellas, and brass rain ledgers.",
     ].join("\n"),
   });
-  {
-    const db = openDatabase(databasePath);
-    await indexArticleChunks(
-      db,
-      new QueueLlmClient(""),
-      "municipal-weather-bureau",
-      [
-        "# Municipal Weather Bureau",
-        "",
-        "The Municipal Weather Bureau coordinates cloud permits, civic umbrellas, and brass rain ledgers.",
-      ].join("\n"),
-      false,
-      500,
-    );
-    db.close();
-  }
+  await indexRagArticle(
+    databasePath,
+    "municipal-weather-bureau",
+    [
+      "# Municipal Weather Bureau",
+      "",
+      "The Municipal Weather Bureau coordinates cloud permits, civic umbrellas, and brass rain ledgers.",
+    ].join("\n"),
+  );
 
   const rewritten = [
     "# San Francisco",
@@ -1192,18 +1205,11 @@ test("rewrite RAG uses the user's typed query as the vector search text", async 
     title: "Quiet Archive",
     markdown: "# Quiet Archive\n\nA source page available to the retrieval index.",
   });
-  {
-    const db = openDatabase(databasePath);
-    await indexArticleChunks(
-      db,
-      new QueueLlmClient(""),
-      "quiet-archive",
-      "# Quiet Archive\n\nA source page available to the retrieval index.",
-      true,
-      500,
-    );
-    db.close();
-  }
+  await indexRagArticle(
+    databasePath,
+    "quiet-archive",
+    "# Quiet Archive\n\nA source page available to the retrieval index.",
+  );
 
   const llm = new CapturingChatLlmClient([
     "# Ledger Index\n\nRewritten ledger entry.",
@@ -1244,6 +1250,15 @@ test("rewrite RAG includes fuzzy title matches in addition to vector retrieval",
       "The Municipal Weather Bureau coordinates cloud permits, civic umbrellas, and brass rain ledgers.",
     ].join("\n"),
   });
+  await indexRagArticle(
+    databasePath,
+    "municipal-weather-bureau",
+    [
+      "# Municipal Weather Bureau",
+      "",
+      "The Municipal Weather Bureau coordinates cloud permits, civic umbrellas, and brass rain ledgers.",
+    ].join("\n"),
+  );
 
   const rewritten = [
     "# San Francisco",

@@ -57,7 +57,17 @@ async function buildCorpus(t: { after: (fn: () => void) => void }) {
   const store = await RagStore.open(join(root, "rag.lance"));
   const vocab = loadOntologyVocabulary();
 
-  saveArticle(db, article("solana", "Solana", "# Solana\n\nSolana blockchain proof of history consensus validator staking."), [], [], {});
+  saveArticle(
+    db,
+    article("solana", "Solana", "# Solana\n\nSolana blockchain proof of history consensus validator staking."),
+    [{
+      targetSlug: "proof-of-history",
+      visibleLabel: "Proof of History",
+      hiddenHint: "Ordering mechanism for transactions.",
+    }],
+    [],
+    {},
+  );
   saveArticle(db, article("ethereum", "Ethereum", "# Ethereum\n\nEthereum blockchain smart contracts virtual machine gas."), [], [], {});
   saveArticle(db, article("bitcoin", "Bitcoin", "# Bitcoin\n\nBitcoin blockchain mining proof of work nakamoto."), [], [], {});
   const infobox: InfoboxData = {
@@ -130,4 +140,38 @@ test("diagnostics report profile, model, and selection", async (t) => {
   assert.equal(res.diagnostics.profile, "article_refresh");
   assert.equal(res.diagnostics.textEmbeddingModel, "fake");
   assert.equal(res.diagnostics.selectedTextCount, res.textDocuments.length);
+});
+
+test("link-hint candidates are attributed to the described target", async (t) => {
+  const { db, store } = await buildCorpus(t);
+  const res = await retrieveContext(
+    { db, store, embedder },
+    {
+      targetSlug: "bitcoin",
+      queryText: "ordering mechanism for transactions",
+      includeKinds: ["link_hint"],
+      profile: "article_generation",
+    },
+  );
+
+  assert.equal(res.sourceArticles[0]?.slug, "proof-of-history");
+  assert.equal(res.sourceArticles[0]?.title, "proof-of-history");
+  assert.ok(!res.sourceArticles.some((candidate) => candidate.slug === "solana"));
+});
+
+test("semantic retrieval excludes documents below minScore", async (t) => {
+  const { db, store } = await buildCorpus(t);
+  const res = await retrieveContext(
+    { db, store, embedder },
+    {
+      targetSlug: "solana",
+      queryText: "ethereum smart contracts",
+      minScore: 2,
+      includeKinds: ["article_body"],
+      profile: "reference_search",
+    },
+  );
+
+  assert.deepEqual(res.sourceArticles, []);
+  assert.ok(res.diagnostics.exclusions.some((entry) => entry.reason === "below_min_score"));
 });

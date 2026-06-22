@@ -127,6 +127,8 @@ export type RetrievalProfile =
 export interface RetrieveContextArgs {
   targetSlug: string;
   queryText?: string;
+  /** Minimum cosine similarity for semantic evidence. Direct evidence bypasses it. */
+  minScore?: number;
   directSlugs?: string[];
   excludeSlugs?: string[];
   includeKinds?: TextDocumentKind[];

@@ -1308,6 +1308,12 @@ test("admin generation queue polling does not spam request logs", async (t) => {
     const res = await server.request("/api/admin/llm");
     assert.equal(res.status, 200);
   }
+  for (let i = 0; i < 3; i++) {
+    const workflowsRes = await server.request("/api/admin/pipeline/workflows");
+    assert.equal(workflowsRes.status, 200);
+    const runsRes = await server.request("/api/admin/pipeline/runs?limit=100");
+    assert.equal(runsRes.status, 200);
+  }
 
   const queueRequestLogs = entries.filter(
     (entry) =>
@@ -1323,6 +1329,14 @@ test("admin generation queue polling does not spam request logs", async (t) => {
       entry.fields?.path === "/api/admin/llm",
   );
   assert.equal(llmRequestLogs.length, 0);
+  const pipelinePollLogs = entries.filter(
+    (entry) =>
+      entry.event === "http.request" &&
+      entry.fields?.method === "GET" &&
+      (entry.fields?.path === "/api/admin/pipeline/workflows" ||
+        entry.fields?.path === "/api/admin/pipeline/runs?limit=100"),
+  );
+  assert.equal(pipelinePollLogs.length, 0);
 
   const healthRes = await server.request("/api/health");
   assert.equal(healthRes.status, 200);

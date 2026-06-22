@@ -158,7 +158,7 @@ export class RagStore {
     const existingDim = await this.textVectorDim();
     if (existingDim != null && existingDim !== dim) {
       throw new Error(
-        `rag store: corpus vector dimension ${existingDim} != incoming ${dim}; the corpus is stale — run: npm run rag:rebuild`,
+        `rag store: corpus vector dimension ${existingDim} != incoming ${dim}; the corpus is stale — run: pnpm run rag:rebuild`,
       );
     }
     const table = await this.conn.openTable(TEXT_TABLE);

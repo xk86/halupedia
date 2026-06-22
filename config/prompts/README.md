@@ -94,8 +94,8 @@ Article-body prompts (`article`, `article_refresh`, `article_rewrite`) get THREE
 | Template variable | Source table | Helper / function | What it is |
 |---|---|---|---|
 | `{{link_hints}}` | `article_links` | `listIncomingHints` → `formatIncomingHintsForPrompt` | Halu-style link templates from articles that link TO the target. Each line is `[label](halu:source-slug "hidden_hint")`. The `hidden_hint` is canon written by past generations — the strongest "what does the rest of the wiki already say about me" signal. |
-| `{{rag_context}}` | `article_chunks` | `retrieveContext` | The actual prose chunks (or summaries, depending on `rag.mode`) retrieved by embedding/lexical similarity against the slug + hints. This is the topic-similarity stream. |
-| `{{related_titles}}` | `article_chunks` **and** `article_links` | `formatRelatedTitlesForPrompt` | Bulleted titles, explicitly labeled by source. The block is split into "From RAG-retrieved chunks:" (topic-matched articles) and "From articles linking here (backlinks):" (graph-adjacent articles). Backlinks come from `listBacklinks`, which combines `article_links` rows with a live LIKE scan of article markdown as a fallback for stale or never-indexed links. |
+| `{{rag_context}}` | LanceDB `rag_text_documents` | profile-based `rag.retrieve` | Retrieved typed documents mapped into article evidence for the prompt. Document kinds include body, summary, infobox, link hints, image text, and ontology facts according to the active retrieval profile. |
+| `{{related_titles}}` | LanceDB candidates **and** `article_links` | `formatRelatedTitlesForPrompt` | Bulleted titles from retrieved document candidates plus graph-adjacent backlink titles. Evidence inclusion and linkability remain separate. |
 
 ### Per-source log fields
 

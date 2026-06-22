@@ -88,7 +88,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     },
     rag: {
       enabled: app.rag?.enabled ?? false,
-      use_lancedb_retrieval: app.rag?.use_lancedb_retrieval ?? false,
+      use_lancedb_retrieval: app.rag?.use_lancedb_retrieval ?? true,
       mode: app.rag?.mode === "summary" ? "summary" : "full",
       max_results: app.rag?.max_results ?? 4,
       chunk_size: app.rag?.chunk_size ?? 500,

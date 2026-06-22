@@ -16,11 +16,9 @@ export type RagMode = "summary" | "full";
 export interface RagConfig {
   enabled: boolean;
   /**
-   * Cutover flag: when true, generation/rewrite/refresh retrieval is served by
-   * the new LanceDB store (`src/server/rag`) instead of the legacy
-   * `article_chunks` path. Defaults to false so the old path stays canonical
-   * until the new one is confirmed via the admin trace. Removed once the legacy
-   * code is deleted.
+   * Generation/rewrite/refresh retrieval is served by the LanceDB store in
+   * `src/server/rag`. Defaults to true; false is a temporary rollback switch
+   * while the legacy implementation still exists.
    */
   use_lancedb_retrieval: boolean;
   mode: RagMode;

@@ -26,6 +26,7 @@ import {
 import { formatIncomingHintsForPrompt } from "../../linkHints";
 import { formatArticleVibeForPrompt } from "./articleGeneration";
 import { formatRagContextForPrompt, formatRelatedTitlesForPrompt } from "../../retrieval";
+import { buildRagPromptTrace } from "../ragTrace";
 import {
   normalizeMarkdown,
   renderMarkdown,
@@ -76,7 +77,7 @@ export const renderRefreshPromptNode = defineNode({
     "retrievedContext",
     "articleVibe",
   ] as const,
-  writes: ["renderedPrompt"] as const,
+  writes: ["renderedPrompt", "ragPromptTrace"] as const,
   run({ input, loadedArticle, references, retrievedContext, articleVibe }, deps: PipelineDeps) {
     const slug = input.slug ?? "";
     const title = loadedArticle?.title ?? input.requestedTitle ?? slug;
@@ -89,6 +90,28 @@ export const renderRefreshPromptNode = defineNode({
     const linkHints = formatIncomingHintsForPrompt(hints, slugify(slug), deps.runtime.app.rag.prompt_link_hints_max);
     const subtleMode = deps.runtime.prompts.rewriteModes?.subtle?.prompt ?? "";
 
+    const referencesPromptText = formatReferencesForPromptText(
+      refs,
+      deps.runtime.app.rag.prompt_ref_content_min_score,
+      deps.runtime.app.rag.prompt_ref_content_top_k,
+    );
+    // Refresh polishes an EXISTING article; retrieved context is only link
+    // material. Cap its volume hard (via the refresh_* config knobs) so a wall
+    // of low-relevance corpus chunks can't drown the current article and tempt
+    // the model into re-topicing it.
+    const ragContext =
+      formatRagContextForPrompt(
+        retrievedContext?.sourceArticles ?? [],
+        deps.runtime.app.rag.refresh_context_max_chars,
+        deps.runtime.app.rag.refresh_context_max_articles,
+      ) || "(none)";
+    const relatedTitles = formatRelatedTitlesForPrompt(
+      retrievedContext?.ragTitles ?? [],
+      retrievedContext?.sourceArticles ?? [],
+      deps.runtime.app.rag.refresh_related_titles_max,
+    );
+    const articleVibeText = formatArticleVibeForPrompt(articleVibe);
+
     const rendered = deps.prompts.render("article_refresh", {
       slug: slugify(slug),
       requested_title: title,
@@ -96,32 +119,27 @@ export const renderRefreshPromptNode = defineNode({
       link_hints: linkHints,
       rewrite_mode: subtleMode,
       references_list: formatReferencesForPrompt(refs),
-      references_prompt_text: formatReferencesForPromptText(
-        refs,
-        deps.runtime.app.rag.prompt_ref_content_min_score,
-        deps.runtime.app.rag.prompt_ref_content_top_k,
-      ),
-      // Refresh polishes an EXISTING article; retrieved context is only link
-      // material. Cap its volume hard (via the refresh_* config knobs) so a wall
-      // of low-relevance corpus chunks can't drown the current article and tempt
-      // the model into re-topicing it.
-      rag_context: formatRagContextForPrompt(
-        retrievedContext?.sourceArticles ?? [],
-        deps.runtime.app.rag.refresh_context_max_chars,
-        deps.runtime.app.rag.refresh_context_max_articles,
-      ) || "(none)",
-      related_titles: formatRelatedTitlesForPrompt(
-        retrievedContext?.ragTitles ?? [],
-        retrievedContext?.sourceArticles ?? [],
-        deps.runtime.app.rag.refresh_related_titles_max,
-      ),
+      references_prompt_text: referencesPromptText,
+      rag_context: ragContext,
+      related_titles: relatedTitles,
       article_excerpt: "",
       parent_comment: "",
       selected_text: "",
       edit_instructions: "",
-      article_vibe: formatArticleVibeForPrompt(articleVibe),
+      article_vibe: articleVibeText,
     });
-    return { renderedPrompt: rendered };
+    return {
+      renderedPrompt: rendered,
+      ragPromptTrace: buildRagPromptTrace({
+        promptKey: "article_refresh",
+        evidenceContext: ragContext,
+        linkAllowlist: referencesPromptText,
+        relatedTitles,
+        linkHints,
+        articleVibe: articleVibeText,
+        retrievedContext,
+      }),
+    };
   },
 });
 

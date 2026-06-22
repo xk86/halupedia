@@ -159,6 +159,37 @@ export const RetrievedContextSchema = z.object({
 });
 export type RetrievedContext = z.infer<typeof RetrievedContextSchema>;
 
+/**
+ * The exact RAG-related values interpolated into a render node's prompt, plus
+ * retrieval diagnostics. Captured verbatim so the admin trace can show, byte for
+ * byte, the evidence and link allowlist the model actually received — never a
+ * reconstruction. Evidence (`evidenceContext`) and the link allowlist
+ * (`linkAllowlist`) are distinct prompt variables and stay distinct here.
+ */
+export const RagPromptTraceSchema = z.object({
+  promptKey: z.string(),
+  evidenceContext: z.string(),
+  linkAllowlist: z.string(),
+  relatedTitles: z.string(),
+  linkHints: z.string(),
+  articleVibe: z.string(),
+  retrieval: z.object({
+    strategy: z.string().optional(),
+    model: z.string().optional(),
+    host: z.string().optional(),
+    dimensions: z.number().optional(),
+    candidates: z.array(
+      z.object({
+        slug: z.string(),
+        title: z.string(),
+        score: z.number().optional(),
+        contentChars: z.number(),
+      }),
+    ),
+  }),
+});
+export type RagPromptTrace = z.infer<typeof RagPromptTraceSchema>;
+
 /** A rendered prompt — kept in state so trace can show exactly what was sent. */
 export const RenderedPromptSchema = z.object({
   /** Registry key, e.g. "article", "article_summary". */
@@ -221,6 +252,8 @@ export const PipelineStateSchema = z.object({
 
   // retrieval ────────────────────────────────────────────────────────────────
   retrievedContext: RetrievedContextSchema.optional(),
+  /** Exact RAG values placed into the prompt (for the admin trace). */
+  ragPromptTrace: RagPromptTraceSchema.optional(),
 
   // references / see-also (sidecar, never in body markdown) ──────────────────
   references: z.array(ReferenceEntrySchema).optional(),

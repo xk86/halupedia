@@ -294,6 +294,7 @@ export async function runWorkflow<Deps>(
           promptText: llmCapture?.prompt,
           cotText: llmCapture?.cot,
           responseText: llmCapture?.response,
+          ragTrace: (patch as Record<string, unknown> | undefined)?.ragPromptTrace,
           llmRole: llmCapture?.role,
           llmResolvedRole: llmCapture?.resolvedRole,
           llmConfigKey: llmCapture?.configKey,

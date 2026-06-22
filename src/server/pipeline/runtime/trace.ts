@@ -54,6 +54,8 @@ export interface NodeTraceFields {
   cotText?: string;
   /** Final model response text (LLM nodes only). */
   responseText?: string;
+  /** Exact RAG values placed into the prompt (render nodes only); JSON-encoded. */
+  ragTrace?: unknown;
   /** LLM invocation metadata and generation options (LLM nodes only). */
   llmRole?: string;
   llmResolvedRole?: string;
@@ -195,6 +197,7 @@ class SqliteTraceRecorder implements TraceRecorder {
       `llm_json_mode INTEGER`,
       `llm_image_count INTEGER`,
       `llm_ttft_ms INTEGER`,
+      `rag_json TEXT`,
     ]) {
       try {
         this.db.exec(`ALTER TABLE pipeline_nodes ADD COLUMN ${col}`);
@@ -208,8 +211,8 @@ class SqliteTraceRecorder implements TraceRecorder {
           llm_role, llm_resolved_role, llm_config_key, llm_model, llm_base_url,
           llm_host, llm_temperature, llm_max_tokens, llm_top_k, llm_top_p, llm_min_p,
           llm_thinking, llm_json_mode,
-          llm_image_count, llm_ttft_ms)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          llm_image_count, llm_ttft_ms, rag_json)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
   }
 
@@ -283,6 +286,7 @@ class SqliteTraceRecorder implements TraceRecorder {
         fields.llmJsonMode === undefined ? null : fields.llmJsonMode ? 1 : 0,
         fields.llmImageCount ?? null,
         fields.llmTtftMs ?? null,
+        fields.ragTrace ? capText(JSON.stringify(fields.ragTrace)) : null,
       );
     } catch {
       // ditto — swallow trace failures.
@@ -374,7 +378,8 @@ CREATE TABLE IF NOT EXISTS pipeline_nodes (
   llm_thinking    INTEGER,
   llm_json_mode   INTEGER,
   llm_image_count INTEGER,
-  llm_ttft_ms     INTEGER
+  llm_ttft_ms     INTEGER,
+  rag_json        TEXT
 );
 CREATE INDEX IF NOT EXISTS pipeline_nodes_run_idx
   ON pipeline_nodes (run_id, started_at);

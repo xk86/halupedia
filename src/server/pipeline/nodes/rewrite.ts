@@ -42,6 +42,7 @@ import {
   mergeRetrievedContextPackets,
 } from "../../retrieval";
 import { toLegacyView } from "../../rag";
+import { buildRagPromptTrace } from "../ragTrace";
 import {
   findFuzzyTitleMatchesInEditText,
   findReferencedArticlesInEditText,
@@ -403,7 +404,7 @@ export const renderRewritePromptNode = defineNode({
     "recentEditHistory",
     "articleVibe",
   ] as const,
-  writes: ["renderedPrompt"] as const,
+  writes: ["renderedPrompt", "ragPromptTrace"] as const,
   run({ input, loadedArticle, selectedMarkdown, selectionRange, sectionId, references, retrievedContext, rewriteMode, recentEditHistory, articleVibe }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
     const title = loadedArticle?.title ?? input.requestedTitle ?? slug;
@@ -459,6 +460,11 @@ export const renderRewritePromptNode = defineNode({
       hints_total: hints.length,
     });
 
+    const relatedTitles = formatRelatedTitlesForPrompt(
+      retrievedContext?.ragTitles ?? [],
+      retrievedContext?.sourceArticles ?? [],
+    );
+
     const rendered = deps.prompts.render("article_rewrite", {
       slug,
       requested_title: title,
@@ -474,14 +480,21 @@ export const renderRewritePromptNode = defineNode({
         ? `Recent edit history, oldest to newest:\n${recentEditHistory}`
         : "",
       rag_context: ragContext || "(none)",
-      related_titles: formatRelatedTitlesForPrompt(
-        retrievedContext?.ragTitles ?? [],
-        retrievedContext?.sourceArticles ?? [],
-      ),
+      related_titles: relatedTitles,
       article_excerpt: selectedMarkdown?.slice(0, 2000) ?? "",
       parent_comment: "",
     });
-    return { renderedPrompt: rendered };
+    return {
+      renderedPrompt: rendered,
+      ragPromptTrace: buildRagPromptTrace({
+        promptKey: "article_rewrite",
+        evidenceContext: ragContext || "(none)",
+        linkAllowlist: referencesPromptText,
+        relatedTitles,
+        linkHints,
+        retrievedContext,
+      }),
+    };
   },
 });
 

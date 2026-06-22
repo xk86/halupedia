@@ -38,6 +38,7 @@ import {
   mergeRetrievedContextPackets,
 } from "../../retrieval";
 import { toLegacyView, type RetrievalProfile } from "../../rag";
+import { buildRagPromptTrace } from "../ragTrace";
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
@@ -520,7 +521,7 @@ export const renderArticlePromptNode = defineNode({
     "recentEditHistory",
     "articleVibe",
   ] as const,
-  writes: ["renderedPrompt"] as const,
+  writes: ["renderedPrompt", "ragPromptTrace"] as const,
   run(
     { input, references, retrievedContext, recentEditHistory, articleVibe },
     deps: PipelineDeps,
@@ -528,32 +529,51 @@ export const renderArticlePromptNode = defineNode({
     const refs = (references ?? []).map((r) =>
       fromStateEntry(r, "current"),
     );
-    const linkHints = (retrievedContext?.backlinks ?? [])
-      .slice(0, deps.runtime.app.rag.prompt_link_hints_max)
-      .map((b) => `- [${b.title}](halu:${b.slug})`)
-      .join("\n");
+    const linkHints =
+      (retrievedContext?.backlinks ?? [])
+        .slice(0, deps.runtime.app.rag.prompt_link_hints_max)
+        .map((b) => `- [${b.title}](halu:${b.slug})`)
+        .join("\n") || "(none)";
+
+    // Build the exact RAG variable values once, then both render with them and
+    // capture them verbatim for the admin trace.
+    const referencesPromptText = formatReferencesForPromptText(
+      refs,
+      deps.runtime.app.rag.prompt_ref_content_min_score,
+      deps.runtime.app.rag.prompt_ref_content_top_k,
+    );
+    const ragContext = formatRagContextForPrompt(
+      retrievedContext?.sourceArticles ?? [],
+      deps.runtime.app.rag.prompt_context_max_chars,
+    );
+    const relatedTitles = formatRelatedTitlesForPrompt(
+      retrievedContext?.ragTitles ?? [],
+      retrievedContext?.sourceArticles ?? [],
+    );
+    const articleVibeText = formatArticleVibeForPrompt(articleVibe);
 
     const rendered = deps.prompts.render("article", {
       slug: input.slug ?? "",
       requested_title: input.requestedTitle ?? "",
-      references_prompt_text: formatReferencesForPromptText(
-        refs,
-        deps.runtime.app.rag.prompt_ref_content_min_score,
-        deps.runtime.app.rag.prompt_ref_content_top_k,
-      ),
-      rag_context: formatRagContextForPrompt(
-        retrievedContext?.sourceArticles ?? [],
-        deps.runtime.app.rag.prompt_context_max_chars,
-      ),
-      related_titles: formatRelatedTitlesForPrompt(
-        retrievedContext?.ragTitles ?? [],
-        retrievedContext?.sourceArticles ?? [],
-      ),
+      references_prompt_text: referencesPromptText,
+      rag_context: ragContext,
+      related_titles: relatedTitles,
       recent_edit_history: recentEditHistory ?? "",
-      link_hints: linkHints || "(none)",
-      article_vibe: formatArticleVibeForPrompt(articleVibe),
+      link_hints: linkHints,
+      article_vibe: articleVibeText,
     });
-    return { renderedPrompt: rendered };
+    return {
+      renderedPrompt: rendered,
+      ragPromptTrace: buildRagPromptTrace({
+        promptKey: "article",
+        evidenceContext: ragContext,
+        linkAllowlist: referencesPromptText,
+        relatedTitles,
+        linkHints,
+        articleVibe: articleVibeText,
+        retrievedContext,
+      }),
+    };
   },
 });
 

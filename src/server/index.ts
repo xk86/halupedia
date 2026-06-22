@@ -957,6 +957,8 @@ export async function createApp(options: CreateAppOptions = {}) {
   const NOISY_POLL_PATHS = new Set([
     "/api/admin/generation-queue",
     "/api/admin/llm",
+    "/api/admin/runs",
+    "/api/admin/pipeline/workflows",
   ]);
   app.use("*", async (c, next) => {
     const { method } = c.req;

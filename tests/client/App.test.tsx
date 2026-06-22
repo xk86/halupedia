@@ -251,7 +251,7 @@ describe("App", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
-  it("opens theme settings from the header cog", async () => {
+  it("toggles full-screen theme settings without leaving the current page", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -263,20 +263,74 @@ describe("App", () => {
     setPath("/");
     render(<App />);
 
-    const settingsLink = screen.getByRole("link", {
+    const settingsButton = screen.getByRole("button", {
       name: "Theme/user settings",
     });
-    expect(settingsLink).toHaveAttribute("title", "Theme/user settings");
+    expect(settingsButton).toHaveAttribute("title", "Theme/user settings");
     expect(
       within(screen.getByRole("navigation")).queryByText("Settings"),
     ).not.toBeInTheDocument();
 
-    await userEvent.click(settingsLink);
+    await userEvent.click(settingsButton);
 
-    expect(window.location.pathname).toBe("/settings");
+    expect(window.location.pathname).toBe("/");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Appearance" }),
     ).toBeInTheDocument();
+
+    await userEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Theme/user settings",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(window.location.pathname).toBe("/");
+    expect(
+      screen.getByRole("heading", { name: "Halupedia" }),
+    ).toBeInTheDocument();
+  });
+
+  it("persists font and roundness changes immediately from the settings overlay", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(emptyHomepagePayload()), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    setPath("/");
+    render(<App />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Theme/user settings" }),
+    );
+
+    await userEvent.click(
+      screen.getByRole("combobox", { name: "Article font" }),
+    );
+    await userEvent.click(screen.getByRole("option", { name: "Georgia" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("option", { name: "Georgia" }),
+      ).not.toBeInTheDocument(),
+    );
+
+    const radius = document.querySelector<HTMLInputElement>(
+      "#theme-radius input[type='range']",
+    );
+    expect(radius).not.toBeNull();
+    fireEvent.change(radius!, { target: { value: "12" } });
+
+    expect(
+      JSON.parse(
+        window.localStorage.getItem("halupedia-user-settings") ?? "{}",
+      ),
+    ).toMatchObject({ articleFont: "georgia", radius: 12 });
   });
 
   it("random nav asks the server for a random page and redirects to it", async () => {

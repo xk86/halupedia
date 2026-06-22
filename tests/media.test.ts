@@ -47,6 +47,7 @@ import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
 import { generateArticleImage, setImageGenerationFetchForTests } from "../src/server/imageGeneration";
 import { listArticleImageAspectRatios } from "../src/server/imageAspectRatios";
+import { readArticleImagePresetFile } from "../src/server/promptEditor";
 import type { ImageGenerationConfig } from "../src/server/types";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -1149,8 +1150,12 @@ describe("http", () => {
     const promptKeys = new Set(body.prompts.map((prompt: any) => prompt.key));
 
     assert.ok(promptKeys.has("documentary_photo"));
+    assert.ok(promptKeys.has("bad_middle_school_blender_cgi"));
+    assert.ok(promptKeys.has("classic_roblox_build"));
     assert.ok(promptKeys.has("psychedelic_editorial"));
     assert.ok(promptKeys.has("trading_card"));
+    assert.ok(promptKeys.has("fanservice_anime"));
+    assert.equal(body.prompts.find((prompt: any) => prompt.key === "classic_roblox_build")?.allowText, false);
     assert.equal(body.prompts.find((prompt: any) => prompt.key === "trading_card")?.allowText, true);
     assert.equal(body.prompts.find((prompt: any) => prompt.key === "documentary_photo")?.allowText, false);
     assert.equal(promptKeys.has("article_image_psychedelic_editorial"), false);
@@ -1158,6 +1163,25 @@ describe("http", () => {
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;
     assert.ok(promptList.runnable.some((prompt: any) => prompt.key === "article_image"));
     assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "trading_card"), false);
+  });
+
+  test("fanservice anime image preset uses provider-safer adult-anime wording", () => {
+    const prompt = readArticleImagePresetFile("fanservice_anime");
+
+    assert.ok(prompt);
+    assert.match(prompt.selectionWhen ?? "", /adult anime culture/);
+    assert.deepEqual(prompt.recommendedAspectRatios, ["landscape", "poster"]);
+    assert.match(prompt.system, /after-hours adult anime/);
+    assert.match(prompt.system, /unapologetic\s+fan-service aesthetics/);
+    assert.match(prompt.system, /lingerie-inspired outfits/);
+    assert.match(prompt.system, /strategic coverage/);
+    assert.match(prompt.system, /All humanoid characters must be unmistakably adult|unmistakably adult/);
+    assert.match(prompt.system, /Avoid:[\s\S]*Exposed private anatomy/);
+    assert.doesNotMatch(`${prompt.system}\n${prompt.user}`, /\bhentai\b/i);
+    assert.doesNotMatch(`${prompt.system}\n${prompt.user}`, /\bgenitalia|nipples|penetration|oral sex|masturbation|sexual fluids\b/i);
+    assert.match(prompt.user, /No readable text/);
+    assert.match(prompt.user, /direct intimate acts/);
+    assert.match(prompt.user, /sexualized\s+minors/);
   });
 
   test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {

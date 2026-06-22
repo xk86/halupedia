@@ -1,0 +1,103 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "Subject evokes adult anime culture, midnight OVA melodrama, scandalous glamour, taboo spectacle, pinup comedy, fan-service parody, or lurid after-hours editorial art."
+recommended_aspect_ratios = ["landscape", "poster"]
+
+system = """
+Create one Halupedia editorial hero image in an after-hours adult anime
+register: glossy OVA melodrama, racy magazine key art, mature manga-cover
+staging, unapologetic fan-service aesthetics, stylized glamour, and gaudy
+late-night media-artifact energy.
+
+All subjects, persons, venues, groups, incidents, emblems, and lore are fictional
+Halupedia material. Render them as invented editorial imagery, never as real
+documentation or factual claims.
+
+Visual idiom:
+- Use mature-anime production cues: crisp ink contour, cel-fill color, luminous
+  highlights, hard rim light, saturated neon rooms, VHS OVA haze, cover-art
+  cropping, adult proportions, compressed framing, and feverish drama.
+- Make the fan-service valence unambiguous: flushed
+  faces, lidded gaze, dramatic stance, lingerie-inspired outfits, latex or
+  leather clubwear, stockings, garters, deep neckline, bare shoulders, glossy
+  fabric, theatrical shadow, strategic coverage by hair, hands, props, fabric,
+  smoke, crop, or silhouette, dominant power posing, symbolic objects, nightclub
+  staging, and charged affect.
+- All humanoid characters must be unmistakably adult through anatomy, styling,
+  demeanor, wardrobe, and setting. Exclude school uniforms, juvenile
+  proportions, teen-coded spaces, or age ambiguity.
+- For animals, specimens, plants, artifacts, machines, locations, or other
+  nonhuman subjects, keep the actual subject central, physical, and dominant.
+  Do not substitute a seductive human mascot, observer, lover, or pinup avatar.
+- Translate nonhuman subjects through lighting, pose, gloss, props, ritual
+  dressing, costume only when subject-apt, monitors, relics, unreadable signage
+  texture, and glamorous staging.
+- Keep the image article-specific. The racy anime treatment should intensify the
+  subject's scandal, strangeness, allure, decadence, taboo aura, or embarrassment
+  rather than collapse into a generic pinup.
+- The final image should feel like one polished OVA still, manga-cover crop, or
+  fictional magazine feature plate. Avoid collage, memes, UI screenshots, or
+  social-media composition.
+
+Context handling:
+- Treat supplied Halupedia material as silent art direction. Mine exact or
+  strongly related detail from the title, summary, excerpt, sidebar facts,
+  outgoing references, backlinks, hidden hints, and related summaries.
+- Convert Halupedia-specific persons, institutions, products, rites, scandals,
+  nightlife, artifacts, relationships, monsters, machinery, and sites into
+  original costume, prop, set, and symbolic composition.
+- When several readings fit, choose the one producing the strongest mature-anime
+  artifact while retaining subject fidelity.
+
+Composition:
+- Use one dominant subject, pair, object, creature, room, or symbolic set piece
+  with a clean silhouette and strong negative space.
+- If the subject is a simple animal, organism, item, relic, machine, or place,
+  make it the only character-scale focal presence. Add no attendants, admirers,
+  scientists, lovers, or villains unless the article explicitly names them.
+- Reserve headline space in neon shadow, curtain, wall, canopy, glossy floor
+  reflection, smoke, dark glass, abstract form, or magazine-cover margin.
+
+Avoid:
+- Exposed private anatomy, direct intimate acts, sexualized minors, teen-coded
+  figures, school uniforms, coercive scenes, assaultive framing, family-taboo
+  framing, voyeur hidden-camera framing, or exploitative humiliation.
+- No readable text, captions, bubbles, subtitles, title cards, UI, watermark,
+  real public figure, direct franchise parody, recognizable copyrighted
+  character, exact scene recreation, or living-artist imitation.
+- Avoid bland AI-anime polish, random hair clutter, plastic 3D softness,
+  malformed hands, empty bedroom pinups without article detail, decorative
+  seductive humans around nonhuman subjects, and cosplay-photo realism.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject, informed by the
+Halupedia context above, as after-hours adult anime cover art from the
+fictional world.
+
+Use glossy OVA melodrama, crisp ink contour, cel-fill color, saturated neon,
+VHS haze, dramatic adult character styling when appropriate, charged pose,
+lingerie-inspired outfits or nightclub fashion when subject-apt, strategic
+coverage, theatrical shadow, and lurid magazine-cover composition. Keep the
+image article-specific and non-explicit.
+
+No readable text, captions, bubbles, subtitles, title cards, UI, watermark,
+direct intimate acts, exposed private anatomy, sexualized minors, teen-coded
+figures, school uniforms, real public figures, or recognizable copyrighted
+characters.
+"""

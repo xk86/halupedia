@@ -12,8 +12,6 @@ type RegisteredTask = MaintenanceTask & {
   stopped: boolean;
 };
 
-const MIN_DELAY_MS = 1000;
-
 export class MaintenanceScheduler {
   private readonly tasks = new Map<string, RegisteredTask>();
 
@@ -37,6 +35,13 @@ export class MaintenanceScheduler {
   trigger(name: string, reason: string): void {
     const task = this.tasks.get(name);
     if (!task || task.stopped) return;
+    if (task.running) {
+      this.logger.info("maintenance.task_trigger_coalesced", {
+        task: name,
+        reason,
+      });
+      return;
+    }
     this.logger.info("maintenance.task_triggered", { task: name, reason });
     this.schedule(task, 0);
   }
@@ -76,7 +81,7 @@ export class MaintenanceScheduler {
   private async runTask(task: RegisteredTask): Promise<void> {
     if (task.stopped) return;
     if (task.running) {
-      this.schedule(task, MIN_DELAY_MS);
+      this.logger.info("maintenance.task_run_coalesced", { task: task.name });
       return;
     }
 

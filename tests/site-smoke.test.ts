@@ -1751,6 +1751,66 @@ test("homepage uses a current DB cache without regenerating at startup", async (
   assert.equal(body.didYouKnow[0].fact, "... [Cached](halu:cached \"Cached\") already knows.");
 });
 
+test("homepage serves stale cached content while current-day refresh is pending", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  const oldWorldDate = getWorldDate(loadConfig().app, now - 24 * 60 * 60 * 1000);
+  const oldNewsSlug = todaysNewsSlug(oldWorldDate);
+  saveHomepageCache(db, {
+    featured: { slug: "cached-stale", title: "Cached Stale", summaryMarkdown: "Previously cached lead." },
+    todaysNews: {
+      slug: oldNewsSlug,
+      title: todaysNewsTitle(oldWorldDate),
+      worldDate: oldWorldDate.label,
+      worldDay: oldWorldDate.day,
+      generatorVersion: "1",
+      summaryMarkdown: "Yesterday's news.",
+      headlines: [],
+    },
+    didYouKnow: [{ slug: "cached-stale", title: "Cached Stale", fact: "... cached stale fact." }],
+    generatedAt: now - 24 * 60 * 60 * 1000,
+    expiresAt: now - 1,
+  });
+  db.close();
+
+  let chatCalls = 0;
+  const llm: LlmRouter = {
+    async chat() {
+      chatCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return "... [Cached Stale](halu:cached-stale \"Cached Stale\") refreshes in the background.";
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: false,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  assert.equal(body.featured.title, "Cached Stale");
+  assert.equal(body.todaysNews.slug, oldNewsSlug);
+  assert.equal(body.didYouKnow[0].fact, "... cached stale fact.");
+  assert.ok(
+    body.expiresAt > Date.now(),
+    "stale response should ask the client to retry instead of looking empty",
+  );
+  assert.equal(chatCalls, 0, "request should return stale cache without waiting for refresh");
+});
+
 test("homepage skips news image generation when cached news article is missing", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
   const databasePath = join(root, TEST_CONFIG.database_path);

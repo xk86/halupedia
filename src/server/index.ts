@@ -2178,8 +2178,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       HOMEPAGE_MAINTENANCE_TASK,
       cached ? "expired_cache_request" : "missing_cache_request",
     );
-    if (cached && isCurrentHomepageNews(cached.todaysNews, runtime.app)) {
-      queueHomepageNewsImageIfMissing(cached.todaysNews);
+    if (cached) {
+      queueHomepageFeaturedImageIfMissing(cached.featured);
+      if (isCurrentHomepageNews(cached.todaysNews, runtime.app)) {
+        queueHomepageNewsImageIfMissing(cached.todaysNews);
+      }
       return c.json(withHomepageImages({
         ...cached,
         expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,

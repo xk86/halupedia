@@ -10,6 +10,7 @@ import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 import { getWorldDate } from "../src/server/worldClock";
 import {
   ensureTodaysNewsArticle,
+  hasCurrentOrNoHomepageNews,
   homepageNewsFromMarkdown,
   isCurrentHomepageNews,
   relinkTodaysNewsBriefHeadings,
@@ -115,6 +116,27 @@ test("homepage news cache is stale when the date label uses an old format", () =
       now,
     ),
     false,
+  );
+});
+
+test("homepage cache accepts an intentionally empty news slot", () => {
+  const app = appWithWorldClock();
+  const now = Date.parse("2025-09-09T12:00:00.000Z");
+  assert.equal(isCurrentHomepageNews(null, app, now), false);
+  assert.equal(hasCurrentOrNoHomepageNews(null, app, now), true);
+  assert.equal(
+    hasCurrentOrNoHomepageNews(
+      {
+        slug: "todays-news-day-000252",
+        title: "Today's News: Halu Era 2025, Day 252",
+        worldDate: "Halu Era 2025, Day 252",
+        generatorVersion: "1",
+      },
+      app,
+      now,
+    ),
+    false,
+    "a real stale news payload should still invalidate the cache",
   );
 });
 

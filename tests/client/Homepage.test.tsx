@@ -143,6 +143,38 @@ describe("Homepage", () => {
     await screen.findByText("September 10, 2025");
   });
 
+  it("labels pending homepage refreshes without showing a one-second countdown", async () => {
+    const now = Date.now();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/homepage/history"))
+        return Promise.resolve(jsonResponse({ history: [] }));
+      if (url.startsWith("/api/homepage")) {
+        return Promise.resolve(
+          jsonResponse({
+            featured: {
+              slug: "featured-article",
+              title: "Featured Article",
+              summaryMarkdown: "A summary.",
+            },
+            todaysNews: null,
+            didYouKnow: [],
+            generatedAt: now - 60_000,
+            expiresAt: now + 1_000,
+            refreshPending: true,
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Homepage onNavigate={vi.fn()} />);
+
+    expect(await screen.findByText("Refreshing homepage...")).toBeInTheDocument();
+    expect(screen.queryByText(/Homepage refreshes in/)).not.toBeInTheDocument();
+  });
+
   it("renders today's news below featured and DYK with its broadcast image", async () => {
     const now = Date.now();
     const fetchMock = vi.fn((input: RequestInfo | URL) => {

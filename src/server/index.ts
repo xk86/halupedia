@@ -178,7 +178,7 @@ import {
   type ReferenceStatus,
   type ReferenceStatusEntry,
 } from "./article";
-import { isCurrentHomepageNews } from "./todaysNews";
+import { hasCurrentOrNoHomepageNews, isCurrentHomepageNews } from "./todaysNews";
 import {
   assembleArticleMarkdownForRender,
   renderArticleDisplayHtml,
@@ -240,8 +240,22 @@ const HOMEPAGE_MAINTENANCE_TASK = "homepage.refresh";
 const DB_BACKUP_TASK = "db.backup";
 const DB_BACKUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const DB_BACKUP_KEEP = 7; // keep last 7 compressed backups
-const HOMEPAGE_PENDING_RETRY_MS = 1_000;
+const HOMEPAGE_PENDING_RETRY_MS = 5_000;
+const HOMEPAGE_REQUEST_TRIGGER_COOLDOWN_MS = 60_000;
+const HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS = [
+  60_000,
+  2 * 60_000,
+  5 * 60_000,
+  10 * 60_000,
+] as const;
 const HOMEPAGE_REFRESH_GRACE_MS = 250;
+
+function homepageRefreshFailureBackoffMs(failures: number): number {
+  if (failures <= 0) return 0;
+  return HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS[
+    Math.min(failures - 1, HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS.length - 1)
+  ];
+}
 
 function routeSlug(pathname: string) {
   if (pathname.startsWith("/wiki/")) {
@@ -2043,17 +2057,26 @@ export async function createApp(options: CreateAppOptions = {}) {
   );
 
   const HOMEPAGE_TTL_MS = runtime.app.homepage.rotation_hours * 60 * 60 * 1000;
+  let homepageRequestRefreshTriggeredAt = 0;
+  let homepageRefreshFailures = 0;
+  let homepageRefreshNextAllowedAt = 0;
+  const homepageRefreshBackoffDelay = (now: number) =>
+    Math.max(0, homepageRefreshNextAllowedAt - now);
+
   if (!options.skipHomepagePrepare) {
     maintenance.register({
       name: HOMEPAGE_MAINTENANCE_TASK,
       nextDelayMs: () => {
+        const now = Date.now();
+        const backoffDelay = homepageRefreshBackoffDelay(now);
+        if (backoffDelay > 0) return backoffDelay;
         const cached = getHomepageCache(db);
         if (!cached) return 0;
-        if (!isCurrentHomepageNews(cached.todaysNews, runtime.app)) return 0;
+        if (!hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)) return 0;
         return (
           cached.generatedAt +
           HOMEPAGE_TTL_MS -
-          Date.now() +
+          now +
           HOMEPAGE_REFRESH_GRACE_MS
         );
       },
@@ -2081,15 +2104,53 @@ export async function createApp(options: CreateAppOptions = {}) {
             generated_at: payload.generatedAt,
             expires_at: payload.expiresAt,
           });
+          homepageRefreshFailures = 0;
+          homepageRefreshNextAllowedAt = 0;
         } catch (error) {
+          homepageRefreshFailures += 1;
+          homepageRefreshNextAllowedAt =
+            Date.now() + homepageRefreshFailureBackoffMs(homepageRefreshFailures);
           logger.error("homepage.refresh_failed", {
             reason,
+            failures: homepageRefreshFailures,
+            next_allowed_at: homepageRefreshNextAllowedAt,
             error: error instanceof Error ? error.message : String(error),
           });
           throw error;
         }
       },
     });
+  }
+
+  function triggerHomepageRefreshFromRequest(reason: string, now: number): number {
+    const backoffDelay = homepageRefreshBackoffDelay(now);
+    if (backoffDelay > 0) {
+      logger.info("homepage.refresh_trigger_suppressed", {
+        reason,
+        suppression: "failure_backoff",
+        wait_ms: backoffDelay,
+        next_allowed_at: homepageRefreshNextAllowedAt,
+      });
+      return Math.max(HOMEPAGE_PENDING_RETRY_MS, backoffDelay);
+    }
+
+    const cooldownDelay =
+      homepageRequestRefreshTriggeredAt > 0
+        ? HOMEPAGE_REQUEST_TRIGGER_COOLDOWN_MS - (now - homepageRequestRefreshTriggeredAt)
+        : 0;
+    if (cooldownDelay > 0) {
+      logger.info("homepage.refresh_trigger_suppressed", {
+        reason,
+        suppression: "request_cooldown",
+        wait_ms: cooldownDelay,
+        last_triggered_at: homepageRequestRefreshTriggeredAt,
+      });
+      return Math.max(HOMEPAGE_PENDING_RETRY_MS, cooldownDelay);
+    }
+
+    homepageRequestRefreshTriggeredAt = now;
+    maintenance.trigger(HOMEPAGE_MAINTENANCE_TASK, reason);
+    return HOMEPAGE_PENDING_RETRY_MS;
   }
 
   // ── Periodic database backup ────────────────────────────────────────────────
@@ -2164,7 +2225,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (
       cached
       && cached.generatedAt + HOMEPAGE_TTL_MS > now
-      && isCurrentHomepageNews(cached.todaysNews, runtime.app)
+      && hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)
     ) {
       queueHomepageFeaturedImageIfMissing(cached.featured);
       queueHomepageNewsImageIfMissing(cached.todaysNews);
@@ -2174,9 +2235,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       }));
     }
 
-    maintenance.trigger(
-      HOMEPAGE_MAINTENANCE_TASK,
+    const pendingRetryMs = triggerHomepageRefreshFromRequest(
       cached ? "expired_cache_request" : "missing_cache_request",
+      now,
     );
     if (cached) {
       queueHomepageFeaturedImageIfMissing(cached.featured);
@@ -2185,7 +2246,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       }
       return c.json(withHomepageImages({
         ...cached,
-        expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,
+        expiresAt: now + pendingRetryMs,
+        refreshPending: true,
       }));
     }
     return c.json({
@@ -2193,7 +2255,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       todaysNews: null,
       didYouKnow: [],
       generatedAt: now,
-      expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,
+      expiresAt: now + pendingRetryMs,
+      refreshPending: true,
     });
   });
 

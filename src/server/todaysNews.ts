@@ -757,6 +757,14 @@ export function isCurrentHomepageNews(
   );
 }
 
+export function hasCurrentOrNoHomepageNews(
+  news: Pick<HomepageNews, "slug" | "title" | "worldDate" | "generatorVersion"> | null | undefined,
+  app: AppConfig,
+  now?: number,
+): boolean {
+  return !news || isCurrentHomepageNews(news, app, now);
+}
+
 function hasCanonicalNewsHeading(markdown: string, worldDate: WorldDate): boolean {
   return markdown
     .split("\n")

@@ -14,7 +14,7 @@ import {
   ensureDykHasSourceLink,
   generateDidYouKnowFact,
 } from "../../dyk";
-import { ensureTodaysNewsArticle, isCurrentHomepageNews } from "../../todaysNews";
+import { ensureTodaysNewsArticle, hasCurrentOrNoHomepageNews } from "../../todaysNews";
 
 export const refreshHomepageCacheNode = defineNode({
   name: "write.refresh_homepage_cache",
@@ -30,7 +30,7 @@ export const refreshHomepageCacheNode = defineNode({
     if (
       cached
       && cached.generatedAt + ttlMs > now
-      && isCurrentHomepageNews(cached.todaysNews, deps.runtime.app)
+      && hasCurrentOrNoHomepageNews(cached.todaysNews, deps.runtime.app)
     ) {
       return {
         homepagePayload: {

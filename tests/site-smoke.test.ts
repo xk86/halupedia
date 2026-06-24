@@ -1808,7 +1808,100 @@ test("homepage serves stale cached content while current-day refresh is pending"
     body.expiresAt > Date.now(),
     "stale response should ask the client to retry instead of looking empty",
   );
+  assert.equal(body.refreshPending, true);
   assert.equal(chatCalls, 0, "request should return stale cache without waiting for refresh");
+});
+
+test("homepage throttles repeated request-triggered refreshes", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const oldGeneratedAt = Date.now() - 24 * 60 * 60 * 1000;
+  saveHomepageCache(db, {
+    featured: { slug: "cached-stale", title: "Cached Stale", summaryMarkdown: "Previously cached lead." },
+    todaysNews: null,
+    didYouKnow: [{ slug: "cached-stale", title: "Cached Stale", fact: "... cached stale fact." }],
+    generatedAt: oldGeneratedAt,
+    expiresAt: oldGeneratedAt + 1000,
+  });
+  db.close();
+
+  const logEntries: CapturedLogEntry[] = [];
+  const server = await createServerForDatabase(root, databasePath, {
+    logger: createMemoryLogger(logEntries),
+    homepagePrepare: false,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const first = await server.request("/api/homepage");
+  const firstBody = await first.json();
+  const firstRetryMs = firstBody.expiresAt - Date.now();
+
+  const second = await server.request("/api/homepage");
+  const secondBody = await second.json();
+  const secondRetryMs = secondBody.expiresAt - Date.now();
+
+  assert.equal(firstBody.refreshPending, true);
+  assert.equal(secondBody.refreshPending, true);
+  assert.ok(firstRetryMs <= 10_000, "first stale request should use the short pending retry");
+  assert.ok(secondRetryMs > 30_000, "immediate repeated stale request should use the request cooldown");
+  assert.ok(
+    logEntries.some(
+      (entry) =>
+        entry.event === "homepage.refresh_trigger_suppressed" &&
+        entry.fields?.suppression === "request_cooldown",
+    ),
+    "request cooldown should be logged",
+  );
+});
+
+test("homepage serves a fresh cache with no news without pending retry loop", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  saveHomepageCache(db, {
+    featured: { slug: "cached", title: "Cached", summaryMarkdown: "Cached lead." },
+    todaysNews: null,
+    didYouKnow: [{ slug: "cached", title: "Cached", fact: "... [Cached](halu:cached \"Cached\") already knows." }],
+    generatedAt: now,
+    expiresAt: now + 60_000,
+  });
+  db.close();
+
+  let chatCalled = false;
+  const llm: LlmRouter = {
+    async chat() {
+      chatCalled = true;
+      throw new Error("should not generate");
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: true,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/homepage");
+  const body = await res.json();
+
+  assert.equal(chatCalled, false, "empty news slot should not force homepage regeneration");
+  assert.equal(body.featured.title, "Cached");
+  assert.equal(body.todaysNews, null);
+  assert.ok(
+    body.expiresAt - Date.now() > 30_000,
+    "fresh cache should keep its real expiry instead of returning a one-second pending retry",
+  );
 });
 
 test("homepage skips news image generation when cached news article is missing", async (t) => {

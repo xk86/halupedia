@@ -52,6 +52,7 @@ interface HomepageData {
   didYouKnow: DykItem[];
   generatedAt: number;
   expiresAt: number;
+  refreshPending?: boolean;
 }
 
 interface Props {
@@ -168,6 +169,8 @@ export function Homepage({ onNavigate }: Props) {
   const timerText =
     secondsRemaining === null
       ? "Loading homepage cache..."
+      : data?.refreshPending
+        ? "Refreshing homepage..."
       : `Homepage refreshes in ${formatDuration(secondsRemaining)}`;
 
   // Whichever snapshot is being displayed (history preview or current)

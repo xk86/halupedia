@@ -741,6 +741,7 @@ function sampleRandomInspirationArticles(
 
 async function ensureHomepageCache(
   deps: PipelineDeps,
+  onNode?: (nodeName: string, nodeKind: string) => void,
 ): Promise<HomepagePayload> {
   const recorder = getTraceRecorder(deps.runtime.app.pipeline.trace);
   const result = await runWorkflow(homepageRefreshWorkflow, {
@@ -753,6 +754,7 @@ async function ensureHomepageCache(
     deps,
     recorder,
     logger: deps.logger,
+    onNode,
   });
   if (result.status !== "ok") {
     throw result.error ?? new Error("homepage refresh workflow failed");
@@ -2095,7 +2097,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         });
         try {
           await reloadRuntime();
-          const payload = await ensureHomepageCache(buildPipelineDeps());
+          const homepageOp = trackActiveOperation("homepage", "Homepage", "homepage.refresh");
+          const homepagePromise = ensureHomepageCache(buildPipelineDeps(), homepageOp.onNode);
+          homepageOp.register(homepagePromise);
+          const payload = await homepagePromise;
           queueHomepageFeaturedImageIfMissing(payload.featured);
           queueHomepageNewsImageIfMissing(payload.todaysNews);
           logger.info("homepage.refresh_done", {

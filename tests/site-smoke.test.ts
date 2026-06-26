@@ -414,6 +414,23 @@ async function waitForHomepage(
   assert.fail(`homepage cache was not ready before timeout: ${JSON.stringify(lastBody)}`);
 }
 
+async function waitForQueueItem(
+  server: { request: (path: string, init?: RequestInit) => Promise<Response> },
+  predicate: (item: any) => boolean,
+  timeoutMs = 1000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let lastItems: any[] = [];
+  while (Date.now() < deadline) {
+    const res = await server.request("/api/admin/generation-queue");
+    const body = await res.json();
+    lastItems = body.items ?? [];
+    if (lastItems.some(predicate)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`queue item was not ready before timeout: ${JSON.stringify(lastItems)}`);
+}
+
 function parseNdjson<T>(payload: string): T[] {
   return payload
     .trim()
@@ -1695,6 +1712,57 @@ test("homepage handles DYK generation failure gracefully", async (t) => {
   assert.deepEqual(body.didYouKnow, [], "DYK should be empty array on failure, not error");
 });
 
+test("homepage pipeline records today's news generation failures as warnings", async (t) => {
+  const llm: LlmRouter = {
+    async chat() {
+      throw new Error("desktop node unavailable");
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({
+    seed: true,
+    llmClient: llm,
+    homepagePrepare: false,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/admin/pipeline/run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ workflow: "homepage.refresh", input: {} }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, "ok", "homepage refresh should keep serving the rest of the cache");
+  const homepageNode = body.trace.nodes.find(
+    (node: { node_name?: string }) => node.node_name === "write.refresh_homepage_cache",
+  );
+  assert.ok(homepageNode, "homepage refresh node should be traced");
+  assert.deepEqual(homepageNode.warnings, [
+    "homepage.todays_news_generation_failed: Today's News generation failed: desktop node unavailable",
+  ]);
+
+  const runsRes = await server.request("/api/admin/pipeline/runs?workflow=homepage.refresh&limit=20");
+  assert.equal(runsRes.status, 200);
+  const runsBody = await runsRes.json();
+  const listedRun = runsBody.runs.find(
+    (run: { run_id?: string }) => run.run_id === body.runId,
+  );
+  assert.ok(listedRun, "homepage refresh run should appear in the run list");
+  assert.equal(listedRun.warning_count, 1);
+  assert.deepEqual(listedRun.warning_messages, [
+    "homepage.todays_news_generation_failed: Today's News generation failed: desktop node unavailable",
+  ]);
+});
+
 test("homepage uses a current DB cache without regenerating at startup", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
   const databasePath = join(root, TEST_CONFIG.database_path);
@@ -1810,6 +1878,55 @@ test("homepage serves stale cached content while current-day refresh is pending"
   );
   assert.equal(body.refreshPending, true);
   assert.equal(chatCalls, 0, "request should return stale cache without waiting for refresh");
+});
+
+test("request-triggered homepage refresh appears as an active pipeline run", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const oldGeneratedAt = Date.now() - 24 * 60 * 60 * 1000;
+  saveHomepageCache(db, {
+    featured: { slug: "cached-stale", title: "Cached Stale", summaryMarkdown: "Previously cached lead." },
+    todaysNews: null,
+    didYouKnow: [{ slug: "cached-stale", title: "Cached Stale", fact: "... cached stale fact." }],
+    generatedAt: oldGeneratedAt,
+    expiresAt: oldGeneratedAt + 1000,
+  });
+  db.close();
+
+  const gate = Promise.withResolvers<void>();
+  t.after(() => gate.resolve());
+  const llm: LlmRouter = {
+    async chat() {
+      await gate.promise;
+      return "... [Cached Stale](halu:cached-stale \"Cached Stale\") refreshes in the background.";
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: false,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.refreshPending, true);
+
+  await waitForQueueItem(server, (item) =>
+    item.workflow === "homepage.refresh" &&
+    item.slug === "homepage" &&
+    item.state === "processing"
+  );
+  gate.resolve();
 });
 
 test("homepage throttles repeated request-triggered refreshes", async (t) => {

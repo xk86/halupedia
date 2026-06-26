@@ -144,7 +144,15 @@ async function buildTodaysNewsLoreSources(
     addSource({ ...article, reason: "date match" });
   }
 
-  const ragSources = await retrieveNewsWorldStateSources(db, llm, runtime, worldDate, slug, logger);
+  let ragSources: RetrievedSourceArticle[] = [];
+  try {
+    ragSources = await retrieveNewsWorldStateSources(db, llm, runtime, worldDate, slug, logger);
+  } catch (error) {
+    logger?.warn("homepage.todays_news_rag_failed", {
+      slug,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   for (const source of ragSources) {
     const article = getArticleByLookup(db, source.slug);
     addSource({

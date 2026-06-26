@@ -163,6 +163,7 @@ export async function runWorkflow<Deps>(
                 inputs: pickKeys(before, node.reads),
                 patch,
                 diff,
+                warnings: warningMessagesFromPatch(patch),
                 promptChars: llmCapture?.promptChars,
                 promptText: llmCapture?.prompt,
                 cotText: llmCapture?.cot,
@@ -207,6 +208,7 @@ export async function runWorkflow<Deps>(
                 writes: node.writes,
                 inputs: pickKeys(before, node.reads),
                 error: { message: wrapped.message, stack: wrapped.stack },
+                warnings: warningMessagesFromPatch({}),
                 promptChars: llmCapture?.promptChars,
                 promptText: llmCapture?.prompt,
                 cotText: llmCapture?.cot,
@@ -290,6 +292,7 @@ export async function runWorkflow<Deps>(
           inputs: pickKeys(before, edge.node.reads),
           patch,
           diff,
+          warnings: warningMessagesFromPatch(patch),
           promptChars: llmCapture?.promptChars,
           promptText: llmCapture?.prompt,
           cotText: llmCapture?.cot,
@@ -334,6 +337,7 @@ export async function runWorkflow<Deps>(
           writes: edge.node.writes,
           inputs: pickKeys(before, edge.node.reads),
           error: { message: wrapped.message, stack: wrapped.stack },
+          warnings: warningMessagesFromPatch({}),
           promptChars: llmCapture?.promptChars,
           promptText: llmCapture?.prompt,
           cotText: llmCapture?.cot,
@@ -618,6 +622,12 @@ function mergePatch(
   patch: PipelineStatePatch,
 ): PipelineState {
   return { ...state, ...patch };
+}
+
+function warningMessagesFromPatch(patch: PipelineStatePatch): string[] | undefined {
+  const issues = patch.validationIssues?.filter((issue) => issue.severity === "warn");
+  if (!issues?.length) return undefined;
+  return issues.map((issue) => `${issue.code}: ${issue.message}`);
 }
 
 function pickKeys(

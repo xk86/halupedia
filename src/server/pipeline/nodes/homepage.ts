@@ -22,7 +22,7 @@ export const refreshHomepageCacheNode = defineNode({
   description:
     "Refresh the DB-backed homepage cache and generate DYK facts when stale.",
   reads: ["input"] as const,
-  writes: ["homepagePayload", "persistedAt"] as const,
+  writes: ["homepagePayload", "persistedAt", "validationIssues"] as const,
   async run(_inputs, deps: PipelineDeps) {
     const ttlMs = deps.runtime.app.homepage.rotation_hours * 60 * 60 * 1000;
     const now = Date.now();
@@ -56,11 +56,18 @@ export const refreshHomepageCacheNode = defineNode({
     }
 
     let todaysNews = null;
+    const validationIssues = [];
     try {
       todaysNews = await ensureTodaysNewsArticle(deps.db, deps.llm, deps.runtime, deps.logger);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      validationIssues.push({
+        code: "homepage.todays_news_generation_failed",
+        severity: "warn" as const,
+        message: `Today's News generation failed: ${message}`,
+      });
       deps.logger.warn("homepage.todays_news_generation_failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
     }
 
@@ -111,6 +118,10 @@ export const refreshHomepageCacheNode = defineNode({
       facts: didYouKnow.length,
       featured: featured?.slug ?? "",
     });
-    return { homepagePayload: payload, persistedAt: generatedAt };
+    return {
+      homepagePayload: payload,
+      persistedAt: generatedAt,
+      ...(validationIssues.length ? { validationIssues } : {}),
+    };
   },
 });

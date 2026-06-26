@@ -115,8 +115,22 @@ export function registerPipelineAdminRoutes(
       nodes_executed: number;
       error_message: string | null;
     }>;
+    const warningsByRun = listRunWarnings(
+      conn,
+      rows.map((row) => row.run_id),
+    );
     conn.close();
-    return c.json({ traceEnabled: true, runs: rows });
+    return c.json({
+      traceEnabled: true,
+      runs: rows.map((row) => {
+        const warnings = warningsByRun.get(row.run_id) ?? [];
+        return {
+          ...row,
+          warning_count: warnings.length,
+          warning_messages: warnings.slice(0, 3),
+        };
+      }),
+    });
   });
 
   app.get("/api/admin/pipeline/runs/:runId", (c) => {
@@ -258,6 +272,40 @@ function safeParse(value: unknown): unknown {
   } catch {
     return value;
   }
+}
+
+function normalizeWarningList(value: unknown): string[] {
+  const parsed = safeParse(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((warning) => typeof warning === "string" ? warning.trim() : "")
+    .filter(Boolean);
+}
+
+function listRunWarnings(
+  conn: DatabaseSync,
+  runIds: string[],
+): Map<string, string[]> {
+  const warningsByRun = new Map<string, string[]>();
+  if (runIds.length === 0) return warningsByRun;
+  const placeholders = runIds.map(() => "?").join(",");
+  const rows = conn
+    .prepare(
+      `SELECT run_id, warnings_json
+         FROM pipeline_nodes
+        WHERE run_id IN (${placeholders})
+          AND warnings_json IS NOT NULL
+          AND warnings_json <> ''`,
+    )
+    .all(...runIds) as Array<{ run_id: string; warnings_json: string | null }>;
+  for (const row of rows) {
+    const warnings = normalizeWarningList(row.warnings_json);
+    if (warnings.length === 0) continue;
+    const existing = warningsByRun.get(row.run_id) ?? [];
+    existing.push(...warnings);
+    warningsByRun.set(row.run_id, existing);
+  }
+  return warningsByRun;
 }
 
 function clampInt(

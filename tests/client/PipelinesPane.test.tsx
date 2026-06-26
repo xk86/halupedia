@@ -310,6 +310,41 @@ describe("PipelinesPane", () => {
     );
   });
 
+  it("labels successful runs with warnings as partial in the run list", () => {
+    render(
+      <PipelinesPane
+        workflows={[]}
+        runs={[
+          {
+            run_id: "run-partial",
+            workflow: "homepage.refresh",
+            slug: "homepage",
+            started_at: 1,
+            duration_ms: 413435,
+            status: "ok",
+            nodes_executed: 1,
+            error_message: null,
+            warning_count: 1,
+            warning_messages: [
+              "homepage.todays_news_generation_failed: Today's News generation failed: timed out",
+            ],
+          },
+        ]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("partial")).toBeInTheDocument();
+    expect(screen.queryByText("ok")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "homepage.todays_news_generation_failed: Today's News generation failed: timed out",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("renders retrieved RAG context in a prompt-style dropdown", async () => {
     vi.stubGlobal(
       "fetch",

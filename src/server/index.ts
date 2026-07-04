@@ -104,6 +104,7 @@ import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescript
 import {
   createRagRuntime,
   registerRagAdminRoutes,
+  toLegacyView,
   type RagRuntime,
 } from "./rag";
 import { makeVersionedCache } from "./responseCache";
@@ -144,14 +145,7 @@ import {
   summaryMarkdownFromArticle,
 } from "./markdown";
 import { getPrompt, getSharedPrompt, renderTemplate } from "./prompts";
-import {
-  indexArticleChunks,
-  flattenInfoboxForRag,
-  mergeRetrievedContextPackets,
-  registerPendingRagIndex,
-  retrieveContext,
-  retrieveDirectArticleContext,
-} from "./retrieval";
+import { formatRagContextForPrompt } from "./retrieval";
 import {
   isSlugForm,
   isSlugStyleWikiSegment,
@@ -1356,43 +1350,26 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   /**
-   * Lightweight post-save hook: re-index RAG chunks and regenerate the summary.
-   * Called after any operation that mutates an article without going through
-   * the full postProcessArticle pipeline (e.g. add-link, revert).
-   * Non-blocking — fires via trackGeneration and logs failures.
+   * Lightweight post-save hook: re-index RAG and regenerate the summary. Called
+   * after any operation that mutates an article without going through the full
+   * postProcessArticle pipeline (e.g. add-link, revert). Non-blocking — fires
+   * via trackGeneration and logs failures.
    */
-  /** Index an article's body into RAG chunks right now, returning the promise.
-   *  Failures are logged, never thrown — indexing is best-effort. */
-  function indexArticleNow(slug: string, markdown: string): Promise<void> {
-    return (async () => {
-      const headlineMedia = getArticleHeadlineMedia(db, slug);
-      const imageDescriptions: Array<{ id: string; description: string }> = [];
-      if (headlineMedia) {
-        const rec = getMediaById(mediaDb, headlineMedia.mediaId);
-        if (rec?.description) imageDescriptions.push({ id: rec.id, description: rec.description });
-      }
-      await indexArticleChunks(
-        db,
-        llm,
-        slug,
-        markdown,
-        runtime.app.rag.enabled && runtime.llm.embeddings.enabled,
-        runtime.app.rag.chunk_size,
-        logger,
-        imageDescriptions,
-      );
-    })().catch((error) => {
-      logger.warn("rag.index_failed", {
-        slug,
-        error: error instanceof Error ? error.message : String(error),
-      });
+  /** Enqueue a durable LanceDB re-index job for an article's current body. The
+   *  background drainer processes it; failures are logged there. */
+  function indexArticleNow(slug: string): void {
+    enqueueRagIndexJob(db, {
+      articleSlug: slug,
+      sourceKind: "article_body",
+      sourceId: slug,
+      operation: "upsert",
     });
   }
 
   function afterArticleSaved(slug: string, title: string, markdown: string, generatedAt: number): void {
     trackGeneration(
       (async () => {
-        await indexArticleNow(slug, markdown);
+        indexArticleNow(slug);
         const summaryMarkdown = await generateArticleSummary(
           llm,
           runtime.prompts,
@@ -1879,11 +1856,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     const article = getArticleByLookup(db, canonicalSlug);
     if (!article) throw new Error(`article not found after generation: ${canonicalSlug}`);
 
-    // Index the raw persisted body immediately so back-to-back generations can
-    // retrieve this article via RAG without waiting for post-process (which
-    // re-indexes the final body as its last step). Retrieval awaits registered
-    // pending indexes before scanning the chunk corpus.
-    registerPendingRagIndex(canonicalSlug, indexArticleNow(canonicalSlug, article.markdown));
+    // Enqueue a LanceDB index job for the raw persisted body so back-to-back
+    // generations can retrieve this article once the drainer processes it
+    // (post-process also re-indexes the final body as its last step).
+    indexArticleNow(canonicalSlug);
 
     // Post-process async: link repair, see-also, summary, RAG indexing.
     const ppOp = trackActiveOperation(canonicalSlug, requestedTitle, "article.post_process");
@@ -2862,12 +2838,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     if (body.ragQuery?.trim()) {
-      const retrieved = await retrieveContext(
-        db, llm, article.slug, [body.ragQuery.trim()],
-        runtime.app.rag.enabled, runtime.app.rag.mode, runtime.app.rag.max_results,
-        runtime.app.rag.min_score, runtime.llm.embeddings.enabled, logger,
-        body.ragQuery.trim(),
-        { enabled: runtime.app.rag.summary_cap_enabled, chars: runtime.app.rag.summary_cap_chars },
+      const retrieved = toLegacyView(
+        await rag.retrieve({
+          targetSlug: article.slug,
+          queryText: body.ragQuery.trim(),
+          minScore: runtime.app.rag.min_score,
+          profile: "reference_search",
+        }),
       );
       for (const src of retrieved.sourceArticles) {
         addArticle({ slug: src.slug, title: src.title, summaryMarkdown: src.content?.slice(0, 360) ?? "" });
@@ -2891,19 +2868,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!article) return c.json({ error: "article not found" }, 404);
 
     const hints = listIncomingHints(db, article.slug);
-    const retrieved = await retrieveContext(
-      db,
-      llm,
-      article.slug,
-      hintsToSearchStrings(hints),
-      runtime.app.rag.enabled,
-      runtime.app.rag.mode,
-      runtime.app.rag.max_results,
-      runtime.app.rag.min_score,
-      runtime.llm.embeddings.enabled,
-      logger,
-      undefined,
-      { enabled: runtime.app.rag.summary_cap_enabled, chars: runtime.app.rag.summary_cap_chars },
+    const retrieved = toLegacyView(
+      await rag.retrieve({
+        targetSlug: article.slug,
+        queryText: hintsToSearchStrings(hints).join("\n"),
+        minScore: runtime.app.rag.min_score,
+        profile: "reference_search",
+      }),
     );
     const excerpt = extractSelectionExcerpt(article.markdown, selectedText);
     const wrapRange = findBestWrapRange(article.markdown, selectedText);
@@ -2980,7 +2951,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         article.title,
         wrapRange.visibleLabel,
         excerpt,
-        retrieved.context,
+        formatRagContextForPrompt(retrieved.sourceArticles, 4000),
         retrieved.relatedTitles,
       );
       logger.debug("add_link.suggestion_received", {
@@ -4681,21 +4652,16 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   // ── Sidebar (infobox) edit / history / restore endpoints ───────────────────
 
-  /** Re-index RAG chunks for a slug including its current infobox. */
-  async function reindexSidebarRag(slug: string): Promise<void> {
-    const article = getArticleByLookup(db, slug);
-    if (!article) return;
-    const rag = runtime.app.rag;
-    const useEmbeddings = rag.enabled && runtime.llm.embeddings?.enabled;
-    const headlineMedia = getArticleHeadlineMedia(db, slug);
-    const imageDescriptions: Array<{ id: string; description: string }> = [];
-    if (headlineMedia) {
-      const rec = getMediaById(mediaDb, headlineMedia.mediaId);
-      if (rec?.description) imageDescriptions.push({ id: rec.id, description: rec.description });
-    }
-    const infobox = getArticleInfobox(db, slug);
-    const infoboxText = infobox ? flattenInfoboxForRag(slug, infobox) : undefined;
-    await indexArticleChunks(db, llm, slug, article.markdown, useEmbeddings, rag.chunk_size, logger, imageDescriptions, infoboxText);
+  /** Enqueue a LanceDB re-index job for a slug (its body + infobox are
+   *  re-derived by the drainer). */
+  function reindexSidebarRag(slug: string): void {
+    if (!getArticleByLookup(db, slug)) return;
+    enqueueRagIndexJob(db, {
+      articleSlug: slug,
+      sourceKind: "article_body",
+      sourceId: slug,
+      operation: "upsert",
+    });
   }
 
   /** Build the pre-rendered sidebar payload for a slug (same shape as page payload). */

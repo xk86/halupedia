@@ -18,7 +18,6 @@ import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps, SidecarUpdateEvent } from "../deps";
 import {
   getArticleByLookup,
-  getArticleInfobox,
   listIncomingHints,
   normalizeInfoboxData,
   saveArticleSeeAlso,
@@ -47,12 +46,6 @@ import {
   summaryMarkdownFromArticle,
 } from "../../markdown";
 import { normalizeMarkdownLinks } from "../../text/linkNormalize";
-import {
-  retrieveDirectArticleContext,
-  mergeRetrievedContextPackets,
-  indexArticleChunks,
-  flattenInfoboxForRag,
-} from "../../retrieval";
 import { slugify } from "../../slug";
 import { relinkTodaysNewsBriefHeadings } from "../../todaysNews";
 import type { ReferenceEntry } from "../state";
@@ -145,30 +138,9 @@ export const rebuildReferenceListNode = defineNode({
     const hints = listIncomingHints(deps.db, slug);
     const backlinkSlugs = [...new Set(hints.map((h) => h.sourceSlug).filter(Boolean))];
 
-    // Include backlink article content even when RAG scored zero.
-    const backlinkCtx = backlinkSlugs.length
-      ? retrieveDirectArticleContext(
-          deps.db,
-          slug,
-          backlinkSlugs,
-          deps.runtime.app.rag.mode,
-          deps.runtime.app.rag.max_results,
-          deps.logger,
-          {
-            maxChunksPerArticle: deps.runtime.app.rag.direct_chunks_per_article,
-            summaryCap: {
-              enabled: deps.runtime.app.rag.summary_cap_enabled,
-              chars: deps.runtime.app.rag.summary_cap_chars,
-            },
-          },
-        )
-      : { context: "", relatedTitles: [], sourceArticles: [] };
-
-    const ragSources = (retrievedContext?.sourceArticles ?? []);
-    const merged = mergeRetrievedContextPackets(
-      { context: "", relatedTitles: ragSources.map((s) => s.title), sourceArticles: ragSources },
-      backlinkCtx,
-    );
+    // Backlink article content is folded in below via `backlinkAdditions`
+    // (each backlink's summary), so RAG sources feed the reference list directly.
+    const ragSources = retrievedContext?.sourceArticles ?? [];
 
     const priorRefs = loadPriorReferenceList(deps.db, slug) ?? [];
     // Auto-derived additions (backlinks, body refs) must not demote a ref the
@@ -200,7 +172,7 @@ export const rebuildReferenceListNode = defineNode({
       deps.db,
       {
         articleSlug: slug,
-        ragSources: merged.sourceArticles,
+        ragSources,
         priorReferences: priorRefs,
         userAdditions: Array.from(additionsBySlug.values()),
         blacklistSlugs: input.blacklistSlugs ?? [],
@@ -524,48 +496,17 @@ export const persistInfoboxNode = defineNode({
 export const indexRagChunksNode = defineNode({
   name: "write.index_rag_chunks",
   kind: "write",
-  description: "Re-index article body as RAG chunks for future retrievals.",
+  description: "Enqueue a durable LanceDB indexing job for the freshly-saved article.",
   reads: ["input", "finalArticleBody"] as const,
   writes: ["ragIndexed"] as const,
   async run({ input, finalArticleBody }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
     const body = finalArticleBody ?? "";
     if (!slug || !body) return { ragIndexed: false };
-    const rag = deps.runtime.app.rag;
-    const useEmbeddings = rag.enabled && deps.runtime.llm.embeddings.enabled;
 
-    // Include image description as a searchable chunk so other articles
-    // can discover and reference this article's image via RAG.
-    const headlineMedia = getArticleHeadlineMedia(deps.db, slug);
-    const imageDescriptions: Array<{ id: string; description: string }> = [];
-    if (headlineMedia && deps.mediaDb) {
-      const rec = getMediaById(deps.mediaDb, headlineMedia.mediaId);
-      if (rec?.description) {
-        imageDescriptions.push({ id: rec.id, description: rec.description });
-      }
-    }
-
-    // Include flattened infobox as a single relevance-ranked chunk.
-    const infobox = getArticleInfobox(deps.db, slug);
-    const infoboxText = infobox ? flattenInfoboxForRag(slug, infobox) : undefined;
-
-    const result = await indexArticleChunks(
-      deps.db,
-      deps.llm,
-      slug,
-      body,
-      useEmbeddings,
-      rag.chunk_size,
-      deps.logger,
-      imageDescriptions,
-      infoboxText,
-    );
-    if (result.embeddingError) {
-      throw new Error(`RAG chunk embeddings failed: ${result.embeddingError}`);
-    }
-    // Dual-run: also enqueue a durable LanceDB indexing job. The background
-    // drainer re-derives all of this article's documents (body, summary,
-    // infobox, link hints, image text, ontology facts) and upserts them.
+    // Enqueue a durable LanceDB indexing job. The background drainer re-derives
+    // all of this article's documents (body, summary, infobox, link hints,
+    // image text, ontology facts) and upserts them into the store.
     enqueueRagIndexJob(deps.db, {
       articleSlug: slug,
       sourceKind: "article_body",

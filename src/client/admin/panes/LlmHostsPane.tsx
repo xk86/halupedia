@@ -1,4 +1,14 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  memo,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
 import { Pane } from "../Pane";
 import { Button } from "@/components/ui/button";
@@ -52,7 +62,7 @@ const ROLE_PARAMETER_DEFINITIONS: readonly RoleParameterDefinition[] = [
   })),
 ];
 
-interface HostInfo {
+export interface HostInfo {
   id: string;
   base_url: string;
   api_key: string;
@@ -96,7 +106,7 @@ type RoleInfo = {
 
 type RoleKey = "heavy" | "light" | "images" | "embeddings";
 
-interface LlmConfigResponse {
+export interface LlmConfigResponse {
   hosts: HostInfo[];
   roles: Record<RoleKey, RoleInfo | null>;
   imageGeneration: ImageGenerationInfo;
@@ -141,7 +151,21 @@ const ROLE_LABEL: Record<RoleKey, string> = {
   embeddings: "embeddings (llm.embeddings)",
 };
 
-function LlmHostsPaneComponent() {
+interface LlmAdminContextValue {
+  data: LlmConfigResponse | null;
+  error: string | null;
+  busy: string | null;
+  send: (
+    label: string,
+    url: string,
+    method: string,
+    body: unknown,
+  ) => Promise<void>;
+}
+
+const LlmAdminContext = createContext<LlmAdminContextValue | null>(null);
+
+export function LlmAdminProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<LlmConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -191,42 +215,50 @@ function LlmHostsPaneComponent() {
     [load],
   );
 
-  const hostIds = useMemo(() => (data?.hosts ?? []).map((h) => h.id), [data]);
-  const hostModels = useMemo(() => {
-    const map: Record<string, string[] | null> = {};
-    for (const h of data?.hosts ?? []) map[h.id] = h.models;
-    return map;
-  }, [data]);
+  const value = useMemo(
+    () => ({ data, error, busy, send }),
+    [busy, data, error, send],
+  );
+
+  return (
+    <LlmAdminContext.Provider value={value}>
+      {children}
+    </LlmAdminContext.Provider>
+  );
+}
+
+export function useLlmAdmin(): LlmAdminContextValue {
+  const value = useContext(LlmAdminContext);
+  if (!value) {
+    throw new Error("useLlmAdmin must be used within LlmAdminProvider");
+  }
+  return value;
+}
+
+function LlmHostsPaneComponent() {
+  const { data, error, busy, send } = useLlmAdmin();
 
   return (
     <Pane
       id="llm-hosts"
-      title="LLM Hosts & Roles"
-      description="Host queues, model routing, and generation roles."
+      title="Host capacity"
+      description="Availability, queue depth, preference, and model inventory."
       count={`${data?.hosts.length ?? 0} hosts`}
-      wide
-      defaultCollapsed
     >
       {error && <div className={ERROR_BOX}>{error}</div>}
       {!data ? (
         <p className="sb-copy">Loading…</p>
       ) : (
-        <div>
-          <h4 className="sb-copy">Hosts</h4>
-          <p className="sb-copy opacity-70">
-            Each host has its own queue (depth = <code>max_in_flight</code>).
-            Lower <code>pref</code> wins when a request spills to a fallback.
-            Blacklisted models are excluded at probe.
-          </p>
-          {data.hosts.map((h) => (
+        <div className="grid gap-2 xl:grid-cols-2">
+          {data.hosts.map((host) => (
             <HostCard
-              key={h.id}
-              host={h}
+              key={host.id}
+              host={host}
               busy={busy}
               onSave={(patch) =>
                 send(
-                  `host:${h.id}`,
-                  `/api/admin/llm/host/${encodeURIComponent(h.id)}`,
+                  `host:${host.id}`,
+                  `/api/admin/llm/host/${encodeURIComponent(host.id)}`,
                   "PUT",
                   patch,
                 )
@@ -239,9 +271,34 @@ function LlmHostsPaneComponent() {
               send("add-host", "/api/admin/llm/host", "POST", body)
             }
           />
+        </div>
+      )}
+    </Pane>
+  );
+}
 
-          <h4 className="sb-copy mt-[18px]">Roles</h4>
-          <p className="sb-copy opacity-70">
+function LlmRolesPaneComponent() {
+  const { data, error, busy, send } = useLlmAdmin();
+  const hostIds = useMemo(() => (data?.hosts ?? []).map((h) => h.id), [data]);
+  const hostModels = useMemo(() => {
+    const map: Record<string, string[] | null> = {};
+    for (const h of data?.hosts ?? []) map[h.id] = h.models;
+    return map;
+  }, [data]);
+
+  return (
+    <Pane
+      id="llm-roles"
+      title="Model roles"
+      description="All configured model types, parameters, and host routing."
+      count={`${ROLE_ORDER.filter((role) => data?.roles[role]).length} roles`}
+    >
+      {error && <div className={ERROR_BOX}>{error}</div>}
+      {!data ? (
+        <p className="sb-copy">Loading…</p>
+      ) : (
+        <div className="grid gap-2 xl:grid-cols-2">
+          <p className="sb-copy col-span-full opacity-70">
             The <code>images</code> role describes existing images for captions
             and sidebars. New article image generation is configured separately
             below.
@@ -268,20 +325,6 @@ function LlmHostsPaneComponent() {
               />
             );
           })}
-
-          <h4 className="sb-copy mt-[18px]">Image generation</h4>
-          <ImageGenerationCard
-            info={data.imageGeneration}
-            busy={busy}
-            onSave={(patch) =>
-              send(
-                "image-generation",
-                "/api/admin/images/generation",
-                "PUT",
-                patch,
-              )
-            }
-          />
         </div>
       )}
     </Pane>
@@ -289,6 +332,39 @@ function LlmHostsPaneComponent() {
 }
 
 export const LlmHostsPane = memo(LlmHostsPaneComponent);
+export const LlmRolesPane = memo(LlmRolesPaneComponent);
+
+function ImageGenerationPaneComponent() {
+  const { data, error, busy, send } = useLlmAdmin();
+  return (
+    <Pane
+      id="image-generation"
+      title="Image generation"
+      description="Generation backend, model, automation, and output policy."
+      count={data?.imageGeneration.enabled ? "enabled" : "disabled"}
+    >
+      {error && <div className={ERROR_BOX}>{error}</div>}
+      {!data ? (
+        <p className="sb-copy">Loading…</p>
+      ) : (
+        <ImageGenerationCard
+          info={data.imageGeneration}
+          busy={busy}
+          onSave={(patch) =>
+            send(
+              "image-generation",
+              "/api/admin/images/generation",
+              "PUT",
+              patch,
+            )
+          }
+        />
+      )}
+    </Pane>
+  );
+}
+
+export const ImageGenerationPane = memo(ImageGenerationPaneComponent);
 
 function numberOrFallback(value: string, fallback: number) {
   const parsed = Number(value);

@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RotateCcw } from "lucide-react";
 import { ERROR_BOX } from "@/lib/utils";
 import { RuntimePane } from "./admin/panes/RuntimePane";
-import { GenerationQueuePane } from "./admin/panes/GenerationQueuePane";
 import { PipelinesPane } from "./admin/panes/PipelinesPane";
 import { PromptModelsPane } from "./admin/panes/PromptModelsPane";
-import { LlmHostsPane } from "./admin/panes/LlmHostsPane";
+import {
+  ImageGenerationPane,
+  LlmAdminProvider,
+  LlmHostsPane,
+  LlmRolesPane,
+} from "./admin/panes/LlmHostsPane";
 import { PromptEditorPane } from "./admin/panes/PromptEditorPane";
 import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
 import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
@@ -13,6 +18,16 @@ import { RagTesterPane } from "./admin/panes/RagTesterPane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { LiveLlmView } from "./admin/LiveLlmViews";
+import {
+  ADMIN_VIEWS,
+  AdminWorkspace,
+  type AdminTileSpan,
+  type AdminView,
+  useAdminLayout,
+} from "./admin/AdminLayout";
+import { LiveGenerationTracker } from "./admin/LiveGenerationTracker";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 interface AdminOverview {
   articleCount: number;
@@ -79,6 +94,16 @@ interface Props {
   onNavigate: (slug: string) => void;
   onNavigateHome: () => void;
 }
+
+const VIEW_LABELS: Record<AdminView, string> = {
+  overview: "Overview",
+  monitoring: "Monitoring",
+  rag: "RAG",
+  models: "Models",
+  prompts: "Prompts",
+  config: "Config",
+  articles: "Articles",
+};
 
 export function Admin({ onNavigate, onNavigateHome }: Props) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
@@ -152,6 +177,13 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
   const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
   const [restoreConfirm, setRestoreConfirm] = useState<string | null>(null);
   const aliasSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const {
+    state: adminLayout,
+    setActiveView,
+    setMode,
+    setOrder,
+    reset: resetLayout,
+  } = useAdminLayout();
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -478,18 +510,175 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
   if (error) return <div className={ERROR_BOX}>{error}</div>;
   if (!overview) return null;
 
+  const tilesForView = (
+    view: AdminView,
+  ): Array<{
+    id: string;
+    span?: AdminTileSpan;
+    content: React.ReactNode;
+  }> => {
+    switch (view) {
+      case "overview":
+        return [
+          {
+            id: "recent-articles",
+            span: "full",
+            content: (
+              <RecentArticlesPane
+                articles={overview.latestArticles}
+                onNavigate={onNavigate}
+              />
+            ),
+          },
+        ];
+      case "monitoring":
+        return [
+          {
+            id: "pipelines",
+            span: "full",
+            content: (
+              <PipelinesPane
+                workflows={pipelineWorkflows}
+                runs={pipelineRuns}
+                activeRuns={activePipelineRuns}
+                traceEnabled={pipelineTraceEnabled}
+                error={pipelineError}
+                onRefresh={loadPipelineStatus}
+                onNavigate={onNavigate}
+                onNavigateHome={onNavigateHome}
+              />
+            ),
+          },
+        ];
+      case "rag":
+        return [
+          {
+            id: "rag-tester",
+            span: "full",
+            content: <RagTesterPane />,
+          },
+        ];
+      case "models":
+        return [
+          {
+            id: "llm-hosts",
+            span: "half",
+            content: <LlmHostsPane />,
+          },
+          {
+            id: "image-generation",
+            span: "half",
+            content: <ImageGenerationPane />,
+          },
+          {
+            id: "llm-roles",
+            span: "full",
+            content: <LlmRolesPane />,
+          },
+          {
+            id: "prompt-models",
+            span: "full",
+            content: (
+              <PromptModelsPane
+                associations={overview.promptModelAssociations ?? []}
+                savingKey={savingPromptKey}
+                onUpdate={updatePromptModel}
+              />
+            ),
+          },
+        ];
+      case "prompts":
+        return [
+          {
+            id: "prompt-editor",
+            span: "full",
+            content: <PromptEditorPane />,
+          },
+        ];
+      case "config":
+        return [
+          {
+            id: "runtime",
+            span: "wide",
+            content: (
+              <RuntimePane
+                databasePath={overview.databasePath}
+                promptConfigPath={overview.promptConfigPath}
+              />
+            ),
+          },
+        ];
+      case "articles":
+        return [
+          {
+            id: "entry-surgery",
+            span: "half",
+            content: (
+              <EntrySurgeryPane
+                deleteSlug={deleteSlug}
+                onDeleteSlugChange={setDeleteSlug}
+                onDeleteArticle={deleteArticle}
+                deleting={deleting}
+                summarySlug={summarySlug}
+                onSummarySlugChange={setSummarySlug}
+                onRegenerateSummary={regenerateSummary}
+                regeneratingSummary={regeneratingSummary}
+                summaryResult={summaryResult}
+              />
+            ),
+          },
+          {
+            id: "slug-aliases",
+            span: "half",
+            content: (
+              <SlugAliasPane
+                aliasSearch={aliasSearch}
+                onAliasSearchChange={setAliasSearch}
+                aliasResults={aliasResults}
+                aliasSearching={aliasSearching}
+                aliasSearchTimer={aliasSearchTimer}
+                onDoAliasSearch={doAliasSearch}
+                newAliasSlug={newAliasSlug}
+                onNewAliasSlugChange={setNewAliasSlug}
+                newAliasTarget={newAliasTarget}
+                onNewAliasTargetChange={setNewAliasTarget}
+                onAddAlias={addAlias}
+                onRemoveAlias={removeAlias}
+                aliasMsg={aliasMsg}
+                redirectSource={redirectSource}
+                onRedirectSourceChange={setRedirectSource}
+                redirectTarget={redirectTarget}
+                onRedirectTargetChange={setRedirectTarget}
+                redirectConfirmData={redirectConfirmData}
+                onCreateRedirect={createRedirect}
+                onClearRedirectConfirm={() => setRedirectConfirmData(null)}
+                redirectBusy={redirectBusy}
+                redirectMsg={redirectMsg}
+                archived={archived}
+                archivedLoading={archivedLoading}
+                onLoadArchived={loadArchived}
+                restoreConfirm={restoreConfirm}
+                onRestoreArchived={restoreArchived}
+                onClearRestoreConfirm={() => setRestoreConfirm(null)}
+                restoreMsg={restoreMsg}
+              />
+            ),
+          },
+        ];
+    }
+  };
+
+  const visibleViews =
+    adminLayout.mode === "split" ? ADMIN_VIEWS : [adminLayout.activeView];
+
   return (
     <div className="font-sans text-foreground">
-      <header className="mb-6 border-b border-border pb-5">
+      <header className="mb-3 border-b border-border pb-3">
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
             <h1 className="m-0 font-serif text-[2.1rem] leading-none font-medium tracking-[-0.01em] max-[600px]:text-[1.6rem]">
               Admin
             </h1>
-            <p className="mt-2 mb-0 max-w-prose text-[0.92rem] leading-relaxed text-muted-foreground">
-              Database, entry, link, server, and prompt surgery surface for
-              local tweaking and reloads.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="gap-1.5 font-mono tabular-nums">
@@ -517,99 +706,94 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         </div>
       </header>
 
-      <div className="mb-6 flex flex-wrap items-center gap-2.5">
-        <Button variant="default" onClick={reloadRuntime} disabled={reloading}>
-          {reloading ? "Reloading..." : "Reload config and prompts"}
-        </Button>
-        <Button
-          variant="outline"
-          onClick={resetFeaturedArticle}
-          disabled={resettingFeatured}
-        >
-          {resettingFeatured ? "Resetting..." : "Reset featured article"}
-        </Button>
+      <Tabs
+        value={adminLayout.activeView}
+        onValueChange={(value) => setActiveView(value as AdminView)}
+        className="mb-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+          <TabsList variant="line" className="max-w-full overflow-x-auto">
+            {ADMIN_VIEWS.map((view) => (
+              <TabsTrigger key={view} value={view}>
+                {VIEW_LABELS[view]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <div className="flex items-center gap-2">
+            <ToggleGroup
+              value={[adminLayout.mode]}
+              onValueChange={(values) => {
+                const mode = values[0];
+                if (mode === "tabs" || mode === "split") setMode(mode);
+              }}
+              variant="outline"
+              size="sm"
+              spacing={0}
+              aria-label="Admin layout mode"
+            >
+              <ToggleGroupItem value="tabs">Tabs</ToggleGroupItem>
+              <ToggleGroupItem value="split">Split</ToggleGroupItem>
+            </ToggleGroup>
+            <Button variant="outline" size="sm" onClick={resetLayout}>
+              <RotateCcw data-icon="inline-start" />
+              Reset layout
+            </Button>
+          </div>
+        </div>
+      </Tabs>
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {adminLayout.activeView === "config" || adminLayout.mode === "split" ? (
+          <Button
+            variant="default"
+            size="sm"
+            onClick={reloadRuntime}
+            disabled={reloading}
+          >
+            {reloading ? "Reloading..." : "Reload config and prompts"}
+          </Button>
+        ) : null}
+        {adminLayout.activeView === "articles" ||
+        adminLayout.mode === "split" ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetFeaturedArticle}
+            disabled={resettingFeatured}
+          >
+            {resettingFeatured ? "Resetting..." : "Reset featured article"}
+          </Button>
+        ) : null}
       </div>
 
-      <div className="grid [grid-auto-flow:row_dense] grid-cols-[repeat(auto-fill,minmax(300px,1fr))] items-start gap-3">
-        <RagTesterPane />
-
-        <PipelinesPane
-          workflows={pipelineWorkflows}
-          runs={pipelineRuns}
-          activeRuns={activePipelineRuns}
-          traceEnabled={pipelineTraceEnabled}
-          error={pipelineError}
-          onRefresh={loadPipelineStatus}
-          onNavigate={onNavigate}
-          onNavigateHome={onNavigateHome}
-        />
-
-        <GenerationQueuePane items={generationQueue} onNavigate={onNavigate} />
-
-        <RuntimePane
-          databasePath={overview.databasePath}
-          promptConfigPath={overview.promptConfigPath}
-        />
-
-        <EntrySurgeryPane
-          deleteSlug={deleteSlug}
-          onDeleteSlugChange={setDeleteSlug}
-          onDeleteArticle={deleteArticle}
-          deleting={deleting}
-          summarySlug={summarySlug}
-          onSummarySlugChange={setSummarySlug}
-          onRegenerateSummary={regenerateSummary}
-          regeneratingSummary={regeneratingSummary}
-          summaryResult={summaryResult}
-        />
-
-        <RecentArticlesPane
-          articles={overview.latestArticles}
-          onNavigate={onNavigate}
-        />
-
-        <PromptModelsPane
-          associations={overview.promptModelAssociations ?? []}
-          savingKey={savingPromptKey}
-          onUpdate={updatePromptModel}
-        />
-
-        <LlmHostsPane />
-
-        <PromptEditorPane />
-
-        <SlugAliasPane
-          aliasSearch={aliasSearch}
-          onAliasSearchChange={setAliasSearch}
-          aliasResults={aliasResults}
-          aliasSearching={aliasSearching}
-          aliasSearchTimer={aliasSearchTimer}
-          onDoAliasSearch={doAliasSearch}
-          newAliasSlug={newAliasSlug}
-          onNewAliasSlugChange={setNewAliasSlug}
-          newAliasTarget={newAliasTarget}
-          onNewAliasTargetChange={setNewAliasTarget}
-          onAddAlias={addAlias}
-          onRemoveAlias={removeAlias}
-          aliasMsg={aliasMsg}
-          redirectSource={redirectSource}
-          onRedirectSourceChange={setRedirectSource}
-          redirectTarget={redirectTarget}
-          onRedirectTargetChange={setRedirectTarget}
-          redirectConfirmData={redirectConfirmData}
-          onCreateRedirect={createRedirect}
-          onClearRedirectConfirm={() => setRedirectConfirmData(null)}
-          redirectBusy={redirectBusy}
-          redirectMsg={redirectMsg}
-          archived={archived}
-          archivedLoading={archivedLoading}
-          onLoadArchived={loadArchived}
-          restoreConfirm={restoreConfirm}
-          onRestoreArchived={restoreArchived}
-          onClearRestoreConfirm={() => setRestoreConfirm(null)}
-          restoreMsg={restoreMsg}
-        />
-      </div>
+      <LlmAdminProvider>
+        <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
+          <main className="flex min-w-0 flex-col gap-4">
+            {visibleViews.map((view) => (
+              <section key={view} aria-labelledby={`admin-view-${view}`}>
+                {adminLayout.mode === "split" ? (
+                  <h2
+                    id={`admin-view-${view}`}
+                    className="mt-0 mb-2 text-sm font-semibold"
+                  >
+                    {VIEW_LABELS[view]}
+                  </h2>
+                ) : null}
+                <AdminWorkspace
+                  view={view}
+                  tiles={tilesForView(view)}
+                  storedOrder={adminLayout.orders[view] ?? []}
+                  onOrderChange={setOrder}
+                />
+              </section>
+            ))}
+          </main>
+          <LiveGenerationTracker
+            items={generationQueue}
+            onNavigate={onNavigate}
+          />
+        </div>
+      </LlmAdminProvider>
     </div>
   );
 }

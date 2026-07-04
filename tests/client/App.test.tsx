@@ -454,6 +454,7 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Admin" });
+    await userEvent.click(screen.getByRole("tab", { name: "Articles" }));
     await userEvent.type(
       screen.getByPlaceholderText("Search or paste /wiki/ link…"),
       "https://host/wiki/Test_Article",
@@ -594,18 +595,10 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("Queued Article")).toBeInTheDocument();
-    // The waiting count is concatenated into the same <span> as the workflow
-    // label/phase (e.g. "Active · 3 waiting"), so match on substring rather
-    // than the exact combined text.
-    expect(
-      screen.getByText(
-        (_, el) =>
-          el?.classList.contains("admin-queue-meta") === true &&
-          /3 waiting/.test(el.textContent ?? ""),
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("3 waiting clients")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Models" }));
     await userEvent.click(
-      screen.getByRole("button", { name: /Prompt Models/ }),
+      screen.getByRole("heading", { name: "Prompt Models" }).closest("button")!,
     );
     expect(screen.getByText("article_summary")).toBeInTheDocument();
     expect(screen.getByText("light-model")).toBeInTheDocument();
@@ -684,6 +677,8 @@ describe("App", () => {
 
     render(<App />);
 
+    await screen.findByRole("heading", { name: "Admin" });
+    await userEvent.click(screen.getByRole("tab", { name: "Monitoring" }));
     expect(
       await screen.findByText("unknown image aspect ratio: documentary_photo"),
     ).toBeInTheDocument();
@@ -824,6 +819,8 @@ describe("App", () => {
 
     render(<App />);
 
+    await screen.findByRole("heading", { name: "Admin" });
+    await userEvent.click(screen.getByRole("tab", { name: "Articles" }));
     const button = await screen.findByRole("button", {
       name: "Reset featured article",
     });
@@ -1924,7 +1921,9 @@ describe("App", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
     await setRichEditorMarkdown("make this article to be about your mom");
-    await userEvent.click(screen.getByRole("button", { name: "Rewrite to vibe" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Rewrite to vibe" }),
+    );
 
     expect(
       await screen.findByText(
@@ -2116,6 +2115,7 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Admin" });
+    await userEvent.click(screen.getByRole("tab", { name: "Prompts" }));
 
     // Expand the Prompt Editor pane (collapsed by default)
     const paneHeader = screen.getByRole("button", {

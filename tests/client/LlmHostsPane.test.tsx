@@ -7,7 +7,10 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LlmHostsPane } from "../../src/client/admin/panes/LlmHostsPane";
+import {
+  LlmAdminProvider,
+  LlmRolesPane,
+} from "../../src/client/admin/panes/LlmHostsPane";
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -82,7 +85,7 @@ const payload = {
   },
 };
 
-describe("LlmHostsPane", () => {
+describe("LlmRolesPane", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
@@ -96,9 +99,10 @@ describe("LlmHostsPane", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    render(<LlmHostsPane />);
-    await user.click(
-      screen.getByRole("button", { name: /LLM Hosts & Roles/i }),
+    render(
+      <LlmAdminProvider>
+        <LlmRolesPane />
+      </LlmAdminProvider>,
     );
 
     const roleHeading = await screen.findByText("heavy (llm.chat)");

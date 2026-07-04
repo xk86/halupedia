@@ -10,6 +10,7 @@ import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 import { getWorldDate } from "../src/server/worldClock";
 import {
   ensureTodaysNewsArticle,
+  hasCurrentOrNoHomepageNews,
   homepageNewsFromMarkdown,
   isCurrentHomepageNews,
   relinkTodaysNewsBriefHeadings,
@@ -25,21 +26,26 @@ function appWithWorldClock() {
       epoch_real_time: "2025-01-01T00:00:00.000Z",
       epoch_day: 1,
       epoch_date: "2025-01-01",
-      kirk_death_date: "2025-09-10",
     },
   };
 }
 
-test("world date uses Charlie Kirk death date as the BK/AK pivot", () => {
+test("world date uses the configured epoch date for plain labels", () => {
   const app = appWithWorldClock();
 
   const before = getWorldDate(app, Date.parse("2025-09-09T12:00:00.000Z"));
-  assert.equal(before.label, "September 9, 2025 (1 BK)");
-  assert.equal(before.kirkLabel, "1 BK");
+  assert.equal(before.label, "September 9, 2025");
 
   const after = getWorldDate(app, Date.parse("2025-09-10T12:00:00.000Z"));
-  assert.equal(after.label, "September 10, 2025 (0 AK)");
-  assert.equal(after.kirkLabel, "0 AK");
+  assert.equal(after.label, "September 10, 2025");
+});
+
+test("default world config starts dates on January 1, 2000", () => {
+  const app = loadConfig().app;
+  const epoch = Date.parse(app.world.epoch_real_time);
+  const worldDate = getWorldDate(app, epoch);
+  assert.equal(app.world.epoch_date, "2000-01-01");
+  assert.equal(worldDate.label, "January 1, 2000");
 });
 
 test("homepage news preview keeps at least three headlines when briefs provide fallback rows", () => {
@@ -48,7 +54,7 @@ test("homepage news preview keeps at least three headlines when briefs provide f
   const preview = homepageNewsFromMarkdown(
     "todays-news-day-000252",
     [
-      "# Today's News: September 9, 2025 (1 BK)",
+      "# Today's News: September 9, 2025",
       "",
       "A sponsored edition crosses the wires.",
       "",
@@ -76,8 +82,8 @@ test("homepage news cache is stale when the date label uses an old format", () =
     isCurrentHomepageNews(
       {
         slug: "todays-news-day-000252",
-        title: "Today's News: September 9, 2025 (1 BK)",
-        worldDate: "September 9, 2025 (1 BK)",
+        title: "Today's News: September 9, 2025",
+        worldDate: "September 9, 2025",
         generatorVersion: "1",
       },
       app,
@@ -89,8 +95,8 @@ test("homepage news cache is stale when the date label uses an old format", () =
     isCurrentHomepageNews(
       {
         slug: "todays-news-day-000252",
-        title: "Today's News: September 9, 2025 (1 BK)",
-        worldDate: "September 9, 2025 (1 BK)",
+        title: "Today's News: September 9, 2025",
+        worldDate: "September 9, 2025",
         generatorVersion: "2",
       },
       app,
@@ -102,8 +108,8 @@ test("homepage news cache is stale when the date label uses an old format", () =
     isCurrentHomepageNews(
       {
         slug: "todays-news-day-000252",
-        title: "Today's News: Halu Era 2025 / 1 BK, Day 252",
-        worldDate: "Halu Era 2025 / 1 BK, Day 252",
+        title: "Today's News: Halu Era 2025, Day 252",
+        worldDate: "Halu Era 2025, Day 252",
         generatorVersion: "1",
       },
       app,
@@ -113,9 +119,30 @@ test("homepage news cache is stale when the date label uses an old format", () =
   );
 });
 
+test("homepage cache accepts an intentionally empty news slot", () => {
+  const app = appWithWorldClock();
+  const now = Date.parse("2025-09-09T12:00:00.000Z");
+  assert.equal(isCurrentHomepageNews(null, app, now), false);
+  assert.equal(hasCurrentOrNoHomepageNews(null, app, now), true);
+  assert.equal(
+    hasCurrentOrNoHomepageNews(
+      {
+        slug: "todays-news-day-000252",
+        title: "Today's News: Halu Era 2025, Day 252",
+        worldDate: "Halu Era 2025, Day 252",
+        generatorVersion: "1",
+      },
+      app,
+      now,
+    ),
+    false,
+    "a real stale news payload should still invalidate the cache",
+  );
+});
+
 test("today's news relinks brief headings after post-processing", () => {
   const markdown = [
-    "# Today's News: October 29, 2028 (3 AK)",
+    "# Today's News: October 29, 2028",
     "",
     "## Headlines",
     "",
@@ -145,7 +172,6 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
       epoch_real_time: new Date(now).toISOString(),
       epoch_day: 1,
       epoch_date: "2028-10-29",
-      kirk_death_date: "2025-09-10",
     };
 
     const markdown = [
@@ -196,9 +222,9 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
       async chat(_role, _system, user) {
         capturedUserPrompt = user;
         return [
-          "# Today's News: October 29, 2028 (3 AK)",
+          "# Today's News: October 29, 2028",
           "",
-          "October 29, 2028 (3 AK) | Emergency lighting remains rationed under the ash sky.",
+          "October 29, 2028 | Emergency lighting remains rationed under the ash sky.",
           "",
           "## Headlines",
           "",
@@ -233,7 +259,7 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
     assert.equal(news.generatorVersion, "1");
     assert.ok(news.headlines[0].slug);
     assert.match(capturedUserPrompt, /Caldera Night/);
-    assert.match(capturedUserPrompt, /Why included: date-or-era match/);
+    assert.match(capturedUserPrompt, /Why included: date match/);
     assert.match(capturedUserPrompt, /super volcano blocks the sun for one month/);
     const savedEdition = getArticleByLookup(db, "todays-news-day-000001");
     assert.ok(savedEdition);

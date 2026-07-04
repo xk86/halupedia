@@ -179,7 +179,6 @@ export interface WorldConfig {
   epoch_real_time: string;
   epoch_day: number;
   epoch_date: string;
-  kirk_death_date: string;
   calendar_name: string;
 }
 
@@ -250,6 +249,7 @@ export interface ImageGenerationConfig {
   enabled: boolean;
   auto_generate_for_new_articles: boolean;
   auto_generate_for_featured_article: boolean;
+  homepage_auto_image_max_attempts: number;
   auto_preset_multipass: boolean;
   backend: ImageGenerationBackend;
   aspect_ratios: Record<string, ImageAspectRatioConfig>;
@@ -499,7 +499,6 @@ export interface HomepageNews {
   title: string;
   worldDate: string;
   worldDay: number;
-  kirkLabel: string;
   generatorVersion?: string;
   summaryMarkdown: string;
   headlines: HomepageNewsHeadline[];

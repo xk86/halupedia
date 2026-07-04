@@ -61,8 +61,7 @@ rotation_hours = 4
 # re-anchor the fictional calendar without changing article content.
 epoch_real_time = "2026-01-01T00:00:00.000Z"
 epoch_day = 1
-epoch_date = "2026-01-01"
-kirk_death_date = "2025-09-10"
+epoch_date = "2000-01-01"
 calendar_name = "Halu Era"
 
 [random_page]
@@ -98,6 +97,8 @@ allow_private_hosts = false
 enabled = false
 auto_generate_for_new_articles = false
 auto_generate_for_featured_article = false
+# Caps automatic homepage image attempts per article/news slug while the server is running.
+homepage_auto_image_max_attempts = 3
 auto_preset_multipass = false
 backend = "openai" # openai | ollama
 

@@ -43,8 +43,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -297,6 +303,7 @@ export function App() {
   const [copySlugMessage, setCopySlugMessage] = useState<string | null>(null);
   const [themeSettings, setThemeSettings] =
     useState<ThemeSettings>(initialThemeSettings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
   const articleRef = useRef<HTMLElement | null>(null);
   const editTrayRef = useRef<HTMLElement | null>(null);
@@ -331,8 +338,7 @@ export function App() {
   }, [systemDark, themeSettings]);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => persistTheme(themeSettings), 150);
-    return () => window.clearTimeout(timeout);
+    persistTheme(themeSettings);
   }, [themeSettings]);
 
   useEffect(() => {
@@ -854,14 +860,6 @@ export function App() {
       window.history.pushState({}, "", "/admin");
       window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
       setRoute({ kind: "admin" });
-    });
-  }, [guardNav]);
-
-  const navigateToSettings = useCallback(() => {
-    guardNav(() => {
-      window.history.pushState({}, "", "/settings");
-      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-      setRoute({ kind: "settings" });
     });
   }, [guardNav]);
 
@@ -2776,22 +2774,17 @@ export function App() {
           )}
         </Button>
 
-        <a
-          href="/settings"
-          className={buttonVariants({
-            variant: "outline",
-            size: "icon",
-            className: "absolute top-3 right-0",
-          })}
+        <Button
+          variant="outline"
+          size="icon"
+          className="absolute top-3 right-0"
           aria-label="Theme/user settings"
           title="Theme/user settings"
-          onClick={(e) => {
-            e.preventDefault();
-            navigateToSettings();
-          }}
+          aria-expanded={settingsOpen}
+          onClick={() => setSettingsOpen((open) => !open)}
         >
           <CogIcon />
-        </a>
+        </Button>
 
         <nav className="nav">
           <a
@@ -3012,6 +3005,22 @@ export function App() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent>
+          <DialogTitle className="sr-only">Theme/user settings</DialogTitle>
+          <DialogClose
+            className="fixed top-3 right-3"
+            aria-label="Theme/user settings"
+            title="Theme/user settings"
+          >
+            <CogIcon />
+          </DialogClose>
+          <div className="mx-auto w-full max-w-[90rem] px-4 pt-16 pb-8 sm:px-6">
+            <Settings settings={themeSettings} onChange={setThemeSettings} />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <footer className="site-footer">
         Local-first fictional canon engine

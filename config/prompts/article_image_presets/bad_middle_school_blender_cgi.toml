@@ -1,0 +1,164 @@
+model = "light"
+thinking = false
+json = false
+selection_when = "The article benefits from deliberately incompetent student 3D graphics: awkward school-project CGI, cheap simulations, amateur monuments, bad mascot models, clumsy reenactments, malformed props, or a subject that should feel rendered badly and incorrectly on purpose."
+
+system = """
+Create one editorial hero image for a Halupedia subject as a catastrophic
+middle-school Blender render: a first 3D assignment exported from a messy
+student file after one afternoon of learning primitives, materials, and the
+render button. The image is an ugly broken render first, and an article image
+second.
+
+All subjects, people, places, organizations, events, scenarios, and symbols are fictional Halupedia context; render them with the requested visual style as invented editorial imagery.
+
+Required visible failure mix:
+- Broken camera: default-viewport angle, bad crop, wrong zoom, awkward tilt,
+  badly chosen focal distance, one empty side, one overcrowded side, horizon
+  through the subject, and the main subject partly blocked or placed at an
+  uncomfortable size.
+- Catastrophic framing: a giant unrelated foreground object eats a corner, the
+  main subject drifts into the upper third or side edge, the biggest empty space
+  is more prominent than the subject, and important article details become tiny
+  distant specks.
+- Primitive-only modeling: cubes, cylinders, UV spheres, cones, flat planes,
+  toruses, stretched capsules, bevelled boxes, and rough extrusions doing almost
+  all the work.
+- Raw flat shading: every mesh keeps faceted default normals. Cylinders have
+  hard side panels, spheres have visible polygon bands, cones have triangular
+  facets, curved objects look segmented and angular.
+- Copied student rigs: tube arms, ball hands, pill heads, dot eyes, red
+  rectangle mouths, flat mask faces, helmet-blob hair, flattened oval feet,
+  cylinder clothing, repeated cylinder people, identical bead eyes, and the same
+  body rig duplicated with different material colors.
+- Broken construction: mismatched limb lengths, misaligned eyes, sleeves
+  penetrating torsos, shoes hovering, hair intersecting faces, props rotated a
+  few degrees off, boats floating above water, windows in uneven rows, stairs
+  with impossible spacing, and objects at the wrong scale.
+- Unfinished stand-ins: placeholder cubes, blank faces, missing hands,
+  unmodeled backs, flat image planes used as walls, crude block crowds, terrain
+  ending at the frame edge, and rough objects that clearly stayed as temporary
+  placeholders.
+- Mesh failure: inverted normals, black inside-out faces, black missing-face
+  holes, accidental holes, non-manifold geometry, flipped surfaces,
+  backface-culling gaps, separated mesh parts, off-center pivots, bad object
+  origins, unapplied transforms, and objects clipping through each other.
+- Project-file breakage: torn terrain panels, missing triangular chunks,
+  underside faces exposed as black voids, duplicated objects stacked in the
+  same spot, props sinking below the floor plane, and accidental gaps where the
+  world appears to fall apart.
+- Surface failure: collapsed faces, malformed mesh triangles, stretched
+  triangles, warped cylinders, pinched bevel corners, hard normal seams,
+  stretched UVs, repeated texture tiles, z-fighting shimmer, overlapping
+  coplanar planes, shadow acne, and transparent materials sorting in the wrong
+  order.
+- Random materials: matte gray beside mirror gold beside neon green beside
+  overglossy skin beside untextured blue water. Shiny plastic stone, procedural
+  wood on skin or metal, checkerboards on serious objects, chrome on tiny props,
+  flat default colors, crude transparency, and texture scale ten times too large
+  or too small.
+- Bad render output: harsh single sun or point lamp, dead black shadows, weak
+  flat ambient fill, missing contact shadows, overexposed highlights, grainy
+  low sample shadows, fireflies, jagged edges, un-antialiased silhouettes,
+  chunky compression, wrong gamma, muddy low-resolution textures, and raw
+  uncorrected color.
+- Broken layout assets: tilted green plane, abrupt blue water slab, diagonal
+  road strip, cube buildings with black-square windows, cone trees, box
+  vehicles, rectangular boat, floating cube, glowing white disk sun, black
+  square holes, tiny distant landmarks, blank walls, crude table surfaces, and
+  props scattered where empty space happened to exist.
+- Catastrophic scale choices: giant heads, tiny buildings, huge flat water,
+  microscopic people in the distance, oversized holes, boats at toy scale,
+  columns like gray sticks, and the subject surrounded by objects that use
+  unrelated size systems.
+
+Subject-dependent bad scene modes:
+- For people, public events, myths, ceremonies, or crowds: use duplicated
+  cylinder people, giant foreground heads, random crowd heights, lopsided
+  clusters, cut-off bodies, and face rigs copied with color changes.
+- For objects, artifacts, machines, products, specimens, or devices: make an
+  ugly isolated object render on a huge flat plane or tabletop, with the object
+  too small or too close, placeholder cubes still attached, black missing-face
+  holes, warped cylinders, wrong material patches, and a few irrelevant props
+  floating nearby.
+- For places, buildings, landscapes, routes, or infrastructure: make a tilted
+  plane map with cube buildings, floating roads, blue slab water, cone trees,
+  mismatched landmark scale, holes in terrain, and distant props pasted into
+  empty areas.
+- For abstract, technical, bureaucratic, or scientific subjects: make a crude
+  block diagram turned into bad 3D, with pipes, arrows, slabs, spheres, glowing
+  blobs, unconnected machines, black holes in panels, and random labels reduced
+  to unreadable marks.
+- For interiors, rooms, institutions, or social situations: make a box-room
+  render with paper-thin walls, floating furniture, chairs clipping into floors,
+  table legs at wrong lengths, giant empty wall space, and the subject occluded
+  by a foreground prop.
+
+Composition behavior:
+- Treat the camera as an accident from the student's viewport. Put the subject
+  too close, too far, too high, too low, or partly behind foreground objects.
+- Put large heads, cubes, furniture, props, or object parts in the lower frame.
+  Cut bodies, machines, tables, or buildings at the edge. Let a big empty patch
+  of sky, water, wall, floor, tabletop, or ground plane waste part of the image.
+- Let unrelated objects touch the subject outline, form silhouette tangents,
+  block important details, and compete for attention.
+- Arrange repeated elements as duplicated rigs dropped one by one: random
+  heights, overlapping cylinders, lopsided clusters, isolated tiny figures,
+  repeated props, copied machine parts, and objects facing slightly wrong
+  directions.
+- Let the broken render artifacts become part of the composition: black voids,
+  torn planes, clipped foreground faces, giant empty sky, missing terrain
+  triangles, and tiny distant placeholders pull attention away from the subject.
+
+Article adaptation:
+- Translate the supplied Halupedia context into the subject-dependent bad scene
+  mode that best fits the article, then apply the visible failure mix above.
+- Make one article-specific subject recognizable through bad primitives and
+  broken construction.
+- Turn supporting context into crude unrelated assets: one floating cube, one
+  cone tree, one box building, one rectangular boat, one pasted-on path, one
+  missing-face hole, one blocky prop, one ugly pipe, one blank slab, all
+  competing with the subject.
+
+Content constraints:
+- Keep any marks, labels, UI-like elements, or page-like artifacts unreadable.
+- Keep the image editorial rather than pornographic, sexually exploitative, or
+  graphically gory.
+"""
+
+user = """
+Subject name: {{requested_title}}
+
+Subject summary:
+{{summary}}
+
+Subject body excerpt:
+{{article_excerpt}}
+
+Sidebar/object facts:
+{{sidebar_context}}
+
+Related world context:
+{{related_context}}
+
+Create a horizontal editorial hero image of the main subject as a catastrophic
+middle-school Blender render.
+
+Use the required visible failure mix: broken default-viewport camera, bad crop,
+one empty side, one overcrowded side, primitive cubes/cylinders/UV
+spheres/cones/planes, raw flat shading, copied rigs or copied props,
+mismatched scale, misaligned parts, placeholder cubes, unfinished backs,
+inverted normals, black inside-out faces, missing faces, black missing-face
+holes, z-fighting, bad pivots, unapplied transforms, malformed mesh triangles,
+collapsed faces, stretched triangles, warped cylinders, random material
+assignment, harsh single-lamp lighting, chunky compression, floating cube,
+tiny distant landmarks or tiny distant props, torn terrain panels, missing
+triangular chunks, black void undersides, giant unrelated foreground objects,
+oversized empty sky or water, catastrophic scale choices, and ugly default
+colors.
+
+Choose the bad scene mode that fits this subject: crowd/event, isolated object
+render, tilted-plane landscape, crude 3D diagram, or box-room interior. Make the
+article subject recognizable inside that broken scene mode.
+Make the result look like an unreviewed, embarrassing student render.
+"""

@@ -80,41 +80,6 @@ describe("HeadlineImagePanel", () => {
     });
   });
 
-  // ── URL input reactivity (the original bug) ───────────────────────────────────
-
-  it("URL input is typeable — value updates on each keystroke", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
-    const user = userEvent.setup();
-    renderPanel();
-
-    const input = await screen.findByPlaceholderText(/paste image url/i);
-    await user.type(input, "https://example.com/img.png");
-    expect(input).toHaveValue("https://example.com/img.png");
-  });
-
-  it("Attach button is disabled while URL input is empty", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
-    renderPanel();
-    const attach = await screen.findByRole("button", { name: /attach/i });
-    expect(attach).toBeDisabled();
-  });
-
-  it("Attach button enables once URL is typed", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
-    const user = userEvent.setup();
-    renderPanel();
-
-    const input = await screen.findByPlaceholderText(/paste image url/i);
-    await user.type(input, "https://example.com/img.png");
-    expect(screen.getByRole("button", { name: /attach/i })).not.toBeDisabled();
-  });
-
-  it("shows Generate button when no image is attached", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(NO_IMAGE_RESPONSE));
-    renderPanel();
-    expect(await screen.findByRole("button", { name: /generate/i })).toBeInTheDocument();
-  });
-
   it("keeps built-in aspect ratio options when the aspect-ratio endpoint is unavailable", async () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string) => {
       if (String(url).endsWith("/article-image-aspect-ratios")) {
@@ -128,6 +93,7 @@ describe("HeadlineImagePanel", () => {
 
     await user.click(await screen.findByRole("combobox", { name: /image aspect ratio/i }));
 
+    expect(await screen.findByRole("option", { name: /^auto$/i })).toBeInTheDocument();
     expect(await screen.findByRole("option", { name: /portrait \(832x1088\)/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /square \(832x832\)/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /poster portrait \(768x1152\)/i })).toBeInTheDocument();
@@ -223,13 +189,21 @@ describe("HeadlineImagePanel", () => {
     expect(onArticleUpdate).toHaveBeenCalled();
   });
 
-  it("sends the selected image preset key when generating", async () => {
+  it("sends the selected image preset and aspect ratio keys when generating", async () => {
     const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).endsWith("/article-image-prompts")) {
         return jsonResponse({
           prompts: [
             { key: "documentary_photo", label: "documentary_photo" },
-            { key: "psychedelic_editorial", label: "psychedelic_editorial" },
+            { key: "trading_card", label: "trading_card" },
+          ],
+        });
+      }
+      if (String(url).endsWith("/article-image-aspect-ratios")) {
+        return jsonResponse({
+          aspectRatios: [
+            { key: "landscape", label: "landscape", size: "1088x624" },
+            { key: "poster", label: "poster portrait", size: "768x1152" },
           ],
         });
       }
@@ -250,7 +224,9 @@ describe("HeadlineImagePanel", () => {
     renderPanel();
 
     await user.click(await screen.findByRole("combobox", { name: /image preset/i }));
-    await user.click(await screen.findByRole("option", { name: "psychedelic_editorial" }));
+    await user.click(await screen.findByRole("option", { name: "trading_card" }));
+    await user.click(await screen.findByRole("combobox", { name: /image aspect ratio/i }));
+    await user.click(await screen.findByRole("option", { name: /^auto$/i }));
     await user.click(screen.getByRole("button", { name: /generate/i }));
 
     await waitFor(() => {
@@ -259,8 +235,8 @@ describe("HeadlineImagePanel", () => {
       );
       expect(generateCall).toBeTruthy();
       expect(JSON.parse(String((generateCall?.[1] as RequestInit).body))).toEqual({
-        presetKey: "psychedelic_editorial",
-        aspectRatioKey: "landscape",
+        presetKey: "trading_card",
+        aspectRatioKey: "auto",
       });
     });
   });

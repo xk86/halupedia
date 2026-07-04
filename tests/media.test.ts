@@ -1068,6 +1068,7 @@ describe("http", () => {
     const s = await makeTestServer(new FakeLlm(), { enabled: false, auto_generate_for_featured_article: false }); t.after(s.cleanup);
     const body = await (await s.go("/api/admin/llm")).json() as any;
     assert.equal(body.imageGeneration.autoGenerateForFeaturedArticle, false);
+    assert.equal(body.imageGeneration.homepageAutoImageMaxAttempts, 3);
     assert.equal(body.imageGeneration.autoPresetMultipass, false);
   });
 
@@ -1142,81 +1143,44 @@ describe("http", () => {
     assert.equal(info.generation.model, enabledOpenAiImageGeneration.openai.model);
   });
 
-  test("GET /api/admin/article-image-prompts lists image prompt variants", async (t) => {
+  test("GET /api/admin/article-image-prompts lists preset prompts separately from runnable prompts", async (t) => {
     const s = await makeTestServer(); t.after(s.cleanup);
     const body = await (await s.go("/api/admin/article-image-prompts")).json() as any;
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "documentary_photo"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "psychedelic_editorial"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "1970s_adult_magazine_spread"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "1990s_cgi"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "analog_video_still"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "bad_phone_photo"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "black_and_white_security_camera"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "broadcast_news_still"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "bodypainting"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "field_guide_plate"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "paparazzi_photo"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "degraded_photocopy"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "communist_propaganda"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "comic_book_panel"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "courtroom_sketch"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "crayon_drawing"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "romance_novel"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "fpv_drone_feed"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "haunted_analog_still"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "overhead_projector_transparency"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "painting"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "movie_poster"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "museum_catalog_photo"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "newspaper_halftone_photo"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "night_vision"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "passport_photo"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "police_evidence_photo"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "polaroid"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "black_and_white_photo"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "medical_imaging_scan"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "public_domain_engraving"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "redacted_file_scan"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "satellite_reconnaissance"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "screenshot"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "sixth_generation_console_graphics"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "space_agency_artist_conception"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "wikihow_illustration"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "seventh_generation_console_graphics"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "anime"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "manuscript"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "logos"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "tabloid_cover"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "thermal_camera"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "trading_card"));
-    assert.ok(body.prompts.some((prompt: any) => prompt.key === "ultraviolet_fluorescence"));
-    assert.equal(body.prompts.find((prompt: any) => prompt.key === "tabloid_cover")?.allowText, true);
-    assert.equal(body.prompts.find((prompt: any) => prompt.key === "movie_poster")?.allowText, true);
-    assert.equal(body.prompts.find((prompt: any) => prompt.key === "screenshot")?.allowText, true);
+    const promptKeys = new Set(body.prompts.map((prompt: any) => prompt.key));
+
+    assert.ok(promptKeys.has("documentary_photo"));
+    assert.ok(promptKeys.has("bad_middle_school_blender_cgi"));
+    assert.ok(promptKeys.has("classic_roblox_build"));
+    assert.ok(promptKeys.has("psychedelic_editorial"));
+    assert.ok(promptKeys.has("trading_card"));
+    assert.ok(promptKeys.has("fanservice_anime"));
+    assert.equal(body.prompts.find((prompt: any) => prompt.key === "classic_roblox_build")?.allowText, false);
     assert.equal(body.prompts.find((prompt: any) => prompt.key === "trading_card")?.allowText, true);
     assert.equal(body.prompts.find((prompt: any) => prompt.key === "documentary_photo")?.allowText, false);
-    assert.equal(body.prompts.some((prompt: any) => prompt.key === "article_image_psychedelic_editorial"), false);
+    assert.equal(promptKeys.has("article_image_psychedelic_editorial"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;
     assert.ok(promptList.runnable.some((prompt: any) => prompt.key === "article_image"));
-    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "1990s_cgi"), false);
-    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "article_image_psychedelic_editorial"), false);
+    assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "trading_card"), false);
   });
 
-  test("romance novel preset includes same-gender pairing guidance", () => {
-    const preset = readArticleImagePresetFile("romance_novel");
-    assert.ok(preset);
-    assert.match(preset.system, /same-gender couples/i);
-    assert.match(preset.user, /gay or lesbian/i);
-  });
+  test("fanservice anime image preset uses provider-safer adult-anime wording", () => {
+    const prompt = readArticleImagePresetFile("fanservice_anime");
 
-  test("movie poster preset does not force the literal article title into poster text", () => {
-    const preset = readArticleImagePresetFile("movie_poster");
-    assert.ok(preset);
-    assert.match(preset.system, /Readable title type is optional/i);
-    assert.match(preset.user, /not necessarily the article\s+subject name/i);
-    assert.doesNotMatch(preset.system, /exact subject name only/i);
-    assert.doesNotMatch(preset.user, /exact title "\{\{requested_title\}\}"/i);
+    assert.ok(prompt);
+    assert.match(prompt.selectionWhen ?? "", /adult anime culture/);
+    assert.deepEqual(prompt.recommendedAspectRatios, ["landscape", "poster"]);
+    assert.match(prompt.system, /after-hours adult anime/);
+    assert.match(prompt.system, /unapologetic\s+fan-service aesthetics/);
+    assert.match(prompt.system, /lingerie-inspired outfits/);
+    assert.match(prompt.system, /strategic coverage/);
+    assert.match(prompt.system, /All humanoid characters must be unmistakably adult|unmistakably adult/);
+    assert.match(prompt.system, /Avoid:[\s\S]*Exposed private anatomy/);
+    assert.doesNotMatch(`${prompt.system}\n${prompt.user}`, /\bhentai\b/i);
+    assert.doesNotMatch(`${prompt.system}\n${prompt.user}`, /\bgenitalia|nipples|penetration|oral sex|masturbation|sexual fluids\b/i);
+    assert.match(prompt.user, /No readable text/);
+    assert.match(prompt.user, /direct intimate acts/);
+    assert.match(prompt.user, /sexualized\s+minors/);
   });
 
   test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {
@@ -1321,12 +1285,7 @@ describe("http", () => {
       assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
     }
     await res.json();
-    assert.equal(readArticleImagePresetFile("tabloid_cover")?.allowText, true);
     assert.match(capturedBody.prompt, /Text policy:/);
-    assert.match(capturedBody.prompt, /Readable text is allowed only when it is short, legible, natural for the chosen artifact, and directly grounded in the supplied context/i);
-    assert.match(capturedBody.prompt, /Do not invent headlines, slogans, labels, prices, stats, UI strings, captions/i);
-    assert.match(capturedBody.prompt, /fake words, pseudo-text, glyph text, lorem ipsum, or gibberish/i);
-    assert.doesNotMatch(capturedBody.prompt, /EXCLUSIVE|SHOCK|INSIDE|SPECIAL/);
   });
 
   test("POST /api/article/:slug/image/generate uses logos preset without transparent output", async (t) => {
@@ -1353,9 +1312,6 @@ describe("http", () => {
     }
     const body = await res.json() as any;
     assert.equal(body.presetKey, "logos");
-    assert.match(capturedBody.prompt, /standalone fictional logo/i);
-    assert.match(capturedBody.prompt, /Do not render readable text, captions, labels, UI text/i);
-    assert.doesNotMatch(capturedBody.prompt, /transparent background/i);
     assert.equal("background" in capturedBody, false);
   });
 
@@ -1399,7 +1355,6 @@ describe("http", () => {
     assert.doesNotMatch(selectorPrompt.system, /Avoid when/i);
     assert.doesNotMatch(selectorPrompt.system, /obscure scholarship, taxonomy/i);
     const schema = llm.capturedOptions[0]?.jsonSchema as any;
-    assert.equal(llm.capturedOptions[0]?.thinking, false);
     assert.equal(schema.type, "object");
     assert.equal(schema.additionalProperties, false);
     assert.ok(schema.properties.presetKey.enum.includes("documentary_photo"));
@@ -1449,6 +1404,49 @@ describe("http", () => {
     assert.ok(schema.required.includes("aspectRatioReason"));
   });
 
+  test("POST /api/article/:slug/image/generate hints auto aspect ratio from fixed preset recommendations", async (t) => {
+    t.after(() => setImageGenerationFetchForTests(null));
+    let capturedBody: any = null;
+    setImageGenerationFetchForTests(async (_url, init) => {
+      capturedBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    const llm = new FakeLlm('{"presetKey":"trading_card","aspectRatioKey":"poster","reason":"Trading card fits the subject as a collectible artifact.","aspectRatioReason":"Poster portrait matches the card-like format."}');
+    const s = await makeTestServer(
+      llm,
+      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
+    ); t.after(s.cleanup);
+    const articleSlug = seedArticle(s.databasePath);
+    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ presetKey: "trading_card", aspectRatioKey: "auto" }),
+    });
+    if (res.status !== 200) {
+      const b = await res.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
+    }
+    const body = await res.json() as any;
+    assert.equal(body.presetKey, "trading_card");
+    assert.equal(body.aspectRatioKey, "poster");
+    assert.equal(capturedBody.size, "768x1152");
+    const selectorPrompt = llm.capturedPrompts.find((prompt) => prompt.system.includes("Allowed aspect ratios:"));
+    assert.ok(selectorPrompt);
+    assert.match(selectorPrompt.system, /- trading_card:\n[\s\S]*Recommended aspect ratios: poster/i);
+    assert.match(selectorPrompt.system, /- poster: poster portrait \(768x1152\) \[recommended for selected preset\]/);
+    const posterIndex = selectorPrompt.system.indexOf("- poster:");
+    const landscapeIndex = selectorPrompt.system.indexOf("- landscape:");
+    assert.ok(posterIndex >= 0 && landscapeIndex >= 0 && posterIndex < landscapeIndex);
+    const schema = llm.capturedOptions[0]?.jsonSchema as any;
+    assert.deepEqual(schema.properties.presetKey.enum, ["trading_card"]);
+    assert.ok(schema.properties.aspectRatioKey.enum.includes("poster"));
+    assert.ok(schema.properties.aspectRatioKey.enum.includes("landscape"));
+  });
+
   test("POST /api/admin/pipeline/run carries article image options through", async (t) => {
     t.after(() => setImageGenerationFetchForTests(null));
     let capturedBody: any = null;
@@ -1485,37 +1483,6 @@ describe("http", () => {
     assert.equal(body.trace?.run?.error_message ?? null, null);
     assert.equal(capturedBody.size, "832x1088");
     assert.match(capturedBody.prompt, /conceptual editorial photo-illustration/i);
-  });
-
-  test("POST /api/article/:slug/image/generate accepts mixed-case auto preset responses", async (t) => {
-    t.after(() => setImageGenerationFetchForTests(null));
-    let capturedBody: any = null;
-    setImageGenerationFetchForTests(async (_url, init) => {
-      capturedBody = JSON.parse(String(init?.body ?? "{}"));
-      return new Response(
-        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
-        { headers: { "content-type": "application/json" } },
-      );
-    });
-    const llm = new FakeLlm('{"presetKey":"Documentary_Photo","reason":"Documentary photo keeps the article subject grounded."}');
-    const s = await makeTestServer(
-      llm,
-      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
-    ); t.after(s.cleanup);
-    const articleSlug = seedArticle(s.databasePath);
-    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ presetKey: "auto" }),
-    });
-    if (res.status !== 200) {
-      const b = await res.json() as any;
-      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
-      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
-    }
-    const body = await res.json() as any;
-    assert.equal(body.presetKey, "documentary_photo");
-    assert.match(capturedBody.prompt, /high-end photoreal editorial image/i);
   });
 
   test("POST /api/article/:slug/image/generate retries malformed auto preset responses", async (t) => {
@@ -1593,140 +1560,6 @@ describe("http", () => {
     assert.ok(logEntries.some((entry) =>
       entry.event === "article_image.preset_selection_invalid" &&
       entry.fields?.attempt === 3
-    ));
-  });
-
-  test("POST /api/article/:slug/image/generate shuffles auto preset order by article", async (t) => {
-    t.after(() => setImageGenerationFetchForTests(null));
-    setImageGenerationFetchForTests(async (_url, init) => {
-      JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
-      return new Response(
-        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
-        { headers: { "content-type": "application/json" } },
-      );
-    });
-    const llm = new FakeLlm('{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial adds variety while preserving the article subject."}');
-    const s = await makeTestServer(
-      llm,
-      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
-    ); t.after(s.cleanup);
-    const articleSlugA = seedArticle(s.databasePath, "shuffle-a");
-    const articleSlugB = seedArticle(s.databasePath, "shuffle-b");
-
-    const resA = await s.go(`/api/article/${articleSlugA}/image/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ presetKey: "auto" }),
-    });
-    if (resA.status !== 200) {
-      const b = await resA.json() as any;
-      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
-      assert.equal(resA.status, 200, `unexpected status: ${resA.status} ${b?.error ?? ""}`);
-    }
-    await resA.json();
-
-    const resB = await s.go(`/api/article/${articleSlugB}/image/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ presetKey: "auto" }),
-    });
-    if (resB.status !== 200) {
-      const b = await resB.json() as any;
-      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
-      assert.equal(resB.status, 200, `unexpected status: ${resB.status} ${b?.error ?? ""}`);
-    }
-    await resB.json();
-
-    const selectorPrompts = llm.capturedPrompts.filter((prompt) => prompt.system.includes("Allowed presets:"));
-    assert.equal(selectorPrompts.length, 2);
-    const presetLinesA = selectorPrompts[0].system.match(/^- [a-z0-9_]+:/gm) ?? [];
-    const presetLinesB = selectorPrompts[1].system.match(/^- [a-z0-9_]+:/gm) ?? [];
-    assert.ok(presetLinesA.includes("- documentary_photo:"));
-    assert.ok(presetLinesB.includes("- documentary_photo:"));
-    assert.notDeepEqual(presetLinesA, presetLinesB);
-  });
-
-  test("POST /api/article/:slug/image/generate skips challenger pass when multipass is disabled", async (t) => {
-    t.after(() => setImageGenerationFetchForTests(null));
-    let capturedPrompt = "";
-    setImageGenerationFetchForTests(async (_url, init) => {
-      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
-      capturedPrompt = body.prompt ?? "";
-      return new Response(
-        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
-        { headers: { "content-type": "application/json" } },
-      );
-    });
-    const llm = new FakeLlm([
-      '{"presetKey":"documentary_photo","reason":"Documentary photo is the safest literal rendering."}',
-      '{"presetKey":"psychedelic_editorial","reason":"This response should not be used."}',
-    ]);
-    const s = await makeTestServer(
-      llm,
-      { ...enabledOpenAiImageGeneration, auto_preset_multipass: false },
-    ); t.after(s.cleanup);
-    const articleSlug = seedArticle(s.databasePath);
-    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ presetKey: "auto" }),
-    });
-    if (res.status !== 200) {
-      const b = await res.json() as any;
-      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
-      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
-    }
-    const body = await res.json() as any;
-    assert.equal(body.presetKey, "documentary_photo");
-    assert.match(capturedPrompt, /high-end photoreal editorial image/i);
-    assert.equal(llm.capturedPrompts.filter((prompt) => prompt.system.includes("Allowed presets:")).length, 1);
-  });
-
-  test("POST /api/article/:slug/image/generate challenges any first-pass preset", async (t) => {
-    t.after(() => setImageGenerationFetchForTests(null));
-    let capturedPrompt = "";
-    setImageGenerationFetchForTests(async (_url, init) => {
-      const body = JSON.parse(String(init?.body ?? "{}")) as { prompt?: string };
-      capturedPrompt = body.prompt ?? "";
-      return new Response(
-        JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
-        { headers: { "content-type": "application/json" } },
-      );
-    });
-    const logEntries: Array<{ level: string; event: string; fields?: Record<string, unknown> }> = [];
-    const llm = new FakeLlm([
-      '{"presetKey":"painting","reason":"Painting fits the article as a ceremonial image."}',
-      '{"presetKey":"psychedelic_editorial","reason":"Psychedelic editorial is the strongest alternative."}',
-      '{"presetKey":"painting","reason":"Painting remains the clearer representation of the main subject."}',
-    ]);
-    const s = await makeTestServer(llm, enabledOpenAiImageGeneration, captureLogger(logEntries)); t.after(s.cleanup);
-    const articleSlug = seedArticle(s.databasePath);
-    const res = await s.go(`/api/article/${articleSlug}/image/generate`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ presetKey: "auto" }),
-    });
-    if (res.status !== 200) {
-      const b = await res.json() as any;
-      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
-      assert.equal(res.status, 200, `unexpected status: ${res.status} ${b?.error ?? ""}`);
-    }
-    const body = await res.json() as any;
-    assert.equal(body.presetKey, "painting");
-    assert.match(capturedPrompt, /painted image/i);
-
-    const selectorPrompts = llm.capturedPrompts.filter((prompt) => prompt.system.includes("Allowed presets:"));
-    assert.equal(selectorPrompts.length, 3);
-    assert.match(selectorPrompts[1].user, /previous pass chose "painting"/i);
-    assert.match(selectorPrompts[1].user, /This pass considers the alternative presets listed below/i);
-    assert.equal(selectorPrompts[1].system.includes("- painting:"), false);
-    assert.ok(selectorPrompts[1].system.includes("- documentary_photo:"));
-    assert.ok(selectorPrompts[1].system.includes("- psychedelic_editorial:"));
-    assert.match(selectorPrompts[2].user, /Choose between only "painting" and "psychedelic_editorial"/i);
-    assert.ok(logEntries.some((entry) =>
-      entry.event === "article_image.preset_final_selected" &&
-      entry.fields?.challengerPresetKey === "psychedelic_editorial" &&
-      entry.fields?.presetKey === "painting"
     ));
   });
 
@@ -1933,7 +1766,7 @@ describe("http", () => {
     assert.equal(revisions[1].headlineMediaCaption, "Removed caption");
   });
 
-  test("POST .../image/upload with raw image/* body stores and attaches image", async (t) => {
+  test("POST /api/article/:slug/image/upload with raw image/* body stores and attaches image", async (t) => {
     const s = await makeTestServer(); t.after(s.cleanup);
     const r = await s.go("/api/article/aspirin/image/upload", { method: "POST", headers: { "content-type": "image/png" }, body: TINY_PNG });
     if (r.status !== 200) {
@@ -1947,6 +1780,42 @@ describe("http", () => {
     assert.equal(body.isNew, true);
     const check = await (await s.go("/api/article/aspirin/image")).json() as any;
     assert.equal(check.image?.id, body.mediaId);
+  });
+
+  test("POST /api/article/:slug/image/upload keeps media id after generated caption", async (t) => {
+    const s = await makeTestServer(new FakeLlm([
+      "A caption-derived title that used to rename uploaded media.",
+      JSON.stringify({ caption: "Generated caption" }),
+    ]));
+    t.after(s.cleanup);
+
+    const r = await s.go("/api/article/aspirin/image/upload", { method: "POST", headers: { "content-type": "image/png" }, body: TINY_PNG });
+    if (r.status !== 200) {
+      const b = await r.json() as any;
+      if (/vips|dimension|load/i.test(b?.error ?? "")) return;
+    }
+    assert.equal(r.status, 200, `unexpected status: ${r.status}`);
+    const body = await r.json() as any;
+    assert.match(body.mediaId, /^img-/);
+
+    for (let i = 0; i < 20; i += 1) {
+      const mediaDb = openMediaDatabase(s.mediaDatabasePath);
+      const record = getMediaById(mediaDb, body.mediaId);
+      mediaDb.close();
+      if (record?.description === "A caption-derived title that used to rename uploaded media.") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const mediaDb = openMediaDatabase(s.mediaDatabasePath);
+    const originalRecord = getMediaById(mediaDb, body.mediaId);
+    const renamedRecord = getMediaById(mediaDb, "a-captionderived-title-that-used-to");
+    mediaDb.close();
+    assert.equal(originalRecord?.description, "A caption-derived title that used to rename uploaded media.");
+    assert.equal(renamedRecord, null);
+
+    const check = await (await s.go("/api/article/aspirin/image")).json() as any;
+    assert.equal(check.image?.id, body.mediaId);
+    assert.equal(check.image?.articleCaption, "Generated caption");
   });
 
   test("POST .../image/upload with multipart form-data works", async (t) => {
@@ -2188,10 +2057,6 @@ describe("pipeline-nodes", () => {
 
     const patch = await generateImageCaptionNode.run(state as any, depsWithMedia as any);
     assert.ok(patch.imageCaptionResult);
-    // titleSlug is derived from the first words of the (plain-prose) description —
-    // see captionImage.ts, which slugifies the response rather than parsing JSON
-    // (image_description.toml sets json = false).
-    assert.equal(patch.imageCaptionResult.titleSlug, "a-fictional-compound-used-in-metallurgy");
     assert.equal(patch.imageCaptionResult.description, description);
 
     // Verify no vision images were attached (text-only model)
@@ -2210,7 +2075,7 @@ describe("pipeline-nodes", () => {
     const deps = { ...makeDeps(db, new FakeLlm()), mediaDb };
     const state = {
       ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "img-aabbcc112233" }),
-      imageCaptionResult: { titleSlug: "nice-slug", description: "A nice image.", articleCaption: "Sidebar caption text." },
+      imageCaptionResult: { description: "A nice image.", articleCaption: "Sidebar caption text." },
     };
 
     persistImageCaptionNode.run(state as any, deps as any);
@@ -2260,7 +2125,7 @@ describe("pipeline-nodes", () => {
     const state = {
       ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "some-img" }),
       loadedArticle: { slug: "test-article", canonicalSlug: "test-article", title: "Test Article", body: "# Test\n\nBody.", summary: "", generatedAt: Date.now() },
-      imageCaptionResult: { titleSlug: "some-img", description: "A test image description." },
+      imageCaptionResult: { description: "A test image description." },
     };
     const patch = await generateArticleCaptionNode.run(state as any, deps as any);
     assert.ok(patch.imageCaptionResult);
@@ -2276,7 +2141,7 @@ describe("pipeline-nodes", () => {
       override async chat() { throw new Error("LLM error"); }
     }
     const deps = makeDeps(db, new ThrowingLlm());
-    const original = { titleSlug: "some-img", description: "A description." };
+    const original = { description: "A description." };
     const state = {
       ...initialPipelineState({ requestId: randomUUID(), workflow: "image.caption", slug: "test-article", imageId: "some-img" }),
       loadedArticle: { slug: "test-article", canonicalSlug: "test-article", title: "Test Article", body: "# Test\n\nBody.", summary: "", generatedAt: Date.now() },

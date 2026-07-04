@@ -112,8 +112,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     world: {
       epoch_real_time: app.world?.epoch_real_time ?? "2026-01-01T00:00:00.000Z",
       epoch_day: Math.max(1, Math.floor(app.world?.epoch_day ?? 1)),
-      epoch_date: app.world?.epoch_date ?? "2026-01-01",
-      kirk_death_date: app.world?.kirk_death_date ?? "2025-09-10",
+      epoch_date: app.world?.epoch_date ?? "2000-01-01",
       calendar_name: app.world?.calendar_name ?? "Halu Era",
     },
     random_page: {
@@ -148,6 +147,10 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
         enabled: app.images?.generation?.enabled ?? false,
         auto_generate_for_new_articles: app.images?.generation?.auto_generate_for_new_articles ?? false,
         auto_generate_for_featured_article: app.images?.generation?.auto_generate_for_featured_article ?? false,
+        homepage_auto_image_max_attempts: Math.max(
+          0,
+          Math.floor(app.images?.generation?.homepage_auto_image_max_attempts ?? 3),
+        ),
         auto_preset_multipass: app.images?.generation?.auto_preset_multipass ?? false,
         backend: app.images?.generation?.backend === "ollama" ? "ollama" : "openai",
         aspect_ratios: aspectRatios,

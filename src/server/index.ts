@@ -179,7 +179,7 @@ import {
   type ReferenceStatus,
   type ReferenceStatusEntry,
 } from "./article";
-import { isCurrentHomepageNews } from "./todaysNews";
+import { hasCurrentOrNoHomepageNews, isCurrentHomepageNews } from "./todaysNews";
 import {
   assembleArticleMarkdownForRender,
   renderArticleDisplayHtml,
@@ -241,8 +241,22 @@ const HOMEPAGE_MAINTENANCE_TASK = "homepage.refresh";
 const DB_BACKUP_TASK = "db.backup";
 const DB_BACKUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const DB_BACKUP_KEEP = 7; // keep last 7 compressed backups
-const HOMEPAGE_PENDING_RETRY_MS = 1_000;
+const HOMEPAGE_PENDING_RETRY_MS = 5_000;
+const HOMEPAGE_REQUEST_TRIGGER_COOLDOWN_MS = 60_000;
+const HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS = [
+  60_000,
+  2 * 60_000,
+  5 * 60_000,
+  10 * 60_000,
+] as const;
 const HOMEPAGE_REFRESH_GRACE_MS = 250;
+
+function homepageRefreshFailureBackoffMs(failures: number): number {
+  if (failures <= 0) return 0;
+  return HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS[
+    Math.min(failures - 1, HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS.length - 1)
+  ];
+}
 
 function routeSlug(pathname: string) {
   if (pathname.startsWith("/wiki/")) {
@@ -585,11 +599,12 @@ function normalizeArticleImagePresetKey(value: string | undefined): string {
 
 function listArticleImagePromptOptions() {
   return [
-    { key: "documentary_photo", label: "documentary_photo", allowText: false },
+    { key: "documentary_photo", label: "documentary_photo", allowText: false, recommendedAspectRatios: [] },
     ...listArticleImagePresetFiles().map((preset) => ({
       key: preset.key,
       label: preset.label,
       allowText: preset.allowText === true,
+      recommendedAspectRatios: preset.recommendedAspectRatios,
     })),
   ];
 }
@@ -603,6 +618,8 @@ function readArticleImagePromptSelection(key: string) {
       ...meta,
       key: "documentary_photo",
       label: "documentary_photo",
+      allowText: false,
+      recommendedAspectRatios: [],
     };
   }
   const preset = readArticleImagePresetFile(presetKey);
@@ -727,6 +744,7 @@ function sampleRandomInspirationArticles(
 
 async function ensureHomepageCache(
   deps: PipelineDeps,
+  onNode?: (nodeName: string, nodeKind: string) => void,
 ): Promise<HomepagePayload> {
   const recorder = getTraceRecorder(deps.runtime.app.pipeline.trace);
   const result = await runWorkflow(homepageRefreshWorkflow, {
@@ -739,6 +757,7 @@ async function ensureHomepageCache(
     deps,
     recorder,
     logger: deps.logger,
+    onNode,
   });
   if (result.status !== "ok") {
     throw result.error ?? new Error("homepage refresh workflow failed");
@@ -1025,6 +1044,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   const NOISY_POLL_PATHS = new Set([
     "/api/admin/generation-queue",
     "/api/admin/llm",
+    "/api/admin/runs",
     "/api/admin/pipeline/workflows",
     "/api/admin/pipeline/runs",
   ]);
@@ -1111,6 +1131,8 @@ export async function createApp(options: CreateAppOptions = {}) {
   const autoPostProcessed = new Set<string>();
   const homepageFeaturedImageQueued = new Set<string>();
   const homepageNewsImageQueued = new Set<string>();
+  const homepageFeaturedImageAttempts = new Map<string, number>();
+  const homepageNewsImageAttempts = new Map<string, number>();
   function notifySidecar(slug: string, event: unknown) {
     const listeners = articleListeners.get(slug);
     if (!listeners) return;
@@ -1949,6 +1971,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       backend: runtime.app.images.generation.backend,
       configured: autoImageConfigured,
       has_headline_image: hasHeadlineImage,
+      attempts: featured?.slug ? homepageFeaturedImageAttempts.get(featured.slug) ?? 0 : 0,
+      max_attempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
     };
     if (autoImageConfigured) {
       logger.info("homepage_featured_image.auto_check", autoCheckFields);
@@ -1958,6 +1982,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!autoImageConfigured || !featured?.slug) return;
     if (hasHeadlineImage) return;
     if (homepageFeaturedImageQueued.has(featured.slug)) return;
+    const previousAttempts = homepageFeaturedImageAttempts.get(featured.slug) ?? 0;
+    const maxAttempts = runtime.app.images.generation.homepage_auto_image_max_attempts;
+    if (previousAttempts >= maxAttempts) {
+      logger.warn("homepage_featured_image.auto_skipped_attempt_limit", {
+        slug: featured.slug,
+        attempts: previousAttempts,
+        max_attempts: maxAttempts,
+      });
+      return;
+    }
 
     const article = getArticleByLookup(db, featured.slug);
     if (!article) {
@@ -1968,6 +2002,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     homepageFeaturedImageQueued.add(featured.slug);
+    homepageFeaturedImageAttempts.set(featured.slug, previousAttempts + 1);
     const title = article.title ?? featured.title ?? featured.slug;
     const imageOp = trackActiveOperation(featured.slug, title, "article.image_generate");
     const imagePromise = runArticleImageGenerationWorkflow(
@@ -1983,11 +2018,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     trackGeneration(
       imagePromise
         .then(() => {
+          homepageFeaturedImageAttempts.delete(featured.slug);
           logger.info("homepage_featured_image.auto_done", { slug: featured.slug });
         })
         .catch((err) => {
           logger.warn("homepage_featured_image.auto_failed", {
             slug: featured.slug,
+            attempt: homepageFeaturedImageAttempts.get(featured.slug) ?? previousAttempts + 1,
+            max_attempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
             error: err instanceof Error ? err.message : String(err),
           });
         })
@@ -2008,6 +2046,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       aspectRatioKey: "landscape",
       configured: imageConfigured,
       has_headline_image: hasHeadlineImage,
+      attempts: news?.slug ? homepageNewsImageAttempts.get(news.slug) ?? 0 : 0,
+      max_attempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
     };
     if (imageConfigured) {
       logger.info("homepage_news_image.auto_check", autoCheckFields);
@@ -2017,6 +2057,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!imageConfigured || !news?.slug) return;
     if (hasHeadlineImage) return;
     if (homepageNewsImageQueued.has(news.slug)) return;
+    const previousAttempts = homepageNewsImageAttempts.get(news.slug) ?? 0;
+    const maxAttempts = runtime.app.images.generation.homepage_auto_image_max_attempts;
+    if (previousAttempts >= maxAttempts) {
+      logger.warn("homepage_news_image.auto_skipped_attempt_limit", {
+        slug: news.slug,
+        attempts: previousAttempts,
+        max_attempts: maxAttempts,
+      });
+      return;
+    }
 
     const article = getArticleByLookup(db, news.slug);
     if (!article) {
@@ -2027,6 +2077,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     homepageNewsImageQueued.add(news.slug);
+    homepageNewsImageAttempts.set(news.slug, previousAttempts + 1);
     const title = article.title ?? news.title ?? news.slug;
     const imageOp = trackActiveOperation(news.slug, title, "article.image_generate");
     const imagePromise = runArticleImageGenerationWorkflow(
@@ -2042,11 +2093,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     trackGeneration(
       imagePromise
         .then(() => {
+          homepageNewsImageAttempts.delete(news.slug);
           logger.info("homepage_news_image.auto_done", { slug: news.slug });
         })
         .catch((err) => {
           logger.warn("homepage_news_image.auto_failed", {
             slug: news.slug,
+            attempt: homepageNewsImageAttempts.get(news.slug) ?? previousAttempts + 1,
+            max_attempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
             error: err instanceof Error ? err.message : String(err),
           });
         })
@@ -2065,17 +2119,26 @@ export async function createApp(options: CreateAppOptions = {}) {
   );
 
   const HOMEPAGE_TTL_MS = runtime.app.homepage.rotation_hours * 60 * 60 * 1000;
+  let homepageRequestRefreshTriggeredAt = 0;
+  let homepageRefreshFailures = 0;
+  let homepageRefreshNextAllowedAt = 0;
+  const homepageRefreshBackoffDelay = (now: number) =>
+    Math.max(0, homepageRefreshNextAllowedAt - now);
+
   if (!options.skipHomepagePrepare) {
     maintenance.register({
       name: HOMEPAGE_MAINTENANCE_TASK,
       nextDelayMs: () => {
+        const now = Date.now();
+        const backoffDelay = homepageRefreshBackoffDelay(now);
+        if (backoffDelay > 0) return backoffDelay;
         const cached = getHomepageCache(db);
         if (!cached) return 0;
-        if (!isCurrentHomepageNews(cached.todaysNews, runtime.app)) return 0;
+        if (!hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)) return 0;
         return (
           cached.generatedAt +
           HOMEPAGE_TTL_MS -
-          Date.now() +
+          now +
           HOMEPAGE_REFRESH_GRACE_MS
         );
       },
@@ -2094,7 +2157,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         });
         try {
           await reloadRuntime();
-          const payload = await ensureHomepageCache(buildPipelineDeps());
+          const homepageOp = trackActiveOperation("homepage", "Homepage", "homepage.refresh");
+          const homepagePromise = ensureHomepageCache(buildPipelineDeps(), homepageOp.onNode);
+          homepageOp.register(homepagePromise);
+          const payload = await homepagePromise;
           queueHomepageFeaturedImageIfMissing(payload.featured);
           queueHomepageNewsImageIfMissing(payload.todaysNews);
           logger.info("homepage.refresh_done", {
@@ -2103,15 +2169,53 @@ export async function createApp(options: CreateAppOptions = {}) {
             generated_at: payload.generatedAt,
             expires_at: payload.expiresAt,
           });
+          homepageRefreshFailures = 0;
+          homepageRefreshNextAllowedAt = 0;
         } catch (error) {
+          homepageRefreshFailures += 1;
+          homepageRefreshNextAllowedAt =
+            Date.now() + homepageRefreshFailureBackoffMs(homepageRefreshFailures);
           logger.error("homepage.refresh_failed", {
             reason,
+            failures: homepageRefreshFailures,
+            next_allowed_at: homepageRefreshNextAllowedAt,
             error: error instanceof Error ? error.message : String(error),
           });
           throw error;
         }
       },
     });
+  }
+
+  function triggerHomepageRefreshFromRequest(reason: string, now: number): number {
+    const backoffDelay = homepageRefreshBackoffDelay(now);
+    if (backoffDelay > 0) {
+      logger.info("homepage.refresh_trigger_suppressed", {
+        reason,
+        suppression: "failure_backoff",
+        wait_ms: backoffDelay,
+        next_allowed_at: homepageRefreshNextAllowedAt,
+      });
+      return Math.max(HOMEPAGE_PENDING_RETRY_MS, backoffDelay);
+    }
+
+    const cooldownDelay =
+      homepageRequestRefreshTriggeredAt > 0
+        ? HOMEPAGE_REQUEST_TRIGGER_COOLDOWN_MS - (now - homepageRequestRefreshTriggeredAt)
+        : 0;
+    if (cooldownDelay > 0) {
+      logger.info("homepage.refresh_trigger_suppressed", {
+        reason,
+        suppression: "request_cooldown",
+        wait_ms: cooldownDelay,
+        last_triggered_at: homepageRequestRefreshTriggeredAt,
+      });
+      return Math.max(HOMEPAGE_PENDING_RETRY_MS, cooldownDelay);
+    }
+
+    homepageRequestRefreshTriggeredAt = now;
+    maintenance.trigger(HOMEPAGE_MAINTENANCE_TASK, reason);
+    return HOMEPAGE_PENDING_RETRY_MS;
   }
 
   // ── Periodic database backup ────────────────────────────────────────────────
@@ -2186,7 +2290,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (
       cached
       && cached.generatedAt + HOMEPAGE_TTL_MS > now
-      && isCurrentHomepageNews(cached.todaysNews, runtime.app)
+      && hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)
     ) {
       queueHomepageFeaturedImageIfMissing(cached.featured);
       queueHomepageNewsImageIfMissing(cached.todaysNews);
@@ -2196,15 +2300,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       }));
     }
 
-    maintenance.trigger(
-      HOMEPAGE_MAINTENANCE_TASK,
+    const pendingRetryMs = triggerHomepageRefreshFromRequest(
       cached ? "expired_cache_request" : "missing_cache_request",
+      now,
     );
-    if (cached && isCurrentHomepageNews(cached.todaysNews, runtime.app)) {
-      queueHomepageNewsImageIfMissing(cached.todaysNews);
+    if (cached) {
+      queueHomepageFeaturedImageIfMissing(cached.featured);
+      if (isCurrentHomepageNews(cached.todaysNews, runtime.app)) {
+        queueHomepageNewsImageIfMissing(cached.todaysNews);
+      }
       return c.json(withHomepageImages({
         ...cached,
-        expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,
+        expiresAt: now + pendingRetryMs,
+        refreshPending: true,
       }));
     }
     return c.json({
@@ -2212,7 +2320,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       todaysNews: null,
       didYouKnow: [],
       generatedAt: now,
-      expiresAt: now + HOMEPAGE_PENDING_RETRY_MS,
+      expiresAt: now + pendingRetryMs,
+      refreshPending: true,
     });
   });
 
@@ -3590,6 +3699,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           enabled: runtime.app.images.generation.enabled,
           autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
           autoPresetMultipass: runtime.app.images.generation.auto_preset_multipass,
+          homepageAutoImageMaxAttempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
           backend: runtime.app.images.generation.backend,
           openaiModel: runtime.app.images.generation.openai.model,
           ollamaModel: runtime.app.images.generation.ollama.model,
@@ -3739,6 +3849,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         enabled: runtime.app.images.generation.enabled,
         autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
         autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
+        homepageAutoImageMaxAttempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
         autoPresetMultipass: runtime.app.images.generation.auto_preset_multipass,
         backend: runtime.app.images.generation.backend,
         aspectRatios: listArticleImageAspectRatios(runtime.app.images.generation),
@@ -3876,6 +3987,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       enabled?: unknown;
       autoGenerateForNewArticles?: unknown;
       autoGenerateForFeaturedArticle?: unknown;
+      homepageAutoImageMaxAttempts?: unknown;
       autoPresetMultipass?: unknown;
       backend?: unknown;
       openai?: {
@@ -3917,6 +4029,14 @@ export async function createApp(options: CreateAppOptions = {}) {
             "images.generation",
             "auto_generate_for_featured_article",
             body.autoGenerateForFeaturedArticle,
+          );
+        }
+        if (typeof body.homepageAutoImageMaxAttempts === "number") {
+          next = setTomlTableValue(
+            next,
+            "images.generation",
+            "homepage_auto_image_max_attempts",
+            Math.max(0, Math.floor(body.homepageAutoImageMaxAttempts)),
           );
         }
         if (typeof body.autoPresetMultipass === "boolean") {
@@ -5015,18 +5135,6 @@ export async function createApp(options: CreateAppOptions = {}) {
               logger.info("image.caption_stale_attachment", { slug: articleSlug, mediaId });
               return;
             }
-            // Rename the temp id (img-xxxx) to the title_slug from the description
-            // pipeline. Only at ingest — never during regeneration.
-            const titleSlug = result.state.imageCaptionResult?.titleSlug;
-            if (titleSlug && titleSlug !== mediaId) {
-              const renamed = updateMediaId(mediaDb, mediaId, titleSlug);
-              if (renamed) {
-                const articleCaption = result.state.imageCaptionResult?.articleCaption ?? "";
-                upsertArticleHeadlineMedia(db, articleSlug, titleSlug, articleCaption);
-                updateLatestArticleRevisionMediaSnapshot(db, articleSlug, titleSlug, articleCaption);
-                logger.info("media.renamed_after_ingest", { from: mediaId, to: titleSlug });
-              }
-            }
             invalidateArticleHtml(articleSlug);
             // Fire post-process so the infobox regenerates with the new image
             // context — but only when the article row actually exists. If the
@@ -5036,7 +5144,6 @@ export async function createApp(options: CreateAppOptions = {}) {
               logger.info("image.post_process_deferred_no_article", { slug: articleSlug, mediaId });
               return;
             }
-            const finalSlug = titleSlug && titleSlug !== mediaId ? titleSlug : mediaId;
             trackGeneration(
               runWorkflow(postProcessWorkflow, {
                 input: {
@@ -5049,7 +5156,7 @@ export async function createApp(options: CreateAppOptions = {}) {
                 recorder: getTraceRecorder(runtime.app.pipeline.trace),
                 logger,
               }).then(() => {
-                logger.info("image.post_process_done", { slug: articleSlug, mediaId: finalSlug });
+                logger.info("image.post_process_done", { slug: articleSlug, mediaId });
               }).catch(() => {}),
             );
           } else {

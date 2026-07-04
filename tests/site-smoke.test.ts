@@ -11,6 +11,7 @@ import type { ImageGenerationConfig } from "../src/server/types";
 import type { LogFields, Logger } from "../src/server/logger";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 import { getWorldDate, todaysNewsSlug, todaysNewsTitle } from "../src/server/worldClock";
+import { setImageGenerationFetchForTests } from "../src/server/imageGeneration";
 
 interface CapturedLogEntry {
   level: "debug" | "info" | "warn" | "error";
@@ -97,6 +98,27 @@ class FailingGenerationLlmClient implements LlmRouter {
 
   async streamChat(): Promise<{ content: string; finishReason: string }> {
     throw new Error("generation should not run for cached lookup regressions");
+  }
+
+  async embed(): Promise<number[][]> {
+    return [];
+  }
+
+  async probeConnections(): Promise<void> {}
+}
+
+class FixedImagePresetLlmClient implements LlmRouter {
+  async chat(): Promise<string> {
+    return JSON.stringify({
+      presetKey: "broadcast_news_still",
+      aspectRatioKey: "landscape",
+      reason: "A broadcast still fits this homepage article.",
+      aspectRatioReason: "Landscape fits the homepage image slot.",
+    });
+  }
+
+  async streamChat(): Promise<{ content: string; finishReason: string }> {
+    throw new Error("article generation should not run for cached homepage image tests");
   }
 
   async embed(): Promise<number[][]> {
@@ -390,6 +412,23 @@ async function waitForHomepage(
     await new Promise((r) => setTimeout(r, 20));
   }
   assert.fail(`homepage cache was not ready before timeout: ${JSON.stringify(lastBody)}`);
+}
+
+async function waitForQueueItem(
+  server: { request: (path: string, init?: RequestInit) => Promise<Response> },
+  predicate: (item: any) => boolean,
+  timeoutMs = 1000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let lastItems: any[] = [];
+  while (Date.now() < deadline) {
+    const res = await server.request("/api/admin/generation-queue");
+    const body = await res.json();
+    lastItems = body.items ?? [];
+    if (lastItems.some(predicate)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`queue item was not ready before timeout: ${JSON.stringify(lastItems)}`);
 }
 
 function parseNdjson<T>(payload: string): T[] {
@@ -1687,6 +1726,57 @@ test("homepage handles DYK generation failure gracefully", async (t) => {
   assert.deepEqual(body.didYouKnow, [], "DYK should be empty array on failure, not error");
 });
 
+test("homepage pipeline records today's news generation failures as warnings", async (t) => {
+  const llm: LlmRouter = {
+    async chat() {
+      throw new Error("desktop node unavailable");
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createTestServer({
+    seed: true,
+    llmClient: llm,
+    homepagePrepare: false,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/admin/pipeline/run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ workflow: "homepage.refresh", input: {} }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.status, "ok", "homepage refresh should keep serving the rest of the cache");
+  const homepageNode = body.trace.nodes.find(
+    (node: { node_name?: string }) => node.node_name === "write.refresh_homepage_cache",
+  );
+  assert.ok(homepageNode, "homepage refresh node should be traced");
+  assert.deepEqual(homepageNode.warnings, [
+    "homepage.todays_news_generation_failed: Today's News generation failed: desktop node unavailable",
+  ]);
+
+  const runsRes = await server.request("/api/admin/pipeline/runs?workflow=homepage.refresh&limit=20");
+  assert.equal(runsRes.status, 200);
+  const runsBody = await runsRes.json();
+  const listedRun = runsBody.runs.find(
+    (run: { run_id?: string }) => run.run_id === body.runId,
+  );
+  assert.ok(listedRun, "homepage refresh run should appear in the run list");
+  assert.equal(listedRun.warning_count, 1);
+  assert.deepEqual(listedRun.warning_messages, [
+    "homepage.todays_news_generation_failed: Today's News generation failed: desktop node unavailable",
+  ]);
+});
+
 test("homepage uses a current DB cache without regenerating at startup", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
   const databasePath = join(root, TEST_CONFIG.database_path);
@@ -1701,7 +1791,6 @@ test("homepage uses a current DB cache without regenerating at startup", async (
       title: todaysNewsTitle(worldDate),
       worldDate: worldDate.label,
       worldDay: worldDate.day,
-      kirkLabel: worldDate.kirkLabel,
       generatorVersion: "1",
       summaryMarkdown: "Cached news.",
       headlines: [],
@@ -1744,6 +1833,208 @@ test("homepage uses a current DB cache without regenerating at startup", async (
   assert.equal(body.didYouKnow[0].fact, "... [Cached](halu:cached \"Cached\") already knows.");
 });
 
+test("homepage serves stale cached content while current-day refresh is pending", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  const oldWorldDate = getWorldDate(loadConfig().app, now - 24 * 60 * 60 * 1000);
+  const oldNewsSlug = todaysNewsSlug(oldWorldDate);
+  saveHomepageCache(db, {
+    featured: { slug: "cached-stale", title: "Cached Stale", summaryMarkdown: "Previously cached lead." },
+    todaysNews: {
+      slug: oldNewsSlug,
+      title: todaysNewsTitle(oldWorldDate),
+      worldDate: oldWorldDate.label,
+      worldDay: oldWorldDate.day,
+      generatorVersion: "1",
+      summaryMarkdown: "Yesterday's news.",
+      headlines: [],
+    },
+    didYouKnow: [{ slug: "cached-stale", title: "Cached Stale", fact: "... cached stale fact." }],
+    generatedAt: now - 24 * 60 * 60 * 1000,
+    expiresAt: now - 1,
+  });
+  db.close();
+
+  let chatCalls = 0;
+  const llm: LlmRouter = {
+    async chat() {
+      chatCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return "... [Cached Stale](halu:cached-stale \"Cached Stale\") refreshes in the background.";
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: false,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+
+  assert.equal(body.featured.title, "Cached Stale");
+  assert.equal(body.todaysNews.slug, oldNewsSlug);
+  assert.equal(body.didYouKnow[0].fact, "... cached stale fact.");
+  assert.ok(
+    body.expiresAt > Date.now(),
+    "stale response should ask the client to retry instead of looking empty",
+  );
+  assert.equal(body.refreshPending, true);
+  assert.equal(chatCalls, 0, "request should return stale cache without waiting for refresh");
+});
+
+test("request-triggered homepage refresh appears as an active pipeline run", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const oldGeneratedAt = Date.now() - 24 * 60 * 60 * 1000;
+  saveHomepageCache(db, {
+    featured: { slug: "cached-stale", title: "Cached Stale", summaryMarkdown: "Previously cached lead." },
+    todaysNews: null,
+    didYouKnow: [{ slug: "cached-stale", title: "Cached Stale", fact: "... cached stale fact." }],
+    generatedAt: oldGeneratedAt,
+    expiresAt: oldGeneratedAt + 1000,
+  });
+  db.close();
+
+  const gate = Promise.withResolvers<void>();
+  t.after(() => gate.resolve());
+  const llm: LlmRouter = {
+    async chat() {
+      await gate.promise;
+      return "... [Cached Stale](halu:cached-stale \"Cached Stale\") refreshes in the background.";
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: false,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/homepage");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.refreshPending, true);
+
+  await waitForQueueItem(server, (item) =>
+    item.workflow === "homepage.refresh" &&
+    item.slug === "homepage" &&
+    item.state === "processing"
+  );
+  gate.resolve();
+});
+
+test("homepage throttles repeated request-triggered refreshes", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const oldGeneratedAt = Date.now() - 24 * 60 * 60 * 1000;
+  saveHomepageCache(db, {
+    featured: { slug: "cached-stale", title: "Cached Stale", summaryMarkdown: "Previously cached lead." },
+    todaysNews: null,
+    didYouKnow: [{ slug: "cached-stale", title: "Cached Stale", fact: "... cached stale fact." }],
+    generatedAt: oldGeneratedAt,
+    expiresAt: oldGeneratedAt + 1000,
+  });
+  db.close();
+
+  const logEntries: CapturedLogEntry[] = [];
+  const server = await createServerForDatabase(root, databasePath, {
+    logger: createMemoryLogger(logEntries),
+    homepagePrepare: false,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const first = await server.request("/api/homepage");
+  const firstBody = await first.json();
+  const firstRetryMs = firstBody.expiresAt - Date.now();
+
+  const second = await server.request("/api/homepage");
+  const secondBody = await second.json();
+  const secondRetryMs = secondBody.expiresAt - Date.now();
+
+  assert.equal(firstBody.refreshPending, true);
+  assert.equal(secondBody.refreshPending, true);
+  assert.ok(firstRetryMs <= 10_000, "first stale request should use the short pending retry");
+  assert.ok(secondRetryMs > 30_000, "immediate repeated stale request should use the request cooldown");
+  assert.ok(
+    logEntries.some(
+      (entry) =>
+        entry.event === "homepage.refresh_trigger_suppressed" &&
+        entry.fields?.suppression === "request_cooldown",
+    ),
+    "request cooldown should be logged",
+  );
+});
+
+test("homepage serves a fresh cache with no news without pending retry loop", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  saveHomepageCache(db, {
+    featured: { slug: "cached", title: "Cached", summaryMarkdown: "Cached lead." },
+    todaysNews: null,
+    didYouKnow: [{ slug: "cached", title: "Cached", fact: "... [Cached](halu:cached \"Cached\") already knows." }],
+    generatedAt: now,
+    expiresAt: now + 60_000,
+  });
+  db.close();
+
+  let chatCalled = false;
+  const llm: LlmRouter = {
+    async chat() {
+      chatCalled = true;
+      throw new Error("should not generate");
+    },
+    async streamChat(_r, _s, _u, onChunk) {
+      const content = "# Stub\n\nStub body.";
+      onChunk(content, content);
+      return { content, finishReason: "stop" };
+    },
+    async embed() { return []; },
+    async probeConnections() {},
+  };
+
+  const server = await createServerForDatabase(root, databasePath, {
+    llmClient: llm,
+    homepagePrepare: true,
+    imageGenerationConfig: { enabled: false },
+  });
+  cleanupTestServer(t, server);
+
+  const res = await server.request("/api/homepage");
+  const body = await res.json();
+
+  assert.equal(chatCalled, false, "empty news slot should not force homepage regeneration");
+  assert.equal(body.featured.title, "Cached");
+  assert.equal(body.todaysNews, null);
+  assert.ok(
+    body.expiresAt - Date.now() > 30_000,
+    "fresh cache should keep its real expiry instead of returning a one-second pending retry",
+  );
+});
+
 test("homepage skips news image generation when cached news article is missing", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
   const databasePath = join(root, TEST_CONFIG.database_path);
@@ -1758,7 +2049,6 @@ test("homepage skips news image generation when cached news article is missing",
       title: todaysNewsTitle(worldDate),
       worldDate: worldDate.label,
       worldDay: worldDate.day,
-      kirkLabel: worldDate.kirkLabel,
       generatorVersion: "1",
       summaryMarkdown: "Cached news without a persisted article.",
       headlines: [],
@@ -1791,6 +2081,190 @@ test("homepage skips news image generation when cached news article is missing",
     logEntries.some((entry) => entry.event === "homepage_news_image.auto_queued"),
     false,
     "missing cached news article should not queue an image-generation workflow",
+  );
+});
+
+test("homepage featured image auto generation stops after configured failures", async (t) => {
+  t.after(() => setImageGenerationFetchForTests(null));
+  setImageGenerationFetchForTests(async () =>
+    new Response(JSON.stringify({ error: { message: "blocked by safety system" } }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  const markdown = "# Safety Blocked\n\nA cached homepage article with no image.";
+  saveArticle(
+    db,
+    {
+      slug: "safety-blocked",
+      canonicalSlug: "safety-blocked",
+      title: "Safety Blocked",
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: now,
+    },
+    [],
+    ["safety-blocked"],
+  );
+  saveHomepageCache(db, {
+    featured: { slug: "safety-blocked", title: "Safety Blocked", summaryMarkdown: "A cached homepage article." },
+    todaysNews: null,
+    didYouKnow: [],
+    generatedAt: now,
+    expiresAt: now + 60_000,
+  });
+  db.close();
+
+  const logEntries: CapturedLogEntry[] = [];
+  const server = await createServerForDatabase(root, databasePath, {
+    logger: createMemoryLogger(logEntries),
+    llmClient: new FixedImagePresetLlmClient(),
+    homepagePrepare: true,
+    imageGenerationConfig: {
+      enabled: true,
+      auto_generate_for_featured_article: true,
+      auto_preset_multipass: false,
+      homepage_auto_image_max_attempts: 2,
+      backend: "openai",
+      openai: {
+        base_url: "https://api.openai.test/v1",
+        api_key: "test-key",
+        model: "gpt-image-2",
+        size: "1088x624",
+        quality: "low",
+        output_format: "jpeg",
+        output_compression: 70,
+        timeout_ms: 1000,
+      },
+    },
+  });
+  cleanupTestServer(t, server);
+
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_featured_image.auto_failed" &&
+    entry.fields?.slug === "safety-blocked" &&
+    entry.fields?.attempt === 1
+  );
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_featured_image.auto_failed" &&
+    entry.fields?.slug === "safety-blocked" &&
+    entry.fields?.attempt === 2
+  );
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_featured_image.auto_skipped_attempt_limit" &&
+    entry.fields?.slug === "safety-blocked" &&
+    entry.fields?.attempts === 2 &&
+    entry.fields?.max_attempts === 2
+  );
+
+  assert.equal(
+    logEntries.filter((entry) => entry.event === "homepage_featured_image.auto_queued").length,
+    2,
+  );
+});
+
+test("homepage news image auto generation stops after configured failures", async (t) => {
+  t.after(() => setImageGenerationFetchForTests(null));
+  setImageGenerationFetchForTests(async () =>
+    new Response(JSON.stringify({ error: { message: "blocked by safety system" } }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+
+  const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
+  const databasePath = join(root, TEST_CONFIG.database_path);
+  const db = openDatabase(databasePath);
+  const now = Date.now();
+  const worldDate = getWorldDate(loadConfig().app, now);
+  const newsSlug = todaysNewsSlug(worldDate);
+  const markdown = `# ${todaysNewsTitle(worldDate)}\n\nA cached news article with no image.`;
+  saveArticle(
+    db,
+    {
+      slug: newsSlug,
+      canonicalSlug: newsSlug,
+      title: todaysNewsTitle(worldDate),
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: now,
+    },
+    [],
+    [newsSlug],
+  );
+  saveHomepageCache(db, {
+    featured: null,
+    todaysNews: {
+      slug: newsSlug,
+      title: todaysNewsTitle(worldDate),
+      worldDate: worldDate.label,
+      worldDay: worldDate.day,
+      generatorVersion: "1",
+      summaryMarkdown: "Cached news.",
+      headlines: [],
+    },
+    didYouKnow: [],
+    generatedAt: now,
+    expiresAt: now + 60_000,
+  });
+  db.close();
+
+  const logEntries: CapturedLogEntry[] = [];
+  const server = await createServerForDatabase(root, databasePath, {
+    logger: createMemoryLogger(logEntries),
+    llmClient: new FailingGenerationLlmClient(),
+    homepagePrepare: true,
+    imageGenerationConfig: {
+      enabled: true,
+      homepage_auto_image_max_attempts: 2,
+      backend: "openai",
+      openai: {
+        base_url: "https://api.openai.test/v1",
+        api_key: "test-key",
+        model: "gpt-image-2",
+        size: "1088x624",
+        quality: "low",
+        output_format: "jpeg",
+        output_compression: 70,
+        timeout_ms: 1000,
+      },
+    },
+  });
+  cleanupTestServer(t, server);
+
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_news_image.auto_failed" &&
+    entry.fields?.slug === newsSlug &&
+    entry.fields?.attempt === 1
+  );
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_news_image.auto_failed" &&
+    entry.fields?.slug === newsSlug &&
+    entry.fields?.attempt === 2
+  );
+  await server.request("/api/homepage");
+  await waitForLog(logEntries, (entry) =>
+    entry.event === "homepage_news_image.auto_skipped_attempt_limit" &&
+    entry.fields?.slug === newsSlug &&
+    entry.fields?.attempts === 2 &&
+    entry.fields?.max_attempts === 2
+  );
+
+  assert.equal(
+    logEntries.filter((entry) => entry.event === "homepage_news_image.auto_queued").length,
+    2,
   );
 });
 

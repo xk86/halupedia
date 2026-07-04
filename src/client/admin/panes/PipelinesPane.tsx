@@ -6,7 +6,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { ChevronDown, LoaderCircle } from "lucide-react";
+import { AlertTriangle, ChevronDown, LoaderCircle } from "lucide-react";
 import { cn, ERROR_BOX } from "@/lib/utils";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
@@ -126,6 +126,8 @@ interface PipelineRunSummary {
   status: string;
   nodes_executed: number;
   error_message: string | null;
+  warning_count?: number;
+  warning_messages?: string[];
 }
 
 interface NodeSpan {
@@ -478,11 +480,24 @@ export function PipelinesPane({
 
                 const run = row.item;
                 const open = expandedRun === run.run_id;
+                const warningCount = run.warning_count ?? 0;
+                const warningMessages = normalizeWarnings(run.warning_messages);
+                const displayStatus =
+                  run.status === "ok" && warningCount > 0
+                    ? "partial"
+                    : run.status;
                 return (
                   <Fragment key={run.run_id}>
                     <TableRow
-                      className={cn(open && "bg-muted/60 font-semibold")}
-                      title={run.error_message ?? "Expand node timing"}
+                      className={cn(
+                        open && "bg-muted/60 font-semibold",
+                        displayStatus === "partial" && "bg-amber-50/50 dark:bg-amber-950/20",
+                      )}
+                      title={
+                        run.error_message
+                          ?? warningMessages[0]
+                          ?? "Expand node timing"
+                      }
                     >
                       <TableCell
                         className="max-[700px]:hidden"
@@ -532,10 +547,17 @@ export function PipelinesPane({
                       <TableCell>
                         <Badge
                           variant={
-                            run.status === "error" ? "destructive" : "secondary"
+                            displayStatus === "error" ? "destructive" : "secondary"
                           }
+                          className={cn(
+                            displayStatus === "partial"
+                              && "gap-1 border border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100",
+                          )}
                         >
-                          {run.status}
+                          {displayStatus === "partial" ? (
+                            <AlertTriangle data-icon="inline-start" className="size-3" />
+                          ) : null}
+                          {displayStatus}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right max-[700px]:hidden">
@@ -577,6 +599,19 @@ export function PipelinesPane({
                         >
                           <p className={cn(ERROR_BOX, "m-0 text-xs")}>
                             {run.error_message}
+                          </p>
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                    {!open && displayStatus === "partial" && warningMessages.length ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell
+                          colSpan={6}
+                          className="px-2 pb-2 pt-0 whitespace-normal"
+                        >
+                          <p className="m-0 rounded-md border border-amber-300/80 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700/80 dark:bg-amber-950/40 dark:text-amber-100">
+                            {warningMessages[0]}
+                            {warningCount > 1 ? ` (+${warningCount - 1} more)` : ""}
                           </p>
                         </TableCell>
                       </TableRow>
@@ -908,6 +943,7 @@ function NodeBreakdown({
         );
         const ragDetail = getRagTraceDetail(node);
         const hasRag = Boolean(ragDetail);
+        const warnings = normalizeWarnings(node.warnings);
         const promptKey = `${i}:prompt`;
         const ragKey = `${i}:rag`;
         const promptOpen = openPanels.has(promptKey);
@@ -968,6 +1004,16 @@ function NodeBreakdown({
                     />
                   </Button>
                 ) : null}
+                {warnings.length ? (
+                  <Badge
+                    variant="outline"
+                    className="h-6 gap-1 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300"
+                    title={warnings.join("\n")}
+                  >
+                    <AlertTriangle data-icon="inline-start" className="size-3" />
+                    {warnings.length}
+                  </Badge>
+                ) : null}
                 {hasRag ? (
                   <Button
                     type="button"
@@ -999,6 +1045,15 @@ function NodeBreakdown({
               </div>
             )}
             {ragOpen && ragDetail && <RagDetail detail={ragDetail} />}
+            {warnings.length ? (
+              <div className="rounded-md border border-amber-300/80 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700/80 dark:bg-amber-950/40 dark:text-amber-100">
+                {warnings.map((warning, warningIndex) => (
+                  <p key={warningIndex} className="m-0">
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </Fragment>
         );
       })}
@@ -1029,6 +1084,13 @@ function NodeTimingBar({
       />
     </span>
   );
+}
+
+function normalizeWarnings(warnings: unknown): string[] {
+  if (!Array.isArray(warnings)) return [];
+  return warnings
+    .map((warning) => typeof warning === "string" ? warning.trim() : "")
+    .filter(Boolean);
 }
 
 function nodeBarClass(kind: string): string {

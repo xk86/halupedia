@@ -3,6 +3,7 @@ thinking = false
 json = false
 allow_text = true
 selection_when = "The article is substantially about software, records systems, databases, maps, dashboards, surveillance viewers, lab instruments, websites, digital archives, computer games, or screen-captured artifacts."
+recommended_aspect_ratios = ["landscape", "wide"]
 
 system = """
 Create one editorial hero image for a Halupedia subject that looks like a

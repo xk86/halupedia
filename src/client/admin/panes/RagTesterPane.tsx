@@ -217,6 +217,7 @@ export function RagTesterPane() {
           : undefined
       }
       wide
+      defaultCollapsed
     >
       <form onSubmit={runQuery}>
         <FieldGroup className="gap-4">

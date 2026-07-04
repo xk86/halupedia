@@ -2,6 +2,7 @@ model = "light"
 thinking = false
 json = false
 selection_when = "The article involves labor, state campaigns, revolutionary mythology, industrial pride, collective identity, ideological organizations, public murals, planned economies, or fictional socialist civic imagery."
+recommended_aspect_ratios = ["poster", "landscape"]
 
 system = """
 Create one editorial hero image for a Halupedia subject as a physically
@@ -58,7 +59,7 @@ Context rules:
   poster or mural interpretation that remains tied to the article context.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Prefer a poster portrait composition for campaign posters or a landscape composition for murals, state scenes, and newspaper-plate reproductions.
 - Use clear foreground/midground/background layers, strong subject hierarchy,
   and readable silhouette shapes.
 - Leave plausible headline negative space in sky, rays, wall, smoke, fields,

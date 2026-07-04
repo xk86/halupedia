@@ -3,6 +3,7 @@ thinking = false
 json = false
 allow_text = true
 selection_when = "The article involves a person, creature, object, vehicle, team, faction, artifact, product, champion, mascot, specimen, or collectible subject that would work as a printed trading card."
+recommended_aspect_ratios = ["poster"]
 
 system = """
 Create one editorial hero image for a Halupedia subject in the genre of a
@@ -19,19 +20,87 @@ Core look:
   edge chipping, registration shift, cheap laminate, paper stock, and small
   stat or info boxes rendered as blank, icon-like, cropped, blurred, redacted,
   or purely graphic areas unless they can use exact context text.
+- Follow one consistent fictional card-game template: double outer frame,
+  inset title plate, small top-right type badge, large rounded-rectangle art
+  window, narrow type ribbon, bottom rules/ability panel, tiny artist-credit
+  strip, and two bottom-corner power medallions. Keep the frame original and
+  avoid copying a specific existing card game layout.
 - Choose a card genre that fits the article context: sports, creature,
   artifact, machine, faction, team, product, safety mascot, historical figure,
   specimen, tournament, game piece, or odd local collectible.
 - Keep the main subject dominant and collectible-card readable. The design
   should support the subject instead of becoming a page of text.
-- If the card uses readable type, render the exact subject name
-  "{{requested_title}}" once as the card name or top label. Any other visible
-  text must be exact text copied from the supplied Halupedia context. Leave
-  stats, numbers, flavor text, legal lines, fine print, and data boxes blank,
-  icon-only, cropped, blurred, redacted, or purely graphic rather than fake. Do
-  not invent extra readable claims.
+- Readable card text is optional but allowed when it follows the card layout.
+  The card name may be a short, punchier collectible-card title inferred from
+  the supplied context; it does not need to be exactly "{{requested_title}}".
+  Any visible ability names, type labels, numbers, artist credits, or flavor
+  text must stay short, plausible, and grounded in the supplied context rather
+  than inventing unrelated lore.
 - Let the card feel physically printed: photographed or scanned with mild
   glare, imperfect crop, wear, and material presence.
+
+Card layout contract:
+- Shape: vertical trading card first. Prefer the poster portrait aspect ratio;
+  only use a landscape hero crop if forced by the surrounding image format.
+- Template proportions: use the same layout on every card. Top title band
+  takes about 10 percent of card height; the art window sits below it and takes
+  about 52 percent; the type ribbon takes about 6 percent; the rules panel
+  takes about 23 percent; the bottom footer strip takes about 6 percent.
+- Outer frame: use a thick dark outer border, a thin bright inner keyline, and
+  a colored type-border running inside the frame. Corners are clipped or softly
+  rounded consistently, with tiny rivet or pip details at all four corners.
+- Name bar: place one readable card title in a beveled horizontal plaque across
+  the top-left two-thirds of the card. It may rephrase the article title for
+  card impact, such as a shorter epithet, team name, object name, or role name
+  grounded in the article.
+- Type badge: choose exactly one primary card type and show it in a small
+  rounded hexagonal or shield-shaped badge fixed in the top-right corner,
+  aligned with the title bar. The badge should have a simple icon-like mark and
+  the type color. Available types are Valor, Lore, Relic, Wild, Machine, Veil,
+  Civic, Flux, and Void.
+- Type colors and motifs: Valor uses deep red and brass with sunburst pips;
+  Lore uses indigo and parchment with book or eye pips; Relic uses ochre and
+  stone-gray with shard pips; Wild uses green and bone with leaf or claw pips;
+  Machine uses gunmetal and electric blue with gear pips; Veil uses black,
+  violet, and silver with mask or crescent pips; Civic uses navy and white-gold
+  with column or seal pips; Flux uses orange and cyan with spiral pips; Void
+  uses near-black and pale teal with hollow-circle pips.
+- Type meanings: Valor means champions, fighters, sports figures, commanders,
+  and heroic public roles; Lore means scholars, artists, witnesses, archives,
+  myths, and historical figures; Relic means objects, artifacts, monuments,
+  places, buildings, and discovered specimens; Wild means creatures, mascots,
+  plants, natural forces, folk beings, and untamed environments; Machine means
+  vehicles, tools, broadcasts, software, infrastructure, weapons, and devices;
+  Veil means secrets, conspiracies, hauntings, crimes, surveillance, hidden
+  organizations, and uncanny evidence; Civic means institutions, teams,
+  factions, rituals, laws, public offices, and social systems; Flux means
+  transformations, anomalies, disasters, performances, weather, experiments,
+  and unstable phenomena; Void means cosmic, lost, forbidden, empty, terminal,
+  or existential subjects.
+- Art window: use a large rounded-rectangle portrait window with a thin
+  metallic bevel, set about one border-width inside the frame. The art may
+  bleed slightly behind the bevel but should not overlap the title band,
+  type ribbon, rules panel, or footer.
+- Type line: directly below the art window, use a narrow colored ribbon with
+  a short category phrase like "Relic - Stadium Artifact" or "Veil - Unsolved
+  Mascot" when context supports it. The ribbon should span nearly the full
+  card width inside the frame.
+- Ability box: bottom rules panel is a pale inset rectangle with a darker
+  outline and one or two horizontal ruled rows. Use at most two compact
+  abilities. Format each ability as "Ability Name - effect phrase." Use a bold
+  or small-caps ability name, a dash divider, and one short effect phrase
+  grounded in the article. Avoid long prose, paragraphs, and fake encyclopedia
+  claims.
+- Power markers: show bottom-corner numeric markers only when they make sense.
+  Use matching circular medallions in the lower-left and lower-right corners,
+  partly overlapping the footer strip but not the rules text. Use "ATK" and
+  "DEF" for people, creatures, teams, machines, and conflict subjects; use
+  "POW" and "STB" for objects, places, institutions, and phenomena. Values
+  should be one or two digits and visually secondary.
+- Artist credit: include a tiny credit line in the footer strip centered above
+  or between the power medallions, formatted as "Art: Halupedia Archives",
+  "Art: Public Domain Archive", or another short in-world/public-domain-style
+  credit grounded in the context. Do not name real living artists.
 
 Context rules:
 - Use the supplied Halupedia context as silent art direction. Prefer exact and
@@ -44,7 +113,9 @@ Context rules:
   makes the subject feel most article-specific and collectible.
 
 Composition:
-- Horizontal 16:9 hero image.
+- Vertical poster portrait composition, like a photographed card or a clean
+  scan of one card. The full image should read as a card object first and a
+  portrait/artifact image second.
 - Show one dominant trading card or a close crop of one card, with strong
   subject hierarchy and card-material detail.
 - Leave plausible headline negative space in border fields, blank foil,
@@ -75,17 +146,29 @@ Sidebar/object facts:
 Related world context:
 {{related_context}}
 
-Create a horizontal editorial hero image of the main subject, informed by the
-Halupedia context above, as a printed trading card or collectible card artifact.
+Create a vertical card-artifact image of the main subject, informed by the
+Halupedia context above, as a vertical printed trading card or collectible card
+artifact. Prefer the poster portrait aspect ratio and a full-card layout.
 
-Use card borders, a cropped hero image window, foil-like sheen, varnish glare,
-halftone print texture, worn corners, slight edge chipping, registration shift,
-cheap laminate, paper stock, and graphic stat/info-box shapes without fake
-text. Keep the main subject dominant and card-readable.
+Use card borders, foil-like sheen, varnish glare, halftone print texture, worn
+corners, slight edge chipping, registration shift, cheap laminate, paper stock,
+and one consistent card-game template: thick dark outer border, thin inner
+keyline, colored type-border, beveled top title plaque, top-right hexagonal or
+shield type badge, large rounded-rectangle art window, narrow type ribbon,
+pale ruled ability panel, bottom footer strip, and matching circular
+bottom-corner power medallions. Keep the main subject dominant and
+card-readable.
 
-If readable card text appears, include the exact card name
-"{{requested_title}}" once and otherwise only exact text copied from the
-supplied context. No readable stats, fake words, pseudo-text, gibberish,
-screenshots, exact card-game replicas, overt nudity, or explicit sexual
-content.
+Choose one card type from Valor, Lore, Relic, Wild, Machine, Veil, Civic, Flux,
+and Void. Use at most two compact abilities formatted as
+"Ability Name - effect phrase." Add small ATK/DEF markers for character,
+creature, team, machine, or conflict cards; use POW/STB for object, place,
+institution, or phenomenon cards. Include a tiny artist credit line such as
+"Art: Halupedia Archives" or another short in-world/public-domain-style credit.
+
+If readable card text appears, the card name may be a shorter or better-worded
+trading-card title inferred from the context; it does not need to exactly match
+"{{requested_title}}". Keep all visible card text short and grounded in the
+supplied context. No gibberish text blocks, exact card-game replicas,
+screenshots, overt nudity, or explicit sexual content.
 """

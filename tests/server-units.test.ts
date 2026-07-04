@@ -63,7 +63,7 @@ import {
   wikiSegmentToTitle,
   normalizeCanonicalTitle,
 } from "../src/server/slug";
-import { LLM_DISPATCHER_OPTIONS, setLlmFetchForTests, type LlmRouter } from "../src/server/llm";
+import { LLM_DISPATCHER_OPTIONS, OpenAICompatRouter, setLlmFetchForTests, type LlmRouter } from "../src/server/llm";
 import { makeRouter } from "./helpers/router";
 import type { Logger, LogFields } from "../src/server/logger";
 import { formatRagContextForPrompt } from "../src/server/retrieval";
@@ -294,6 +294,86 @@ test("chat surfaces the underlying transport cause, not a bare 'fetch failed'", 
   const failure = logger.entries.find((e) => e.event === "llm.chat_request_failed");
   assert.ok(failure, "a chat_request_failed entry must be logged");
   assert.equal(failure!.fields.code, "ECONNRESET");
+});
+
+test("chat retries a failed host on another eligible configured host", async (t) => {
+  const logger = new CaptureLogger();
+  const requestedUrls: string[] = [];
+  t.after(() => setLlmFetchForTests(null));
+
+  setLlmFetchForTests(async (input) => {
+    const url = String(input);
+    requestedUrls.push(url);
+    if (url.startsWith("http://desktop.test")) {
+      throw Object.assign(new TypeError("fetch failed"), {
+        cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+      });
+    }
+    return new Response(
+      JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "laptop generated news" } }] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+
+  const router = new OpenAICompatRouter({
+    hosts: {
+      desktop: {
+        id: "desktop",
+        base_url: "http://desktop.test/v1",
+        api_key: "local",
+        max_in_flight: 1,
+        pref: 0,
+        blacklist: [],
+      },
+      laptop: {
+        id: "laptop",
+        base_url: "http://laptop.test/v1",
+        api_key: "local",
+        max_in_flight: 1,
+        pref: 1,
+        blacklist: [],
+      },
+    },
+    chat: {
+      hosts: ["desktop"],
+      base_url: "http://desktop.test/v1",
+      api_key: "local",
+      model: "gemma4",
+      temperature: 1,
+      max_tokens: 100,
+      request_timeout_ms: 1000,
+    },
+    light: {
+      hosts: ["desktop"],
+      base_url: "http://desktop.test/v1",
+      api_key: "local",
+      model: "gemma4",
+      temperature: 1,
+      max_tokens: 100,
+      request_timeout_ms: 1000,
+    },
+    embeddings: {
+      enabled: false,
+      hosts: ["desktop"],
+      base_url: "http://desktop.test/v1",
+      api_key: "local",
+      model: "nomic",
+      request_timeout_ms: 1000,
+    },
+  }, logger);
+
+  const result = await router.chat("heavy", "system", "user");
+
+  assert.equal(result, "laptop generated news");
+  assert.deepEqual(requestedUrls, [
+    "http://desktop.test/api/chat",
+    "http://laptop.test/api/chat",
+  ]);
+  assert.ok(logger.entries.some((entry) =>
+    entry.event === "llm.host_failover" &&
+    entry.fields.failed_host === "desktop" &&
+    entry.fields.remaining === 1
+  ));
 });
 
 test("streamChat reports an interrupted stream with partial content and progress", async (t) => {

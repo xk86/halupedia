@@ -6,8 +6,6 @@ export interface WorldDate {
   month: number;
   dayOfMonth: number;
   monthName: string;
-  kirkYear: number;
-  kirkLabel: string;
   label: string;
   slugPart: string;
   startsAt: number;
@@ -25,16 +23,6 @@ export function getWorldDate(app: AppConfig, now = Date.now()): WorldDate {
   const month = date.getUTCMonth() + 1;
   const dayOfMonth = date.getUTCDate();
   const monthName = MONTH_NAMES[date.getUTCMonth()] ?? "January";
-  const kirkDeath = parseKirkDeathDate(app.world.kirk_death_date);
-  const beforeKirk =
-    year < kirkDeath.year ||
-    (year === kirkDeath.year && month < kirkDeath.month) ||
-    (year === kirkDeath.year && month === kirkDeath.month && dayOfMonth < kirkDeath.day);
-  const kirkEraYear = beforeKirk
-    ? Math.max(1, kirkDeath.year - year)
-    : year - kirkDeath.year;
-  const kirkYear = beforeKirk ? -kirkEraYear : kirkEraYear;
-  const kirkLabel = beforeKirk ? `${kirkEraYear} BK` : `${kirkEraYear} AK`;
   const startsAt = epoch + elapsedDays * dayMs;
   return {
     day,
@@ -42,9 +30,7 @@ export function getWorldDate(app: AppConfig, now = Date.now()): WorldDate {
     month,
     dayOfMonth,
     monthName,
-    kirkYear,
-    kirkLabel,
-    label: `${monthName} ${dayOfMonth}, ${year} (${kirkLabel})`,
+    label: `${monthName} ${dayOfMonth}, ${year}`,
     slugPart: `day-${day.toString().padStart(6, "0")}`,
     startsAt,
     endsAt: startsAt + dayMs,
@@ -67,7 +53,7 @@ const MONTH_NAMES = [
 ];
 
 function parseWorldDate(value: string): Date {
-  const parsed = parseDateParts(value) ?? { year: 2026, month: 1, day: 1 };
+  const parsed = parseDateParts(value) ?? { year: 2000, month: 1, day: 1 };
   return new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day));
 }
 
@@ -75,10 +61,6 @@ function addUtcDays(date: Date, days: number): Date {
   const next = new Date(date.getTime());
   next.setUTCDate(next.getUTCDate() + days);
   return next;
-}
-
-function parseKirkDeathDate(value: string): { year: number; month: number; day: number } {
-  return parseDateParts(value) ?? { year: 2025, month: 9, day: 10 };
 }
 
 function parseDateParts(value: string): { year: number; month: number; day: number } | null {

@@ -106,6 +106,7 @@ interface ImageGenerationInfo {
   enabled: boolean;
   autoGenerateForNewArticles: boolean;
   autoGenerateForFeaturedArticle: boolean;
+  homepageAutoImageMaxAttempts: number;
   autoPresetMultipass: boolean;
   backend: "openai" | "ollama";
   aspectRatios: Array<{
@@ -313,6 +314,8 @@ function ImageGenerationCard({
   const [autoPresetMultipass, setAutoPresetMultipass] = useState(
     info.autoPresetMultipass,
   );
+  const [homepageAutoImageMaxAttempts, setHomepageAutoImageMaxAttempts] =
+    useState(String(info.homepageAutoImageMaxAttempts));
   const [backend, setBackend] = useState<"openai" | "ollama">(info.backend);
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState(info.openai.baseUrl);
   const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -388,6 +391,15 @@ function ImageGenerationCard({
               <SelectItem value="ollama">ollama</SelectItem>
             </SelectContent>
           </Select>
+        </label>
+        <label className={LLM_FIELD}>
+          homepage_auto_image_max_attempts
+          <Input
+            type="number"
+            min="0"
+            value={homepageAutoImageMaxAttempts}
+            onChange={(e) => setHomepageAutoImageMaxAttempts(e.target.value)}
+          />
         </label>
       </div>
 
@@ -522,6 +534,10 @@ function ImageGenerationCard({
             enabled,
             autoGenerateForNewArticles: autoGenerate,
             autoGenerateForFeaturedArticle: autoGenerateFeatured,
+            homepageAutoImageMaxAttempts: numberOrFallback(
+              homepageAutoImageMaxAttempts,
+              info.homepageAutoImageMaxAttempts,
+            ),
             autoPresetMultipass,
             backend,
             openai: {

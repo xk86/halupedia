@@ -1,7 +1,8 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  flattenJsonObject,
   RagTesterPane,
   sortDocumentsByScore,
 } from "../../src/client/admin/panes/RagTesterPane";
@@ -13,6 +14,22 @@ afterEach(() => {
 });
 
 describe("RagTesterPane", () => {
+  it("flattens nested JSON metadata into deterministic table rows", () => {
+    expect(
+      flattenJsonObject({
+        entityType: "thing",
+        identifiers: [],
+        categories: ["Biological Structure"],
+        nested: { active: true },
+      }),
+    ).toEqual([
+      { path: "entityType", value: "thing" },
+      { path: "identifiers", value: "[]" },
+      { path: "categories[0]", value: "Biological Structure" },
+      { path: "nested.active", value: "true" },
+    ]);
+  });
+
   it("orders selected documents by descending raw score", () => {
     const documents = [
       { documentId: "middle", rawScore: 0.7, fusedRank: 2 },
@@ -51,6 +68,11 @@ describe("RagTesterPane", () => {
             fusedRank: 0,
             retrievalReason: "semantic",
             provenance: "semantic",
+            metadata: {
+              entityType: "thing",
+              identifiers: [],
+              categories: ["Biological Structure"],
+            },
           },
         ],
         imageDocuments: [],
@@ -117,6 +139,18 @@ describe("RagTesterPane", () => {
     );
 
     expect(await screen.findByText("Alpha evidence.")).toBeInTheDocument();
+    const documentCard = screen.getByTestId("rag-document-card");
+    expect(documentCard).toHaveClass(
+      "data-[size=sm]:[--card-spacing:--spacing(2)]",
+    );
+    const metadataTable = within(documentCard).getByTestId("json-object-table");
+    expect(within(metadataTable).getByText("entityType")).toBeInTheDocument();
+    expect(within(metadataTable).getByText("thing")).toBeInTheDocument();
+    expect(within(metadataTable).getByText("identifiers")).toBeInTheDocument();
+    expect(within(metadataTable).getByText("[]")).toBeInTheDocument();
+    expect(
+      within(metadataTable).getByText("categories[0]"),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("semantic").length).toBeGreaterThan(0);
     expect(screen.getByText("below_top_k")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/rag/query", {

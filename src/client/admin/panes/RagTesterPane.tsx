@@ -109,6 +109,11 @@ interface RagQueryResult {
   };
 }
 
+interface JsonTableRow {
+  path: string;
+  value: string;
+}
+
 const PROFILE_LABELS: Record<RetrievalProfile, string> = {
   article_generation: "Article generation",
   article_rewrite: "Article rewrite",
@@ -127,6 +132,44 @@ export function sortDocumentsByScore(
     (left, right) =>
       right.rawScore - left.rawScore || left.fusedRank - right.fusedRank,
   );
+}
+
+export function flattenJsonObject(
+  object: Record<string, unknown>,
+): JsonTableRow[] {
+  const rows: JsonTableRow[] = [];
+
+  function visit(value: unknown, path: string) {
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        rows.push({ path, value: "[]" });
+        return;
+      }
+      value.forEach((item, index) => visit(item, `${path}[${index}]`));
+      return;
+    }
+    if (value !== null && typeof value === "object") {
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (entries.length === 0) {
+        rows.push({ path, value: "{}" });
+        return;
+      }
+      entries.forEach(([key, item]) =>
+        visit(item, path ? `${path}.${key}` : key),
+      );
+      return;
+    }
+    rows.push({
+      path,
+      value:
+        typeof value === "string"
+          ? value
+          : (JSON.stringify(value) ?? String(value)),
+    });
+  }
+
+  Object.entries(object).forEach(([key, value]) => visit(value, key));
+  return rows;
 }
 
 export function RagTesterPane() {
@@ -258,11 +301,11 @@ function RagResults({ result }: { result: RagQueryResult }) {
   const diagnostics = retrieval.diagnostics;
   const selectedDocuments = sortDocumentsByScore(retrieval.textDocuments);
   return (
-    <div className="mt-6 flex flex-col gap-5">
+    <div className="mt-4 flex flex-col gap-4">
       <Separator />
 
       <section aria-labelledby="rag-diagnostics-title">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           <h4 id="rag-diagnostics-title" className="m-0 text-sm font-semibold">
             Retrieval diagnostics
           </h4>
@@ -314,7 +357,7 @@ function RagResults({ result }: { result: RagQueryResult }) {
       </section>
 
       <section aria-labelledby="rag-articles-title">
-        <h4 id="rag-articles-title" className="mb-3 text-sm font-semibold">
+        <h4 id="rag-articles-title" className="mb-2 text-sm font-semibold">
           Article candidates ({retrieval.sourceArticles.length})
         </h4>
         {retrieval.sourceArticles.length ? (
@@ -358,10 +401,10 @@ function RagResults({ result }: { result: RagQueryResult }) {
       </section>
 
       <section aria-labelledby="rag-documents-title">
-        <h4 id="rag-documents-title" className="mb-3 text-sm font-semibold">
+        <h4 id="rag-documents-title" className="mb-2 text-sm font-semibold">
           Selected documents ({retrieval.textDocuments.length})
         </h4>
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid items-start gap-2 lg:grid-cols-2">
           {selectedDocuments.map((document) => (
             <DocumentCard key={document.documentId} document={document} />
           ))}
@@ -374,7 +417,7 @@ function RagResults({ result }: { result: RagQueryResult }) {
       </section>
 
       <section aria-labelledby="rag-assembly-title">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
           <h4 id="rag-assembly-title" className="m-0 text-sm font-semibold">
             Prompt evidence assembly
           </h4>
@@ -429,7 +472,7 @@ function RagResults({ result }: { result: RagQueryResult }) {
       </section>
 
       <section aria-labelledby="rag-exclusions-title">
-        <h4 id="rag-exclusions-title" className="mb-3 text-sm font-semibold">
+        <h4 id="rag-exclusions-title" className="mb-2 text-sm font-semibold">
           Retrieval exclusions ({diagnostics.exclusions.length})
         </h4>
         {diagnostics.exclusions.length ? (
@@ -465,7 +508,11 @@ function RagResults({ result }: { result: RagQueryResult }) {
 
 function DocumentCard({ document }: { document: RetrievedDocument }) {
   return (
-    <Card size="sm">
+    <Card
+      size="sm"
+      className="min-w-0 data-[size=sm]:[--card-spacing:--spacing(2)]"
+      data-testid="rag-document-card"
+    >
       <CardHeader>
         <CardTitle
           className="truncate font-mono text-sm"
@@ -484,29 +531,57 @@ function DocumentCard({ document }: { document: RetrievedDocument }) {
           <Badge variant="secondary">{document.retrievalReason}</Badge>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <dl className="grid grid-cols-2 gap-2 text-xs">
-          <div>
+      <CardContent className="flex min-w-0 flex-col gap-2">
+        <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <div className="flex gap-1.5">
             <dt className="text-muted-foreground">Raw score</dt>
             <dd className="m-0 font-mono tabular-nums">
               {formatScore(document.rawScore)}
             </dd>
           </div>
-          <div>
+          <div className="flex gap-1.5">
             <dt className="text-muted-foreground">Provenance</dt>
             <dd className="m-0">{document.provenance}</dd>
           </div>
         </dl>
-        <pre className="m-0 max-h-72 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap">
+        <pre className="m-0 max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap">
           {document.content}
         </pre>
         {document.metadata && Object.keys(document.metadata).length ? (
-          <pre className="m-0 max-h-40 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap text-muted-foreground">
-            {JSON.stringify(document.metadata, null, 2)}
-          </pre>
+          <JsonObjectTable object={document.metadata} />
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function JsonObjectTable({ object }: { object: Record<string, unknown> }) {
+  const rows = flattenJsonObject(object);
+  return (
+    <Table
+      containerClassName="max-h-48 rounded-md border border-border"
+      className="table-fixed font-mono text-xs [&_td]:px-2 [&_td]:py-1 [&_th]:h-7 [&_th]:px-2"
+      data-testid="json-object-table"
+    >
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead className="w-2/5">Property</TableHead>
+          <TableHead>Value</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.path}>
+            <TableCell className="align-top [overflow-wrap:anywhere] whitespace-normal text-muted-foreground">
+              {row.path}
+            </TableCell>
+            <TableCell className="align-top [overflow-wrap:anywhere] whitespace-pre-wrap">
+              {row.value}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 

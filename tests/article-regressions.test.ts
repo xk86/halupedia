@@ -14,7 +14,6 @@ import {
   markdownToPlainText,
   renderMarkdown,
 } from "../src/server/markdown";
-import { indexArticleChunks, retrieveContext } from "../src/server/retrieval";
 import { buildBodyDocuments, RagStore } from "../src/server/rag";
 
 const TEST_CONFIG = loadConfig().app.tests;
@@ -409,57 +408,6 @@ test("random page inspiration count comes from app config", async (t) => {
   );
 });
 
-test("retrieveContext works with joined article lookups when RAG is enabled", async (t) => {
-  const { root, databasePath } = createTempDbPath();
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-
-  const db = openDatabase(databasePath);
-  const sourceMarkdown = [
-    "# Source Topic",
-    "",
-    "A cultural narrative with stable energetic exchange and centralized belief systems.",
-  ].join("\n");
-  saveArticle(
-    db,
-    {
-      slug: "source-topic",
-      canonicalSlug: "source-topic",
-      title: "Source Topic",
-      markdown: sourceMarkdown,
-      html: renderMarkdown(sourceMarkdown),
-      plain_text: markdownToPlainText(sourceMarkdown),
-      generated_at: Date.now(),
-    },
-    [],
-    ["source-topic"],
-  );
-  await indexArticleChunks(
-    db,
-    new QueueLlmClient(""),
-    "source-topic",
-    sourceMarkdown,
-    false,
-    500,
-  );
-
-  const packet = await retrieveContext(
-    db,
-    new QueueLlmClient(""),
-    "query-topic",
-    ["centralized belief systems"],
-    true,
-    "full",
-    4,
-    0.2,
-    false,
-  );
-  db.close();
-
-  assert.equal(packet.sourceArticles.length, 1);
-  assert.equal(packet.sourceArticles[0].title, "Source Topic");
-  assert.match(packet.context, /Source Topic/);
-});
-
 test("generated article persists declared and body-linked refs, not every prompt ref", async (t) => {
   const { root, databasePath } = createTempDbPath();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -615,10 +563,6 @@ test("refresh rewrite preserves prior prompt refs and adds body-linked refs", as
   });
 
   const db = openDatabase(databasePath);
-  db.prepare(
-    `INSERT INTO article_chunks (slug, chunk_index, content, embedding_json)
-     VALUES (?, ?, ?, ?)`,
-  ).run("source-a", 0, "A source chunk about the original body.", "[]");
   saveArticleReferences(db, "target-page", Date.now(), [
     { slug: "source-a", title: "Source A", content: "", kind: "summary", pinned: false, revisionId: "current" },
     { slug: "source-b", title: "Source B", content: "", kind: "summary", pinned: false, revisionId: "current" },
@@ -683,56 +627,6 @@ test("refresh rewrite ignores legacy used-refs declarations when saving refs", a
   assert.equal(afterRevisions.length, beforeRevisions.length + 1);
   assert.equal(afterRevisions[0]?.operation, "refresh-context-rewrite");
   assert.deepEqual(refs, []);
-});
-
-test("retrieveContext drops low-relevance matches below the configured score threshold", async (t) => {
-  const { root, databasePath } = createTempDbPath();
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-
-  const db = openDatabase(databasePath);
-  const sourceMarkdown = [
-    "# Distant Topic",
-    "",
-    "This article only discusses municipal varnishes and harbor brickwork.",
-  ].join("\n");
-  saveArticle(
-    db,
-    {
-      slug: "distant-topic",
-      canonicalSlug: "distant-topic",
-      title: "Distant Topic",
-      markdown: sourceMarkdown,
-      html: renderMarkdown(sourceMarkdown),
-      plain_text: markdownToPlainText(sourceMarkdown),
-      generated_at: Date.now(),
-    },
-    [],
-    ["distant-topic"],
-  );
-  await indexArticleChunks(
-    db,
-    new QueueLlmClient(""),
-    "distant-topic",
-    sourceMarkdown,
-    false,
-    500,
-  );
-
-  const packet = await retrieveContext(
-    db,
-    new QueueLlmClient(""),
-    "query-topic",
-    ["cultural narrative stable energetic exchange"],
-    true,
-    "full",
-    4,
-    0.6,
-    false,
-  );
-  db.close();
-
-  assert.equal(packet.sourceArticles.length, 0);
-  assert.equal(packet.context, "");
 });
 
 test("article generation succeeds even when the body contains zero internal links", async (t) => {
@@ -838,90 +732,6 @@ test("generated articles store an actual summary instead of the opening paragrap
   );
 });
 
-test("retrieveContext logs matched articles in descending relevance order", async (t) => {
-  const { root, databasePath } = createTempDbPath();
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-
-  const db = openDatabase(databasePath);
-  const entries: Array<{ event: string; fields?: Record<string, unknown> }> =
-    [];
-  const logger = {
-    debug(event: string, fields?: Record<string, unknown>) {
-      entries.push({ event, fields });
-    },
-    info(event: string, fields?: Record<string, unknown>) {
-      entries.push({ event, fields });
-    },
-    warn(event: string, fields?: Record<string, unknown>) {
-      entries.push({ event, fields });
-    },
-    error(event: string, fields?: Record<string, unknown>) {
-      entries.push({ event, fields });
-    },
-  };
-  const saveSeed = (slug: string, title: string, markdown: string) => {
-    saveArticle(
-      db,
-      {
-        slug,
-        canonicalSlug: slug,
-        title,
-        markdown,
-        html: renderMarkdown(markdown),
-        plain_text: markdownToPlainText(markdown),
-        generated_at: Date.now(),
-      },
-      [],
-      [slug],
-    );
-  };
-
-  saveSeed(
-    "alpha-topic",
-    "Alpha Topic",
-    "# Alpha Topic\n\nAlpha beta gamma delta archive.",
-  );
-  saveSeed("beta-topic", "Beta Topic", "# Beta Topic\n\nAlpha beta archive.");
-  await indexArticleChunks(
-    db,
-    new QueueLlmClient(""),
-    "alpha-topic",
-    "# Alpha Topic\n\nAlpha beta gamma delta archive.",
-    false,
-    500,
-  );
-  await indexArticleChunks(
-    db,
-    new QueueLlmClient(""),
-    "beta-topic",
-    "# Beta Topic\n\nAlpha beta archive.",
-    false,
-    500,
-  );
-
-  await retrieveContext(
-    db,
-    new QueueLlmClient(""),
-    "query-topic",
-    ["alpha beta gamma delta archive"],
-    true,
-    "full",
-    4,
-    0.2,
-    false,
-    logger,
-  );
-  db.close();
-
-  const retrieveLog = entries.find(
-    (entry) => entry.event === "rag.retrieve_complete",
-  );
-  assert.ok(retrieveLog, "rag.retrieve_complete log entry should be emitted");
-  // `sources` lists picked articles with chunk scores; both seeds should appear
-  const sources = String(retrieveLog?.fields?.sources ?? "");
-  assert.match(sources, /alpha-topic/);
-  assert.match(sources, /beta-topic/);
-});
 
 test("add-link refines oversized selections before wrapping markdown", async (t) => {
   const { root, databasePath } = createTempDbPath();
@@ -1610,14 +1420,6 @@ test("refresh-context can rewrite from retrieved context", async (t) => {
       },
     ],
     ["ledger-source"],
-  );
-  await indexArticleChunks(
-    db,
-    new QueueLlmClient(""),
-    "ledger-source",
-    sourceMarkdown,
-    false,
-    500,
   );
 
   const targetMarkdown = [

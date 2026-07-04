@@ -53,6 +53,33 @@ test("deterministic extraction maps infobox rows to typed facts + identifiers", 
   assert.ok(res.categories.includes("Blockchain network"));
 });
 
+test("infobox link objects are recognized in every internal form and re-wrapped", () => {
+  const infobox: InfoboxData = {
+    title: "Widget",
+    subtitle: "Device",
+    groups: [
+      {
+        label: "",
+        rows: [
+          // Proper ref link.
+          { label: "Owner", value: "[Acme Corp](ref:acme-corp)" },
+          // Loose halu shorthand the model often emits.
+          { label: "Part of", value: "Gadget Platform (halu:gadget-platform)" },
+        ],
+      },
+    ],
+  };
+  const res = extractDeterministic({ slug: "widget", title: "Widget", infobox, vocab });
+  const owned = res.relations.find((r) => r.predicate === "owned_by");
+  assert.equal(owned?.object, "Acme Corp");
+  assert.equal(owned?.objectSlug, "acme-corp");
+  assert.equal(owned?.objectIsLiteral, false);
+  const part = res.relations.find((r) => r.predicate === "part_of");
+  assert.equal(part?.object, "Gadget Platform");
+  assert.equal(part?.objectSlug, "gadget-platform");
+  assert.equal(part?.objectIsLiteral, false);
+});
+
 test("LLM extraction validation drops off-vocabulary entities and relations", () => {
   const validated = validateLlmExtraction(
     {
@@ -106,12 +133,15 @@ test("curated/pinned relations survive re-extraction", (t) => {
 test("ontology_fact documents are compact and provenance-tagged", (t) => {
   const db = makeDb(t);
   indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
-  const docs = buildOntologyFactDocuments(db, "solana", "Solana", 1);
+  const docs = buildOntologyFactDocuments(db, "solana", "Solana", 1, vocab);
   assert.ok(docs.length >= 2);
   const consolidated = docs.find((d) => d.sourceId === "solana:entity");
   assert.ok(consolidated?.content.includes("type: organization"));
   assert.ok(consolidated?.content.includes("ticker: SOL"));
-  assert.ok(consolidated?.content.includes("founded by: Anatoly Yakovenko"));
+  // The founder is an internal link, so it must render as a ref-link.
+  assert.ok(
+    consolidated?.content.includes("was founded by: [Anatoly Yakovenko](ref:anatoly-yakovenko)"),
+  );
   assert.ok(docs.every((d) => d.sourceKind === "ontology_fact" && d.articleSlug === "solana"));
 });
 

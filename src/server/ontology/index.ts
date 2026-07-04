@@ -72,6 +72,6 @@ export function createOntologyDocumentProvider(
     const title = article.displayTitle || article.title;
     const infobox = getArticleInfobox(db, slug);
     indexArticleOntology(db, { slug, title, infobox, vocab });
-    return buildOntologyFactDocuments(db, slug, title, updatedAt);
+    return buildOntologyFactDocuments(db, slug, title, updatedAt, vocab);
   };
 }

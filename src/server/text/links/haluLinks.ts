@@ -2,6 +2,13 @@ import { slugify } from "../../slug";
 import type { ParsedInternalLink } from "../../types";
 import { parseMarkdownLinks, type ParsedMarkdownLink } from "../markdownLinkParser";
 
+/** Format an internal `ref:` link. The canonical way to emit `[title](ref:slug)`
+ *  so link syntax isn't hand-assembled at each call site. */
+export function buildRefLink(title: string, slug: string): string {
+  const safeTitle = title.replace(/[\[\]]/g, "").replace(/\s+/g, " ").trim();
+  return `[${safeTitle}](ref:${slug})`;
+}
+
 export function buildHaluLink(title: string, slug: string, hint: string): string {
   // The hint becomes a CommonMark link title; the emitted charset must never
   // be able to terminate or escape it (backslashes break the closing quote —

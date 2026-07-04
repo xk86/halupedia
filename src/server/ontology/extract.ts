@@ -9,6 +9,7 @@
  *    the controlled vocabulary before it is trusted.
  */
 import type { InfoboxData } from "../db";
+import { parseMarkdownLinks } from "../text/markdownLinkParser";
 import {
   classifyType,
   normalizeLabel,
@@ -17,11 +18,34 @@ import {
 } from "./vocabulary";
 import { emptyExtraction, type ExtractedEntity, type ExtractionResult } from "./types";
 
-const REF_LINK = /\[([^\]]+)\]\(ref:([^)\s]+)\)/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const INTERNAL_LINK_KINDS = new Set(["ref", "halu", "wiki", "plain-slug"]);
 
 function stripLinks(text: string): string {
   return text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim();
+}
+
+/**
+ * Recognize an internal link in an infobox value and return its display name +
+ * target slug. Handles every internal form the link parser knows:
+ *   - proper links `[Name](ref:slug)` / `[Name](halu:slug)` / wiki / plain-slug
+ *   - the loose shorthand `Name (halu:slug)` the model often emits
+ * Returns null when the value carries no internal link (a literal).
+ */
+function resolveLinkedObject(rawValue: string): { name: string; slug: string } | null {
+  const parsed = parseMarkdownLinks(rawValue);
+  const link = parsed.links.find((l) => INTERNAL_LINK_KINDS.has(l.kind) && l.slug);
+  if (link?.slug) {
+    return { name: link.label.trim() || link.slug, slug: link.slug };
+  }
+  const marker = parsed.looseInternalMarkers.find((m) => m.slug);
+  if (marker?.slug) {
+    // The visible name is the value with the marker removed.
+    const name =
+      (rawValue.slice(0, marker.start) + rawValue.slice(marker.end)).trim() || marker.slug;
+    return { name: stripLinks(name), slug: marker.slug };
+  }
+  return null;
 }
 
 export interface DeterministicArgs {
@@ -71,15 +95,14 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
         vocab.labelPredicates.get(normLabel) ??
         (vocab.predicates.has(normLabel) ? normLabel : "related_to");
 
-      const linkMatch = REF_LINK.exec(rawValue);
-      if (linkMatch) {
-        const objectName = linkMatch[1].trim();
-        const objectSlug = linkMatch[2].trim();
-        result.entities.push({ name: objectName, type: "thing", articleSlug: objectSlug });
+      const linked = resolveLinkedObject(rawValue);
+      if (linked) {
+        result.entities.push({ name: linked.name, type: "thing", articleSlug: linked.slug });
         result.relations.push({
           subject: title,
           predicate,
-          object: objectName,
+          object: linked.name,
+          objectSlug: linked.slug,
           objectIsLiteral: false,
           source: "infobox",
         });

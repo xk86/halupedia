@@ -23,6 +23,8 @@ export interface ExtractedRelation {
   predicate: string;
   /** Object entity name, or a literal value when `objectIsLiteral`. */
   object: string;
+  /** Article slug the object links to, when the object is an internal link. */
+  objectSlug?: string;
   objectIsLiteral?: boolean;
   /** 'infobox' | 'extracted' | 'curated'. Determines pin/clobber policy. */
   source: "infobox" | "extracted" | "curated";

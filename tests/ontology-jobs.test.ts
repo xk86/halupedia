@@ -81,5 +81,7 @@ test("ontology facts flow through processJobs into LanceDB", async (t) => {
   // The consolidated fact should be retrievable as a distinct kind.
   const onto = await store.fetchByArticle("solana", ["ontology_fact"], 10);
   assert.ok(onto.some((d) => d.content.includes("ticker: SOL")));
-  assert.ok(onto.some((d) => d.content.includes("founded by: Anatoly Yakovenko")));
+  assert.ok(
+    onto.some((d) => d.content.includes("was founded by: [Anatoly Yakovenko](ref:anatoly-yakovenko)")),
+  );
 });

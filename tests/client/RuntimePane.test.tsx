@@ -9,7 +9,6 @@ describe("RuntimePane", () => {
       <RuntimePane
         databasePath="data/halupedia.sqlite"
         promptConfigPath="config/prompts"
-        ragMode="full"
       />,
     );
 
@@ -17,7 +16,6 @@ describe("RuntimePane", () => {
     expect(table).toHaveAttribute("data-slot", "table");
     expect(screen.getByText("data/halupedia.sqlite")).toHaveClass("font-mono");
     expect(screen.getByText("config/prompts")).toBeInTheDocument();
-    expect(screen.getByText("full")).toBeInTheDocument();
 
     const download = screen.getByRole("link", {
       name: "Download latest DB backup",

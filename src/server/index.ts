@@ -3579,7 +3579,6 @@ export async function createApp(options: CreateAppOptions = {}) {
       model: runtime.llm.chat.model,
       databasePath: runtime.app.storage.database_path,
       promptConfigPath: "config/prompts",
-      ragMode: runtime.app.rag.mode,
       modelConfigs,
         imageGeneration: {
           enabled: runtime.app.images.generation.enabled,

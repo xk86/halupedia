@@ -27,7 +27,6 @@ interface AdminOverview {
   model: string;
   databasePath: string;
   promptConfigPath: string;
-  ragMode: string;
   modelConfigs?: Record<string, { model: string; baseUrl: string }>;
   promptModelAssociations?: Array<{
     key: string;
@@ -550,7 +549,6 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         <RuntimePane
           databasePath={overview.databasePath}
           promptConfigPath={overview.promptConfigPath}
-          ragMode={overview.ragMode}
         />
 
         <EntrySurgeryPane

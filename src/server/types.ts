@@ -11,11 +11,8 @@ export interface SearchConfig {
   limit: number;
 }
 
-export type RagMode = "summary" | "full";
-
 export interface RagConfig {
   enabled: boolean;
-  mode: RagMode;
   max_results: number;
   min_score: number;
   /**

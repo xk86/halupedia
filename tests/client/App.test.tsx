@@ -351,7 +351,6 @@ describe("App", () => {
       model: "test-model",
       databasePath: "test.sqlite",
       promptConfigPath: "config/prompts",
-      ragMode: "full",
       promptModelAssociations: [],
     };
     const fetchMock = vi.fn(
@@ -428,7 +427,6 @@ describe("App", () => {
       model: "test-model",
       databasePath: "test.sqlite",
       promptConfigPath: "config/prompts",
-      ragMode: "full",
       promptModelAssociations: [
         {
           key: "article",
@@ -586,7 +584,6 @@ describe("App", () => {
       model: "test-model",
       databasePath: "test.sqlite",
       promptConfigPath: "config/prompts",
-      ragMode: "full",
       promptModelAssociations: [],
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -666,7 +663,6 @@ describe("App", () => {
             model: "test-model",
             databasePath: "test.sqlite",
             promptConfigPath: "config/prompts",
-            ragMode: "full",
             promptModelAssociations: [],
           }),
           { headers: { "content-type": "application/json" } },
@@ -738,7 +734,6 @@ describe("App", () => {
       model: "test-model",
       databasePath: "test.sqlite",
       promptConfigPath: "config/prompts",
-      ragMode: "full",
       promptModelAssociations: [],
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -1989,7 +1984,6 @@ describe("App", () => {
       model: "test-model",
       databasePath: "test.sqlite",
       promptConfigPath: "config/prompts",
-      ragMode: "full",
       promptModelAssociations: [],
     };
     const promptContent = {

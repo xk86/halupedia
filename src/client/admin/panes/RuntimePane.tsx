@@ -6,13 +6,11 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 interface Props {
   databasePath: string;
   promptConfigPath: string;
-  ragMode: string;
 }
 
 function RuntimePaneComponent({
   databasePath,
   promptConfigPath,
-  ragMode,
 }: Props) {
   return (
     <Pane
@@ -27,7 +25,6 @@ function RuntimePaneComponent({
         <TableBody>
           <RuntimeRow label="Database" value={databasePath} />
           <RuntimeRow label="Prompts" value={promptConfigPath} />
-          <RuntimeRow label="RAG mode" value={ragMode} />
         </TableBody>
       </Table>
       <a

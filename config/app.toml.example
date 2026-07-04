@@ -12,7 +12,6 @@ limit = 20
 enabled = true
 # LanceDB is the canonical retrieval store. Rebuild it after changing the
 # embedding model, ontology vocabulary, or document schema.
-mode = "full"
 max_results = 12
 min_score = 0.4
 # Reference-list tuning (independent of general RAG so it can be tightened/loosened separately).

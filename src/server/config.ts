@@ -88,7 +88,6 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     },
     rag: {
       enabled: app.rag?.enabled ?? false,
-      mode: app.rag?.mode === "summary" ? "summary" : "full",
       max_results: app.rag?.max_results ?? 4,
       min_score: app.rag?.min_score ?? 0.2,
       reference_max_results: app.rag?.reference_max_results ?? 8,

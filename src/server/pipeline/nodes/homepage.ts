@@ -57,7 +57,7 @@ export const refreshHomepageCacheNode = defineNode({
 
     let todaysNews = null;
     try {
-      todaysNews = await ensureTodaysNewsArticle(deps.db, deps.llm, deps.runtime, deps.logger);
+      todaysNews = await ensureTodaysNewsArticle(deps.db, deps.llm, deps.rag, deps.runtime, deps.logger);
     } catch (error) {
       deps.logger.warn("homepage.todays_news_generation_failed", {
         error: error instanceof Error ? error.message : String(error),

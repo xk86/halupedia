@@ -228,7 +228,7 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
       async probeConnections() {},
     };
 
-    const news = await ensureTodaysNewsArticle(db, llm, runtime);
+    const news = await ensureTodaysNewsArticle(db, llm, undefined, runtime);
     assert.ok(news);
     assert.equal(news.generatorVersion, "1");
     assert.ok(news.headlines[0].slug);

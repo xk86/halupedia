@@ -21,7 +21,7 @@ import {
   stripTopLevelSections,
 } from "./markdown";
 import { getPrompt, renderTemplate } from "./prompts";
-import { retrieveContext, type RetrievedSourceArticle } from "./retrieval";
+import { toLegacyView, type RagRuntime } from "./rag";
 import { slugify } from "./slug";
 import type { HomepageNews } from "./types";
 import {
@@ -49,6 +49,7 @@ interface SourceArticle {
 export async function ensureTodaysNewsArticle(
   db: DatabaseSync,
   llm: LlmRouter,
+  rag: RagRuntime | undefined,
   runtime: RuntimeConfig,
   logger?: Logger,
 ): Promise<HomepageNews | null> {
@@ -70,7 +71,7 @@ export async function ensureTodaysNewsArticle(
     shouldReplaceHeadlineImage = true;
   }
 
-  const sources = await buildTodaysNewsLoreSources(db, llm, runtime, worldDate, slug, logger);
+  const sources = await buildTodaysNewsLoreSources(db, rag, runtime, worldDate, slug, logger);
   if (sources.length === 0) return null;
 
   const title = todaysNewsTitle(worldDate);
@@ -109,7 +110,7 @@ export async function ensureTodaysNewsArticle(
 
 async function buildTodaysNewsLoreSources(
   db: DatabaseSync,
-  llm: LlmRouter,
+  rag: RagRuntime | undefined,
   runtime: RuntimeConfig,
   worldDate: WorldDate,
   slug: string,
@@ -144,7 +145,7 @@ async function buildTodaysNewsLoreSources(
     addSource({ ...article, reason: "date-or-era match" });
   }
 
-  const ragSources = await retrieveNewsWorldStateSources(db, llm, runtime, worldDate, slug, logger);
+  const ragSources = await retrieveNewsWorldStateSources(rag, runtime, worldDate, slug);
   for (const source of ragSources) {
     const article = getArticleByLookup(db, source.slug);
     addSource({
@@ -181,14 +182,13 @@ async function buildTodaysNewsLoreSources(
 }
 
 async function retrieveNewsWorldStateSources(
-  db: DatabaseSync,
-  llm: LlmRouter,
+  rag: RagRuntime | undefined,
   runtime: RuntimeConfig,
   worldDate: WorldDate,
   slug: string,
-  logger?: Logger,
-): Promise<RetrievedSourceArticle[]> {
-  const rag = runtime.app.rag;
+): Promise<Array<{ slug: string; title: string; content: string; score?: number }>> {
+  if (!rag) return [];
+  const ragCfg = runtime.app.rag;
   const query = [
     `news for ${worldDate.label}`,
     `${worldDate.monthName} ${worldDate.year}`,
@@ -196,22 +196,15 @@ async function retrieveNewsWorldStateSources(
     `ongoing world state during ${worldDate.monthName} ${worldDate.year}`,
     "current conditions aftermath disaster war election law crisis climate darkness blocked sun ash famine evacuation rationing quarantine",
     "events that are still happening, effects that last weeks or months, public notices, government response, infrastructure disruption",
+    ...buildTemporalSearchTerms(worldDate),
   ].join("\n");
-  const packet = await retrieveContext(
-    db,
-    llm,
-    slug,
-    buildTemporalSearchTerms(worldDate),
-    rag.enabled,
-    rag.mode,
-    Math.max(rag.max_results, 12),
-    Math.min(rag.min_score, 0.18),
-    runtime.llm.embeddings.enabled,
-    logger,
-    query,
-    { enabled: rag.summary_cap_enabled, chars: Math.max(rag.summary_cap_chars, 2200) },
-  );
-  return packet.sourceArticles;
+  const result = await rag.retrieve({
+    targetSlug: slug,
+    queryText: query,
+    minScore: Math.min(ragCfg.min_score, 0.18),
+    profile: "reference_search",
+  });
+  return toLegacyView(result).sourceArticles;
 }
 
 function buildTemporalSearchTerms(worldDate: WorldDate): string[] {

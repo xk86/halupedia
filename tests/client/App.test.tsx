@@ -2115,7 +2115,9 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("tab", { name: "Prompts" }));
 
     // Select the article prompt (Base UI Select: open trigger, click option)
-    await userEvent.click(await screen.findByRole("combobox"));
+    const promptPicker = await screen.findByRole("combobox");
+    await waitFor(() => expect(promptPicker).toBeEnabled());
+    await userEvent.click(promptPicker);
     await userEvent.click(
       await screen.findByRole("option", { name: "article" }),
     );

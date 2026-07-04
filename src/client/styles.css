@@ -2171,7 +2171,8 @@ a:hover {
   }
 
   .layout--admin {
-    width: auto;
+    width: calc(100dvw - 4rem);
+    min-width: 0;
   }
 
   .layout-main {

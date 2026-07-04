@@ -672,7 +672,7 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
     adminLayout.mode === "split" ? ADMIN_VIEWS : [adminLayout.activeView];
 
   return (
-    <div className="font-sans text-foreground">
+    <div className="w-full max-w-full min-w-0 font-sans text-foreground">
       <header className="mb-3 border-b border-border pb-3">
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
@@ -712,7 +712,10 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         className="mb-3"
       >
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
-          <TabsList variant="line" className="max-w-full overflow-x-auto">
+          <TabsList
+            variant="line"
+            className="w-full max-w-full justify-start overflow-x-auto sm:w-fit"
+          >
             {ADMIN_VIEWS.map((view) => (
               <TabsTrigger key={view} value={view}>
                 {VIEW_LABELS[view]}

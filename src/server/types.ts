@@ -15,23 +15,9 @@ export type RagMode = "summary" | "full";
 
 export interface RagConfig {
   enabled: boolean;
-  /**
-   * Generation/rewrite/refresh retrieval is served by the LanceDB store in
-   * `src/server/rag`. Defaults to true; false is a temporary rollback switch
-   * while the legacy implementation still exists.
-   */
-  use_lancedb_retrieval: boolean;
   mode: RagMode;
   max_results: number;
-  chunk_size: number;
   min_score: number;
-  /**
-   * Summary-mode content cap. When `summary_cap_enabled` is true, each source's
-   * content is clipped to `summary_cap_chars` (with an ellipsis) in summary
-   * mode; when false, summary mode keeps the whole chunk untruncated.
-   */
-  summary_cap_enabled: boolean;
-  summary_cap_chars: number;
   /**
    * Maximum number of candidate references to keep after ranking.
    * The reference list is built from RAG sources (summaries + chunks);
@@ -79,12 +65,6 @@ export interface RagConfig {
    */
   reference_cull_min_score: number;
   reference_cull_top_k: number;
-  /**
-   * Maximum chunks pulled per referenced article in direct-context retrieval.
-   * Without this, the first referenced article could fill the entire
-   * max_results budget with chunks of itself.
-   */
-  direct_chunks_per_article: number;
   /** Maximum incoming link hints included in generation/rewrite prompts. */
   prompt_link_hints_max: number;
   /**

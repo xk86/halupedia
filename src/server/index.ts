@@ -968,8 +968,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     },
   });
   {
-    // Warn (don't refuse, while dual-running) if the corpus is missing/stale,
-    // and drain any jobs left pending by a prior crash.
+    // A missing corpus is tolerated (fresh/empty wiki, tests) — the drainer
+    // builds it from enqueued jobs. A corpus built for a different embedding
+    // model returns weaker retrievals (query and stored vectors live in
+    // different spaces, though the store guarantees matching dimensions), so
+    // surface drift loudly. Not a hard refuse: some environments (smoke tests,
+    // embeddings-disabled dev) legitimately point a mismatched config at a
+    // prebuilt corpus.
     const meta = await rag.store.readMeta().catch(() => null);
     if (!meta) {
       logger.warn("rag.startup_no_corpus", { path: ragPath, hint: "run: pnpm run rag:rebuild" });

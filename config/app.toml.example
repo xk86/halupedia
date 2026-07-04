@@ -12,17 +12,9 @@ limit = 20
 enabled = true
 # LanceDB is the canonical retrieval store. Rebuild it after changing the
 # embedding model, ontology vocabulary, or document schema.
-use_lancedb_retrieval = true
-mode = "summary" # options: "full" or "summary"
+mode = "full"
 max_results = 12
-# Changing chunk size after initialization is risky
-chunk_size = 500
 min_score = 0.4
-# Summary-mode content cap. When summary_cap_enabled is true, each source's
-# content is clipped to summary_cap_chars (with an ellipsis) in summary mode;
-# set summary_cap_enabled = false to keep whole chunks untruncated.
-summary_cap_enabled = true
-summary_cap_chars = 3600
 # Reference-list tuning (independent of general RAG so it can be tightened/loosened separately).
 # reference_max_results caps only newly-discovered vector-search (RAG) results per build.
 # Body-linked, user-added, and prior-save references are NOT subject to this cap — they
@@ -43,9 +35,6 @@ prompt_ref_content_min_score = 0.52
 # Set to 0 to disable the cap entirely.
 prompt_ref_content_top_k = 6
 
-# Maximum chunks pulled per referenced article in direct-context retrieval.
-# Without this one article can fill the whole max_results budget with its own chunks.
-direct_chunks_per_article = 3
 # Maximum incoming link hints included in generation/rewrite prompts after dedupe.
 # Heavily-backlinked articles can have hundreds; uncapped they distract refreshes.
 prompt_link_hints_max = 12

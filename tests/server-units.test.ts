@@ -771,10 +771,6 @@ test("loadConfig populates a dedicated light LLM config section", () => {
   assert.ok(typeof llm.light.max_tokens === "number" && llm.light.max_tokens > 0);
 });
 
-test("loadConfig uses LanceDB retrieval as the canonical RAG path", () => {
-  assert.equal(loadConfig().app.rag.use_lancedb_retrieval, true);
-});
-
 test("loadConfig resolves prompt manifest file references", () => {
   const { prompts } = loadConfig();
   

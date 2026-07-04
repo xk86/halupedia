@@ -55,16 +55,29 @@ export interface DeterministicArgs {
   vocab: OntologyVocabulary;
 }
 
+/** Emit the unary `is_a` classification fact ("<title> is a <type>"). */
+function emitIsA(result: ExtractionResult, title: string, type: string): void {
+  result.relations.push({
+    subject: title,
+    predicate: "is_a",
+    object: type,
+    objectIsLiteral: true,
+    source: "infobox",
+  });
+}
+
 export function extractDeterministic(args: DeterministicArgs): ExtractionResult {
   const { slug, title, infobox, vocab } = args;
   const result = emptyExtraction();
   if (!infobox) {
-    // Still register the article as an entity so it can be a relation object.
+    // Still register the article as an entity so it can be a relation object,
+    // and tag its (fallback) type so even infobox-less articles are classified.
     result.entities.push({ name: title, type: "thing", articleSlug: slug });
+    emitIsA(result, title, "thing");
     return result;
   }
 
-  const { type: articleType } = classifyType(vocab, infobox.subtitle);
+  const { type: articleType, category } = classifyType(vocab, infobox.subtitle);
   const articleEntity: ExtractedEntity = {
     name: title,
     type: articleType,
@@ -73,6 +86,10 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
     description: infobox.subtitle ? stripLinks(infobox.subtitle) : undefined,
   };
   result.entities.push(articleEntity);
+  emitIsA(result, title, articleType);
+  // Prefer the canonical category from the classification rule; otherwise keep
+  // the raw subtitle as an emergent tag.
+  if (category) result.categories.push(category);
   if (infobox.subtitle) result.categories.push(stripLinks(infobox.subtitle));
 
   for (const group of infobox.groups ?? []) {

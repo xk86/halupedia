@@ -108,6 +108,8 @@ test("indexArticleOntology persists entities, relations, categories", (t) => {
   indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
   const { entity, facts, identifiers, categories } = listArticleEntityFacts(db, "solana");
   assert.equal(entity?.entityType, "organization");
+  // Every entity gets an explicit, provable is_a classification fact.
+  assert.ok(facts.some((f) => f.predicate === "is_a" && f.object === "organization"));
   assert.ok(facts.some((f) => f.predicate === "founded_by" && f.object === "Anatoly Yakovenko"));
   assert.ok(identifiers.some((i) => i.value === "SOL"));
   assert.ok(categories.includes("Blockchain network"));

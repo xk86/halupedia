@@ -38,7 +38,11 @@ export function buildOntologyFactDocuments(
   const docs: RagTextDocument[] = [];
   const parts = [`type: ${entity.entityType}`];
   for (const id of identifiers) parts.push(`${id.scheme}: ${id.value}`);
-  for (const fact of facts) parts.push(`${predicateLabel(vocab, fact.predicate)}: ${renderObject(fact)}`);
+  for (const fact of facts) {
+    // `type:` above already conveys the is_a class; don't repeat it here.
+    if (fact.predicate === "is_a") continue;
+    parts.push(`${predicateLabel(vocab, fact.predicate)}: ${renderObject(fact)}`);
+  }
   if (categories.length) parts.push(`categories: ${categories.join(", ")}`);
 
   const consolidated = `${title} — ${parts.join("; ")}`;

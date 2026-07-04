@@ -73,6 +73,7 @@ export function buildOntologyFactDocuments(
         objectSlug: fact.objectSlug ?? undefined,
         source: fact.source,
         confidence: fact.confidence,
+        inferredFrom: fact.inferredFrom ?? undefined,
       },
     });
   }

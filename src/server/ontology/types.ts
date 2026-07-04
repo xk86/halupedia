@@ -26,9 +26,11 @@ export interface ExtractedRelation {
   /** Article slug the object links to, when the object is an internal link. */
   objectSlug?: string;
   objectIsLiteral?: boolean;
-  /** 'infobox' | 'extracted' | 'curated'. Determines pin/clobber policy. */
-  source: "infobox" | "extracted" | "curated";
+  /** Determines pin/clobber policy. 'inferred' rows are derived, not asserted. */
+  source: "infobox" | "extracted" | "curated" | "inferred";
   confidence?: number;
+  /** For inferred relations: a human-readable note of the basis fact(s). */
+  inferredFrom?: string;
 }
 
 export interface ExtractionResult {

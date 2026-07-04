@@ -9,6 +9,7 @@ import {
   deleteArticleOntology,
   deriveLlmExtraction,
   extractDeterministic,
+  inferRelations,
   indexArticleOntology,
   listArticleEntityFacts,
   loadOntologyVocabulary,
@@ -159,6 +160,38 @@ test("merge prefers deterministic and dedupes", () => {
   const merged = mergeExtractions(det, llm);
   assert.ok(merged.categories.includes("Blockchain network"));
   assert.ok(merged.categories.includes("Crypto"));
+});
+
+test("inference derives inverse/symmetric relations with decayed confidence", () => {
+  const inferred = inferRelations(vocab, [
+    // founded_by has inverse founder_of.
+    { subject: "Solana", predicate: "founded_by", object: "Anatoly Yakovenko", source: "infobox", confidence: 1 },
+    // spouse_of is symmetric.
+    { subject: "Alice", predicate: "spouse_of", object: "Bob", source: "infobox", confidence: 1 },
+    // Literal + is_a objects must not be reversed.
+    { subject: "Solana", predicate: "is_a", object: "organization", objectIsLiteral: true, source: "infobox" },
+  ]);
+  const inverse = inferred.find((r) => r.predicate === "founder_of");
+  assert.equal(inverse?.subject, "Anatoly Yakovenko");
+  assert.equal(inverse?.object, "Solana");
+  assert.equal(inverse?.source, "inferred");
+  assert.ok((inverse?.confidence ?? 1) < 1, "inferred confidence is decayed");
+  assert.ok(inverse?.inferredFrom?.includes("founded_by"), "records its basis");
+  const symmetric = inferred.find((r) => r.predicate === "spouse_of" && r.subject === "Bob");
+  assert.equal(symmetric?.object, "Alice");
+  // No inference off the is_a literal.
+  assert.ok(!inferred.some((r) => r.predicate === "is_a"));
+});
+
+test("indexArticleOntology stores inferred relations, provable via basis", (t) => {
+  const db = makeDb(t);
+  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  // The founder relation must yield an inferred founder_of on the person entity.
+  const person = listArticleEntityFacts(db, "anatoly-yakovenko");
+  const founderOf = person.facts.find((f) => f.predicate === "founder_of");
+  assert.ok(founderOf, "inverse founder_of inferred onto the founder");
+  assert.equal(founderOf?.source, "inferred");
+  assert.ok(founderOf?.inferredFrom?.includes("founded_by"));
 });
 
 const ONTOLOGY_PROMPTS = {

@@ -403,6 +403,8 @@ export function openDatabase(databasePath: string): DatabaseSync {
       source TEXT NOT NULL DEFAULT 'extracted',
       confidence REAL NOT NULL DEFAULT 1,
       pinned INTEGER NOT NULL DEFAULT 0,
+      -- For source='inferred': human-readable basis fact(s) (provable inference).
+      inferred_from TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (subject_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
       FOREIGN KEY (object_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
@@ -423,6 +425,10 @@ export function openDatabase(databasePath: string): DatabaseSync {
       updated_at INTEGER NOT NULL
     );
   `);
+  // Provable-inference basis for inferred ontology relations (source='inferred').
+  if (!hasColumn(db, "entity_relations", "inferred_from")) {
+    db.exec(`ALTER TABLE entity_relations ADD COLUMN inferred_from TEXT`);
+  }
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {
     db.exec(`ALTER TABLE article_references ADD COLUMN kind TEXT NOT NULL DEFAULT 'summary'`);

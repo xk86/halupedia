@@ -10,6 +10,7 @@ import { getArticle, getArticleInfobox, type InfoboxData } from "../db";
 import type { RagTextDocument } from "../rag/types";
 import { buildOntologyFactDocuments } from "./documents";
 import { extractDeterministic, mergeExtractions } from "./extract";
+import { inferRelations } from "./infer";
 import { deriveLlmExtraction, type OntologyLlmOptions } from "./llmExtract";
 import { reconcileArticleOntology } from "./store";
 import { emptyExtraction, type ExtractionResult } from "./types";
@@ -31,6 +32,7 @@ export {
 } from "./store";
 export { buildOntologyFactDocuments } from "./documents";
 export { deriveLlmExtraction, type OntologyLlmOptions } from "./llmExtract";
+export { inferRelations } from "./infer";
 
 export interface IndexArticleOntologyArgs {
   slug: string;
@@ -52,6 +54,9 @@ export function indexArticleOntology(db: DatabaseSync, args: IndexArticleOntolog
   const merged = args.llmExtraction
     ? mergeExtractions(deterministic, args.llmExtraction)
     : deterministic;
+  // Derive provable inferred relations (symmetric/inverse/transitive) from the
+  // asserted set and append them before persisting.
+  merged.relations.push(...inferRelations(args.vocab, merged.relations));
   reconcileArticleOntology(db, args.slug, args.revisionId ?? null, merged);
   return merged;
 }

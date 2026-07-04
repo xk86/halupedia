@@ -37,9 +37,6 @@ import {
   excludeBlacklistedSources,
   formatRagContextForPrompt,
   formatRelatedTitlesForPrompt,
-  retrieveContext as retrieveContextLegacy,
-  retrieveDirectArticleContext,
-  mergeRetrievedContextPackets,
 } from "../../retrieval";
 import { toLegacyView } from "../../rag";
 import { buildRagPromptTrace } from "../ragTrace";
@@ -57,7 +54,7 @@ import {
 } from "../../selectionUtils";
 import { slugify } from "../../slug";
 import type { ReferenceListEntry } from "../../types";
-import type { ReferenceEntry, RetrievedContext } from "../state";
+import type { ReferenceEntry } from "../state";
 import { hashValue } from "../runtime/trace";
 
 function toStateEntry(r: ReferenceListEntry): ReferenceEntry {
@@ -146,8 +143,6 @@ export const retrieveContextForRewriteNode = defineNode({
   async run({ input, loadedArticle }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
     const rag = deps.runtime.app.rag;
-    const summaryCap = { enabled: rag.summary_cap_enabled, chars: rag.summary_cap_chars };
-    const useEmbeddings = rag.enabled && deps.runtime.llm.embeddings.enabled;
 
     // Decode rewrite-specific options from instructions encoding.
     const explicitSlugs = [...(input.pinnedSlugs ?? []), ...(input.userReferenceSlugs ?? [])];
@@ -156,7 +151,6 @@ export const retrieveContextForRewriteNode = defineNode({
     // The article vibe is never used as a retrieval query — it is canonical
     // human-authored source, not a search prompt. Retrieval is driven only by
     // an explicit ragQuery (or the auto hints/backlinks branch below).
-    const instructionsText = "";
 
     const hints = listIncomingHints(deps.db, slug);
     const backlinkSlugs = [...new Set(hints.map((h) => h.sourceSlug).filter(Boolean))];
@@ -169,11 +163,10 @@ export const retrieveContextForRewriteNode = defineNode({
         return { slug: s, title: a?.title ?? s };
       });
 
-    // ---- new LanceDB retrieval path (behind rag.use_lancedb_retrieval) ----
-    // Collapses the three legacy branches: the unified retriever fuses semantic,
-    // direct, and symbolic paths, so each branch only needs to supply a query
-    // and the set of explicitly-referenced (direct) slugs.
-    if (rag.use_lancedb_retrieval && deps.rag) {
+    // The unified LanceDB retriever fuses semantic, direct, and symbolic paths,
+    // so each rewrite mode only needs to supply a query and the set of
+    // explicitly-referenced (direct) slugs.
+    if (deps.rag) {
       const hintStrings = hints.map((h) => h.hiddenHint);
       let directSlugs: string[];
       let queryText: string;
@@ -230,98 +223,13 @@ export const retrieveContextForRewriteNode = defineNode({
       };
     }
 
-    let retrieved: RetrievedContext;
-
-    if (explicitSlugs.length > 0) {
-      // User-selected refs: load directly, merge with prior refs for continuity.
-      const allDirect = [...new Set([...explicitSlugs, ...priorSlugs])];
-      const direct = retrieveDirectArticleContext(deps.db, slug, allDirect, rag.mode, rag.max_results, deps.logger, { maxChunksPerArticle: rag.direct_chunks_per_article, summaryCap });
-      retrieved = {
-        sourceArticles: direct.sourceArticles.map((s) => ({ ...s })),
-        ragTitles: direct.relatedTitles,
-        backlinks: backlinkSlugs.map((s) => {
-          const a = getArticleByLookup(deps.db, s);
-          return { slug: s, title: a?.title ?? s };
-        }),
-      };
-    } else if (ragEnabled) {
-      const query = ragQuery || instructionsText;
-      const hintStrings = hints.map((h) => h.hiddenHint);
-      const packet = await retrieveContextLegacy(
-        deps.db, deps.llm, slug,
-        query ? [query] : hintStrings,
-        rag.enabled, rag.mode, rag.max_results, rag.min_score,
-        useEmbeddings, deps.logger, query || undefined, summaryCap,
-      );
-      const editReferences = findReferencedArticlesInEditText(
-        deps.db,
-        `${ragQuery} ${instructionsText}`,
-        slug,
-      );
-      const fuzzyTitleMatches = findFuzzyTitleMatchesInEditText(
-        deps.db,
-        `${query} ${instructionsText}`,
-        slug,
-        rag.max_results,
-        editReferences.articles.map((a) => a.slug),
-      );
-      const directSlugs = [
-        ...new Set([
-          ...priorSlugs,
-          ...editReferences.articles.map((a) => a.slug),
-          ...fuzzyTitleMatches.map((a) => a.slug),
-        ]),
-      ];
-      const direct = directSlugs.length
-        ? retrieveDirectArticleContext(
-            deps.db,
-            slug,
-            directSlugs,
-            rag.mode,
-            rag.max_results,
-            deps.logger,
-            { maxChunksPerArticle: rag.direct_chunks_per_article, summaryCap },
-          )
-        : { context: "", relatedTitles: [], sourceArticles: [] };
-      const merged = mergeRetrievedContextPackets(direct, packet);
-      retrieved = {
-        sourceArticles: merged.sourceArticles,
-        ragTitles: merged.relatedTitles,
-        backlinks: backlinkSlugs.map((s) => {
-          const a = getArticleByLookup(deps.db, s);
-          return { slug: s, title: a?.title ?? s };
-        }),
-        embedding: merged.embedding,
-      };
-    } else {
-      // Auto: backlinks + hint-based retrieval.
-      const hintStrings = hints.map((h) => h.hiddenHint);
-      const queryOverride = [loadedArticle?.title ?? "", loadedArticle?.body.slice(0, 500) ?? ""].filter(Boolean).join("\n\n");
-      const primary = await retrieveContextLegacy(
-        deps.db, deps.llm, slug, hintStrings,
-        rag.enabled, rag.mode, rag.max_results, rag.min_score,
-        useEmbeddings, deps.logger, queryOverride, summaryCap,
-      );
-      const direct = backlinkSlugs.length
-        ? retrieveDirectArticleContext(deps.db, slug, backlinkSlugs, rag.mode, rag.max_results, deps.logger, { maxChunksPerArticle: rag.direct_chunks_per_article, summaryCap })
-        : { context: "", relatedTitles: [], sourceArticles: [] };
-      const merged = mergeRetrievedContextPackets(primary, direct);
-      retrieved = {
-        sourceArticles: merged.sourceArticles,
-        ragTitles: merged.relatedTitles,
-        backlinks: backlinkSlugs.map((s) => {
-          const a = getArticleByLookup(deps.db, s);
-          return { slug: s, title: a?.title ?? s };
-        }),
-        embedding: merged.embedding,
-      };
-    }
-
+    // No RAG runtime (unit harnesses that don't exercise retrieval): surface
+    // backlinks only, with no retrieved evidence.
     return {
       retrievedContext: excludeBlacklistedSources(
         deps.db,
         slug,
-        retrieved,
+        { sourceArticles: [], ragTitles: [], backlinks: backlinkEntries() },
         input.blacklistSlugs ?? [],
       ),
     };

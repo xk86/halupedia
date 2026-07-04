@@ -33,9 +33,6 @@ import {
   excludeBlacklistedSources,
   formatRagContextForPrompt,
   formatRelatedTitlesForPrompt,
-  retrieveContext as retrieveContextLegacy,
-  retrieveDirectArticleContext,
-  mergeRetrievedContextPackets,
 } from "../../retrieval";
 import { toLegacyView, type RetrievalProfile } from "../../rag";
 import { buildRagPromptTrace } from "../ragTrace";
@@ -152,9 +149,8 @@ export const readArticleVibeNode = defineNode({
 
 /**
  * Retrieval node factory. Generation and refresh share the same retrieval logic
- * but want different budgets, so each gets its own node bound to a profile (the
- * profile only affects the new LanceDB path; the legacy path applies its caps at
- * render time).
+ * but want different budgets, so each gets its own node bound to a LanceDB
+ * retrieval profile.
  */
 function makeRetrieveContextNode(opts: { name: string; profile: RetrievalProfile }) {
   return defineNode({
@@ -167,8 +163,6 @@ function makeRetrieveContextNode(opts: { name: string; profile: RetrievalProfile
   async run({ input, loadedArticle }, deps: PipelineDeps) {
     const slug = input.slug ?? "";
     const rag = deps.runtime.app.rag;
-    const useEmbeddings =
-      rag.enabled && deps.runtime.llm.embeddings.enabled;
 
     const hints: IncomingHint[] = slug
       ? listIncomingHints(deps.db, slug)
@@ -185,10 +179,9 @@ function makeRetrieveContextNode(opts: { name: string; profile: RetrievalProfile
       .map((h) => slugify(h.sourceSlug))
       .filter(Boolean);
 
-    // ---- new LanceDB retrieval path (behind rag.use_lancedb_retrieval) ----
-    // Maps the structured result into the legacy retrievedContext shape so the
-    // reference list and prompt render nodes work unchanged during cutover.
-    if (rag.use_lancedb_retrieval && deps.rag) {
+    // Maps the structured LanceDB result into the legacy retrievedContext shape
+    // so the reference list and prompt render nodes work unchanged.
+    if (deps.rag) {
       const result = await deps.rag.retrieve({
         targetSlug: slug,
         queryText: [queryOverride, ...hintStrings].filter(Boolean).join("\n"),
@@ -212,54 +205,19 @@ function makeRetrieveContextNode(opts: { name: string; profile: RetrievalProfile
       };
     }
 
-    const primary = await retrieveContextLegacy(
-      deps.db,
-      deps.llm,
-      slug,
-      hintStrings,
-      rag.enabled,
-      rag.mode,
-      rag.max_results,
-      rag.min_score,
-      useEmbeddings,
-      deps.logger,
-      queryOverride,
-      { enabled: rag.summary_cap_enabled, chars: rag.summary_cap_chars },
-    );
-
-    const referencedSlugs = referencedSlugsForHints;
-    const direct = referencedSlugs.length
-      ? retrieveDirectArticleContext(
-          deps.db,
-          slug,
-          referencedSlugs,
-          rag.mode,
-          rag.max_results,
-          deps.logger,
-          {
-            maxChunksPerArticle: rag.direct_chunks_per_article,
-            summaryCap: { enabled: rag.summary_cap_enabled, chars: rag.summary_cap_chars },
-          },
-        )
-      : { context: "", relatedTitles: [], sourceArticles: [] };
-
-    const merged = mergeRetrievedContextPackets(primary, direct);
-
+    // No RAG runtime (unit harnesses that don't exercise retrieval): surface
+    // backlinks only, with no retrieved evidence.
     return {
-      retrievedContext: excludeBlacklistedSources(deps.db, slug, {
-        sourceArticles: merged.sourceArticles.map((s) => ({
-          slug: s.slug,
-          title: s.title,
-          content: s.content,
-          score: s.score,
-        })),
-        ragTitles: merged.relatedTitles,
-        backlinks: hints.map((h) => ({
-          slug: h.sourceSlug,
-          title: h.sourceTitle,
-        })),
-        embedding: merged.embedding,
-      }, input.blacklistSlugs ?? []),
+      retrievedContext: excludeBlacklistedSources(
+        deps.db,
+        slug,
+        {
+          sourceArticles: [],
+          ragTitles: [],
+          backlinks: hints.map((h) => ({ slug: h.sourceSlug, title: h.sourceTitle })),
+        },
+        input.blacklistSlugs ?? [],
+      ),
     };
   },
   });

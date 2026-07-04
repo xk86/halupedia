@@ -961,6 +961,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     llm,
     path: ragPath,
     logger,
+    ontologyLlmExtraction: runtime.app.rag.ontology_llm_extraction,
+    prompts: runtime.prompts,
     imageDescriptions: (ids) => {
       const map = new Map<string, string>();
       for (const id of ids) {

@@ -10,6 +10,7 @@ import { getArticle, getArticleInfobox, type InfoboxData } from "../db";
 import type { RagTextDocument } from "../rag/types";
 import { buildOntologyFactDocuments } from "./documents";
 import { extractDeterministic, mergeExtractions } from "./extract";
+import { deriveLlmExtraction, type OntologyLlmOptions } from "./llmExtract";
 import { reconcileArticleOntology } from "./store";
 import { emptyExtraction, type ExtractionResult } from "./types";
 import type { OntologyVocabulary } from "./vocabulary";
@@ -29,6 +30,7 @@ export {
   upsertEntity,
 } from "./store";
 export { buildOntologyFactDocuments } from "./documents";
+export { deriveLlmExtraction, type OntologyLlmOptions } from "./llmExtract";
 
 export interface IndexArticleOntologyArgs {
   slug: string;
@@ -59,19 +61,26 @@ export { emptyExtraction };
 /**
  * Build the job processor's `extraDocuments` provider: on each article reindex,
  * (re)run deterministic ontology extraction from the current infobox and emit
- * `ontology_fact` documents for embedding. LLM extraction is layered in by the
- * hook caller via `indexArticleOntology({ llmExtraction })` ahead of time.
+ * `ontology_fact` documents for embedding.
+ *
+ * When `llmOptions` is supplied, a cached light-model pass over the article
+ * prose is merged in as well (see `deriveLlmExtraction`); without it the
+ * provider is deterministic-only (the shape used by tests and offline rebuilds).
  */
 export function createOntologyDocumentProvider(
   db: DatabaseSync,
   vocab: OntologyVocabulary,
-): (slug: string, updatedAt: number) => RagTextDocument[] {
-  return (slug, updatedAt) => {
+  llmOptions?: OntologyLlmOptions,
+): (slug: string, updatedAt: number) => Promise<RagTextDocument[]> {
+  return async (slug, updatedAt) => {
     const article = getArticle(db, slug);
     if (!article) return [];
     const title = article.displayTitle || article.title;
     const infobox = getArticleInfobox(db, slug);
-    indexArticleOntology(db, { slug, title, infobox, vocab });
+    const llmExtraction = llmOptions
+      ? await deriveLlmExtraction(db, vocab, article, llmOptions)
+      : undefined;
+    indexArticleOntology(db, { slug, title, infobox, vocab, llmExtraction });
     return buildOntologyFactDocuments(db, slug, title, updatedAt, vocab);
   };
 }

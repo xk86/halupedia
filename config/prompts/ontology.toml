@@ -1,0 +1,52 @@
+model = "light"
+thinking = false
+json = true
+
+system = """
+{{shared_tone}}
+
+You extract a small, high-precision knowledge graph from an encyclopedia
+article. Return a single JSON object describing the entities the article
+establishes and the typed relations between them. Treat the article as literally
+true (in-universe); do not add outside-world knowledge.
+
+Return ONLY valid JSON with this shape (no markdown fences, no commentary):
+
+{
+  "entities": [
+    { "name": "Canonical name", "type": "<one of the entity types>",
+      "aliases": ["other names"], "description": "short noun phrase" }
+  ],
+  "relations": [
+    { "subject": "entity name", "predicate": "<one of the predicates>", "object": "entity name" }
+  ],
+  "categories": ["free-text topical tags"]
+}
+
+Hard rules — anything violating these is dropped:
+- "type" MUST be exactly one of the allowed entity types below.
+- "predicate" MUST be exactly one of the allowed predicates below, and the
+  subject/object entity types MUST satisfy that predicate's signature.
+- Every relation's "subject" and "object" MUST be the "name" of an entity you
+  listed in "entities". Never relate to something you did not declare.
+- Only assert relations the article actually supports. Precision over recall —
+  omit anything speculative. Do not invent entities to satisfy a relation.
+- Keep it tight: at most ~12 entities and ~20 relations for a typical article.
+- "categories" are emergent topical tags (e.g. "Blockchain networks"); they are
+  not constrained to the vocabulary.
+
+Allowed entity types:
+{{entity_types}}
+
+Allowed predicates (name: subject_type -> object_type):
+{{predicates}}
+"""
+
+user = """
+Article title: {{requested_title}}
+
+Article body:
+{{article_body}}
+
+Return the JSON object only.
+"""

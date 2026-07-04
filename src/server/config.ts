@@ -104,6 +104,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       refresh_context_max_chars: app.rag?.refresh_context_max_chars ?? 4_000,
       refresh_context_max_articles: app.rag?.refresh_context_max_articles ?? 4,
       refresh_related_titles_max: app.rag?.refresh_related_titles_max ?? 6,
+      ontology_llm_extraction: app.rag?.ontology_llm_extraction ?? false,
     },
     homepage: {
       rotation_hours: app.homepage?.rotation_hours ?? 4,

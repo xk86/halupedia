@@ -411,6 +411,17 @@ export function openDatabase(databasePath: string): DatabaseSync {
     CREATE INDEX IF NOT EXISTS idx_entity_relations_subject ON entity_relations(subject_entity_id);
     CREATE INDEX IF NOT EXISTS idx_entity_relations_object ON entity_relations(object_entity_id);
     CREATE INDEX IF NOT EXISTS idx_entity_relations_provenance ON entity_relations(provenance_slug);
+
+    -- Caches the validated LLM ontology extraction per article, keyed by the
+    -- content + vocabulary hash it was derived from, so the reindex drainer only
+    -- calls the model when the article or the vocabulary actually changes.
+    CREATE TABLE IF NOT EXISTS ontology_llm_cache (
+      article_slug TEXT PRIMARY KEY,
+      content_hash TEXT NOT NULL,
+      vocab_hash TEXT NOT NULL,
+      extraction TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
   // Migrate existing article_references rows to include the new reference-list fields.
   if (!hasColumn(db, "article_references", "kind")) {

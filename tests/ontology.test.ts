@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, prepared, type InfoboxData } from "../src/server/db";
+import { openDatabase, prepared, saveArticle, type InfoboxData } from "../src/server/db";
 import {
   buildOntologyFactDocuments,
   deleteArticleOntology,
+  deriveLlmExtraction,
   extractDeterministic,
   indexArticleOntology,
   listArticleEntityFacts,
@@ -14,6 +15,8 @@ import {
   mergeExtractions,
   validateLlmExtraction,
 } from "../src/server/ontology";
+import type { ArticleRecord, PromptConfig } from "../src/server/types";
+import type { LlmRouter } from "../src/server/llm";
 
 const vocab = loadOntologyVocabulary();
 
@@ -156,6 +159,76 @@ test("merge prefers deterministic and dedupes", () => {
   const merged = mergeExtractions(det, llm);
   assert.ok(merged.categories.includes("Blockchain network"));
   assert.ok(merged.categories.includes("Crypto"));
+});
+
+const ONTOLOGY_PROMPTS = {
+  prompts: {
+    ontology: {
+      system: "types: {{entity_types}}\npredicates: {{predicates}}",
+      user: "{{requested_title}}\n{{article_body}}",
+      model: "light",
+      thinking: false,
+      json: true,
+    },
+  },
+  shared: {},
+} as unknown as PromptConfig;
+
+function stubLlm(reply: string, onCall: () => void): LlmRouter {
+  return {
+    async chat() {
+      onCall();
+      return reply;
+    },
+    supportsVision: () => false,
+    async streamChat() {
+      return { content: "", finishReason: "stop" };
+    },
+    async embed() {
+      return [];
+    },
+    async probeConnections() {},
+  } as unknown as LlmRouter;
+}
+
+test("LLM extraction is validated, merged, and cached by content hash", async (t) => {
+  const db = makeDb(t);
+  const article: ArticleRecord = {
+    slug: "solana",
+    canonicalSlug: "solana",
+    title: "Solana",
+    markdown: "# Solana\n\nSolana was founded by Anatoly Yakovenko.",
+    html: "",
+    summaryMarkdown: "",
+    plain_text: "Solana was founded by Anatoly Yakovenko.",
+    generated_at: 1,
+  };
+  saveArticle(db, article, [], [], {});
+
+  const reply = JSON.stringify({
+    entities: [
+      { name: "Solana", type: "organization" },
+      { name: "Anatoly Yakovenko", type: "person" },
+    ],
+    relations: [{ subject: "Solana", predicate: "founded_by", object: "Anatoly Yakovenko" }],
+    categories: ["Blockchain networks"],
+  });
+  let calls = 0;
+  const opts = { llm: stubLlm(reply, () => (calls += 1)), prompts: ONTOLOGY_PROMPTS };
+
+  const first = await deriveLlmExtraction(db, vocab, article, opts);
+  assert.equal(calls, 1, "model called once");
+  assert.ok(first.relations.some((r) => r.predicate === "founded_by"));
+
+  // Same content -> served from cache, no second model call.
+  const second = await deriveLlmExtraction(db, vocab, article, opts);
+  assert.equal(calls, 1, "cache hit avoids a second model call");
+  assert.deepEqual(second.relations, first.relations);
+
+  // Changed content -> re-derives (model called again).
+  const edited = { ...article, markdown: article.markdown + " It launched in 2020." };
+  await deriveLlmExtraction(db, vocab, edited, opts);
+  assert.equal(calls, 2, "content change re-invokes the model");
 });
 
 test("deleteArticleOntology removes provenance rows and detaches entity", (t) => {

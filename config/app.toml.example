@@ -47,6 +47,12 @@ refresh_context_max_chars = 4000
 refresh_context_max_articles = 4
 refresh_related_titles_max = 6
 
+# When true, ontology indexing runs a light-model pass over article prose to
+# propose on-vocabulary entities + typed relations, merged with deterministic
+# infobox extraction. Runs in the background reindex drainer, cached by article
+# content + vocabulary hash so the model is only called when either changes.
+ontology_llm_extraction = false
+
 [homepage]
 rotation_hours = 4
 

@@ -81,6 +81,14 @@ export interface RagConfig {
   refresh_context_max_articles: number;
   /** Max "suggested related topics" listed in refresh prompts. */
   refresh_related_titles_max: number;
+  /**
+   * When true, the ontology indexer runs a light-model extraction pass over the
+   * article prose (in addition to deterministic infobox extraction) to propose
+   * on-vocabulary entities and typed relations. Runs in the background reindex
+   * drainer and is cached by article content + vocabulary hash, so the model is
+   * only called when the article or the vocabulary changes.
+   */
+  ontology_llm_extraction: boolean;
 }
 
 /**

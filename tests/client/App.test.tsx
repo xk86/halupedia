@@ -528,6 +528,65 @@ describe("App", () => {
           ),
         );
       }
+      if (url === "/api/admin/llm") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              hosts: [],
+              roles: {
+                heavy: {
+                  hosts: ["host-a"],
+                  model: "heavy-model",
+                  candidates: ["host-a"],
+                },
+                light: {
+                  hosts: ["host-b"],
+                  model: "light-model",
+                  candidates: ["host-b"],
+                },
+                images: {
+                  hosts: ["host-c"],
+                  model: "vision-model",
+                  candidates: ["host-c"],
+                },
+                embeddings: {
+                  hosts: ["host-d"],
+                  model: "embedding-model",
+                  candidates: ["host-d"],
+                  enabled: true,
+                },
+              },
+              imageGeneration: {
+                enabled: false,
+                autoGenerateForNewArticles: false,
+                autoGenerateForFeaturedArticle: false,
+                homepageAutoImageMaxAttempts: 3,
+                autoPresetMultipass: false,
+                backend: "openai",
+                aspectRatios: [],
+                openai: {
+                  baseUrl: "",
+                  apiKey: "",
+                  model: "image-model",
+                  quality: "low",
+                  outputFormat: "jpeg",
+                  outputCompression: 70,
+                  timeoutMs: 120000,
+                },
+                ollama: {
+                  baseUrl: "",
+                  model: "image-model",
+                  width: 1024,
+                  height: 1024,
+                  steps: 20,
+                  timeoutMs: 120000,
+                },
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
       if (url === "/api/admin/pipeline/workflows") {
         return Promise.resolve(
           new Response(
@@ -596,15 +655,24 @@ describe("App", () => {
 
     expect(await screen.findByText("Queued Article")).toBeInTheDocument();
     expect(screen.getByText("3 waiting clients")).toBeInTheDocument();
+    const modelSummary = screen.getByTestId("admin-model-role-summary");
+    expect(
+      await within(modelSummary).findByText("heavy-model"),
+    ).toBeInTheDocument();
+    expect(within(modelSummary).getByText("@ host-a")).toBeInTheDocument();
+    expect(within(modelSummary).getByText("light-model")).toBeInTheDocument();
+    expect(within(modelSummary).getByText("vision-model")).toBeInTheDocument();
+    expect(
+      within(modelSummary).getByText("embedding-model"),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: "Models" }));
-    expect(screen.getByText("article_summary")).toBeInTheDocument();
-    expect(screen.getByText("light-model")).toBeInTheDocument();
-    expect(screen.getByText("on")).toBeInTheDocument();
+    const promptModelRow = screen.getByText("article_summary").closest("tr")!;
+    expect(within(promptModelRow).getByText("light-model")).toBeInTheDocument();
+    expect(within(promptModelRow).getByText("on")).toBeInTheDocument();
 
     // The model picker is now a Base UI Select (button + listbox), not a native
     // <select>: open the article_summary row's trigger and click "heavy".
-    const summaryRow = screen.getByText("light-model").closest("tr")!;
-    await userEvent.click(within(summaryRow).getByRole("combobox"));
+    await userEvent.click(within(promptModelRow).getByRole("combobox"));
     await userEvent.click(await screen.findByRole("option", { name: "heavy" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/admin/prompt-model", {

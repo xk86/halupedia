@@ -9,6 +9,7 @@ import {
   LlmAdminProvider,
   LlmHostsPane,
   LlmRolesPane,
+  useLlmAdmin,
 } from "./admin/panes/LlmHostsPane";
 import { PromptEditorPane } from "./admin/panes/PromptEditorPane";
 import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
@@ -105,7 +106,16 @@ const VIEW_LABELS: Record<AdminView, string> = {
   articles: "Articles",
 };
 
-export function Admin({ onNavigate, onNavigateHome }: Props) {
+export function Admin(props: Props) {
+  return (
+    <LlmAdminProvider>
+      <AdminContent {...props} />
+    </LlmAdminProvider>
+  );
+}
+
+function AdminContent({ onNavigate, onNavigateHome }: Props) {
+  const { data: llmAdmin } = useLlmAdmin();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -680,7 +690,7 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
               Admin
             </h1>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Badge variant="outline" className="gap-1.5 font-mono tabular-nums">
               <span className="font-semibold text-foreground">
                 {overview.articleCount.toLocaleString()}
@@ -699,9 +709,36 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
               </span>
               aliases
             </Badge>
-            <Badge variant="secondary" className="gap-1.5 font-mono uppercase">
-              {overview.model}
-            </Badge>
+            <div
+              data-testid="admin-model-role-summary"
+              className="flex max-w-full flex-wrap justify-end gap-1"
+            >
+              {llmAdmin ? (
+                Object.entries(llmAdmin.roles).map(([role, config]) =>
+                  config ? (
+                    <Badge
+                      key={role}
+                      variant="secondary"
+                      className="gap-1 font-mono text-[0.65rem]"
+                      title={`${role}: ${config.model} · ${config.hosts.join(" → ") || "no host"}`}
+                    >
+                      <span className="font-semibold uppercase">{role}</span>
+                      <span>{config.model}</span>
+                      <span className="text-muted-foreground">
+                        @ {config.hosts[0] ?? config.candidates[0] ?? "—"}
+                      </span>
+                    </Badge>
+                  ) : null,
+                )
+              ) : (
+                <Badge
+                  variant="secondary"
+                  className="gap-1.5 font-mono uppercase"
+                >
+                  heavy {overview.model}
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -769,34 +806,32 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
         ) : null}
       </div>
 
-      <LlmAdminProvider>
-        <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
-          <main className="flex min-w-0 flex-col gap-4">
-            {visibleViews.map((view) => (
-              <section key={view} aria-labelledby={`admin-view-${view}`}>
-                {adminLayout.mode === "split" ? (
-                  <h2
-                    id={`admin-view-${view}`}
-                    className="mt-0 mb-2 text-sm font-semibold"
-                  >
-                    {VIEW_LABELS[view]}
-                  </h2>
-                ) : null}
-                <AdminWorkspace
-                  view={view}
-                  tiles={tilesForView(view)}
-                  storedOrder={adminLayout.orders[view] ?? []}
-                  onOrderChange={setOrder}
-                />
-              </section>
-            ))}
-          </main>
-          <LiveGenerationTracker
-            items={generationQueue}
-            onNavigate={onNavigate}
-          />
-        </div>
-      </LlmAdminProvider>
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
+        <main className="flex min-w-0 flex-col gap-4">
+          {visibleViews.map((view) => (
+            <section key={view} aria-labelledby={`admin-view-${view}`}>
+              {adminLayout.mode === "split" ? (
+                <h2
+                  id={`admin-view-${view}`}
+                  className="mt-0 mb-2 text-sm font-semibold"
+                >
+                  {VIEW_LABELS[view]}
+                </h2>
+              ) : null}
+              <AdminWorkspace
+                view={view}
+                tiles={tilesForView(view)}
+                storedOrder={adminLayout.orders[view] ?? []}
+                onOrderChange={setOrder}
+              />
+            </section>
+          ))}
+        </main>
+        <LiveGenerationTracker
+          items={generationQueue}
+          onNavigate={onNavigate}
+        />
+      </div>
     </div>
   );
 }

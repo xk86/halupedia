@@ -120,6 +120,15 @@ function formatScore(score: number): string {
   return Number.isFinite(score) ? score.toFixed(4) : String(score);
 }
 
+export function sortDocumentsByScore(
+  documents: RetrievedDocument[],
+): RetrievedDocument[] {
+  return [...documents].sort(
+    (left, right) =>
+      right.rawScore - left.rawScore || left.fusedRank - right.fusedRank,
+  );
+}
+
 export function RagTesterPane() {
   const [query, setQuery] = useState("");
   const [profile, setProfile] =
@@ -143,7 +152,8 @@ export function RagTesterPane() {
       const payload = (await response.json()) as RagQueryResult & {
         error?: string;
       };
-      if (!response.ok) throw new Error(payload.error || `error ${response.status}`);
+      if (!response.ok)
+        throw new Error(payload.error || `error ${response.status}`);
       setResult(payload);
     } catch (cause) {
       setResult(null);
@@ -158,7 +168,11 @@ export function RagTesterPane() {
       id="rag-tester"
       title="New RAG pipeline tester"
       description="Run read-only LanceDB retrieval and inspect every selection and evidence decision."
-      count={result ? `${result.retrieval.textDocuments.length} documents` : undefined}
+      count={
+        result
+          ? `${result.retrieval.textDocuments.length} documents`
+          : undefined
+      }
       wide
     >
       <form onSubmit={runQuery}>
@@ -242,6 +256,7 @@ export function RagTesterPane() {
 function RagResults({ result }: { result: RagQueryResult }) {
   const { request, retrieval, evidence } = result;
   const diagnostics = retrieval.diagnostics;
+  const selectedDocuments = sortDocumentsByScore(retrieval.textDocuments);
   return (
     <div className="mt-6 flex flex-col gap-5">
       <Separator />
@@ -285,7 +300,9 @@ function RagResults({ result }: { result: RagQueryResult }) {
               <TableCell className="font-mono">
                 {request.directSlugs.join(", ") || "none"}
               </TableCell>
-              <TableCell>{diagnostics.selectedKinds.join(", ") || "none"}</TableCell>
+              <TableCell>
+                {diagnostics.selectedKinds.join(", ") || "none"}
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -314,7 +331,10 @@ function RagResults({ result }: { result: RagQueryResult }) {
               {retrieval.sourceArticles.map((article) => (
                 <TableRow key={article.slug}>
                   <TableCell>
-                    <a className="font-medium text-primary hover:underline" href={`/wiki/${article.slug}`}>
+                    <a
+                      className="font-medium text-primary hover:underline"
+                      href={`/wiki/${article.slug}`}
+                    >
                       {article.title}
                     </a>
                     <span className="ml-2 font-mono text-muted-foreground">
@@ -331,7 +351,9 @@ function RagResults({ result }: { result: RagQueryResult }) {
             </TableBody>
           </Table>
         ) : (
-          <p className="m-0 text-sm text-muted-foreground">No article candidates.</p>
+          <p className="m-0 text-sm text-muted-foreground">
+            No article candidates.
+          </p>
         )}
       </section>
 
@@ -340,12 +362,14 @@ function RagResults({ result }: { result: RagQueryResult }) {
           Selected documents ({retrieval.textDocuments.length})
         </h4>
         <div className="grid gap-3 lg:grid-cols-2">
-          {retrieval.textDocuments.map((document) => (
+          {selectedDocuments.map((document) => (
             <DocumentCard key={document.documentId} document={document} />
           ))}
         </div>
         {!retrieval.textDocuments.length ? (
-          <p className="m-0 text-sm text-muted-foreground">No documents selected.</p>
+          <p className="m-0 text-sm text-muted-foreground">
+            No documents selected.
+          </p>
         ) : null}
       </section>
 
@@ -358,7 +382,8 @@ function RagResults({ result }: { result: RagQueryResult }) {
             {evidence.tokensUsed} / {evidence.tokenBudget || "unlimited"} tokens
           </Badge>
           <Badge variant="secondary">
-            {evidence.decisions.filter((decision) => decision.included).length} included
+            {evidence.decisions.filter((decision) => decision.included).length}{" "}
+            included
           </Badge>
         </div>
         <Table className="mb-3 text-xs [&_td]:py-1.5 [&_th]:h-8">
@@ -373,7 +398,9 @@ function RagResults({ result }: { result: RagQueryResult }) {
           <TableBody>
             {evidence.decisions.map((decision) => (
               <TableRow key={decision.documentId}>
-                <TableCell className="font-mono">{decision.documentId}</TableCell>
+                <TableCell className="font-mono">
+                  {decision.documentId}
+                </TableCell>
                 <TableCell>{decision.kind}</TableCell>
                 <TableCell>
                   <Badge variant={decision.included ? "secondary" : "outline"}>
@@ -386,9 +413,18 @@ function RagResults({ result }: { result: RagQueryResult }) {
           </TableBody>
         </Table>
         <div className="grid gap-3 lg:grid-cols-3">
-          <EvidenceCard title="Article context" content={evidence.articleContext} />
-          <EvidenceCard title="Infobox context" content={evidence.infoboxContext} />
-          <EvidenceCard title="Ontology facts" content={evidence.ontologyFacts} />
+          <EvidenceCard
+            title="Article context"
+            content={evidence.articleContext}
+          />
+          <EvidenceCard
+            title="Infobox context"
+            content={evidence.infoboxContext}
+          />
+          <EvidenceCard
+            title="Ontology facts"
+            content={evidence.ontologyFacts}
+          />
         </div>
       </section>
 
@@ -406,15 +442,21 @@ function RagResults({ result }: { result: RagQueryResult }) {
             </TableHeader>
             <TableBody>
               {diagnostics.exclusions.map((exclusion, index) => (
-                <TableRow key={`${exclusion.documentId}:${exclusion.reason}:${index}`}>
-                  <TableCell className="font-mono">{exclusion.documentId}</TableCell>
+                <TableRow
+                  key={`${exclusion.documentId}:${exclusion.reason}:${index}`}
+                >
+                  <TableCell className="font-mono">
+                    {exclusion.documentId}
+                  </TableCell>
                   <TableCell>{exclusion.reason}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         ) : (
-          <p className="m-0 text-sm text-muted-foreground">No recorded exclusions.</p>
+          <p className="m-0 text-sm text-muted-foreground">
+            No recorded exclusions.
+          </p>
         )}
       </section>
     </div>
@@ -425,12 +467,17 @@ function DocumentCard({ document }: { document: RetrievedDocument }) {
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle className="truncate font-mono text-sm" title={document.documentId}>
+        <CardTitle
+          className="truncate font-mono text-sm"
+          title={document.documentId}
+        >
           #{document.fusedRank + 1} {document.documentId}
         </CardTitle>
         <CardDescription>
           {document.articleSlug}
-          {document.sectionPath?.length ? ` / ${document.sectionPath.join(" / ")}` : ""}
+          {document.sectionPath?.length
+            ? ` / ${document.sectionPath.join(" / ")}`
+            : ""}
         </CardDescription>
         <CardAction className="flex gap-1">
           <Badge variant="outline">{document.sourceKind}</Badge>
@@ -441,7 +488,9 @@ function DocumentCard({ document }: { document: RetrievedDocument }) {
         <dl className="grid grid-cols-2 gap-2 text-xs">
           <div>
             <dt className="text-muted-foreground">Raw score</dt>
-            <dd className="m-0 font-mono tabular-nums">{formatScore(document.rawScore)}</dd>
+            <dd className="m-0 font-mono tabular-nums">
+              {formatScore(document.rawScore)}
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Provenance</dt>

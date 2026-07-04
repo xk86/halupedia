@@ -1,7 +1,10 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RagTesterPane } from "../../src/client/admin/panes/RagTesterPane";
+import {
+  RagTesterPane,
+  sortDocumentsByScore,
+} from "../../src/client/admin/panes/RagTesterPane";
 
 afterEach(() => {
   cleanup();
@@ -10,6 +13,23 @@ afterEach(() => {
 });
 
 describe("RagTesterPane", () => {
+  it("orders selected documents by descending raw score", () => {
+    const documents = [
+      { documentId: "middle", rawScore: 0.7, fusedRank: 2 },
+      { documentId: "highest-later-rank", rawScore: 0.9, fusedRank: 4 },
+      { documentId: "highest-earlier-rank", rawScore: 0.9, fusedRank: 1 },
+    ] as Parameters<typeof sortDocumentsByScore>[0];
+
+    expect(
+      sortDocumentsByScore(documents).map((document) => document.documentId),
+    ).toEqual(["highest-earlier-rank", "highest-later-rank", "middle"]);
+    expect(documents.map((document) => document.documentId)).toEqual([
+      "middle",
+      "highest-later-rank",
+      "highest-earlier-rank",
+    ]);
+  });
+
   it("runs a read-only query and renders retrieval provenance", async () => {
     const payload = {
       request: {
@@ -78,10 +98,11 @@ describe("RagTesterPane", () => {
         tokenBudget: 7000,
       },
     };
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify(payload), {
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(payload), {
+          headers: { "content-type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -91,7 +112,9 @@ describe("RagTesterPane", () => {
       screen.getByPlaceholderText("Describe the material to retrieve…"),
       "Alpha systems",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Run retrieval" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Run retrieval" }),
+    );
 
     expect(await screen.findByText("Alpha evidence.")).toBeInTheDocument();
     expect(screen.getAllByText("semantic").length).toBeGreaterThan(0);

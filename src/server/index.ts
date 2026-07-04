@@ -948,8 +948,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     new OpenAICompatRouter(runtime.llm, logger);
 
   // ---- Canonical LanceDB RAG runtime. Content saves enqueue durable jobs that
-  // the background drainer below processes into LanceDB. Legacy article_chunks
-  // indexing remains temporarily available as a rollback path. ----
+  // the background drainer below processes into LanceDB. ----
   const ragPath =
     options.ragPath ??
     (runtime.app.rag as { path?: string }).path ??

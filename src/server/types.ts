@@ -109,7 +109,7 @@ export interface RagConfig {
 /**
  * The kind of underlying data backing a reference entry.
  * - "summary": pulled from an article's summary_markdown (database-cached)
- * - "chunk":   pulled from article_chunks via RAG
+ * - "chunk":   pulled from the RAG store via retrieval
  *
  * Not shown to the user; used for internal ranking, debugging, and ensuring
  * we never round-trip reference content through an LLM.

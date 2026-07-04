@@ -92,14 +92,9 @@ export function openDatabase(databasePath: string): DatabaseSync {
     CREATE INDEX IF NOT EXISTS idx_comments_slug ON comments(slug, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
 
-    CREATE TABLE IF NOT EXISTS article_chunks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      slug TEXT NOT NULL,
-      chunk_index INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      embedding_json TEXT,
-      UNIQUE(slug, chunk_index)
-    );
+    -- Legacy RAG corpus, replaced by the LanceDB store. Dropped on open so
+    -- existing databases reclaim the space; never recreated.
+    DROP TABLE IF EXISTS article_chunks;
 
     CREATE TABLE IF NOT EXISTS article_aliases (
       alias_slug TEXT PRIMARY KEY,
@@ -809,7 +804,6 @@ export function renameArticleSlug(db: DatabaseSync, currentSlug: string, nextSlu
     db.prepare(`UPDATE articles SET slug = ?, canonical_slug = ? WHERE slug = ?`).run(nextSlug, nextSlug, currentSlug);
     db.prepare(`UPDATE article_links SET source_slug = ? WHERE source_slug = ?`).run(nextSlug, currentSlug);
     db.prepare(`UPDATE article_links SET target_slug = ? WHERE target_slug = ?`).run(nextSlug, currentSlug);
-    db.prepare(`UPDATE article_chunks SET slug = ? WHERE slug = ?`).run(nextSlug, currentSlug);
     db.prepare(`UPDATE article_revisions SET article_slug = ? WHERE article_slug = ?`).run(nextSlug, currentSlug);
     db.prepare(`UPDATE article_aliases SET article_slug = ? WHERE article_slug = ?`).run(nextSlug, currentSlug);
     db.prepare(`DELETE FROM article_aliases WHERE alias_slug = ?`).run(nextSlug);
@@ -1526,7 +1520,6 @@ export function wipeGeneratedCorpus(db: DatabaseSync) {
   db.exec("BEGIN");
   try {
     db.exec(`
-      DELETE FROM article_chunks;
       DELETE FROM article_links;
       DELETE FROM article_aliases;
       DELETE FROM articles;
@@ -1564,7 +1557,6 @@ export function deleteArticleBySlug(db: DatabaseSync, lookupSlug: string) {
     db.prepare(`DELETE FROM article_see_also WHERE target_slug = ?`).run(article.slug);
 
     // Remove the article's own content and index entries.
-    db.prepare(`DELETE FROM article_chunks WHERE slug = ?`).run(article.slug);
     db.prepare(`DELETE FROM article_links WHERE source_slug = ? OR target_slug = ?`).run(article.slug, article.slug);
     db.prepare(`DELETE FROM article_aliases WHERE article_slug = ? OR alias_slug = ?`).run(article.slug, lookupSlug);
     // Remove all sidecar data so stale metadata never lingers after deletion.

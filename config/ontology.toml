@@ -1,11 +1,27 @@
 # Controlled core ontology vocabulary.
 #
-# Entity types and relation predicates are a fixed, controlled set: LLM-extracted
-# relations whose predicate or subject/object type signature don't match are
-# dropped. Category tags are emergent (not listed here) but normalized against
-# this file. Bump `version` to invalidate extractions and force re-derivation.
-version = 1
+# This file is the "fixed core" of the knowledge graph. Everything an article
+# contributes to the ontology is validated against it:
+#
+#   * entity_types  — the closed set of top-level classes an entity can BE.
+#   * classification — subtitle/category keywords -> entity type (deterministic
+#                      typing without a model).
+#   * predicates    — the relations that may hold. A predicate is either UNARY
+#                      (a classification tag on one entity, e.g. `is_a`) or
+#                      BINARY (a link between two entities). Each carries a
+#                      subject->object type signature; extracted relations that
+#                      don't satisfy it are dropped. Inference metadata
+#                      (`symmetric`, `inverse`, `transitive`) lets us derive new,
+#                      provable relations from stored ones.
+#   * label_predicates / identifier_labels — map raw infobox row labels onto
+#                      core predicates / typed identifiers.
+#
+# Bump `version` to invalidate all prior extractions and force re-derivation.
+version = 2
 
+# ---------------------------------------------------------------------------
+# Entity types — the fixed classes. An entity IS exactly one of these.
+# ---------------------------------------------------------------------------
 entity_types = [
   "person",
   "place",
@@ -13,56 +29,284 @@ entity_types = [
   "event",
   "work",
   "concept",
-  "thing",
+  "group",
+  "species",
+  "substance",
+  "technology",
+  "role",
+  "field",
+  "language",
+  "quantity",
   "date",
+  "thing",
 ]
 
-# Relation predicates with subject -> object type signatures. "*" matches any
-# type. `related_to` is the permissive fallback for genuine but untyped links.
+# ---------------------------------------------------------------------------
+# Classification — deterministic subtitle/category -> entity type. The first
+# rule whose keyword matches the (lowercased) infobox subtitle wins. `category`
+# is the canonical is_a class tag emitted alongside the type; when omitted the
+# raw subtitle is kept as an emergent category.
+# ---------------------------------------------------------------------------
+[[classification]]
+match = ["compan", "corporat", "organi", "network", "institut", "agency", "party", "bureau", "ministry"]
+type = "organization"
+
+[[classification]]
+match = ["team", "band", "group", "collective", "clan", "tribe", "faction"]
+type = "group"
+
+[[classification]]
+match = ["person", "founder", "politician", "scientist", "artist", "author", "figure", "leader", "philosopher", "engineer", "actor", "musician"]
+type = "person"
+
+[[classification]]
+match = ["city", "country", "region", "location", "territory", "state", "planet", "continent", "village", "town", "nation", "district"]
+type = "place"
+
+[[classification]]
+match = ["event", "war", "battle", "summit", "election", "incident", "festival", "conflict", "revolution", "disaster", "ceremony"]
+type = "event"
+
+[[classification]]
+match = ["book", "film", "movie", "song", "album", "novel", "game", "painting", "sculpture", "poem", "series", "publication"]
+type = "work"
+
+[[classification]]
+match = ["concept", "theory", "idea", "principle", "ideology", "philosophy", "doctrine", "law", "phenomenon", "method"]
+type = "concept"
+
+[[classification]]
+match = ["species", "animal", "plant", "organism", "creature", "breed", "genus"]
+type = "species"
+
+[[classification]]
+match = ["substance", "compound", "chemical", "element", "material", "drug", "mineral", "alloy"]
+type = "substance"
+
+[[classification]]
+match = ["technolog", "device", "machine", "protocol", "software", "hardware", "tool", "system", "algorithm"]
+type = "technology"
+
+[[classification]]
+match = ["language", "dialect", "script", "tongue"]
+type = "language"
+
+[[classification]]
+match = ["role", "title", "position", "office", "occupation", "profession", "rank"]
+type = "role"
+
+[[classification]]
+match = ["field", "discipline", "science", "study", "branch"]
+type = "field"
+
+# ---------------------------------------------------------------------------
+# Predicates. `arity`:
+#   "unary"  — classifies the subject (object is a class/literal, no inference).
+#   "binary" — links two entities.
+#
+# Inference metadata (binary only):
+#   symmetric = true    — S p O  implies  O p S.
+#   inverse   = "q"      — S p O  implies  O q S  (q must also be defined).
+#   transitive = true   — S p O, O p T  implies  S p T.
+#
+# `label` is the human phrase used when rendering the fact ("<subject> <label>
+# <object>"). `subject`/`object` are entity-type signatures; "*" matches any.
+# ---------------------------------------------------------------------------
+[[predicates]]
+name = "is_a"
+arity = "unary"
+subject = "*"
+object = "*"
+label = "is a"
+
 [[predicates]]
 name = "located_in"
 subject = "place"
 object = "place"
+label = "is located in"
+transitive = true
+inverse = "contains"
 
 [[predicates]]
-name = "founded_by"
+name = "contains"
+subject = "place"
+object = "place"
+label = "contains"
+inverse = "located_in"
+
+[[predicates]]
+name = "headquartered_in"
 subject = "organization"
-object = "person"
+object = "place"
+label = "is headquartered in"
 
 [[predicates]]
-name = "created_by"
-subject = "work"
-object = "person"
+name = "part_of"
+subject = "*"
+object = "*"
+label = "is part of"
+transitive = true
+inverse = "has_part"
+
+[[predicates]]
+name = "has_part"
+subject = "*"
+object = "*"
+label = "has part"
+inverse = "part_of"
 
 [[predicates]]
 name = "member_of"
 subject = "person"
 object = "organization"
+label = "is a member of"
+inverse = "has_member"
+
+[[predicates]]
+name = "has_member"
+subject = "organization"
+object = "person"
+label = "has member"
+inverse = "member_of"
+
+[[predicates]]
+name = "founded_by"
+subject = "organization"
+object = "person"
+label = "was founded by"
+inverse = "founder_of"
+
+[[predicates]]
+name = "founder_of"
+subject = "person"
+object = "organization"
+label = "founded"
+inverse = "founded_by"
+
+[[predicates]]
+name = "created_by"
+subject = "work"
+object = "person"
+label = "was created by"
+inverse = "creator_of"
+
+[[predicates]]
+name = "creator_of"
+subject = "person"
+object = "work"
+label = "created"
+inverse = "created_by"
+
+[[predicates]]
+name = "owns"
+subject = "*"
+object = "*"
+label = "owns"
+inverse = "owned_by"
+
+[[predicates]]
+name = "owned_by"
+subject = "*"
+object = "*"
+label = "is owned by"
+inverse = "owns"
 
 [[predicates]]
 name = "born_in"
 subject = "person"
 object = "place"
+label = "was born in"
 
 [[predicates]]
 name = "born_on"
 subject = "person"
 object = "date"
+label = "was born on"
+
+[[predicates]]
+name = "died_in"
+subject = "person"
+object = "place"
+label = "died in"
+
+[[predicates]]
+name = "died_on"
+subject = "person"
+object = "date"
+label = "died on"
 
 [[predicates]]
 name = "occurred_on"
 subject = "event"
 object = "date"
+label = "occurred on"
 
 [[predicates]]
-name = "part_of"
-subject = "thing"
-object = "thing"
+name = "occurred_in"
+subject = "event"
+object = "place"
+label = "occurred in"
+
+[[predicates]]
+name = "parent_of"
+subject = "person"
+object = "person"
+label = "is a parent of"
+inverse = "child_of"
+
+[[predicates]]
+name = "child_of"
+subject = "person"
+object = "person"
+label = "is a child of"
+inverse = "parent_of"
+
+[[predicates]]
+name = "spouse_of"
+subject = "person"
+object = "person"
+label = "is married to"
+symmetric = true
+
+[[predicates]]
+name = "sibling_of"
+subject = "person"
+object = "person"
+label = "is a sibling of"
+symmetric = true
+
+[[predicates]]
+name = "precedes"
+subject = "*"
+object = "*"
+label = "precedes"
+inverse = "succeeds"
+
+[[predicates]]
+name = "succeeds"
+subject = "*"
+object = "*"
+label = "succeeds"
+inverse = "precedes"
+
+[[predicates]]
+name = "derived_from"
+subject = "*"
+object = "*"
+label = "is derived from"
+
+[[predicates]]
+name = "influenced_by"
+subject = "*"
+object = "*"
+label = "was influenced by"
 
 [[predicates]]
 name = "related_to"
 subject = "*"
 object = "*"
+label = "is related to"
+symmetric = true
 
 # Maps common infobox row labels (lowercased) to a core predicate, so
 # deterministic infobox extraction yields typed relations where possible.
@@ -72,11 +316,42 @@ founder = "founded_by"
 creator = "created_by"
 "created by" = "created_by"
 author = "created_by"
+writer = "created_by"
+director = "created_by"
+designer = "created_by"
+developer = "created_by"
+owner = "owned_by"
+"owned by" = "owned_by"
 location = "located_in"
-headquarters = "located_in"
-"based in" = "located_in"
+"located in" = "located_in"
+headquarters = "headquartered_in"
+"based in" = "headquartered_in"
+region = "located_in"
+country = "located_in"
+capital = "contains"
 birthplace = "born_in"
+"place of birth" = "born_in"
 born = "born_on"
+"date of birth" = "born_on"
+died = "died_on"
+"date of death" = "died_on"
+"place of death" = "died_in"
+member = "has_member"
+"member of" = "member_of"
+part = "has_part"
+"part of" = "part_of"
+parent = "child_of"
+"parent organization" = "part_of"
+child = "parent_of"
+children = "parent_of"
+spouse = "spouse_of"
+sibling = "sibling_of"
+predecessor = "succeeds"
+successor = "precedes"
+"derived from" = "derived_from"
+"based on" = "derived_from"
+influences = "influenced_by"
+"influenced by" = "influenced_by"
 
 # Infobox labels (lowercased) that denote a typed identifier rather than a relation.
 [identifier_labels]
@@ -85,3 +360,5 @@ symbol = "ticker"
 "stock symbol" = "ticker"
 "ticker symbol" = "ticker"
 isin = "isin"
+coordinates = "coordinate"
+"coordinate" = "coordinate"

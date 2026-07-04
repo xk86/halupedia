@@ -12,16 +12,35 @@ import { parse } from "smol-toml";
 
 export interface PredicateDef {
   name: string;
+  /** "unary" classifies the subject; "binary" links two entities. */
+  arity: "unary" | "binary";
   /** Allowed subject entity type, or "*" for any. */
   subject: string;
   /** Allowed object entity type, or "*" for any. */
   object: string;
+  /** Human phrase used when rendering the fact ("<subject> <label> <object>"). */
+  label: string;
+  /** Binary only: S p O implies O p S. */
+  symmetric: boolean;
+  /** Binary only: S p O, O p T implies S p T. */
+  transitive: boolean;
+  /** Binary only: the predicate whose fact is implied in the reverse direction. */
+  inverse?: string;
+}
+
+/** A deterministic subtitle-keyword -> entity-type classification rule. */
+export interface ClassificationRule {
+  match: string[];
+  type: string;
+  category?: string;
 }
 
 export interface OntologyVocabulary {
   version: number;
   entityTypes: Set<string>;
   predicates: Map<string, PredicateDef>;
+  /** Ordered subtitle-keyword classification rules (first match wins). */
+  classification: ClassificationRule[];
   /** Lowercased infobox label -> core predicate name. */
   labelPredicates: Map<string, string>;
   /** Lowercased infobox label -> identifier scheme. */
@@ -33,7 +52,17 @@ export interface OntologyVocabulary {
 interface RawVocabulary {
   version?: number;
   entity_types?: string[];
-  predicates?: Array<{ name: string; subject?: string; object?: string }>;
+  classification?: Array<{ match?: string[]; type?: string; category?: string }>;
+  predicates?: Array<{
+    name: string;
+    arity?: string;
+    subject?: string;
+    object?: string;
+    label?: string;
+    symmetric?: boolean;
+    transitive?: boolean;
+    inverse?: string;
+  }>;
   label_predicates?: Record<string, string>;
   identifier_labels?: Record<string, string>;
 }
@@ -54,8 +83,22 @@ export function loadOntologyVocabulary(path = DEFAULT_PATH): OntologyVocabulary 
     if (!p.name) continue;
     predicates.set(p.name, {
       name: p.name,
+      arity: p.arity === "unary" ? "unary" : "binary",
       subject: p.subject ?? "*",
       object: p.object ?? "*",
+      label: p.label ?? p.name.replace(/_/g, " "),
+      symmetric: p.symmetric === true,
+      transitive: p.transitive === true,
+      inverse: p.inverse,
+    });
+  }
+  const classification: ClassificationRule[] = [];
+  for (const c of parsed.classification ?? []) {
+    if (!c.type || !Array.isArray(c.match) || c.match.length === 0) continue;
+    classification.push({
+      match: c.match.map((m) => m.toLowerCase()),
+      type: c.type,
+      category: c.category,
     });
   }
   const labelPredicates = new Map<string, string>();
@@ -71,10 +114,34 @@ export function loadOntologyVocabulary(path = DEFAULT_PATH): OntologyVocabulary 
     version: parsed.version ?? 1,
     entityTypes,
     predicates,
+    classification,
     labelPredicates,
     identifierLabels,
     hash: createHash("sha256").update(raw).digest("hex").slice(0, 16),
   };
+}
+
+/**
+ * Deterministically classify an entity type from an infobox subtitle / category
+ * label using the config-driven classification rules (first keyword match wins).
+ * Falls back to `thing`. Returns the matched rule so callers can also pick up a
+ * canonical category tag.
+ */
+export function classifyType(
+  vocab: OntologyVocabulary,
+  subtitle: string | undefined,
+): { type: string; category?: string } {
+  const s = (subtitle ?? "").toLowerCase();
+  if (s) {
+    for (const rule of vocab.classification) {
+      if (!vocab.entityTypes.has(rule.type)) continue;
+      if (rule.match.some((kw) => s.includes(kw))) {
+        return { type: rule.type, category: rule.category };
+      }
+    }
+  }
+  const fallback = vocab.entityTypes.has("thing") ? "thing" : [...vocab.entityTypes][0];
+  return { type: fallback };
 }
 
 /** True when a typed relation satisfies the vocabulary's predicate signature. */
@@ -87,6 +154,9 @@ export function relationMatchesVocabulary(
   const def = vocab.predicates.get(predicate);
   if (!def) return false;
   const subjectOk = def.subject === "*" || def.subject === subjectType;
+  // Unary predicates (e.g. is_a) only classify the subject; the object is a
+  // class/literal, not a typed entity, so its type is not constrained.
+  if (def.arity === "unary") return subjectOk;
   const objectOk = def.object === "*" || def.object === objectType;
   return subjectOk && objectOk;
 }

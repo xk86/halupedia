@@ -10,6 +10,7 @@
  */
 import type { InfoboxData } from "../db";
 import {
+  classifyType,
   normalizeLabel,
   relationMatchesVocabulary,
   type OntologyVocabulary,
@@ -21,23 +22,6 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function stripLinks(text: string): string {
   return text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim();
-}
-
-/** Heuristic entity type from an infobox subtitle / category label. */
-function inferType(subtitle: string | undefined, vocab: OntologyVocabulary): string {
-  const s = (subtitle ?? "").toLowerCase();
-  const map: Array<[RegExp, string]> = [
-    [/compan|organi|network|project|protocol|institut|agency|team|party/, "organization"],
-    [/person|founder|politician|scientist|artist|author|figure/, "person"],
-    [/city|country|region|place|location|territory|state|planet/, "place"],
-    [/event|war|battle|summit|election|incident|festival/, "event"],
-    [/book|film|movie|song|album|work|novel|game|painting/, "work"],
-    [/concept|theory|idea|principle|ideology|philosophy/, "concept"],
-  ];
-  for (const [re, type] of map) {
-    if (re.test(s) && vocab.entityTypes.has(type)) return type;
-  }
-  return vocab.entityTypes.has("thing") ? "thing" : [...vocab.entityTypes][0];
 }
 
 export interface DeterministicArgs {
@@ -56,7 +40,7 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
     return result;
   }
 
-  const articleType = inferType(infobox.subtitle, vocab);
+  const { type: articleType } = classifyType(vocab, infobox.subtitle);
   const articleEntity: ExtractedEntity = {
     name: title,
     type: articleType,

@@ -6,7 +6,7 @@ import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 import { readFile, stat as fsStat } from "node:fs/promises";
-import { extname, resolve, dirname, basename } from "node:path";
+import { extname, resolve, dirname, basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -949,10 +949,13 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   // ---- Canonical LanceDB RAG runtime. Content saves enqueue durable jobs that
   // the background drainer below processes into LanceDB. ----
+  // Co-locate the corpus with its database so each database gets its own store
+  // (production data/halupedia.sqlite → data/rag.lance; tests get an isolated
+  // corpus under their temp dir rather than sharing the real data/rag.lance).
   const ragPath =
     options.ragPath ??
     (runtime.app.rag as { path?: string }).path ??
-    "data/rag.lance";
+    join(dirname(runtime.app.storage.database_path), "rag.lance");
   const rag: RagRuntime = await createRagRuntime({
     db,
     llm,
@@ -969,23 +972,24 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
   {
     // A missing corpus is tolerated (fresh/empty wiki, tests) — the drainer
-    // builds it from enqueued jobs. A corpus built for a different embedding
-    // model returns weaker retrievals (query and stored vectors live in
-    // different spaces, though the store guarantees matching dimensions), so
-    // surface drift loudly. Not a hard refuse: some environments (smoke tests,
-    // embeddings-disabled dev) legitimately point a mismatched config at a
-    // prebuilt corpus.
+    // builds it from enqueued jobs. But a corpus left half-built by a crashed
+    // rebuild, or built for a different embedding model (query and stored
+    // vectors would live in different spaces), silently degrades every
+    // retrieval — refuse to start so it gets rebuilt.
     const meta = await rag.store.readMeta().catch(() => null);
     if (!meta) {
       logger.warn("rag.startup_no_corpus", { path: ragPath, hint: "run: pnpm run rag:rebuild" });
     } else if (!meta.buildComplete || meta.textEmbeddingModel !== rag.embedder.model) {
-      logger.warn("rag.startup_corpus_stale", {
+      logger.error("rag.startup_corpus_stale", {
         path: ragPath,
         build_complete: meta.buildComplete,
         meta_model: meta.textEmbeddingModel,
         config_model: rag.embedder.model,
         hint: "run: pnpm run rag:rebuild",
       });
+      throw new Error(
+        `RAG corpus at ${ragPath} is stale (build_complete=${meta.buildComplete}, corpus model=${meta.textEmbeddingModel} vs configured ${rag.embedder.model}). Run: pnpm run rag:rebuild`,
+      );
     }
     const pending = countPendingRagJobs(db);
     if (pending > 0) {

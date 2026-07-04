@@ -561,6 +561,11 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
       case "models":
         return [
           {
+            id: "llm-roles",
+            span: "full",
+            content: <LlmRolesPane />,
+          },
+          {
             id: "llm-hosts",
             span: "half",
             content: <LlmHostsPane />,
@@ -569,11 +574,6 @@ export function Admin({ onNavigate, onNavigateHome }: Props) {
             id: "image-generation",
             span: "half",
             content: <ImageGenerationPane />,
-          },
-          {
-            id: "llm-roles",
-            span: "full",
-            content: <LlmRolesPane />,
           },
           {
             id: "prompt-models",

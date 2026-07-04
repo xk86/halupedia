@@ -94,7 +94,9 @@ function PromptEditorPaneComponent() {
   const [imagePromptPresets, setImagePromptPresets] = useState<
     ImagePromptOption[]
   >([BASE_IMAGE_PRESET]);
-  const [selectedPresetKey, setSelectedPresetKey] = useState(BASE_IMAGE_PRESET.key);
+  const [selectedPresetKey, setSelectedPresetKey] = useState(
+    BASE_IMAGE_PRESET.key,
+  );
   const contentRequestRef = useRef(0);
 
   const isDirty =
@@ -151,9 +153,7 @@ function PromptEditorPaneComponent() {
       }
       const data = await res.json();
       const prompts = Array.isArray(data.prompts) ? data.prompts : [];
-      setImagePromptPresets(
-        prompts.length > 0 ? prompts : [BASE_IMAGE_PRESET],
-      );
+      setImagePromptPresets(prompts.length > 0 ? prompts : [BASE_IMAGE_PRESET]);
     } catch {
       setImagePromptPresets([BASE_IMAGE_PRESET]);
     }
@@ -453,7 +453,11 @@ function PromptEditorPaneComponent() {
   ]);
 
   const handleDeletePreset = useCallback(async () => {
-    if (!selectedImagePreset || !selected || selectedPresetKey === BASE_IMAGE_PRESET.key)
+    if (
+      !selectedImagePreset ||
+      !selected ||
+      selectedPresetKey === BASE_IMAGE_PRESET.key
+    )
       return;
     setPresetBusy(true);
     setPresetError(null);
@@ -470,9 +474,7 @@ function PromptEditorPaneComponent() {
         return;
       }
       setImagePromptPresets(
-        Array.isArray(data.prompts)
-          ? data.prompts
-          : [BASE_IMAGE_PRESET],
+        Array.isArray(data.prompts) ? data.prompts : [BASE_IMAGE_PRESET],
       );
       setSelectedPresetKey(BASE_IMAGE_PRESET.key);
       loadContent("runnable", "article_image");
@@ -490,7 +492,6 @@ function PromptEditorPaneComponent() {
       title="Prompt Editor"
       description="Edit TOML-backed prompt templates and revisions."
       wide
-      defaultCollapsed
     >
       {listError && <p className={ERROR_BOX}>{listError}</p>}
 
@@ -579,7 +580,9 @@ function PromptEditorPaneComponent() {
                 type="button"
                 onClick={handleDeletePreset}
                 disabled={
-                  presetBusy || !selected || selectedPresetKey === BASE_IMAGE_PRESET.key
+                  presetBusy ||
+                  !selected ||
+                  selectedPresetKey === BASE_IMAGE_PRESET.key
                 }
               >
                 Delete preset

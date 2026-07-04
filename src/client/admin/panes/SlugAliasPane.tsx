@@ -104,7 +104,6 @@ function SlugAliasPaneComponent({
       title="Slug & Alias Management"
       description="Aliases, canonical redirects, and archived articles."
       wide
-      defaultCollapsed
     >
       <p className="mb-[1rem] text-[0.875rem] text-ink-fade">
         <strong>Aliases</strong> let multiple slug paths resolve to the same

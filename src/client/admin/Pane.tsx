@@ -35,7 +35,7 @@ interface Props {
 
 function readCollapsed(id: string, defaultCollapsed: boolean): boolean {
   try {
-    const stored = localStorage.getItem(`admin:pane:v2:${id}`);
+    const stored = localStorage.getItem(`admin:pane:v3:${id}`);
     if (stored !== null) return stored === "true";
   } catch {}
   return defaultCollapsed;
@@ -60,7 +60,7 @@ export function Pane({
     (next: boolean) => {
       setCollapsed(next);
       try {
-        localStorage.setItem(`admin:pane:v2:${id}`, String(next));
+        localStorage.setItem(`admin:pane:v3:${id}`, String(next));
       } catch {}
     },
     [id],

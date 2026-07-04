@@ -36,6 +36,21 @@ function Harness() {
   );
 }
 
+function StateHarness() {
+  const { state, setActiveView, setMode } = useAdminLayout();
+  return (
+    <>
+      <output>{`${state.activeView}:${state.mode}`}</output>
+      <button type="button" onClick={() => setActiveView("models")}>
+        Models
+      </button>
+      <button type="button" onClick={() => setMode("split")}>
+        Split
+      </button>
+    </>
+  );
+}
+
 describe("AdminWorkspace", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -69,9 +84,20 @@ describe("AdminWorkspace", () => {
     firstRender.unmount();
     render(<Harness />);
     expect(
-      screen
-        .getAllByRole("heading")
-        .map((heading) => heading.textContent),
+      screen.getAllByRole("heading").map((heading) => heading.textContent),
     ).toEqual(["Beta", "Alpha"]);
+  });
+
+  it("persists the active tab and tab/split mode", async () => {
+    const firstRender = render(<StateHarness />);
+    expect(screen.getByText("overview:tabs")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Models" }));
+    await userEvent.click(screen.getByRole("button", { name: "Split" }));
+    expect(screen.getByText("models:split")).toBeInTheDocument();
+
+    firstRender.unmount();
+    render(<StateHarness />);
+    expect(screen.getByText("models:split")).toBeInTheDocument();
   });
 });

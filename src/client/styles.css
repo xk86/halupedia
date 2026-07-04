@@ -2115,6 +2115,11 @@ a:hover {
   max-width: none;
 }
 
+.layout--admin {
+  width: min(calc(100dvw - 5rem), 1760px);
+  margin-inline: auto;
+}
+
 .layout>.comments {
   grid-column: 1;
   grid-row: 2;
@@ -2163,6 +2168,10 @@ a:hover {
   .layout {
     margin: 0 1rem;
     grid-template-columns: 1fr;
+  }
+
+  .layout--admin {
+    width: auto;
   }
 
   .layout-main {

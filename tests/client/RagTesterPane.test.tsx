@@ -129,10 +129,6 @@ describe("RagTesterPane", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<RagTesterPane />);
-    // Expand the pane (collapsed by default, like every other admin pane).
-    await userEvent.click(
-      screen.getByRole("button", { name: /New RAG pipeline tester/i, hidden: true }),
-    );
     await userEvent.click(screen.getByRole("button", { name: "Raw markdown" }));
     await userEvent.type(
       screen.getByPlaceholderText("Describe the material to retrieve…"),
@@ -157,6 +153,13 @@ describe("RagTesterPane", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText("semantic").length).toBeGreaterThan(0);
     expect(screen.getByText("below_top_k")).toBeInTheDocument();
+    expect(screen.getByText("preview only · not sent")).toBeInTheDocument();
+    expect(screen.getByTestId("rag-model-packet-preview")).toHaveTextContent(
+      "[QUERY]",
+    );
+    expect(screen.getByTestId("rag-model-packet-preview")).toHaveTextContent(
+      "[ARTICLE CONTEXT]",
+    );
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/rag/query", {
       method: "POST",
       headers: { "content-type": "application/json" },

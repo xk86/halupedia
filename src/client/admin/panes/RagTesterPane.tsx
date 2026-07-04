@@ -172,6 +172,28 @@ export function flattenJsonObject(
   return rows;
 }
 
+export function buildModelPacketPreview(result: RagQueryResult): string {
+  const { request, evidence } = result;
+  const sections = [
+    ["QUERY", request.query],
+    ["ARTICLE CONTEXT", evidence.articleContext],
+    ["INFOBOX CONTEXT", evidence.infoboxContext],
+    ["ONTOLOGY FACTS", evidence.ontologyFacts],
+    ["RELATED TITLES", evidence.relatedTitles],
+    [
+      "LINK ALLOWLIST",
+      evidence.linkAllowlist
+        .map((link) => `${link.title} (${link.slug})`)
+        .join("\n"),
+    ],
+  ] as const;
+
+  return sections
+    .filter(([, content]) => content.trim())
+    .map(([label, content]) => `[${label}]\n${content.trim()}`)
+    .join("\n\n");
+}
+
 export function RagTesterPane() {
   const [query, setQuery] = useState("");
   const [profile, setProfile] =
@@ -217,68 +239,73 @@ export function RagTesterPane() {
           : undefined
       }
       wide
-      defaultCollapsed
     >
       <form onSubmit={runQuery}>
-        <FieldGroup className="gap-4">
-          <Field>
-            <FieldLabel>Retrieval query</FieldLabel>
-            <FieldDescription>
-              Markdown links using ref: or halu: are also tested through the
-              direct-reference path.
-            </FieldDescription>
-            <MarkdownEditor
-              value={query}
-              onChange={setQuery}
-              disabled={searching}
-              placeholder="Describe the material to retrieve…"
-              minRows={5}
-            />
-          </Field>
-
-          <div className="grid gap-4 md:grid-cols-2">
+        <FieldGroup className="gap-3">
+          <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(18rem,0.8fr)]">
             <Field>
-              <FieldLabel htmlFor="rag-profile">Retrieval profile</FieldLabel>
-              <Select
-                value={profile}
-                onValueChange={(value) => setProfile(value as RetrievalProfile)}
-                disabled={searching}
-              >
-                <SelectTrigger id="rag-profile" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {(Object.keys(PROFILE_LABELS) as RetrievalProfile[]).map(
-                      (value) => (
-                        <SelectItem key={value} value={value}>
-                          {PROFILE_LABELS[value]}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              <FieldLabel>Retrieval query</FieldLabel>
               <FieldDescription>
-                Controls document kinds, top-K limits, ontology quota, and token
-                budget.
+                Markdown links using ref: or halu: are also tested through the
+                direct-reference path.
               </FieldDescription>
-            </Field>
-
-            <Field>
-              <FieldLabel htmlFor="rag-target">Target article slug</FieldLabel>
-              <Input
-                id="rag-target"
-                value={targetSlug}
-                onChange={(event) => setTargetSlug(event.target.value)}
+              <MarkdownEditor
+                value={query}
+                onChange={setQuery}
                 disabled={searching}
-                placeholder="Optional; enables category-symbolic lookup"
+                placeholder="Describe the material to retrieve…"
+                minRows={3}
               />
-              <FieldDescription>
-                The target is excluded from results. Its categories seed the
-                symbolic retrieval path.
-              </FieldDescription>
             </Field>
+
+            <div className="grid gap-3">
+              <Field>
+                <FieldLabel htmlFor="rag-profile">Retrieval profile</FieldLabel>
+                <Select
+                  value={profile}
+                  onValueChange={(value) =>
+                    setProfile(value as RetrievalProfile)
+                  }
+                  disabled={searching}
+                >
+                  <SelectTrigger id="rag-profile" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {(Object.keys(PROFILE_LABELS) as RetrievalProfile[]).map(
+                        (value) => (
+                          <SelectItem key={value} value={value}>
+                            {PROFILE_LABELS[value]}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  Controls document kinds, top-K limits, ontology quota, and
+                  token budget.
+                </FieldDescription>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="rag-target">
+                  Target article slug
+                </FieldLabel>
+                <Input
+                  id="rag-target"
+                  value={targetSlug}
+                  onChange={(event) => setTargetSlug(event.target.value)}
+                  disabled={searching}
+                  placeholder="Optional; enables category-symbolic lookup"
+                />
+                <FieldDescription>
+                  The target is excluded from results. Its categories seed the
+                  symbolic retrieval path.
+                </FieldDescription>
+              </Field>
+            </div>
           </div>
 
           {error ? <FieldError>{error}</FieldError> : null}
@@ -301,11 +328,35 @@ function RagResults({ result }: { result: RagQueryResult }) {
   const { request, retrieval, evidence } = result;
   const diagnostics = retrieval.diagnostics;
   const selectedDocuments = sortDocumentsByScore(retrieval.textDocuments);
+  const includedDecisions = evidence.decisions.filter(
+    (decision) => decision.included,
+  );
+  const excludedDecisions = evidence.decisions.filter(
+    (decision) => !decision.included,
+  );
   return (
     <div className="mt-4 flex flex-col gap-4">
       <Separator />
 
       <section aria-labelledby="rag-diagnostics-title">
+        <div className="mb-3 grid gap-2 sm:grid-cols-4">
+          <FlowStep label="Query" value="1" detail="retrieval input" />
+          <FlowStep
+            label="Candidates"
+            value={String(diagnostics.candidateTextCount)}
+            detail="scored documents"
+          />
+          <FlowStep
+            label="Selected"
+            value={String(diagnostics.selectedTextCount)}
+            detail={`${evidence.tokensUsed} tokens`}
+          />
+          <FlowStep
+            label="Model packet"
+            value={String(evidence.tokensUsed)}
+            detail={`of ${evidence.tokenBudget || "∞"} tokens`}
+          />
+        </div>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <h4 id="rag-diagnostics-title" className="m-0 text-sm font-semibold">
             Retrieval diagnostics
@@ -420,55 +471,42 @@ function RagResults({ result }: { result: RagQueryResult }) {
       <section aria-labelledby="rag-assembly-title">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <h4 id="rag-assembly-title" className="m-0 text-sm font-semibold">
-            Prompt evidence assembly
+            Theoretical model packet
           </h4>
+          <Badge variant="warn">preview only · not sent</Badge>
           <Badge variant="outline">
             {evidence.tokensUsed} / {evidence.tokenBudget || "unlimited"} tokens
           </Badge>
-          <Badge variant="secondary">
-            {evidence.decisions.filter((decision) => decision.included).length}{" "}
-            included
-          </Badge>
+          <Badge variant="secondary">{includedDecisions.length} included</Badge>
         </div>
-        <Table className="mb-3 text-xs [&_td]:py-1.5 [&_th]:h-8">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Document</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead>Decision</TableHead>
-              <TableHead>Reason</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {evidence.decisions.map((decision) => (
-              <TableRow key={decision.documentId}>
-                <TableCell className="font-mono">
-                  {decision.documentId}
-                </TableCell>
-                <TableCell>{decision.kind}</TableCell>
-                <TableCell>
-                  <Badge variant={decision.included ? "secondary" : "outline"}>
-                    {decision.included ? "included" : "excluded"}
-                  </Badge>
-                </TableCell>
-                <TableCell>{decision.reason}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        <div className="grid gap-3 lg:grid-cols-3">
-          <EvidenceCard
-            title="Article context"
-            content={evidence.articleContext}
-          />
-          <EvidenceCard
-            title="Infobox context"
-            content={evidence.infoboxContext}
-          />
-          <EvidenceCard
-            title="Ontology facts"
-            content={evidence.ontologyFacts}
-          />
+        <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+            <DecisionTable
+              title="Selected evidence"
+              decisions={includedDecisions}
+            />
+            <DecisionTable
+              title="Excluded evidence"
+              decisions={excludedDecisions}
+            />
+          </div>
+          <Card size="sm" className="min-w-0">
+            <CardHeader>
+              <CardTitle>Retrieved context preview</CardTitle>
+              <CardDescription>
+                Retrieval-owned fields available to prompt assembly. The
+                selected prompt adds its system and user template wrappers.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <pre
+                data-testid="rag-model-packet-preview"
+                className="m-0 max-h-[34rem] overflow-auto rounded-md bg-foreground p-3 font-mono text-xs whitespace-pre-wrap text-background"
+              >
+                {buildModelPacketPreview(result) || "No context selected."}
+              </pre>
+            </CardContent>
+          </Card>
         </div>
       </section>
 
@@ -504,6 +542,78 @@ function RagResults({ result }: { result: RagQueryResult }) {
         )}
       </section>
     </div>
+  );
+}
+
+function FlowStep({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <Card size="sm" className="data-[size=sm]:[--card-spacing:--spacing(2)]">
+      <CardHeader>
+        <CardDescription>{label}</CardDescription>
+        <CardAction className="font-mono text-sm font-semibold tabular-nums">
+          {value}
+        </CardAction>
+      </CardHeader>
+      <CardContent className="text-xs text-muted-foreground">
+        {detail}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DecisionTable({
+  title,
+  decisions,
+}: {
+  title: string;
+  decisions: RagQueryResult["evidence"]["decisions"];
+}) {
+  return (
+    <section>
+      <h5 className="mt-0 mb-1.5 text-xs font-semibold">
+        {title} ({decisions.length})
+      </h5>
+      <Table
+        containerClassName="rounded-md border border-border"
+        className="table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:h-7 [&_th]:px-2"
+      >
+        <TableHeader>
+          <TableRow>
+            <TableHead>Document</TableHead>
+            <TableHead className="w-2/5">Reason</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {decisions.length ? (
+            decisions.map((decision) => (
+              <TableRow key={decision.documentId}>
+                <TableCell
+                  className="truncate font-mono"
+                  title={`${decision.documentId} · ${decision.kind}`}
+                >
+                  {decision.documentId}
+                </TableCell>
+                <TableCell>{decision.reason}</TableCell>
+              </TableRow>
+            ))
+          ) : (
+            <TableRow>
+              <TableCell colSpan={2} className="text-muted-foreground italic">
+                None
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </section>
   );
 }
 
@@ -583,20 +693,5 @@ function JsonObjectTable({ object }: { object: Record<string, unknown> }) {
         ))}
       </TableBody>
     </Table>
-  );
-}
-
-function EvidenceCard({ title, content }: { title: string; content: string }) {
-  return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <pre className="m-0 max-h-80 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap">
-          {content || "None"}
-        </pre>
-      </CardContent>
-    </Card>
   );
 }

@@ -597,9 +597,6 @@ describe("App", () => {
     expect(await screen.findByText("Queued Article")).toBeInTheDocument();
     expect(screen.getByText("3 waiting clients")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: "Models" }));
-    await userEvent.click(
-      screen.getByRole("heading", { name: "Prompt Models" }).closest("button")!,
-    );
     expect(screen.getByText("article_summary")).toBeInTheDocument();
     expect(screen.getByText("light-model")).toBeInTheDocument();
     expect(screen.getByText("on")).toBeInTheDocument();
@@ -2116,13 +2113,6 @@ describe("App", () => {
 
     await screen.findByRole("heading", { name: "Admin" });
     await userEvent.click(screen.getByRole("tab", { name: "Prompts" }));
-
-    // Expand the Prompt Editor pane (collapsed by default)
-    const paneHeader = screen.getByRole("button", {
-      name: /Prompt Editor/i,
-      hidden: true,
-    });
-    await userEvent.click(paneHeader);
 
     // Select the article prompt (Base UI Select: open trigger, click option)
     await userEvent.click(await screen.findByRole("combobox"));

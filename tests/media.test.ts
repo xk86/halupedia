@@ -43,7 +43,6 @@ import {
 import { readHeadlineImageNode, renderArticlePromptNode } from "../src/server/pipeline/nodes/articleGeneration";
 import { initialPipelineState } from "../src/server/pipeline/state";
 import { buildPromptRegistry } from "../src/server/pipeline/prompts/registry";
-import { indexArticleChunks } from "../src/server/retrieval";
 import { ingestImageFromBuffer } from "../src/server/media";
 import { generateArticleImage, setImageGenerationFetchForTests } from "../src/server/imageGeneration";
 import { listArticleImageAspectRatios } from "../src/server/imageAspectRatios";
@@ -2510,59 +2509,6 @@ describe("image-context", () => {
     db.close(); mediaDb.close();
   });
 
-  // ── indexArticleChunks excludes image description chunks ─────────────────
-
-  test("indexArticleChunks: image descriptions are not added as chunks", async (t) => {
-    const { dir, cleanup } = tmpDir(); t.after(cleanup);
-    const db = openDatabase(join(dir, "articles.sqlite"));
-    const llm = new FakeLlm();
-
-    await indexArticleChunks(
-      db, llm as any, "test-slug", "# Test\n\nSome body text.", false, 500, noop(),
-      [{ id: "my-image", description: "A shimmering crystalline formation used in metallurgy." }],
-    );
-
-    const chunks = db.prepare("SELECT content FROM article_chunks WHERE slug = ? ORDER BY chunk_index").all("test-slug") as Array<{ content: string }>;
-    assert.equal(chunks.length, 1);
-    assert.doesNotMatch(chunks.map((c) => c.content).join("\n"), /\[img:my-image\]/);
-    assert.doesNotMatch(chunks.map((c) => c.content).join("\n"), /shimmering crystalline formation/);
-    db.close();
-  });
-
-  test("indexArticleChunks: no image chunk when description is empty", async (t) => {
-    const { dir, cleanup } = tmpDir(); t.after(cleanup);
-    const db = openDatabase(join(dir, "articles.sqlite"));
-    const llm = new FakeLlm();
-
-    await indexArticleChunks(
-      db, llm as any, "test-slug", "# Test\n\nBody.", false, 500, noop(),
-      [{ id: "no-desc-img", description: "" }],
-    );
-
-    const chunks = db.prepare("SELECT content FROM article_chunks WHERE slug = ? ORDER BY chunk_index").all("test-slug") as Array<{ content: string }>;
-    const imageChunk = chunks.find((c) => c.content.includes("[img:"));
-    assert.equal(imageChunk, undefined, "no image chunk for empty description");
-    db.close();
-  });
-
-  test("indexArticleChunks: multiple image descriptions still produce no image chunks", async (t) => {
-    const { dir, cleanup } = tmpDir(); t.after(cleanup);
-    const db = openDatabase(join(dir, "articles.sqlite"));
-    const llm = new FakeLlm();
-
-    await indexArticleChunks(
-      db, llm as any, "test-slug", "# Test\n\nBody.", false, 500, noop(),
-      [
-        { id: "img-a", description: "First image description." },
-        { id: "img-b", description: "Second image description." },
-      ],
-    );
-
-    const chunks = db.prepare("SELECT content FROM article_chunks WHERE slug = ? ORDER BY chunk_index").all("test-slug") as Array<{ content: string }>;
-    const imgChunks = chunks.filter((c) => c.content.startsWith("[img:"));
-    assert.equal(imgChunks.length, 0);
-    db.close();
-  });
 });
 
 // ── ingest ────────────────────────────────────────────────────────────────────

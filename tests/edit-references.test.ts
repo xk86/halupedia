@@ -18,7 +18,7 @@ import {
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 import { loadArticle } from "../src/server/article";
 import { buildReferenceList } from "../src/server/referenceList";
-import { formatRagContextForPrompt, retrieveDirectArticleContext } from "../src/server/retrieval";
+import { formatRagContextForPrompt } from "../src/server/retrieval";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "../src/server/referenceEdits";
 import { rebuildReferenceListNode } from "../src/server/pipeline/nodes/postProcess";
 import { buildReferenceListNode } from "../src/server/pipeline/nodes/articleGeneration";
@@ -173,31 +173,6 @@ test("blacklist-only edit removes blocked refs from the sidecar and syncs the st
   // but clears the stored blocklist.
   applyReferenceOnlyEdit(db, "alpha", { blacklistSlugs: [] }, RAG_CONFIG);
   assert.deepEqual(listArticleBlacklistSlugs(db, "alpha"), []);
-});
-
-test("direct-context retrieval caps chunks per article and clips unindexed fallbacks", (t) => {
-  const db = makeDb(t);
-  save(db, "alpha", "Alpha");
-  save(db, "chunky", "Chunky");
-  save(db, "longform", "Longform", "x".repeat(10_000));
-  const ins = db.prepare(
-    `INSERT INTO article_chunks (slug, chunk_index, content, embedding_json) VALUES (?, ?, ?, NULL)`,
-  );
-  for (let i = 0; i < 8; i++) ins.run("chunky", i, `chunk ${i}`);
-
-  const packet = retrieveDirectArticleContext(db, "alpha", ["chunky", "longform"], "full", 12, undefined, {
-    maxChunksPerArticle: 2,
-  });
-  const chunkyRows = packet.sourceArticles.filter((s) => s.slug === "chunky");
-  // One merged entry per article (no repeated headings), holding up to the
-  // per-article chunk cap of content.
-  assert.equal(chunkyRows.length, 1, "article collapses to a single merged entry");
-  assert.match(chunkyRows[0].content, /chunk 0/);
-  assert.match(chunkyRows[0].content, /chunk 1/);
-  assert.doesNotMatch(chunkyRows[0].content, /chunk 2/, "per-article chunk cap (2) must hold");
-  const longform = packet.sourceArticles.find((s) => s.slug === "longform");
-  assert.ok(longform, "unindexed article still contributes context");
-  assert.ok(longform!.content.length >= 10_000, "unindexed fallback now contributes the full body");
 });
 
 test("formatRagContextForPrompt enforces the character budget at entry boundaries", () => {

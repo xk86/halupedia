@@ -35,6 +35,7 @@ import {
   diffState,
   hashValue,
   newRunId,
+  type LlmCallTrace,
   type TraceRecorder,
 } from "./trace";
 
@@ -139,8 +140,8 @@ export async function runWorkflow<Deps>(
             options.onNode?.(node.name, node.kind);
             const nodeStart = Date.now();
             const nodeStartMono = monoNow();
-            let llmCapture: LlmCapture | undefined;
-            const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; }, {
+            const llmCaptures: LlmCapture[] = [];
+            const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCaptures.push(cap); }, {
               workflow: workflow.name,
               slug: before.input.slug,
               title: before.input.requestedTitle,
@@ -150,6 +151,7 @@ export async function runWorkflow<Deps>(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const patch = await node.run(before, nodeDeps as any);
               const diff = diffState(before, mergePatch(before, patch));
+              const llmCapture = llmCaptures.at(-1);
               options.recorder.recordNode({
                 workflow: workflow.name,
                 runId,
@@ -182,6 +184,7 @@ export async function runWorkflow<Deps>(
                 llmJsonMode: llmCapture?.jsonMode,
                 llmImageCount: llmCapture?.imageCount,
                 llmTtftMs: llmCapture?.ttftMs,
+                llmCalls: llmCaptures,
               });
               options.logger?.info("pipeline.node.ok", {
                 workflow: workflow.name,
@@ -195,6 +198,7 @@ export async function runWorkflow<Deps>(
               return { patch, error: undefined };
             } catch (err) {
               const wrapped = err instanceof Error ? err : new Error(String(err));
+              const llmCapture = llmCaptures.at(-1);
               options.recorder.recordNode({
                 workflow: workflow.name,
                 runId,
@@ -226,6 +230,7 @@ export async function runWorkflow<Deps>(
                 llmJsonMode: llmCapture?.jsonMode,
                 llmImageCount: llmCapture?.imageCount,
                 llmTtftMs: llmCapture?.ttftMs,
+                llmCalls: llmCaptures,
               });
               options.logger?.error("pipeline.node.error", {
                 workflow: workflow.name,
@@ -263,8 +268,8 @@ export async function runWorkflow<Deps>(
       const nodeStartMono = monoNow();
       options.onNode?.(edge.node.name, edge.node.kind);
       const before = state;
-      let llmCapture: LlmCapture | undefined;
-      const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCapture = cap; }, {
+      const llmCaptures: LlmCapture[] = [];
+      const nodeDeps = wrapLlmDeps(options.deps, (cap) => { llmCaptures.push(cap); }, {
         workflow: workflow.name,
         slug: before.input.slug,
         title: before.input.requestedTitle,
@@ -275,6 +280,7 @@ export async function runWorkflow<Deps>(
         const patch = await edge.node.run(before, nodeDeps as any);
         const after = mergePatch(before, patch);
         const diff = diffState(before, after);
+        const llmCapture = llmCaptures.at(-1);
         state = after;
         nodesExecuted += 1;
         options.recorder.recordNode({
@@ -310,6 +316,7 @@ export async function runWorkflow<Deps>(
           llmJsonMode: llmCapture?.jsonMode,
           llmImageCount: llmCapture?.imageCount,
           llmTtftMs: llmCapture?.ttftMs,
+          llmCalls: llmCaptures,
         });
         options.logger?.info("pipeline.node.ok", {
           workflow: workflow.name,
@@ -323,6 +330,7 @@ export async function runWorkflow<Deps>(
         });
       } catch (err) {
         const wrapped = err instanceof Error ? err : new Error(String(err));
+        const llmCapture = llmCaptures.at(-1);
         options.recorder.recordNode({
           workflow: workflow.name,
           runId,
@@ -354,6 +362,7 @@ export async function runWorkflow<Deps>(
           llmJsonMode: llmCapture?.jsonMode,
           llmImageCount: llmCapture?.imageCount,
           llmTtftMs: llmCapture?.ttftMs,
+          llmCalls: llmCaptures,
         });
         options.logger?.error("pipeline.node.error", {
           workflow: workflow.name,
@@ -408,30 +417,8 @@ export async function runWorkflow<Deps>(
   };
 }
 
-/** What the tracer captures from an LLM node's call: the formatted prompt,
- *  the model's chain-of-thought (when the backend separates it), and the
- *  response text. Only the LAST call in a node is kept (covers retries). */
-export interface LlmCapture {
-  promptChars: number;
-  prompt: string;
-  cot: string;
-  response: string;
-  role: string;
-  resolvedRole?: string;
-  configKey?: string;
-  model?: string;
-  baseUrl?: string;
-  host?: string;
-  temperature?: number;
-  maxTokens?: number;
-  topK?: number;
-  topP?: number;
-  minP?: number;
-  thinking?: boolean;
-  jsonMode?: boolean;
-  imageCount?: number;
-  ttftMs?: number;
-}
+/** Prompt, reasoning, output, and metadata captured for one LLM invocation. */
+export type LlmCapture = LlmCallTrace;
 
 function formatPromptForTrace(system: unknown, user: unknown): string {
   const sys = typeof system === "string" ? system : "";

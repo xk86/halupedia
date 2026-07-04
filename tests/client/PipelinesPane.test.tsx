@@ -136,6 +136,18 @@ describe("PipelinesPane", () => {
       .getByText("System prompt")
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
+    for (const label of [
+      "System prompt",
+      "User prompt",
+      "Chain of thought",
+      "Output",
+    ]) {
+      await userEvent.click(
+        within(detail as HTMLElement).getByRole("button", {
+          name: new RegExp(`^${label}`),
+        }),
+      );
+    }
     // Rendered markdown is shown by default.
     const markdownTraces = within(detail as HTMLElement).getAllByTestId(
       "markdown-trace",
@@ -230,6 +242,88 @@ describe("PipelinesPane", () => {
     expect(sourceViews[0]).toHaveTextContent(
       "Use **bold** [Alpha](ref:alpha) rules.",
     );
+  });
+
+  it("renders every LLM call captured inside one node", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              nodes: [
+                {
+                  node_name: "write.refresh_homepage_cache",
+                  node_kind: "write",
+                  duration_ms: 50,
+                  status: "ok",
+                  llm_calls: [
+                    {
+                      promptChars: 20,
+                      prompt: "### System\nRules\n\n### User\nFirst article",
+                      promptTokens: 10,
+                      cot: "",
+                      cotTokens: 0,
+                      response: "First DYK output",
+                      responseTokens: 4,
+                      role: "light",
+                    },
+                    {
+                      promptChars: 21,
+                      prompt: "### System\nRules\n\n### User\nSecond article",
+                      promptTokens: 11,
+                      cot: "",
+                      cotTokens: 0,
+                      response: "Second DYK output",
+                      responseTokens: 4,
+                      role: "light",
+                    },
+                  ],
+                  prompt_text: "### System\nRules\n\n### User\nSecond article",
+                  response_text: "Second DYK output",
+                },
+              ],
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    render(
+      <PipelinesPane
+        workflows={[]}
+        runs={[
+          {
+            run_id: "homepage-run",
+            workflow: "homepage.refresh",
+            slug: "homepage",
+            started_at: 1,
+            duration_ms: 50,
+            status: "ok",
+            nodes_executed: 1,
+            error_message: null,
+          },
+        ]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    await userEvent.click(screen.getByText("homepage.refresh"));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /2 calls · 29t/ }),
+    );
+    expect(screen.getAllByTestId("llm-call-trace")).toHaveLength(2);
+    expect(screen.getByText("LLM call 1 of 2")).toBeInTheDocument();
+    expect(screen.getByText("LLM call 2 of 2")).toBeInTheDocument();
+    expect(screen.queryByText("First DYK output")).not.toBeInTheDocument();
+
+    const outputTriggers = screen.getAllByRole("button", { name: /^Output/ });
+    await userEvent.click(outputTriggers[0]);
+    await userEvent.click(outputTriggers[1]);
+    expect(screen.getByText("First DYK output")).toBeInTheDocument();
+    expect(screen.getByText("Second DYK output")).toBeInTheDocument();
   });
 
   it("keeps workflow labels readable in a horizontal mobile flow", async () => {
@@ -411,6 +505,11 @@ describe("PipelinesPane", () => {
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
     // Sections render markdown by default; switch each to Source to read raw text.
+    for (const button of within(detail as HTMLElement)
+      .getAllByRole("button")
+      .filter((button) => button.hasAttribute("aria-expanded"))) {
+      await userEvent.click(button);
+    }
     for (const button of within(detail as HTMLElement).getAllByRole("tab", {
       name: "Source",
     })) {
@@ -533,6 +632,11 @@ describe("PipelinesPane", () => {
       .closest('[data-slot="card"]') as HTMLElement;
     // Renders markdown by default; switch to Source to read the raw value.
     await userEvent.click(
+      within(referenceCard).getByRole("button", {
+        name: /^Reference list after step/,
+      }),
+    );
+    await userEvent.click(
       within(referenceCard).getByRole("tab", { name: "Source" }),
     );
     const referenceList = within(referenceCard).getByLabelText(
@@ -548,7 +652,11 @@ describe("PipelinesPane", () => {
       .getByText("Reference context in prompt")
       .closest('[data-testid="prompt-section"]') as HTMLElement;
     expect(promptRefSection).toBeTruthy();
-    // Rendered is the default; the markdown link is present without toggling.
+    await userEvent.click(
+      within(promptRefSection).getByRole("button", {
+        name: /^Reference context in prompt/,
+      }),
+    );
     expect(
       within(promptRefSection).getByRole("link", { name: "Alpha" }),
     ).toHaveAttribute("href", "/wiki/Alpha");

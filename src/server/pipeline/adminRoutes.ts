@@ -139,21 +139,7 @@ export function registerPipelineAdminRoutes(
     conn.close();
     return c.json({
       run,
-      nodes: nodes.map((n) => ({
-        ...n,
-        reads: safeParse(n.reads),
-        writes: safeParse(n.writes),
-        inputs: safeParse(n.inputs_json),
-        patch: safeParse(n.patch_json),
-        diff: safeParse(n.diff_json),
-        warnings: safeParse(n.warnings_json),
-        prompt_tokens: countTokens(n.prompt_text as string | null),
-        system_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).system,
-        user_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).user,
-        cot_tokens: countTokens(n.cot_text as string | null),
-        response_tokens: countTokens(n.response_text as string | null),
-        rag: parseRagTrace(n.rag_json),
-      })),
+      nodes: nodes.map(serializeTraceNode),
     });
   });
 
@@ -219,24 +205,54 @@ export function registerPipelineAdminRoutes(
       error: result.error ? result.error.message : null,
       trace: {
         run: traceRun,
-        nodes: (traceNodes as Array<Record<string, unknown>>).map((n) => ({
-          ...n,
-          reads: safeParse(n.reads),
-          writes: safeParse(n.writes),
-          inputs: safeParse(n.inputs_json),
-          patch: safeParse(n.patch_json),
-          diff: safeParse(n.diff_json),
-          warnings: safeParse(n.warnings_json),
-          prompt_tokens: countTokens(n.prompt_text as string | null),
-          system_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).system,
-          user_prompt_tokens: splitPromptTokens(n.prompt_text as string | null).user,
-          cot_tokens: countTokens(n.cot_text as string | null),
-          response_tokens: countTokens(n.response_text as string | null),
-          rag: parseRagTrace(n.rag_json),
-        })),
+        nodes: (traceNodes as Array<Record<string, unknown>>).map(serializeTraceNode),
       },
     });
   });
+}
+
+function serializeTraceNode(n: Record<string, unknown>): Record<string, unknown> {
+  const promptText = n.prompt_text as string | null;
+  const promptTokens = splitPromptTokens(promptText);
+  return {
+    ...n,
+    reads: safeParse(n.reads),
+    writes: safeParse(n.writes),
+    inputs: safeParse(n.inputs_json),
+    patch: safeParse(n.patch_json),
+    diff: safeParse(n.diff_json),
+    warnings: safeParse(n.warnings_json),
+    prompt_tokens: countTokens(promptText),
+    system_prompt_tokens: promptTokens.system,
+    user_prompt_tokens: promptTokens.user,
+    cot_tokens: countTokens(n.cot_text as string | null),
+    response_tokens: countTokens(n.response_text as string | null),
+    llm_calls: parseLlmCalls(n.llm_calls_json),
+    rag: parseRagTrace(n.rag_json),
+  };
+}
+
+function parseLlmCalls(raw: unknown): Array<Record<string, unknown>> {
+  const parsed = safeParse(raw);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((call): call is Record<string, unknown> =>
+      Boolean(call && typeof call === "object" && !Array.isArray(call)),
+    )
+    .map((call) => {
+      const prompt = typeof call.prompt === "string" ? call.prompt : "";
+      const cot = typeof call.cot === "string" ? call.cot : "";
+      const response = typeof call.response === "string" ? call.response : "";
+      const promptTokens = splitPromptTokens(prompt);
+      return {
+        ...call,
+        promptTokens: countTokens(prompt),
+        systemPromptTokens: promptTokens.system,
+        userPromptTokens: promptTokens.user,
+        cotTokens: countTokens(cot),
+        responseTokens: countTokens(response),
+      };
+    });
 }
 
 function openTraceDbReadOnly(

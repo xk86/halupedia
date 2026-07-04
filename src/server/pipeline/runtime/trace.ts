@@ -72,6 +72,30 @@ export interface NodeTraceFields {
   llmJsonMode?: boolean;
   llmImageCount?: number;
   llmTtftMs?: number;
+  /** Every LLM invocation made by this node, in completion order. */
+  llmCalls?: readonly LlmCallTrace[];
+}
+
+export interface LlmCallTrace {
+  promptChars: number;
+  prompt: string;
+  cot: string;
+  response: string;
+  role: string;
+  resolvedRole?: string;
+  configKey?: string;
+  model?: string;
+  baseUrl?: string;
+  host?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topK?: number;
+  topP?: number;
+  minP?: number;
+  thinking?: boolean;
+  jsonMode?: boolean;
+  imageCount?: number;
+  ttftMs?: number;
 }
 
 export interface RunTraceFields {
@@ -197,6 +221,7 @@ class SqliteTraceRecorder implements TraceRecorder {
       `llm_json_mode INTEGER`,
       `llm_image_count INTEGER`,
       `llm_ttft_ms INTEGER`,
+      `llm_calls_json TEXT`,
       `rag_json TEXT`,
     ]) {
       try {
@@ -211,8 +236,8 @@ class SqliteTraceRecorder implements TraceRecorder {
           llm_role, llm_resolved_role, llm_config_key, llm_model, llm_base_url,
           llm_host, llm_temperature, llm_max_tokens, llm_top_k, llm_top_p, llm_min_p,
           llm_thinking, llm_json_mode,
-          llm_image_count, llm_ttft_ms, rag_json)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          llm_image_count, llm_ttft_ms, llm_calls_json, rag_json)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
   }
 
@@ -286,6 +311,7 @@ class SqliteTraceRecorder implements TraceRecorder {
         fields.llmJsonMode === undefined ? null : fields.llmJsonMode ? 1 : 0,
         fields.llmImageCount ?? null,
         fields.llmTtftMs ?? null,
+        serializeLlmCalls(fields.llmCalls),
         fields.ragTrace ? capText(JSON.stringify(fields.ragTrace)) : null,
       );
     } catch {
@@ -324,6 +350,18 @@ function safeJson(value: unknown): string | null {
   } catch {
     return JSON.stringify({ _unserializable: true });
   }
+}
+
+function serializeLlmCalls(calls: readonly LlmCallTrace[] | undefined): string | null {
+  if (!calls?.length) return null;
+  return JSON.stringify(
+    calls.map((call) => ({
+      ...call,
+      prompt: capText(call.prompt),
+      cot: capText(call.cot),
+      response: capText(call.response),
+    })),
+  );
 }
 
 const SCHEMA_SQL = `
@@ -379,6 +417,7 @@ CREATE TABLE IF NOT EXISTS pipeline_nodes (
   llm_json_mode   INTEGER,
   llm_image_count INTEGER,
   llm_ttft_ms     INTEGER,
+  llm_calls_json  TEXT,
   rag_json        TEXT
 );
 CREATE INDEX IF NOT EXISTS pipeline_nodes_run_idx

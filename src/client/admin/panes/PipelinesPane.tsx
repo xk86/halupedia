@@ -165,8 +165,36 @@ interface NodeSpan {
   llm_json_mode?: number | boolean | null;
   llm_image_count?: number | null;
   llm_ttft_ms?: number | null;
+  llm_calls?: LlmCallSpan[];
   /** Byte-exact RAG values placed into the prompt (render nodes); server-tokenized. */
   rag?: RagExactCapture | null;
+}
+
+interface LlmCallSpan {
+  promptChars: number;
+  prompt: string;
+  promptTokens?: number | null;
+  systemPromptTokens?: number | null;
+  userPromptTokens?: number | null;
+  cot: string;
+  cotTokens?: number | null;
+  response: string;
+  responseTokens?: number | null;
+  role: string;
+  resolvedRole?: string;
+  configKey?: string;
+  model?: string;
+  baseUrl?: string;
+  host?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topK?: number;
+  topP?: number;
+  minP?: number;
+  thinking?: boolean;
+  jsonMode?: boolean;
+  imageCount?: number;
+  ttftMs?: number;
 }
 
 /**
@@ -545,7 +573,7 @@ export function PipelinesPane({
                       <TableRow className="hover:bg-transparent">
                         <TableCell
                           colSpan={6}
-                          className="px-2 pb-2 pt-0 whitespace-normal"
+                          className="px-2 pt-0 pb-2 whitespace-normal"
                         >
                           <p className={cn(ERROR_BOX, "m-0 text-xs")}>
                             {run.error_message}
@@ -796,6 +824,55 @@ function fmtFullTimestamp(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
+function nodeLlmCalls(node: NodeSpan): NodeSpan[] {
+  if (node.llm_calls?.length) {
+    return node.llm_calls.map((call) => ({
+      node_name: node.node_name,
+      node_kind: node.node_kind,
+      duration_ms: node.duration_ms,
+      status: node.status,
+      prompt_chars: call.promptChars,
+      prompt_text: call.prompt,
+      prompt_tokens: call.promptTokens,
+      system_prompt_tokens: call.systemPromptTokens,
+      user_prompt_tokens: call.userPromptTokens,
+      cot_text: call.cot,
+      cot_tokens: call.cotTokens,
+      response_text: call.response,
+      response_tokens: call.responseTokens,
+      llm_role: call.role,
+      llm_resolved_role: call.resolvedRole,
+      llm_config_key: call.configKey,
+      llm_model: call.model,
+      llm_base_url: call.baseUrl,
+      llm_host: call.host,
+      llm_temperature: call.temperature,
+      llm_max_tokens: call.maxTokens,
+      llm_top_k: call.topK,
+      llm_top_p: call.topP,
+      llm_min_p: call.minP,
+      llm_thinking: call.thinking,
+      llm_json_mode: call.jsonMode,
+      llm_image_count: call.imageCount,
+      llm_ttft_ms: call.ttftMs,
+    }));
+  }
+  return node.prompt_text ||
+    node.cot_text ||
+    node.response_text ||
+    node.llm_role
+    ? [node]
+    : [];
+}
+
+function traceTokenCount(node: NodeSpan): number {
+  return (
+    (node.prompt_tokens ?? 0) +
+    (node.cot_tokens ?? 0) +
+    (node.response_tokens ?? 0)
+  );
+}
+
 function NodeBreakdown({
   nodes,
   totalMs,
@@ -823,14 +900,11 @@ function NodeBreakdown({
           1,
           Math.round((node.duration_ms / maxMs) * 100),
         );
-        const hasMetadata = Boolean(
-          node.llm_role || node.llm_model || node.llm_config_key,
-        );
-        const hasPrompt = Boolean(
-          node.prompt_text ||
-          node.cot_text ||
-          node.response_text ||
-          hasMetadata,
+        const llmCalls = nodeLlmCalls(node);
+        const hasPrompt = llmCalls.length > 0;
+        const llmTokens = llmCalls.reduce(
+          (total, call) => total + traceTokenCount(call),
+          0,
         );
         const ragDetail = getRagTraceDetail(node);
         const hasRag = Boolean(ragDetail);
@@ -877,27 +951,22 @@ function NodeBreakdown({
                 {pct}%
               </span>
               <span className="flex items-center justify-end gap-1">
-                {node.prompt_text ? (
-                  hasPrompt ? (
-                    <Button
-                      type="button"
-                      variant={promptOpen ? "secondary" : "outline"}
-                      size="sm"
-                      className="h-6 px-1.5 text-[0.68rem]"
-                      title="Show prompt, reasoning, and output"
-                      onClick={() => togglePanel(promptKey)}
-                    >
-                      {((node.prompt_tokens ?? 0) + (node.cot_tokens ?? 0) + (node.response_tokens ?? 0)).toLocaleString()}t
-                      <ChevronDown
-                        data-icon="inline-end"
-                        className={cn(!promptOpen && "-rotate-90")}
-                      />
-                    </Button>
-                  ) : (
-                    <Badge variant="outline" className="h-6">
-                      {((node.prompt_tokens ?? 0) + (node.cot_tokens ?? 0) + (node.response_tokens ?? 0)).toLocaleString()}t
-                    </Badge>
-                  )
+                {hasPrompt ? (
+                  <Button
+                    type="button"
+                    variant={promptOpen ? "secondary" : "outline"}
+                    size="sm"
+                    className="h-6 px-1.5 text-[0.68rem]"
+                    title="Show prompt, reasoning, and output"
+                    onClick={() => togglePanel(promptKey)}
+                  >
+                    {llmCalls.length > 1 && `${llmCalls.length} calls · `}
+                    {llmTokens.toLocaleString()}t
+                    <ChevronDown
+                      data-icon="inline-end"
+                      className={cn(!promptOpen && "-rotate-90")}
+                    />
+                  </Button>
                 ) : null}
                 {hasRag ? (
                   <Button
@@ -919,31 +988,14 @@ function NodeBreakdown({
             </div>
             {promptOpen && hasPrompt && (
               <div className="flex flex-col gap-1" data-testid="trace-detail">
-                {hasMetadata && <LlmMetadata node={node} />}
-                {node.prompt_text && (
-                  <PromptTraceSections
-                    text={node.prompt_text}
-                    promptTokens={node.prompt_tokens}
-                    systemTokens={node.system_prompt_tokens}
-                    userTokens={node.user_prompt_tokens}
+                {llmCalls.map((call, callIndex) => (
+                  <LlmCallDetail
+                    key={callIndex}
+                    call={call}
+                    index={callIndex}
+                    count={llmCalls.length}
                   />
-                )}
-                {node.cot_text && (
-                  <PromptSection
-                    label="Chain of thought"
-                    text={node.cot_text}
-                    promptTokens={node.cot_tokens}
-                    variant="cot"
-                  />
-                )}
-                {node.response_text && (
-                  <PromptSection
-                    label="Output"
-                    text={node.response_text}
-                    promptTokens={node.response_tokens}
-                    variant="output"
-                  />
-                )}
+                ))}
               </div>
             )}
             {ragOpen && ragDetail && <RagDetail detail={ragDetail} />}
@@ -1042,7 +1094,9 @@ function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {
   // Prefer the byte-exact render-node capture when present: it is the literal
   // text the model received, with server-computed token counts.
   const exact =
-    node.rag && typeof node.rag === "object" ? (node.rag as RagExactCapture) : undefined;
+    node.rag && typeof node.rag === "object"
+      ? (node.rag as RagExactCapture)
+      : undefined;
   if (exact) {
     return {
       promptContext: exact.evidenceContext || undefined,
@@ -1167,9 +1221,9 @@ function RagExactDetail({ capture }: { capture: RagExactCapture }) {
   return (
     <div className="flex flex-col gap-2" data-testid="trace-detail">
       <p className="m-0 text-[0.7rem] text-muted-foreground">
-        Byte-exact — the literal RAG values placed into this prompt. Evidence and
-        the link allowlist are separate: a linkable reference does not imply its
-        text was included.
+        Byte-exact — the literal RAG values placed into this prompt. Evidence
+        and the link allowlist are separate: a linkable reference does not imply
+        its text was included.
       </p>
       <TraceMetadata rows={rows} />
       {candidatesText && (
@@ -1439,10 +1493,17 @@ function PromptTraceSections({
   userTokens?: number | null;
 }) {
   const split = splitPromptTrace(text);
-  if (!split) return <PromptSection label="Prompt" text={text} promptTokens={promptTokens} />;
+  if (!split)
+    return (
+      <PromptSection label="Prompt" text={text} promptTokens={promptTokens} />
+    );
   return (
     <>
-      <PromptSection label="System prompt" text={split.system} promptTokens={systemTokens} />
+      <PromptSection
+        label="System prompt"
+        text={split.system}
+        promptTokens={systemTokens}
+      />
       <PromptSection
         label="User prompt"
         text={split.user}
@@ -1562,6 +1623,64 @@ function boolText(value: number | boolean | null | undefined): string | null {
   return value === true || value === 1 ? "on" : "off";
 }
 
+function LlmCallDetail({
+  call,
+  index,
+  count,
+}: {
+  call: NodeSpan;
+  index: number;
+  count: number;
+}) {
+  const hasMetadata = Boolean(
+    call.llm_role || call.llm_model || call.llm_config_key,
+  );
+  return (
+    <Card
+      size="sm"
+      className="min-w-0 data-[size=sm]:[--card-spacing:--spacing(2)]"
+      data-testid="llm-call-trace"
+    >
+      <CardHeader>
+        <CardTitle>
+          LLM call {index + 1}
+          {count > 1 ? ` of ${count}` : ""}
+        </CardTitle>
+        <CardDescription>
+          {traceTokenCount(call).toLocaleString()} tokens
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex min-w-0 flex-col gap-1">
+        {hasMetadata && <LlmMetadata node={call} />}
+        {call.prompt_text && (
+          <PromptTraceSections
+            text={call.prompt_text}
+            promptTokens={call.prompt_tokens}
+            systemTokens={call.system_prompt_tokens}
+            userTokens={call.user_prompt_tokens}
+          />
+        )}
+        {call.cot_text && (
+          <PromptSection
+            label="Chain of thought"
+            text={call.cot_text}
+            promptTokens={call.cot_tokens}
+            variant="cot"
+          />
+        )}
+        {call.response_text && (
+          <PromptSection
+            label="Output"
+            text={call.response_text}
+            promptTokens={call.response_tokens}
+            variant="output"
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function LlmMetadata({ node }: { node: NodeSpan }) {
   const role =
     node.llm_resolved_role &&
@@ -1636,6 +1755,7 @@ const PromptSection = memo(function PromptSection({
   approxTokens?: boolean;
 }) {
   const [mode, setMode] = useState<"source" | "rendered">("rendered");
+  const [open, setOpen] = useState(false);
   const copy = () => {
     void navigator.clipboard?.writeText(text).catch(() => {});
   };
@@ -1646,69 +1766,82 @@ const PromptSection = memo(function PromptSection({
   const lineCount = text.split("\n").length;
   const hasExact = promptTokens !== undefined && promptTokens !== null;
   return (
-    <Card className="min-w-0" size="sm" data-testid="prompt-section">
-      <CardHeader>
-        <CardTitle>{label}</CardTitle>
-        <CardDescription>
-          {text.length.toLocaleString()} chars · {lineCount.toLocaleString()}
-          {" lines"}
-          {hasExact ? (
-            <>
-              {" · "}
-              {promptTokens.toLocaleString()}t
-            </>
-          ) : approxTokens && text.length > 0 ? (
-            <>
-              {" · ~"}
-              {estimateTokens(text).toLocaleString()}t
-            </>
-          ) : null}
-        </CardDescription>
-        <CardAction>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={copy}
-            title="Copy to clipboard"
-          >
-            Copy
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="min-w-0">
-        <Tabs
-          value={mode}
-          onValueChange={(value) => setMode(value as "source" | "rendered")}
-        >
-          <TabsList variant="line">
-            <TabsTrigger value="rendered">Rendered</TabsTrigger>
-            <TabsTrigger value="source">Source</TabsTrigger>
-          </TabsList>
-          <TabsContent value="rendered">
-            {/* font-serif: this lives inside a font-mono trace table, so the
-                prose would otherwise inherit monospace. max-h/overflow: nested
-                scroll (requested), which also clips the rasterized area. */}
-            <div
-              data-testid="markdown-trace"
-              className={cn(
-                "prose-halu prose prose-sm max-h-80 max-w-none overflow-x-auto overflow-y-auto font-serif max-[600px]:text-xs",
-                variant === "cot" && "italic",
-              )}
-              dangerouslySetInnerHTML={{ __html: html }}
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card
+        className="min-w-0 data-[size=sm]:[--card-spacing:--spacing(2)]"
+        size="sm"
+        data-testid="prompt-section"
+      >
+        <CardHeader>
+          <CollapsibleTrigger className="group/section col-start-1 row-span-2 row-start-1 grid min-w-0 cursor-pointer grid-cols-[auto_1fr] items-center gap-x-1.5 border-0 bg-transparent p-0 text-left">
+            <ChevronDown
+              aria-hidden
+              className={cn("transition-transform", !open && "-rotate-90")}
             />
-          </TabsContent>
-          <TabsContent value="source">
-            <pre
-              data-testid="trace-source"
-              aria-label={`${label} source`}
-              className="max-h-80 max-w-full overflow-x-auto overflow-y-auto rounded-md border border-input px-2.5 py-2 font-mono text-xs whitespace-pre max-[600px]:text-[0.7rem]"
+            <span className="min-w-0">
+              <CardTitle>{label}</CardTitle>
+              <CardDescription>
+                {text.length.toLocaleString()} chars ·{" "}
+                {lineCount.toLocaleString()} lines
+                {hasExact ? (
+                  <>
+                    {" · "}
+                    {promptTokens.toLocaleString()}t
+                  </>
+                ) : approxTokens && text.length > 0 ? (
+                  <>
+                    {" · ~"}
+                    {estimateTokens(text).toLocaleString()}t
+                  </>
+                ) : null}
+              </CardDescription>
+            </span>
+          </CollapsibleTrigger>
+          <CardAction>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={copy}
+              title="Copy to clipboard"
             >
-              {text}
-            </pre>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+              Copy
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className="min-w-0 pt-1">
+            <Tabs
+              value={mode}
+              onValueChange={(value) => setMode(value as "source" | "rendered")}
+            >
+              <TabsList variant="line">
+                <TabsTrigger value="rendered">Rendered</TabsTrigger>
+                <TabsTrigger value="source">Source</TabsTrigger>
+              </TabsList>
+              <TabsContent value="rendered">
+                <div
+                  data-testid="markdown-trace"
+                  className={cn(
+                    "prose-halu prose prose-sm max-h-64 max-w-none overflow-x-auto overflow-y-auto font-serif max-[600px]:text-xs",
+                    variant === "cot" && "italic",
+                  )}
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+              </TabsContent>
+              <TabsContent value="source">
+                <pre
+                  data-testid="trace-source"
+                  aria-label={`${label} source`}
+                  className="max-h-64 max-w-full overflow-x-auto overflow-y-auto rounded-md border border-input px-2 py-1.5 font-mono text-xs whitespace-pre max-[600px]:text-[0.7rem]"
+                >
+                  {text}
+                </pre>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 });

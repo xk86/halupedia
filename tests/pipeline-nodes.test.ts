@@ -520,6 +520,75 @@ test("runWorkflow: captures embedded thinking tags as cot_text", async () => {
   }
 });
 
+test("runWorkflow: captures every LLM call made by one node", async () => {
+  const { dir, cleanup } = tmpDir();
+  try {
+    const dbPath = join(dir, "traces.sqlite");
+    const recorder = getTraceRecorder({
+      enabled: true,
+      database_path: dbPath,
+      level: "trace",
+      retention_days: 1,
+    });
+    const llmNode = defineNode({
+      name: "test.multi_llm",
+      kind: "llm",
+      reads: ["input"] as const,
+      writes: ["llmOutput"] as const,
+      async run(_state, deps: { llm: { chat: (...args: unknown[]) => Promise<string> } }) {
+        const outputs = [];
+        for (const name of ["first", "second", "third"]) {
+          outputs.push(await deps.llm.chat("light", "system", `user-${name}`));
+        }
+        return { llmOutput: { promptKey: "test", text: outputs.join(",") } };
+      },
+    });
+    const workflow: WorkflowDefinition<{
+      llm: { chat: (...args: unknown[]) => Promise<string> };
+    }> = {
+      name: "test.multi-llm",
+      edges: [{ node: llmNode }],
+    };
+    let call = 0;
+    const result = await runWorkflow(workflow, {
+      input: makeInput({ workflow: "test.multi-llm" }),
+      deps: {
+        llm: {
+          async chat() {
+            call += 1;
+            return `response-${call}`;
+          },
+        },
+      },
+      recorder,
+    });
+    closeTraceRecorder();
+    assert.equal(result.status, "ok");
+
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const row = db
+      .prepare(
+        "SELECT response_text, llm_calls_json FROM pipeline_nodes WHERE run_id = ?",
+      )
+      .get(result.runId) as Record<string, unknown>;
+    const calls = JSON.parse(String(row.llm_calls_json)) as Array<{
+      prompt: string;
+      response: string;
+    }>;
+    assert.deepEqual(
+      calls.map((entry) => entry.response),
+      ["response-1", "response-2", "response-3"],
+    );
+    assert.match(calls[0].prompt, /user-first/);
+    assert.match(calls[1].prompt, /user-second/);
+    assert.match(calls[2].prompt, /user-third/);
+    assert.equal(row.response_text, "response-3");
+    db.close();
+  } finally {
+    cleanup();
+  }
+});
+
 test("runWorkflow: captures stream TTFT for LLM nodes", async () => {
   const { dir, cleanup } = tmpDir();
   try {

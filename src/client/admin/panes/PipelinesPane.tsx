@@ -634,11 +634,8 @@ export function PipelinesPane({
           <Card key={workflow.name} size="sm">
             <CardHeader>
               <CardTitle className="font-mono">{workflow.name}</CardTitle>
-              <CardDescription className="flex flex-col gap-1">
-                {workflow.description ? (
-                  <span>{workflow.description}</span>
-                ) : null}
-                <span className="font-mono text-xs">{workflow.summary}</span>
+              <CardDescription>
+                {workflow.description ?? workflow.summary}
               </CardDescription>
               <CardAction>
                 <Badge variant="outline">
@@ -698,17 +695,20 @@ function WorkflowNodeStep({
         ) : null}
       </div>
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 pb-2">
-        <span className="font-mono text-xs font-medium">{node.name}</span>
         <Badge variant={variant}>{node.kind}</Badge>
+        <span className="min-w-0 flex-1 break-words text-xs">
+          <span className="font-mono font-medium break-all">{node.name}</span>
+          <span className="text-muted-foreground">
+            {" "}
+            — {node.description ?? "No description."}
+          </span>
+        </span>
         {node.conditional ? (
           <Badge variant="outline">
             <GitBranch data-icon="inline-start" />
             {node.whenLabel ?? "conditional"}
           </Badge>
         ) : null}
-        <span className="text-xs text-muted-foreground">
-          {node.description ?? "No description."}
-        </span>
       </div>
     </li>
   );

@@ -373,9 +373,14 @@ describe("PipelinesPane", () => {
     expect(
       screen.getByText("Generate a new encyclopedia article."),
     ).toBeVisible();
-    expect(screen.getByText("Retrieve related source material.")).toBeVisible();
-    expect(screen.getByText("Generate article Markdown.")).toBeVisible();
-    expect(screen.getByText("Persist Markdown and graph edges.")).toBeVisible();
+    const nodeName = screen.getByText("read.retrieve_context");
+    const nodeDescription = screen.getByText(
+      /Retrieve related source material/,
+    );
+    expect(nodeName.parentElement).toBe(nodeDescription.parentElement);
+    expect(nodeDescription).toBeVisible();
+    expect(screen.getByText(/Generate article Markdown/)).toBeVisible();
+    expect(screen.getByText(/Persist Markdown and graph edges/)).toBeVisible();
     expect(screen.getByText("when generation is required")).toBeVisible();
     expect(within(flow).getAllByRole("listitem")).toHaveLength(3);
   });

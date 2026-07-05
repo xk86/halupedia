@@ -539,7 +539,8 @@ function RagResults({ result }: { result: RagQueryResult }) {
         {diagnostics.exclusions.length ? (
           <Table
             containerClassName="rounded-md border border-border"
-            className="table-fixed text-xs [&_td]:px-2 [&_td]:py-1 [&_th]:h-7 [&_th]:px-2"
+            className="min-w-[42rem] table-fixed text-xs [&_td]:px-2 [&_td]:py-1 [&_th]:h-7 [&_th]:px-2"
+            data-testid="rag-exclusions-table"
           >
             <TableHeader>
               <TableRow>

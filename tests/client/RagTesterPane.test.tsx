@@ -169,6 +169,10 @@ describe("RagTesterPane", () => {
     expect(
       screen.getByRole("progressbar", { name: "Exclusion score 0.3800" }),
     ).toBeInTheDocument();
+    expect(screen.getByTestId("rag-exclusions-table")).toHaveClass(
+      "min-w-[42rem]",
+      "table-fixed",
+    );
     const candidateLink = screen.getByRole("link", {
       name: "Alpha systems with an exceptionally long candidate title that must wrap",
     });

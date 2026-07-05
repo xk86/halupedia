@@ -33,6 +33,7 @@ import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
 import { ArticleProse, articleProseClasses } from "./article/ArticleProse";
 import { ArticleBacklinks } from "./article/ArticleBacklinks";
 import { ArticleBody } from "./article/ArticleBody";
+import { ArticleOntology } from "./article/ArticleOntology";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2667,6 +2668,7 @@ export function App() {
             onClick={interceptArticleLinks}
           />
         )}
+        <ArticleOntology slug={page.article.slug} onNavigate={navigateToArticle} />
         <ArticleBacklinks
           existing={page.backlinks.existing}
           unwritten={page.backlinks.unwritten}

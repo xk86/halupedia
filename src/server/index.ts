@@ -3242,24 +3242,26 @@ export async function createApp(options: CreateAppOptions = {}) {
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
 
-    // The rewrite instruction is now the article's canonical vibe (loaded from
-    // the DB), not per-edit free text. `instructions` here is just a marker for
-    // the revision row / logs — the prompt itself reads the vibe via
-    // readArticleVibeNode. A `rewriteMode` (subtle/aggressive) selects how much
-    // of the article to change to conform to the vibe.
+    // The vibe remains canonical and persists independently. A quick edit
+    // instruction applies only to this request and is recorded in its revision.
     const vibe = getArticleVibe(db, article.slug).trim();
     const hasVibe = vibe.length > 0;
-    if (!hasVibe && !hasReferenceEditFields(body))
+    const quickEditInstruction = (body.instructions ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 1000);
+    const hasQuickEditInstruction = quickEditInstruction.length > 0;
+    if (!hasVibe && !hasQuickEditInstruction && !hasReferenceEditFields(body))
       return c.json(
-        { error: "Set an article vibe before rewriting." },
+        { error: "Set an article vibe or provide a quick edit instruction." },
         400,
       );
-    const instructions = "rewrite-to-vibe";
+    const instructions = quickEditInstruction || "rewrite-to-vibe";
 
     // Refs-only edit: the user changed the reference selection (add/remove/
-    // pin/block) and there is no vibe to rewrite toward. Update the sidecar
-    // directly — no LLM call, no retrieval, no post-process.
-    if (!hasVibe) {
+    // pin/block) and there is no rewrite directive. Update the sidecar directly
+    // — no LLM call, no retrieval, no post-process.
+    if (!hasVibe && !hasQuickEditInstruction) {
       const refs = applyReferenceOnlyEdit(db, article.slug, body, runtime.app.rag, logger);
       invalidateArticleHtml(article.slug);
       logger.info("article.reference_only_edit", { slug: article.slug, refs: refs.length });

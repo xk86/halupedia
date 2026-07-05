@@ -52,6 +52,7 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -249,6 +250,7 @@ export function App() {
   const [editDraft, setEditDraft] = useState("");
   const [editVibeLoaded, setEditVibeLoaded] = useState("");
   const [editVibeSaving, setEditVibeSaving] = useState(false);
+  const [editQuickInstruction, setEditQuickInstruction] = useState("");
   const [editSectionId, setEditSectionId] = useState("");
   // References panel state
   const [editRefsEnabled, setEditRefsEnabled] = useState(false);
@@ -1264,9 +1266,11 @@ export function App() {
     loadEditRefs,
   ]);
 
-  const rewriteArticle = useCallback(async () => {
+  const rewriteArticle = useCallback(async (quickInstruction = "") => {
     if (!page?.article.slug || editBusy) return;
-    if (!editDraft.trim() && !editRefsChanged) return;
+    const trimmedQuickInstruction = quickInstruction.trim();
+    if (!editDraft.trim() && !trimmedQuickInstruction && !editRefsChanged)
+      return;
     const previousPage = page;
     const targetSlug = page.article.slug;
     const ac = new AbortController();
@@ -1278,9 +1282,11 @@ export function App() {
       current ? { ...current, statusMessage: "Rewriting article..." } : current,
     );
     try {
-      // The rewrite conforms the article to the saved vibe. Persist any unsaved
-      // edits to the vibe box first so the rewrite uses what's on screen.
-      if (editVibeDirty) await saveVibe();
+      // Persist any unsaved vibe first. The quick instruction remains
+      // request-scoped and never replaces the article's canonical vibe.
+      const persistedVibe = editVibeDirty
+        ? await saveVibe()
+        : editVibeLoaded;
       const res = await fetch(
         `/api/article/${encodeURIComponent(targetSlug)}/rewrite?stream=1`,
         {
@@ -1291,6 +1297,9 @@ export function App() {
           },
           signal: ac.signal,
           body: JSON.stringify({
+            ...(trimmedQuickInstruction
+              ? { instructions: trimmedQuickInstruction }
+              : {}),
             ...(editSectionId === "__selection__"
               ? { selectedText: editSelectedText }
               : { sectionId: editSectionId || undefined }),
@@ -1426,8 +1435,9 @@ export function App() {
           }
         })();
       }
-      setEditDraft("");
-      setEditVibeLoaded("");
+      setEditDraft(persistedVibe);
+      setEditVibeLoaded(persistedVibe);
+      setEditQuickInstruction("");
       setEditSectionId("");
       setEditSelectedText("");
       setEditAddRefsOpen(false);
@@ -1450,6 +1460,7 @@ export function App() {
   }, [
     page,
     editDraft,
+    editVibeLoaded,
     editSectionId,
     editSelectedText,
     editRefsEnabled,
@@ -2184,6 +2195,44 @@ export function App() {
                   ? "Save vibe"
                   : "✓ Vibe saved"}
             </button>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void rewriteArticle(editQuickInstruction);
+              }}
+            >
+              <FieldGroup className="gap-2">
+                <Field orientation="horizontal">
+                  <FieldLabel
+                    className="sr-only"
+                    htmlFor="quick-edit-instruction"
+                  >
+                    Quick edit instruction
+                  </FieldLabel>
+                  <Input
+                    id="quick-edit-instruction"
+                    value={editQuickInstruction}
+                    onChange={(event) =>
+                      setEditQuickInstruction(event.target.value)
+                    }
+                    placeholder="One-off edit instruction"
+                    maxLength={1000}
+                    disabled={editBusy || !!page.isProtected}
+                  />
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={
+                      editBusy ||
+                      !editQuickInstruction.trim() ||
+                      !!page.isProtected
+                    }
+                  >
+                    Quick edit
+                  </Button>
+                </Field>
+              </FieldGroup>
+            </form>
             {/* References panel */}
             <div className="edit-refs-row">
               <label className="edit-modal-rag-toggle flex items-center gap-1.5">
@@ -2432,7 +2481,7 @@ export function App() {
               <button
                 type="button"
                 className="edit-modal-submit"
-                onClick={rewriteArticle}
+                onClick={() => void rewriteArticle()}
                 title="Rewrite the article to conform to its vibe"
                 disabled={
                   editBusy ||
@@ -2692,6 +2741,7 @@ export function App() {
     editSectionId,
     editBusy,
     editDraft,
+    editQuickInstruction,
     editError,
     editVibeLoaded,
     editVibeSaving,

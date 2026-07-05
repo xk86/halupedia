@@ -464,7 +464,88 @@ test("rewrite returns 400 when the article has no vibe to rewrite toward", async
     body: JSON.stringify({}),
   });
   assert.equal(res.status, 400);
-  assert.equal(llm.chatCalls.length, 0, "should not call the LLM without a vibe");
+  assert.equal(llm.chatCalls.length, 0, "should not call the LLM without a rewrite directive");
+  await server.shutdown();
+});
+
+test("quick edit works without a vibe and remains request-scoped", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "quick-edit", "Quick Edit", "Original text.", "");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# Quick Edit\n\nShorter text.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  const res = await server.request("/api/article/quick-edit/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "Make the article shorter." }),
+  });
+
+  assert.equal(res.status, 200);
+  const rewriteCall = llm.chatCalls.find((call) => call.system.includes("Rewrite"));
+  assert.ok(rewriteCall);
+  assert.match(rewriteCall.system, /Make the article shorter\./);
+
+  const vibeRes = await server.request("/api/article/quick-edit/vibe");
+  assert.equal((await vibeRes.json()).content, "");
+  await server.shutdown();
+});
+
+test("quick edit receives and preserves the article vibe", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(
+    databasePath,
+    "vibe-quick-edit",
+    "Vibe Quick Edit",
+    "Original text.",
+    "Keep every date exact.",
+  );
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# Vibe Quick Edit\n\nConcise text.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  await server.request("/api/article/vibe-quick-edit/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ instructions: "Make the prose concise." }),
+  });
+
+  const rewriteCall = llm.chatCalls.find((call) => call.system.includes("Rewrite"));
+  assert.ok(rewriteCall);
+  assert.match(rewriteCall.system, /Keep every date exact\./);
+  assert.match(rewriteCall.system, /Make the prose concise\./);
+
+  const vibeRes = await server.request("/api/article/vibe-quick-edit/vibe");
+  assert.equal((await vibeRes.json()).content, "Keep every date exact.");
+  await server.shutdown();
+});
+
+test("vibe-only rewrite does not expose its revision marker as an edit instruction", async (t) => {
+  const { root, databasePath } = createTestDb();
+  seedArticle(databasePath, "vibe-only", "Vibe Only", "Original text.");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const llm = new RewriteLlmClient("# Vibe Only\n\nRewritten text.");
+  const server = await createTestServer({ databasePath, llmClient: llm });
+
+  await server.request("/api/article/vibe-only/rewrite", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({}),
+  });
+
+  const rewriteCall = llm.chatCalls.find((call) => call.system.includes("Rewrite"));
+  assert.ok(rewriteCall);
+  assert.doesNotMatch(rewriteCall.system, /rewrite-to-vibe/);
+
+  const historyRes = await server.request("/api/article/vibe-only/history");
+  const historyBody = await historyRes.json();
+  const rewriteRevision = historyBody.revisions.find(
+    (revision: any) => revision.operation === "rewrite",
+  );
+  assert.equal(rewriteRevision.instructions, "rewrite-to-vibe");
   await server.shutdown();
 });
 
@@ -491,9 +572,7 @@ test("rewrite creates a revision entry in history", async (t) => {
     (r: any) => r.operation === "rewrite",
   );
   assert.ok(rewriteRevision, "should have a rewrite operation revision");
-  // Per-edit free text is no longer the edit channel; the vibe is. The revision
-  // records the canonical "rewrite-to-vibe" marker rather than typed instructions.
-  assert.match(rewriteRevision.instructions, /rewrite-to-vibe/, "revision should record the canonical rewrite marker");
+  assert.equal(rewriteRevision.instructions, "revise it");
   await server.shutdown();
 });
 

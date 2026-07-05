@@ -50,11 +50,14 @@ Rewrite Constraints:
 - Rewritten: "The **automobile**, or **car**, while previously believed to be a type of motor vehicle, is actually now understood to be a species of freshwater fish..."
 - Why it's bad: Lampshading the fact that an edit was made ("while previously..."); hedging against saying it's a fish by introducing framing text; unnecessary length that breaks the tone of the site.
 
-Article vibe — the canonical, human-authored source of truth for this article.
-Treat it as gospel. Your task is to bring the article into conformance with this
-vibe at the magnitude described by the Rewrite Mode above. Where the article
-already agrees with the vibe, leave it be; where it conflicts or falls short,
-revise it to match. The vibe is the standard, not an additional opinion:
+Article vibe — the persistent, canonical, human-authored source of truth for
+this article. Treat it as gospel. Preserve it while applying any one-off edit
+instruction. Where the instruction conflicts with the vibe, the vibe wins:
+
+{{article_vibe}}
+
+One-off edit instruction — apply this request without changing or weakening the
+article vibe. If empty, rewrite only to conform to the vibe:
 
 {{edit_instructions}}
 
@@ -89,10 +92,14 @@ Suggested related existing topics:
 Article vibe (canonical, human-authored source of truth — the article MUST
 conform to this; resolve every conflict in the vibe's favor):
 
+{{article_vibe}}
+
+One-off edit instruction (apply once while preserving the article vibe):
+
 {{edit_instructions}}
 
-Output the full rewritten Markdown article, conformed to the article vibe above
-at the requested magnitude.
+Output the full rewritten Markdown article with the one-off instruction applied
+and the article vibe preserved, at the requested magnitude.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics.
 """

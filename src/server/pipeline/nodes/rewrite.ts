@@ -324,10 +324,10 @@ export const renderRewritePromptNode = defineNode({
       deps.runtime.prompts.rewriteModes?.[requestedMode]?.prompt ??
       deps.runtime.prompts.rewriteModes?.aggressive?.prompt ??
       "";
-    // The article vibe (human-authored canonical source) is the rewrite
-    // instruction: the model conforms the article to it at the chosen
-    // magnitude. Per-edit free-text instructions no longer exist.
-    const instructions = (articleVibe ?? "").trim();
+    const vibe = (articleVibe ?? "").trim();
+    const rawInstructions = (input.instructions ?? "").trim();
+    const instructions =
+      rawInstructions === "rewrite-to-vibe" ? "" : rawInstructions;
 
     // For partial edits (section or selection), feed only the targeted fragment
     // as current_article so the model returns just that fragment. For full rewrites,
@@ -379,6 +379,7 @@ export const renderRewritePromptNode = defineNode({
       requested_title: title,
       current_article: currentArticle,
       selected_text: selectedMarkdown ?? "",
+      article_vibe: vibe,
       edit_instructions: instructions,
       rewrite_mode: modePrompt,
       rewrite_scope_rules: scopeRules.trim(),

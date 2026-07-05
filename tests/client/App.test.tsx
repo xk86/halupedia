@@ -1932,6 +1932,84 @@ describe("App", () => {
     ).toBeDisabled();
   });
 
+  it("sends a one-off quick edit and keeps the vibe after streaming", async () => {
+    const original = pagePayload();
+    const updated = pagePayload({
+      article: {
+        ...original.article,
+        html: "<h1>Test Article</h1><p>Concise body copy.</p>",
+        markdown: "# Test Article\n\nConcise body copy.",
+        plain_text: "Concise body copy.",
+        generated_at: original.article.generated_at + 1,
+      },
+    });
+    const fetchMock = withLiveBypass((input, init) => {
+      const url = String(input);
+      if (url.includes("/api/page/")) {
+        return new Response(JSON.stringify(original), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/vibe")) {
+        return new Response(
+          JSON.stringify({ content: "Keep every date exact." }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/rewrite")) {
+        expect((init as RequestInit)?.method).toBe("POST");
+        return ndjsonResponse([
+          {
+            type: "progress",
+            html: updated.article.html,
+            markdown: updated.article.markdown,
+          },
+          { type: "done", ...updated },
+        ]);
+      }
+      if (url.includes("/references")) {
+        return new Response(JSON.stringify({ references: [] }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ image: null }), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Test Article" });
+    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
+    const quickInstruction = await screen.findByRole("textbox", {
+      name: "Quick edit instruction",
+    });
+    await waitFor(() =>
+      expect(screen.getByText("✓ Vibe saved")).toBeInTheDocument(),
+    );
+
+    await userEvent.type(quickInstruction, "Make the prose concise.");
+    await userEvent.click(screen.getByRole("button", { name: "Quick edit" }));
+
+    expect(await screen.findByText("Concise body copy.")).toBeInTheDocument();
+    expect(quickInstruction).toHaveValue("");
+    const rewriteCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/rewrite"),
+    );
+    expect(
+      JSON.parse(String((rewriteCall![1] as RequestInit).body)),
+    ).toMatchObject({ instructions: "Make the prose concise." });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Raw markdown" }),
+    );
+    expect(
+      document.querySelector<HTMLTextAreaElement>(".mdedit-raw-textarea"),
+    ).toHaveValue("Keep every date exact.");
+  });
+
   it("rolls back streamed rewrite progress when the server rejects a body subject change", async () => {
     const original = pagePayload({
       article: {

@@ -12,6 +12,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { prepared } from "../db";
 import { slugify } from "../slug";
+import { markdownToPlainText } from "../markdown";
+import { truncateForLog } from "../logger";
 import type { Logger } from "../logger";
 import type { RagStore, TextQueryHit } from "./store";
 import type { TextEmbedder } from "./embeddings";
@@ -71,6 +73,21 @@ function titleFor(db: DatabaseSync, slug: string): string {
     `SELECT COALESCE(NULLIF(display_title, ''), title) AS title FROM articles WHERE slug = ?`,
   ).get(slug) as { title: string } | undefined;
   return row?.title ?? slug;
+}
+
+/**
+ * One-line summary excerpt for a candidate article, independent of whatever
+ * text documents were actually selected as evidence. A candidate surfaced
+ * only via a terse ontology fact or infobox row (e.g. "X is a thing") would
+ * otherwise show the model nothing about what the article actually is.
+ */
+function summaryFor(db: DatabaseSync, slug: string): string | undefined {
+  const row = prepared(db, `SELECT summary_markdown AS summary FROM articles WHERE slug = ?`).get(
+    slug,
+  ) as { summary?: string } | undefined;
+  const raw = row?.summary?.trim();
+  if (!raw) return undefined;
+  return truncateForLog(markdownToPlainText(raw), 160);
 }
 
 /** Article slugs that share at least one category with the target. */
@@ -140,7 +157,13 @@ function evidenceSubject(doc: RetrievedTextDocument): { slug: string; title?: st
  * `content` block, matching what the old per-article chunk packets produced.
  */
 export interface LegacyRetrievalView {
-  sourceArticles: Array<{ slug: string; title: string; content: string; score?: number }>;
+  sourceArticles: Array<{
+    slug: string;
+    title: string;
+    content: string;
+    score?: number;
+    summary?: string;
+  }>;
   relatedTitles: string[];
   embedding: {
     strategy: string;
@@ -164,6 +187,7 @@ export function toLegacyView(result: RetrievalResult): LegacyRetrievalView {
     title: c.title,
     content: (contentBySlug.get(c.slug) ?? []).join("\n\n"),
     score: c.score,
+    ...(c.summary ? { summary: c.summary } : {}),
   }));
   const diag = result.diagnostics;
   return {
@@ -309,6 +333,7 @@ export async function retrieveContext(
         score: doc.rawScore,
         contributingKinds: [doc.sourceKind],
         provenance: doc.provenance,
+        summary: summaryFor(deps.db, subject.slug),
       });
     }
   }

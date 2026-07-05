@@ -162,20 +162,26 @@ export function formatRagContextForPrompt(
  * Format the "suggested related topics" bullet list for prompts. When a title
  * matches a known retrieved source we render it as a `[Title](ref:slug)` link
  * so the linkable form is repeated in context; titles without a resolvable
- * slug stay plain bullets (there is nothing safe to link them to). Duplicate
- * titles are collapsed.
+ * slug stay plain bullets (there is nothing safe to link them to). A one-line
+ * summary is appended when available, so a title surfaced only via a terse
+ * evidence fragment (e.g. an `is_a` ontology fact) still tells the model what
+ * the article actually is, not just its bare name. Duplicate titles are
+ * collapsed.
  */
 export function formatRelatedTitlesForPrompt(
   ragTitles: string[],
-  sourceArticles: Array<{ title: string; slug?: string }> = [],
+  sourceArticles: Array<{ title: string; slug?: string; summary?: string }> = [],
   /** Cap the number of suggestions (0 / omitted = unlimited). Refresh passes a
    *  small cap so a long noisy title list can't dominate the prompt. */
   limit = 0,
 ): string {
   const slugByTitle = new Map<string, string>();
+  const summaryByTitle = new Map<string, string>();
   for (const s of sourceArticles) {
     const key = alnumKey(s.title);
-    if (key && s.slug && !slugByTitle.has(key)) slugByTitle.set(key, s.slug);
+    if (!key) continue;
+    if (s.slug && !slugByTitle.has(key)) slugByTitle.set(key, s.slug);
+    if (s.summary && !summaryByTitle.has(key)) summaryByTitle.set(key, s.summary);
   }
   const seen = new Set<string>();
   const lines: string[] = [];
@@ -185,7 +191,9 @@ export function formatRelatedTitlesForPrompt(
     if (key && seen.has(key)) continue;
     if (key) seen.add(key);
     const slug = slugByTitle.get(key);
-    lines.push(slug ? `- [${t}](ref:${slug})` : `- ${t}`);
+    const summary = summaryByTitle.get(key);
+    const label = slug ? `[${t}](ref:${slug})` : t;
+    lines.push(summary ? `- ${label} — ${summary}` : `- ${label}`);
   }
   return lines.join("\n");
 }

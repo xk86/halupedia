@@ -65,6 +65,34 @@ test("link allowlist is independent of evidence inclusion", () => {
   assert.equal(renderLinkAllowlist(out.linkAllowlist), "- [Ethereum](ref:ethereum)");
 });
 
+test("relatedTitles includes a summary and a ref link, even for a candidate with only a terse fact", () => {
+  const out = assembleEvidence(
+    result(
+      [doc({ documentId: "o", sourceKind: "ontology_fact", content: "Ababa test is a thing" })],
+      [
+        {
+          slug: "ababa-test",
+          title: "Ababa test",
+          score: 0.4,
+          contributingKinds: ["ontology_fact"],
+          provenance: "semantic",
+          summary: "A recurring diagnostic naming exercise.",
+        },
+      ],
+    ),
+    { maxTokens: 1000 },
+  );
+  assert.equal(
+    out.relatedTitles,
+    "- [Ababa test](ref:ababa-test) — A recurring diagnostic naming exercise.",
+  );
+});
+
+test("relatedTitles renders a plain ref link when no summary is available", () => {
+  const out = assembleEvidence(result([doc({})]), { maxTokens: 1000 });
+  assert.equal(out.relatedTitles, "- [Ethereum](ref:ethereum)");
+});
+
 test("bodyReserveTokens guarantees prose survives a compact-doc-heavy budget", () => {
   // Same tight budget as above, but a body reserve keeps prose in the mix.
   const out = assembleEvidence(

@@ -89,6 +89,11 @@ export interface RetrievedArticleCandidate {
   /** Kinds of documents that contributed to this candidate. */
   contributingKinds: TextDocumentKind[];
   provenance: "semantic" | "direct" | "symbolic";
+  /** One-line summary excerpt, from the article's own summary — independent
+   *  of whatever text documents happened to be selected as evidence, so a
+   *  candidate surfaced only via a terse ontology/infobox fact still shows
+   *  the model *what the article is*, not just its bare title. */
+  summary?: string;
 }
 
 export interface RetrievalDiagnostics {

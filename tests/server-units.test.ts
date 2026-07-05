@@ -66,7 +66,7 @@ import {
 import { LLM_DISPATCHER_OPTIONS, OpenAICompatRouter, setLlmFetchForTests, type LlmRouter } from "../src/server/llm";
 import { makeRouter } from "./helpers/router";
 import type { Logger, LogFields } from "../src/server/logger";
-import { formatRagContextForPrompt } from "../src/server/retrieval";
+import { formatRagContextForPrompt, formatRelatedTitlesForPrompt } from "../src/server/retrieval";
 import { indexRagChunksNode } from "../src/server/pipeline/nodes/postProcess";
 import type { PipelineDeps } from "../src/server/pipeline/deps";
 import {
@@ -1123,6 +1123,23 @@ test("formatRagContextForPrompt skips empty/title-only and duplicate headings, k
   assert.match(out, /Real prose about the alpha topic\./);
   assert.match(out, /^## \[Beta\]\(ref:beta\)$/m);
   assert.doesNotMatch(out, /\(ref:alpha\)\n# Alpha/, "title-only entry must not be emitted");
+});
+
+test("formatRelatedTitlesForPrompt appends a one-line summary when available", () => {
+  const out = formatRelatedTitlesForPrompt(
+    ["Ababa test", "Beta"],
+    [
+      { title: "Ababa test", slug: "ababa-test", summary: "A recurring diagnostic naming exercise." },
+      { title: "Beta", slug: "beta" }, // no summary -> plain bullet, no dangling dash
+    ],
+  );
+  assert.match(out, /^- \[Ababa test\]\(ref:ababa-test\) — A recurring diagnostic naming exercise\.$/m);
+  assert.match(out, /^- \[Beta\]\(ref:beta\)$/m);
+});
+
+test("formatRelatedTitlesForPrompt falls back to a plain bullet with no matching source", () => {
+  const out = formatRelatedTitlesForPrompt(["Unknown Topic"], []);
+  assert.equal(out, "- Unknown Topic");
 });
 
 

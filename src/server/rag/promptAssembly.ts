@@ -122,11 +122,18 @@ export function assembleEvidence(
     title: c.title,
   }));
 
+  // Every related title gets at least a one-line summary — a candidate
+  // surfaced only via a terse evidence fragment (e.g. an `is_a` ontology fact)
+  // shouldn't show the model a bare, context-free name.
+  const relatedTitles = result.sourceArticles
+    .map((c) => (c.summary ? `- [${c.title}](ref:${c.slug}) — ${c.summary}` : `- [${c.title}](ref:${c.slug})`))
+    .join("\n");
+
   return {
     articleContext: render(["article_body", "article_summary", "link_hint", "image_caption", "image_description"]),
     infoboxContext: render(["infobox_digest", "infobox_fact"]),
     ontologyFacts,
-    relatedTitles: result.relatedTitles.map((t) => `- ${t}`).join("\n"),
+    relatedTitles,
     linkAllowlist,
     decisions,
     tokensUsed: used,

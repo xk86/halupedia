@@ -27,7 +27,7 @@ class QueueLlmClient implements LlmRouter {
     private readonly streamContent: string,
     private readonly chatResponses: string[] = [],
     private readonly streamChunks?: string[],
-    private readonly embedVector: number[] = [],
+    private readonly embedVector: number[] = [1, 0],
   ) {}
 
   async chat(_role: "heavy" | "light", _system: string, _user: string): Promise<string> {
@@ -109,7 +109,7 @@ class CapturingChatLlmClient implements LlmRouter {
 
   async embed(input: string[]): Promise<number[][]> {
     this.embedInputs.push(input);
-    return input.map(() => []);
+    return input.map(() => [1, 0]);
   }
 
   supportsVision(): boolean { return false; }

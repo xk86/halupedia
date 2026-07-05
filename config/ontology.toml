@@ -17,7 +17,7 @@
 #                      core predicates / typed identifiers.
 #
 # Bump `version` to invalidate all prior extractions and force re-derivation.
-version = 2
+version = 3
 
 # ---------------------------------------------------------------------------
 # Entity types — the fixed classes. An entity IS exactly one of these.

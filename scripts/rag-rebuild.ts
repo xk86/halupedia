@@ -24,7 +24,11 @@ async function main() {
   const ctx = await openRagScriptContext();
   try {
     const slugs = onlySlug ? [onlySlug] : listLiveArticleSlugs(ctx.db);
+    const llmOn = ctx.app.rag.ontology_llm_extraction === true;
     console.log(`rag:rebuild — ${slugs.length} article(s); model=${ctx.textModel}; path=${ctx.ragPath}`);
+    console.log(
+      `ontology LLM extraction: ${llmOn ? "ON (light model fires per article only on content/vocab change)" : "OFF (deterministic infobox extraction only)"}`,
+    );
 
     if (dryRun) {
       console.log(`[dry-run] would enqueue + index ${slugs.length} article(s); no writes performed.`);

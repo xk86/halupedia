@@ -7,7 +7,7 @@ import { loadConfig } from "../src/server/config";
 import { openDatabase } from "../src/server/db";
 import { openMediaDatabase, getMediaById } from "../src/server/mediaDb";
 import { OpenAICompatRouter } from "../src/server/llm";
-import { createConsoleLogger } from "../src/server/logger";
+import { createConsoleLogger, createFilteredLogger } from "../src/server/logger";
 import { createRagRuntime, type RagRuntime } from "../src/server/rag";
 import { DEFAULT_CHUNKER_OPTIONS } from "../src/server/rag/chunker";
 import { loadOntologyVocabulary } from "../src/server/ontology";
@@ -41,7 +41,14 @@ export function corpusConfigHash(textModel: string, chunkerVersion: number, voca
 
 export async function openRagScriptContext(): Promise<RagScriptContext> {
   const runtime = loadConfig();
-  const logger = createConsoleLogger();
+  // Silence the high-volume per-request `llm.*` info/debug chatter (embed/chat
+  // request+response, one pair per article) that otherwise buries the useful
+  // progress. Warnings and errors (incl. `llm.*` failures) always pass through,
+  // as do the pipeline's own `rag.*` / `ontology.*` progress logs.
+  const logger = createFilteredLogger(
+    createConsoleLogger("info"),
+    (level, event) => level === "warn" || level === "error" || !event.startsWith("llm."),
+  );
   const db = openDatabase(runtime.app.storage.database_path);
   const mediaDb = openMediaDatabase(runtime.app.images.media_database_path);
   const llm = new OpenAICompatRouter(runtime.llm, logger);

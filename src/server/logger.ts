@@ -60,19 +60,49 @@ export function formatLogLine(level: string, event: string, fields: LogFields = 
     : `${DIM}${ts}${RESET} ${levelStr} ${eventStr}`;
 }
 
-export function createConsoleLogger(): Logger {
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+const LEVEL_ORDER: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+
+export function createConsoleLogger(minLevel: LogLevel = "debug"): Logger {
+  const enabled = (level: LogLevel) => LEVEL_ORDER[level] >= LEVEL_ORDER[minLevel];
   return {
     debug(event, fields) {
-      console.debug(formatLogLine("debug", event, fields));
+      if (enabled("debug")) console.debug(formatLogLine("debug", event, fields));
     },
     info(event, fields) {
-      console.log(formatLogLine("info", event, fields));
+      if (enabled("info")) console.log(formatLogLine("info", event, fields));
     },
     warn(event, fields) {
-      console.warn(formatLogLine("warn", event, fields));
+      if (enabled("warn")) console.warn(formatLogLine("warn", event, fields));
     },
     error(event, fields) {
-      console.error(formatLogLine("error", event, fields));
+      if (enabled("error")) console.error(formatLogLine("error", event, fields));
+    },
+  };
+}
+
+/**
+ * Wrap a logger, dropping any (level, event) the `keep` predicate rejects. Used
+ * by the offline scripts to silence high-volume per-request `llm.*` chatter
+ * while keeping their own progress logs and all warnings/errors.
+ */
+export function createFilteredLogger(
+  base: Logger,
+  keep: (level: LogLevel, event: string) => boolean,
+): Logger {
+  return {
+    debug(event, fields) {
+      if (keep("debug", event)) base.debug(event, fields);
+    },
+    info(event, fields) {
+      if (keep("info", event)) base.info(event, fields);
+    },
+    warn(event, fields) {
+      if (keep("warn", event)) base.warn(event, fields);
+    },
+    error(event, fields) {
+      if (keep("error", event)) base.error(event, fields);
     },
   };
 }

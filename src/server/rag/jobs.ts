@@ -179,16 +179,27 @@ export async function processJobs(deps: ProcessJobsDeps): Promise<ProcessJobsRes
   };
 
   for (const batch of batches) {
+    const operations = [...new Set(batch.jobs.map((j) => j.operation))].join(",");
     try {
       const article = getArticle(deps.db, batch.slug);
       if (batch.hasDelete && !article) {
         await deleteArticle(deps, batch.slug);
         result.articlesDeleted += 1;
+        deps.logger?.info("rag.article_deleted", { slug: batch.slug, reason: operations });
       } else {
         const n = await reindexArticle(deps, batch.slug);
         result.documentsUpserted += n;
-        if (article) result.articlesProcessed += 1;
-        else result.articlesDeleted += 1;
+        if (article) {
+          result.articlesProcessed += 1;
+          deps.logger?.info("rag.article_indexed", {
+            slug: batch.slug,
+            reason: operations,
+            documents: n,
+          });
+        } else {
+          result.articlesDeleted += 1;
+          deps.logger?.info("rag.article_deleted", { slug: batch.slug, reason: "no_source" });
+        }
       }
       for (const job of batch.jobs) markRagJobComplete(deps.db, job.id);
     } catch (err) {

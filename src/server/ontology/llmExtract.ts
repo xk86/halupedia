@@ -64,16 +64,31 @@ export async function deriveLlmExtraction(
   ).get(article.slug) as CacheRow | undefined;
   if (cached && cached.content_hash === hash && cached.vocab_hash === vocabHash) {
     try {
-      return JSON.parse(cached.extraction) as ExtractionResult;
+      const hit = JSON.parse(cached.extraction) as ExtractionResult;
+      options.logger?.debug?.("ontology.llm_cache_hit", { slug: article.slug });
+      return hit;
     } catch {
       // Corrupt cache row — fall through and re-derive.
     }
   }
 
+  // Explain why the (paid) model call is happening — this is the only path that
+  // hits the LLM, and only on a genuine content/vocabulary change.
+  const reason = !cached
+    ? "first_extraction"
+    : cached.content_hash !== hash
+      ? "content_changed"
+      : "vocabulary_changed";
+
   let extraction = emptyExtraction();
   try {
     const prompt = getPrompt(options.prompts, "ontology");
     const title = article.displayTitle || article.title;
+    options.logger?.info?.("ontology.llm_extract", {
+      slug: article.slug,
+      model: prompt.model === "heavy" ? "heavy" : "light",
+      reason,
+    });
     const raw = await options.llm.chat(
       prompt.model === "heavy" ? "heavy" : "light",
       prompt.system,

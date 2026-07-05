@@ -1,9 +1,8 @@
 # Migrating a running instance to the ontology rework
 
 This guide is for an instance currently running on `main` (pre-ontology-rework)
-that needs to move onto this branch (`rag-rework`, commits through
-`c2d4afdb`). It covers what changed, why each step is necessary, and the exact
-commands to run, in order.
+that needs to move onto this branch (`rag-rework`). It covers what changed, why
+each step is necessary, and the exact commands to run, in order.
 
 ## What changed, in one paragraph
 
@@ -11,7 +10,7 @@ The ontology layer (`config/ontology.toml` + `src/server/ontology/*`) was
 reworked: the controlled vocabulary gained an `arity` field (unary `is_a`
 classification vs binary relations), inference metadata
 (`symmetric`/`inverse`/`transitive`), and many more entity types and label
-mappings (vocab bumped `version = 1` → `2`). Extraction now recognizes every
+mappings (vocab bumped through `version = 3`). Extraction now recognizes every
 internal link form (`ref:`, `halu:`, the loose `Name (halu:slug)` shorthand)
 and re-wraps linked objects as proper `[Title](ref:slug)` links instead of
 leaking raw markers into fact text. Every entity now gets an explicit `is_a`
@@ -21,6 +20,35 @@ a new inference pass derives symmetric/inverse/transitive relations with
 decayed confidence. None of this is retroactive — it only affects rows
 produced by re-extraction, so **the corpus must be rebuilt** for existing
 articles to pick up the new fact shapes.
+
+### Fact-quality changes in the latest revisions
+
+Later commits on this branch tightened how facts are shaped and presented to
+the model. These are the changes most visible in the rebuilt corpus:
+
+- **Infobox attributes keep their label.** An infobox row whose label isn't a
+  core predicate (e.g. `Hypothesis`, `Nature`, `Key Function`) used to collapse
+  to a generic `related_to` fact, discarding the label and falsely implying a
+  relation. It's now kept verbatim as the predicate and renders as an attribute
+  (`<Title> — Nature: <value>`). `related_to` is reserved for the vocabulary's
+  own use. A trailing colon on such labels (`Nature:`) is trimmed.
+- **Fact text is sanitized at the source.** Stray markup — emphasis (`*x*`),
+  inline code, and the bare `[brackets]` the model emits without a link target —
+  is stripped before a value becomes a fact, so malformed markup can't reach the
+  model and compound into worse output downstream. Provenance columns are
+  untouched.
+- **Literal objects that name a real article become links.** A relation object
+  stored as a bare literal that matches an existing article title/slug now
+  renders as `[Title](ref:slug)`; descriptive literals that match nothing stay
+  plain text (no dangling links).
+- **Prose body is guaranteed context space.** Retrieval reserves a token budget
+  for `article_body` chunks so compact summary/infobox/ontology docs can't crowd
+  prose out entirely under a tight budget.
+- **LLM extraction is crash-proof.** Truncated (`finish_reason=length`) or
+  otherwise malformed model JSON is repaired (`jsonrepair`) and salvaged, and
+  non-string fields are coerced/skipped — a bad response no longer aborts an
+  article's extraction. The deterministic infobox pass always runs regardless,
+  so the LLM stays strictly additive.
 
 ## Pre-flight: back up first
 
@@ -115,10 +143,19 @@ same LanceDB path is unsupported and can race. Stop the server.
 
 ## Step 6 — rebuild the RAG corpus
 
-This is the mandatory step. Vocabulary version 1 → 2 invalidates every prior
+This is the mandatory step. The vocabulary version bump invalidates every prior
 `ontology_fact` document's shape (new predicates, `is_a` facts, link
 formatting, inferred relations) — old rows in LanceDB are stale, not wrong in
 a way that self-heals.
+
+> **Note:** the corpus config hash tracks the embedding model, chunker version,
+> and `ontology.toml` hash — **not** the extraction/rendering *code*. So a
+> code-only fix to fact shaping (the fact-quality changes above) does **not**
+> flip the hash, and `rag:check` will report OK even though the corpus predates
+> the fix. After pulling code-level fact changes, re-run `rag:rebuild`
+> explicitly; don't rely on the stale-corpus signal to prompt you. A clean
+> cutover from `main` (no LanceDB corpus yet) gets everything on the first
+> build, so this only matters for incremental upgrades within the branch.
 
 ```bash
 npm run rag:rebuild
@@ -162,8 +199,22 @@ Spot-check a fact-heavy article's `ontology_fact` documents look right — in
 particular:
 - linked objects render as `[Title](ref:slug)`, not raw `(halu:...)` tails
 - an `is_a` line/predicate is present for the article's entity
+- infobox attributes read as `<Label>: <value>` (e.g. `Nature: …`), **not** a
+  wall of `is related to: <sentence>` — if you still see the latter, that
+  article wasn't re-extracted (see the config-hash note in Step 6)
+- fact text is clean: no stray `*emphasis*`, backticks, or bare `[brackets]`
 - (if LLM extraction is on) some relations exist for articles with little or
   no infobox, which previously had almost no facts at all
+
+A single-article spot check without a script:
+
+```bash
+npm run rag:rebuild -- --slug some-fact-heavy-slug
+```
+
+then confirm the run reports `pending jobs=0` and no `ontology.llm_extraction_failed`
+lines (a `finish_reason=length` on the light model is fine now — it's repaired
+and salvaged, not fatal).
 
 The admin `RagTesterPane` (Admin page, "New RAG pipeline tester" — now
 collapsed by default, click to expand) lets you run a live retrieval query
@@ -206,7 +257,10 @@ written new-schema rows.
 - [ ] Decide `rag.ontology_llm_extraction` on/off in `config/app.toml`; confirm
       `[llm.light]` is configured if turning it on
 - [ ] Start the server once (applies DB schema migrations), then stop it again
-- [ ] `npm run rag:rebuild` (full rebuild — mandatory, vocab version bumped)
+- [ ] `npm run rag:rebuild` (full rebuild — mandatory, vocab version bumped;
+      re-run after any code-only fact-shaping fix — the config hash won't force it)
 - [ ] `npm run rag:check` — confirm non-zero `ontology_fact` counts, no
       pending jobs
+- [ ] Spot-check a fact-heavy article: attribute-style facts (`Label: value`),
+      clean text, `[Title](ref:slug)` links, no `is related to: <sentence>` walls
 - [ ] Restart the server

@@ -17,6 +17,7 @@ import {
   mergeExtractions,
   validateLlmExtraction,
 } from "../src/server/ontology";
+import { sanitizeFactText } from "../src/server/ontology/extract";
 import type { ArticleRecord, PromptConfig } from "../src/server/types";
 import type { LlmRouter } from "../src/server/llm";
 
@@ -112,6 +113,36 @@ test("unmapped infobox labels are preserved verbatim, not collapsed to related_t
   assert.equal(linked?.object, "Scientific Method");
   assert.equal(linked?.objectSlug, "scientific-method");
   assert.equal(linked?.objectIsLiteral, false);
+});
+
+test("sanitizeFactText strips stray markup so fact text stays clean", () => {
+  assert.equal(sanitizeFactText("*Pensi* nodes"), "Pensi nodes");
+  assert.equal(sanitizeFactText("[Venous return abnormalities]"), "Venous return abnormalities");
+  assert.equal(sanitizeFactText("see [the docs](https://x.y)"), "see the docs");
+  assert.equal(sanitizeFactText("**bold** and `code`  spaced"), "bold and code spaced");
+  // Underscores are preserved so slugs/identifiers aren't mangled.
+  assert.equal(sanitizeFactText("let_const_static"), "let_const_static");
+});
+
+test("messy infobox values are cleaned before becoming fact literals", () => {
+  const infobox: InfoboxData = {
+    title: "Wenis Tissue",
+    subtitle: "Anatomical Component",
+    groups: [
+      {
+        label: "Detail",
+        rows: [
+          { label: "Associated Systems", value: "*Pensi* nodes [Penis pensi]" },
+          { label: "Flow Issues", value: "[Venous return abnormalities in the shaft]" },
+        ],
+      },
+    ],
+  };
+  const res = extractDeterministic({ slug: "wenis-tissue", title: "Wenis Tissue", infobox, vocab });
+  const assoc = res.relations.find((r) => r.predicate === "Associated Systems");
+  assert.equal(assoc?.object, "Pensi nodes Penis pensi", "emphasis + bare brackets stripped");
+  const flow = res.relations.find((r) => r.predicate === "Flow Issues");
+  assert.equal(flow?.object, "Venous return abnormalities in the shaft", "bare bracket unwrapped");
 });
 
 test("ontology fact documents render attributes with their label, links as ref-links", (t) => {

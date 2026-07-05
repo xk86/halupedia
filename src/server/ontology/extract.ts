@@ -21,8 +21,21 @@ import { emptyExtraction, type ExtractedEntity, type ExtractionResult } from "./
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const INTERNAL_LINK_KINDS = new Set(["ref", "halu", "wiki", "plain-slug"]);
 
-function stripLinks(text: string): string {
-  return text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim();
+/**
+ * Reduce an infobox/model value to clean plain text for a fact. Unwraps proper
+ * markdown links AND the bare `[brackets]` the model sometimes emits without a
+ * target, strips inline emphasis/code markers (`*`, `**`, backticks), and
+ * collapses whitespace. Underscores are left alone so slugs/identifiers aren't
+ * mangled. Keeping fact text clean at the source stops malformed markup from
+ * reaching the model, where it compounds into worse output downstream.
+ */
+export function sanitizeFactText(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // [text](url) -> text
+    .replace(/\[([^\]]+)\]/g, "$1") // bare [text] -> text
+    .replace(/[*`]+/g, "") // emphasis / inline-code markers
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -43,7 +56,7 @@ function resolveLinkedObject(rawValue: string): { name: string; slug: string } |
     // The visible name is the value with the marker removed.
     const name =
       (rawValue.slice(0, marker.start) + rawValue.slice(marker.end)).trim() || marker.slug;
-    return { name: stripLinks(name), slug: marker.slug };
+    return { name: sanitizeFactText(name), slug: marker.slug };
   }
   return null;
 }
@@ -83,14 +96,14 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
     type: articleType,
     articleSlug: slug,
     identifiers: [],
-    description: infobox.subtitle ? stripLinks(infobox.subtitle) : undefined,
+    description: infobox.subtitle ? sanitizeFactText(infobox.subtitle) : undefined,
   };
   result.entities.push(articleEntity);
   emitIsA(result, title, articleType);
   // Prefer the canonical category from the classification rule; otherwise keep
   // the raw subtitle as an emergent tag.
   if (category) result.categories.push(category);
-  if (infobox.subtitle) result.categories.push(stripLinks(infobox.subtitle));
+  if (infobox.subtitle) result.categories.push(sanitizeFactText(infobox.subtitle));
 
   for (const group of infobox.groups ?? []) {
     for (const row of group.rows) {
@@ -106,7 +119,7 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
       // Typed identifier (ticker/isin/…)?
       const scheme = vocab.identifierLabels.get(lowerLabel) ?? vocab.identifierLabels.get(normLabel);
       if (scheme) {
-        articleEntity.identifiers!.push({ scheme, value: stripLinks(rawValue) });
+        articleEntity.identifiers!.push({ scheme, value: sanitizeFactText(rawValue) });
         continue;
       }
 
@@ -132,7 +145,7 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
           source: "infobox",
         });
       } else {
-        const value = stripLinks(rawValue);
+        const value = sanitizeFactText(rawValue);
         if (ISO_DATE.test(value)) {
           articleEntity.identifiers!.push({ scheme: "iso_date", value });
         }
@@ -181,22 +194,24 @@ export function validateLlmExtraction(
   const typeByName = new Map<string, string>();
   for (const entry of asArray(root.entities)) {
     const e = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
-    const name = asText(e.name);
+    const name = sanitizeFactText(asText(e.name));
     const type = asText(e.type).toLowerCase();
     if (!name || !vocab.entityTypes.has(type)) continue;
     typeByName.set(name, type);
     result.entities.push({
       name,
       type,
-      aliases: asArray(e.aliases).map(asText).filter(Boolean),
-      description: asText(e.description) || undefined,
+      aliases: asArray(e.aliases).map((a) => sanitizeFactText(asText(a))).filter(Boolean),
+      description: sanitizeFactText(asText(e.description)) || undefined,
     });
   }
   for (const entry of asArray(root.relations)) {
     const r = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
-    const subject = asText(r.subject);
+    // Sanitize subject/object identically to entity names so the type lookups
+    // below still match after cleaning.
+    const subject = sanitizeFactText(asText(r.subject));
     const predicate = asText(r.predicate);
-    const object = asText(r.object);
+    const object = sanitizeFactText(asText(r.object));
     if (!subject || !predicate || !object) continue;
     const subjectType = typeByName.get(subject);
     const objectType = typeByName.get(object);

@@ -10,6 +10,9 @@ import {
   ensureArticleOntologyFresh,
   getArticleOntologySignature,
   isArticleOntologyStale,
+  addCuratedFact,
+  deleteCuratedFact,
+  getArticleEntityId,
   deriveLlmExtraction,
   emptyExtraction,
   extractDeterministic,
@@ -357,6 +360,38 @@ test("ontology staleness tracks the vocabulary signature; lazy refresh re-extrac
   assert.equal(ensureArticleOntologyFresh(db, "solana", evolved), true, "re-extracted when stale");
   assert.equal(getArticleOntologySignature(db, "solana"), "changed-signature");
   assert.equal(isArticleOntologyStale(db, "solana", evolved), false);
+});
+
+test("addCuratedFact/deleteCuratedFact manage hand-authored, re-extraction-safe facts", (t) => {
+  const db = makeDb(t);
+  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  const subjectId = getArticleEntityId(db, "solana")!;
+
+  const id = addCuratedFact(db, {
+    subjectId,
+    predicate: "related_to",
+    objectLiteral: "Hand Authored",
+    provenanceSlug: "solana",
+  });
+  assert.ok(id > 0);
+  const added = listArticleEntityFacts(db, "solana").facts.find((f) => f.object === "Hand Authored");
+  assert.equal(added?.source, "curated");
+  assert.equal(added?.pinned, 1);
+
+  // Adding the identical fact again is idempotent (same row id).
+  assert.equal(
+    addCuratedFact(db, { subjectId, predicate: "related_to", objectLiteral: "Hand Authored", provenanceSlug: "solana" }),
+    id,
+  );
+
+  // Survives re-extraction, then can be deleted; an extracted fact cannot.
+  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  assert.ok(listArticleEntityFacts(db, "solana").facts.some((f) => f.object === "Hand Authored"));
+
+  const extractedId = listArticleEntityFacts(db, "solana").facts.find((f) => f.source === "infobox")!.relationId;
+  assert.equal(deleteCuratedFact(db, "solana", extractedId), false, "extracted facts are not hand-deletable");
+  assert.equal(deleteCuratedFact(db, "solana", id), true);
+  assert.ok(!listArticleEntityFacts(db, "solana").facts.some((f) => f.object === "Hand Authored"));
 });
 
 test("curated/pinned relations survive re-extraction", (t) => {

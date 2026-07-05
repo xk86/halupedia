@@ -36,6 +36,11 @@ export {
   resolveArticleSlugByName,
   getArticleOntologySignature,
   setArticleOntologySignature,
+  getArticleEntityId,
+  addCuratedFact,
+  deleteCuratedFact,
+  type ArticleOntologyFact,
+  type CuratedFactInput,
 } from "./store";
 export { buildOntologyFactDocuments } from "./documents";
 export {

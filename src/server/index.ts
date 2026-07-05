@@ -107,6 +107,15 @@ import {
   toLegacyView,
   type RagRuntime,
 } from "./rag";
+import {
+  ensureArticleOntologyFresh,
+  isArticleOntologyStale,
+  listArticleEntityFacts,
+  getArticleEntityId,
+  addCuratedFact,
+  deleteCuratedFact,
+  type ArticleOntologyFact,
+} from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -4850,6 +4859,115 @@ export async function createApp(options: CreateAppOptions = {}) {
       getArticleByEquivalentLookup(db, lookupSlug)
     );
   }
+
+  // Assemble an article's ontology facts for the viewer/editor. Brings the
+  // article up to the live vocabulary lazily and deterministically (no model
+  // call) when it is stale, enqueuing a background reindex to catch up the
+  // embeddings + LLM pass. Any referenced object article that is itself stale is
+  // enqueued for the same background refresh ("reload it on request, including
+  // if it's being referenced") without blocking this response.
+  function buildArticleOntologyPayload(slug: string) {
+    if (ensureArticleOntologyFresh(db, slug, rag.vocab)) {
+      enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    }
+    const { entity, facts, identifiers, categories } = listArticleEntityFacts(db, slug);
+    const seenObject = new Set<string>();
+    for (const fact of facts) {
+      if (fact.objectSlug && !seenObject.has(fact.objectSlug)) {
+        seenObject.add(fact.objectSlug);
+        if (isArticleOntologyStale(db, fact.objectSlug, rag.vocab)) {
+          enqueueRagIndexJob(db, {
+            articleSlug: fact.objectSlug,
+            sourceKind: "article_body",
+            sourceId: fact.objectSlug,
+            operation: "upsert",
+          });
+        }
+      }
+    }
+    return {
+      entityType: entity?.entityType ?? null,
+      facts: facts.map((f: ArticleOntologyFact) => ({
+        id: f.relationId,
+        predicate: f.predicate,
+        label: rag.vocab.predicates.get(f.predicate)?.label ?? f.predicate.replace(/_/g, " "),
+        object: f.object,
+        objectSlug: f.objectSlug,
+        source: f.source,
+        editable: f.source === "curated",
+      })),
+      identifiers,
+      categories,
+    };
+  }
+
+  // GET /api/ontology/vocabulary — predicates + entity types for the fact editor.
+  app.get("/api/ontology/vocabulary", (c) => {
+    const predicates = [...rag.vocab.predicates.values()]
+      .filter((p) => p.arity === "binary" && p.name !== "is_a")
+      .map((p) => ({ name: p.name, label: p.label, subject: p.subject, object: p.object }));
+    return c.json({ predicates, entityTypes: [...rag.vocab.entityTypes] });
+  });
+
+  // GET /api/article/:slug/ontology — facts for the article (lazy-refreshed).
+  app.get("/api/article/:slug/ontology", (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    return c.json(buildArticleOntologyPayload(article.slug));
+  });
+
+  // POST /api/article/:slug/ontology/facts — add a hand-curated fact. The object
+  // is either a link to another article (objectSlug) or a plain literal value.
+  app.post("/api/article/:slug/ontology/facts", async (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      predicate?: string;
+      objectSlug?: string;
+      objectLiteral?: string;
+    };
+    const predicate = typeof body.predicate === "string" ? body.predicate.trim() : "";
+    if (!rag.vocab.predicates.has(predicate)) return c.json({ error: "unknown predicate" }, 400);
+
+    // Ensure the subject article has an entity to attach the fact to.
+    ensureArticleOntologyFresh(db, slug, rag.vocab);
+    const subjectId = getArticleEntityId(db, slug);
+    if (subjectId === null) return c.json({ error: "article has no ontology entity" }, 409);
+
+    let objectEntityId: number | null = null;
+    let objectLiteral: string | null = null;
+    const objectSlug = typeof body.objectSlug === "string" ? body.objectSlug.trim() : "";
+    if (objectSlug) {
+      const target = resolveArticleFromSegment(objectSlug);
+      if (!target) return c.json({ error: "linked article not found" }, 400);
+      // Lazily materialize the target's entity so the fact links to a real node.
+      ensureArticleOntologyFresh(db, target.slug, rag.vocab);
+      objectEntityId = getArticleEntityId(db, target.slug);
+      if (objectEntityId === null) objectLiteral = target.title;
+    } else {
+      objectLiteral = typeof body.objectLiteral === "string" ? body.objectLiteral.trim() : "";
+      if (!objectLiteral) return c.json({ error: "object required" }, 400);
+    }
+
+    addCuratedFact(db, { subjectId, predicate, objectEntityId, objectLiteral, provenanceSlug: slug });
+    enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    return c.json(buildArticleOntologyPayload(slug));
+  });
+
+  // DELETE /api/article/:slug/ontology/facts/:id — remove a curated fact.
+  app.delete("/api/article/:slug/ontology/facts/:id", (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) return c.json({ error: "invalid id" }, 400);
+    const removed = deleteCuratedFact(db, slug, id);
+    if (!removed) return c.json({ error: "not a removable curated fact" }, 404);
+    enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    return c.json(buildArticleOntologyPayload(slug));
+  });
 
   // GET /api/article/:slug/infobox — raw (unrendered) infobox data for the editor.
   app.get("/api/article/:slug/infobox", (c) => {

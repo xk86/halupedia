@@ -6,7 +6,12 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { AlertTriangle, ChevronDown, LoaderCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  GitBranch,
+  LoaderCircle,
+} from "lucide-react";
 import { cn, ERROR_BOX } from "@/lib/utils";
 import MarkdownIt from "markdown-it";
 import { Pane } from "../Pane";
@@ -21,6 +26,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import {
   Collapsible,
   CollapsibleContent,
@@ -87,32 +93,6 @@ interface WorkflowNode {
   description?: string;
   conditional: boolean;
   whenLabel?: string;
-}
-
-type LinearSegment = { type: "linear"; nodes: WorkflowNode[] };
-type BranchSegment = { type: "branch"; branches: Map<string, WorkflowNode[]> };
-type Segment = LinearSegment | BranchSegment;
-
-function segmentNodes(nodes: WorkflowNode[]): Segment[] {
-  const segments: Segment[] = [];
-  let i = 0;
-  while (i < nodes.length) {
-    if (!nodes[i].conditional) {
-      const run: WorkflowNode[] = [];
-      while (i < nodes.length && !nodes[i].conditional) run.push(nodes[i++]);
-      segments.push({ type: "linear", nodes: run });
-    } else {
-      const branches = new Map<string, WorkflowNode[]>();
-      while (i < nodes.length && nodes[i].conditional) {
-        const node = nodes[i++];
-        const key = node.whenLabel ?? "conditional";
-        if (!branches.has(key)) branches.set(key, []);
-        branches.get(key)!.push(node);
-      }
-      segments.push({ type: "branch", branches });
-    }
-  }
-  return segments;
 }
 
 interface PipelineWorkflowSummary {
@@ -271,11 +251,6 @@ export function PipelinesPane({
   onNavigate,
   onNavigateHome,
 }: Props) {
-  // Workflow diagrams are collapsed by default — the run history is the focus.
-  // Track which are *expanded* so newly-loaded workflows start collapsed.
-  const [expandedWorkflows, setExpandedWorkflows] = useState<Set<string>>(
-    new Set(),
-  );
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const [expandedActiveRun, setExpandedActiveRun] = useState<string | null>(
     null,
@@ -307,24 +282,6 @@ export function PipelinesPane({
     e.preventDefault();
     e.stopPropagation();
     onNavigate?.(segment);
-  }
-
-  const allExpanded =
-    workflows.length > 0 &&
-    workflows.every((w) => expandedWorkflows.has(w.name));
-
-  function toggleWorkflow(name: string) {
-    setExpandedWorkflows((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  }
-
-  function toggleAllWorkflows() {
-    if (allExpanded) setExpandedWorkflows(new Set());
-    else setExpandedWorkflows(new Set(workflows.map((w) => w.name)));
   }
 
   async function toggleRun(runId: string) {
@@ -362,8 +319,7 @@ export function PipelinesPane({
     >
       {error ? <p className={ERROR_BOX}>{error}</p> : null}
 
-      {/* Run history is the primary view; the workflow diagrams below are
-          collapsed reference material. In-progress articles lead the list. */}
+      {/* In-progress articles lead the run history. */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <h4 className="m-0 text-sm font-semibold">Recent runs</h4>
         <Badge variant="outline">
@@ -670,118 +626,59 @@ export function PipelinesPane({
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
         <h4 className="m-0 text-sm font-semibold">Workflows</h4>
-        <Button variant="outline" size="sm" onClick={toggleAllWorkflows}>
-          {allExpanded ? "Collapse all" : "Expand all"}
-        </Button>
+        <Badge variant="outline">{workflows.length} workflows</Badge>
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
-        {workflows.map((workflow) => {
-          const open = expandedWorkflows.has(workflow.name);
-          return (
-            <Card key={workflow.name} size="sm">
-              <Collapsible
-                open={open}
-                onOpenChange={() => toggleWorkflow(workflow.name)}
+        {workflows.map((workflow) => (
+          <Card key={workflow.name} size="sm">
+            <CardHeader>
+              <CardTitle className="font-mono">{workflow.name}</CardTitle>
+              <CardDescription className="flex flex-col gap-1">
+                {workflow.description ? (
+                  <span>{workflow.description}</span>
+                ) : null}
+                <span className="font-mono text-xs">{workflow.summary}</span>
+              </CardDescription>
+              <CardAction>
+                <Badge variant="outline">
+                  {workflow.nodes.length}{" "}
+                  {workflow.nodes.length === 1 ? "node" : "nodes"}
+                </Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              <ol
+                className="flex flex-col"
+                data-testid="workflow-flow"
+                aria-label={`${workflow.name} workflow`}
               >
-                <CardHeader>
-                  <CollapsibleTrigger className="group/trigger flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left">
-                    <CardTitle className="min-w-0 flex-1 truncate font-mono">
-                      {workflow.name}
-                    </CardTitle>
-                    <ChevronDown
-                      aria-hidden
-                      className="shrink-0 text-muted-foreground transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
-                    />
-                  </CollapsibleTrigger>
-                </CardHeader>
-                <CollapsibleContent>
-                  <CardContent className="flex flex-col gap-3 pt-2">
-                    <p className="m-0 text-sm text-muted-foreground">
-                      {workflow.summary}
-                    </p>
-                    <div
-                      className="max-w-full overflow-x-auto pb-1"
-                      data-testid="workflow-flow"
-                    >
-                      <div
-                        className="flex w-max min-w-full items-start gap-2"
-                        data-testid="workflow-flow-track"
-                      >
-                        {segmentNodes(workflow.nodes).map((seg, si, all) => {
-                          const isLast = si === all.length - 1;
-                          if (seg.type === "linear") {
-                            return (
-                              <span
-                                key={si}
-                                className="flex shrink-0 items-center gap-1.5"
-                              >
-                                {seg.nodes.map((node, ni) => (
-                                  <Fragment key={node.name}>
-                                    <WorkflowNodeBadge node={node} />
-                                    {ni < seg.nodes.length - 1 ? (
-                                      <span className="text-muted-foreground">
-                                        →
-                                      </span>
-                                    ) : null}
-                                  </Fragment>
-                                ))}
-                                {!isLast ? (
-                                  <span className="text-muted-foreground">
-                                    →
-                                  </span>
-                                ) : null}
-                              </span>
-                            );
-                          }
-                          const branchEntries = [...seg.branches.entries()];
-                          return (
-                            <div
-                              key={si}
-                              className="flex shrink-0 items-center gap-2"
-                            >
-                              <div className="flex flex-col gap-1.5 border-l border-border pl-2">
-                                {branchEntries.map(([label, nodes]) => (
-                                  <div
-                                    key={label}
-                                    className="flex items-center gap-1.5"
-                                  >
-                                    <Badge variant="outline" title={label}>
-                                      {label}
-                                    </Badge>
-                                    {nodes.map((node, ni) => (
-                                      <Fragment key={node.name}>
-                                        <WorkflowNodeBadge node={node} />
-                                        {ni < nodes.length - 1 ? (
-                                          <span className="text-muted-foreground">
-                                            →
-                                          </span>
-                                        ) : null}
-                                      </Fragment>
-                                    ))}
-                                  </div>
-                                ))}
-                              </div>
-                              {!isLast ? (
-                                <span className="text-muted-foreground">→</span>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </CardContent>
-                </CollapsibleContent>
-              </Collapsible>
-            </Card>
-          );
-        })}
+                {workflow.nodes.map((node, index) => (
+                  <WorkflowNodeStep
+                    key={`${node.name}:${index}`}
+                    node={node}
+                    index={index}
+                    isLast={index === workflow.nodes.length - 1}
+                  />
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </Pane>
   );
 }
 
-function WorkflowNodeBadge({ node }: { node: WorkflowNode }) {
+function WorkflowNodeStep({
+  node,
+  index,
+  isLast,
+}: {
+  node: WorkflowNode;
+  index: number;
+  isLast: boolean;
+}) {
   const variant =
     node.kind === "llm"
       ? "warn"
@@ -791,13 +688,29 @@ function WorkflowNodeBadge({ node }: { node: WorkflowNode }) {
           ? "secondary"
           : "outline";
   return (
-    <Badge
-      className="shrink-0"
-      variant={variant}
-      title={node.description ?? node.name}
-    >
-      <span className="max-w-56 truncate font-mono">{node.name}</span>
-    </Badge>
+    <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
+      <div className="flex flex-col items-center gap-1">
+        <Badge variant="outline" aria-label={`Step ${index + 1}`}>
+          {index + 1}
+        </Badge>
+        {!isLast ? (
+          <Separator orientation="vertical" className="min-h-4 flex-1" />
+        ) : null}
+      </div>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 pb-2">
+        <span className="font-mono text-xs font-medium">{node.name}</span>
+        <Badge variant={variant}>{node.kind}</Badge>
+        {node.conditional ? (
+          <Badge variant="outline">
+            <GitBranch data-icon="inline-start" />
+            {node.whenLabel ?? "conditional"}
+          </Badge>
+        ) : null}
+        <span className="text-xs text-muted-foreground">
+          {node.description ?? "No description."}
+        </span>
+      </div>
+    </li>
   );
 }
 

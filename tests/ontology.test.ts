@@ -41,6 +41,31 @@ const INFOBOX: InfoboxData = {
   ],
 };
 
+test("a personal honorific in the title classifies as person even when the subtitle doesn't match any keyword", () => {
+  const infobox: InfoboxData = {
+    title: "Mr. Test",
+    subtitle: "Diagnostic Expert",
+    groups: [{ label: "", rows: [{ label: "Expertise", value: "Diagnostician" }] }],
+  };
+  const res = extractDeterministic({ slug: "mr-test", title: "Mr. Test", infobox, vocab });
+  const article = res.entities.find((e) => e.articleSlug === "mr-test");
+  assert.equal(article?.type, "person", "'Mr.' honorific overrides an unmatched role subtitle");
+  assert.ok(res.relations.some((r) => r.predicate === "is_a" && r.object === "person"));
+});
+
+test("a personal honorific still classifies as person with no infobox at all", () => {
+  const res = extractDeterministic({ slug: "dr-okafor", title: "Dr. Okafor", infobox: null, vocab });
+  const article = res.entities.find((e) => e.articleSlug === "dr-okafor");
+  assert.equal(article?.type, "person");
+});
+
+test("an unrelated word starting with an honorific-like prefix is not misclassified", () => {
+  const infobox: InfoboxData = { title: "Drought", subtitle: "Climate phenomenon", groups: [] };
+  const res = extractDeterministic({ slug: "drought", title: "Drought", infobox, vocab });
+  const article = res.entities.find((e) => e.articleSlug === "drought");
+  assert.notEqual(article?.type, "person");
+});
+
 function makeDb(t: { after: (fn: () => void) => void }) {
   const root = mkdtempSync(join(tmpdir(), "halu-ontology-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

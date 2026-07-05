@@ -121,16 +121,29 @@ export function loadOntologyVocabulary(path = DEFAULT_PATH): OntologyVocabulary 
   };
 }
 
+// A personal honorific in the title itself ("Mr. Test", "Dr. Okafor") is a
+// far more reliable person signal than a subtitle/role string, which can be
+// any free-text job description the domain vocabulary was never going to
+// enumerate ("Diagnostic Expert", "Structural Evaluation Expert", ...).
+// Checked before the keyword rules below so it can't be shadowed by a
+// subtitle that happens to match some other class.
+const PERSON_HONORIFIC = /^(mr|mrs|ms|miss|mx|dr|prof|professor|sir|dame|madam|lord|lady|rev|capt|captain|sgt|sergeant)\.?\s+\S/i;
+
 /**
- * Deterministically classify an entity type from an infobox subtitle / category
- * label using the config-driven classification rules (first keyword match wins).
- * Falls back to `thing`. Returns the matched rule so callers can also pick up a
+ * Deterministically classify an entity type from the title's personal
+ * honorific (if any) or an infobox subtitle / category label, using the
+ * config-driven classification rules (first keyword match wins). Falls back
+ * to `thing`. Returns the matched rule so callers can also pick up a
  * canonical category tag.
  */
 export function classifyType(
   vocab: OntologyVocabulary,
   subtitle: string | undefined,
+  title?: string,
 ): { type: string; category?: string } {
+  if (title && vocab.entityTypes.has("person") && PERSON_HONORIFIC.test(title.trim())) {
+    return { type: "person" };
+  }
   const s = (subtitle ?? "").toLowerCase();
   if (s) {
     for (const rule of vocab.classification) {

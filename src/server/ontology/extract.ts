@@ -85,12 +85,15 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
   if (!infobox) {
     // Still register the article as an entity so it can be a relation object,
     // and tag its (fallback) type so even infobox-less articles are classified.
-    result.entities.push({ name: title, type: "thing", articleSlug: slug });
-    emitIsA(result, title, "thing");
+    // A personal honorific in the title is still a usable signal with no
+    // infobox to go on.
+    const { type } = classifyType(vocab, undefined, title);
+    result.entities.push({ name: title, type, articleSlug: slug });
+    emitIsA(result, title, type);
     return result;
   }
 
-  const { type: articleType, category } = classifyType(vocab, infobox.subtitle);
+  const { type: articleType, category } = classifyType(vocab, infobox.subtitle, title);
   const articleEntity: ExtractedEntity = {
     name: title,
     type: articleType,

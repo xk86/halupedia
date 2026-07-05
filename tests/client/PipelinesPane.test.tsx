@@ -697,6 +697,73 @@ describe("PipelinesPane", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps count metadata available for legacy ontology traces", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              nodes: [
+                {
+                  node_name: "write.extract_ontology",
+                  node_kind: "write",
+                  duration_ms: 5,
+                  status: "ok",
+                  patch: {
+                    ontologyExtraction: {
+                      entities: 2,
+                      relations: 3,
+                      categories: 1,
+                      llmEnabled: false,
+                    },
+                  },
+                },
+              ],
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    render(
+      <PipelinesPane
+        workflows={[]}
+        runs={[
+          {
+            run_id: "legacy-run",
+            workflow: "article.post_process",
+            slug: "legacy-article",
+            started_at: 1,
+            duration_ms: 10,
+            status: "ok",
+            nodes_executed: 1,
+            error_message: null,
+          },
+        ]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    await userEvent.click(screen.getByText("article.post_process"));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ontology 3" }),
+    );
+
+    const detail = screen.getByTestId("trace-detail");
+    expect(within(detail).getByText("Entities")).toBeInTheDocument();
+    expect(within(detail).getByText("Relations")).toBeInTheDocument();
+    expect(within(detail).getByText("Categories")).toBeInTheDocument();
+    expect(
+      within(detail).getByText("off (deterministic only)"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail).queryByText("Ontology facts"),
+    ).not.toBeInTheDocument();
+  });
+
   it("puts infobox reference context on the infobox LLM row", async () => {
     vi.stubGlobal(
       "fetch",

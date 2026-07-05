@@ -1221,6 +1221,13 @@ function OntologyDetail({ detail }: { detail: OntologyTraceDetail }) {
   const rows: Array<[string, string]> = [
     ["LLM extraction", detail.llmEnabled ? "on" : "off (deterministic only)"],
   ];
+  if (!detail.extraction) {
+    rows.unshift(
+      ["Entities", String(detail.entities)],
+      ["Relations", String(detail.relations)],
+      ["Categories", String(detail.categories)],
+    );
+  }
   if (detail.llmEnabled) {
     rows.push([
       "Why the model ran",

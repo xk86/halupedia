@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { SearchIcon } from "lucide-react";
 import { MarkdownEditor } from "../../MarkdownEditor";
 import { Pane } from "../Pane";
@@ -20,6 +20,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -88,7 +89,7 @@ interface RagQueryResult {
       selectedTextCount: number;
       selectedImageCount: number;
       selectedKinds: string[];
-      exclusions: Array<{ documentId: string; reason: string }>;
+      exclusions: Array<{ documentId: string; reason: string; score: number }>;
       degraded?: string;
     };
   };
@@ -123,6 +124,10 @@ const PROFILE_LABELS: Record<RetrievalProfile, string> = {
 
 function formatScore(score: number): string {
   return Number.isFinite(score) ? score.toFixed(4) : String(score);
+}
+
+function scorePercent(score: number): number {
+  return Number.isFinite(score) ? Math.min(100, Math.max(0, score * 100)) : 0;
 }
 
 export function sortDocumentsByScore(
@@ -228,6 +233,12 @@ export function RagTesterPane() {
     }
   }
 
+  function submitOnModifierEnter(event: KeyboardEvent<HTMLFormElement>) {
+    if (event.key !== "Enter" || (!event.ctrlKey && !event.metaKey)) return;
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+  }
+
   return (
     <Pane
       id="rag-tester"
@@ -240,7 +251,7 @@ export function RagTesterPane() {
       }
       wide
     >
-      <form onSubmit={runQuery}>
+      <form onSubmit={runQuery} onKeyDown={submitOnModifierEnter}>
         <FieldGroup className="gap-3">
           <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(18rem,0.8fr)]">
             <Field>
@@ -310,11 +321,12 @@ export function RagTesterPane() {
 
           {error ? <FieldError>{error}</FieldError> : null}
 
-          <div>
+          <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" disabled={!query.trim() || searching}>
               <SearchIcon data-icon="inline-start" />
               {searching ? "Running new RAG pipeline…" : "Run retrieval"}
             </Button>
+            <FieldDescription>Ctrl/⌘ + Enter</FieldDescription>
           </div>
         </FieldGroup>
       </form>
@@ -413,34 +425,44 @@ function RagResults({ result }: { result: RagQueryResult }) {
           Article candidates ({retrieval.sourceArticles.length})
         </h4>
         {retrieval.sourceArticles.length ? (
-          <Table className="text-xs [&_td]:py-1.5 [&_th]:h-8">
+          <Table className="table-fixed text-xs [&_td]:py-1.5 [&_th]:h-8">
             <TableHeader>
               <TableRow>
-                <TableHead>Article</TableHead>
-                <TableHead>Provenance</TableHead>
-                <TableHead>Best score</TableHead>
+                <TableHead className="w-2/5">Article</TableHead>
+                <TableHead className="w-1/6">Provenance</TableHead>
+                <TableHead className="w-1/5">Best score</TableHead>
                 <TableHead>Contributing kinds</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {retrieval.sourceArticles.map((article) => (
                 <TableRow key={article.slug}>
-                  <TableCell>
+                  <TableCell className="whitespace-normal">
                     <a
-                      className="font-medium text-primary hover:underline"
+                      className="font-medium [overflow-wrap:anywhere] text-primary hover:underline"
                       href={`/wiki/${article.slug}`}
                     >
                       {article.title}
                     </a>
-                    <span className="ml-2 font-mono text-muted-foreground">
+                    <span className="block font-mono [overflow-wrap:anywhere] text-muted-foreground">
                       {article.slug}
                     </span>
                   </TableCell>
                   <TableCell>{article.provenance}</TableCell>
-                  <TableCell className="font-mono tabular-nums">
-                    {formatScore(article.score)}
+                  <TableCell>
+                    <div className="flex min-w-24 flex-col gap-1">
+                      <span className="font-mono tabular-nums">
+                        {formatScore(article.score)}
+                      </span>
+                      <Progress
+                        aria-label={`Article score ${formatScore(article.score)}`}
+                        value={scorePercent(article.score)}
+                      />
+                    </div>
                   </TableCell>
-                  <TableCell>{article.contributingKinds.join(", ")}</TableCell>
+                  <TableCell className="whitespace-normal">
+                    {article.contributingKinds.join(", ")}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -515,11 +537,15 @@ function RagResults({ result }: { result: RagQueryResult }) {
           Retrieval exclusions ({diagnostics.exclusions.length})
         </h4>
         {diagnostics.exclusions.length ? (
-          <Table className="text-xs [&_td]:py-1.5 [&_th]:h-8">
+          <Table
+            containerClassName="rounded-md border border-border"
+            className="table-fixed text-xs [&_td]:px-2 [&_td]:py-1 [&_th]:h-7 [&_th]:px-2"
+          >
             <TableHeader>
               <TableRow>
                 <TableHead>Document</TableHead>
-                <TableHead>Reason</TableHead>
+                <TableHead className="w-40">Reason</TableHead>
+                <TableHead className="w-40">Score</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -527,10 +553,23 @@ function RagResults({ result }: { result: RagQueryResult }) {
                 <TableRow
                   key={`${exclusion.documentId}:${exclusion.reason}:${index}`}
                 >
-                  <TableCell className="font-mono">
+                  <TableCell className="font-mono [overflow-wrap:anywhere] whitespace-normal">
                     {exclusion.documentId}
                   </TableCell>
-                  <TableCell>{exclusion.reason}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{exclusion.reason}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      <span className="font-mono tabular-nums">
+                        {formatScore(exclusion.score)}
+                      </span>
+                      <Progress
+                        aria-label={`Exclusion score ${formatScore(exclusion.score)}`}
+                        value={scorePercent(exclusion.score)}
+                      />
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

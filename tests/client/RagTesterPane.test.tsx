@@ -1,4 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -79,7 +85,8 @@ describe("RagTesterPane", () => {
         sourceArticles: [
           {
             slug: "alpha",
-            title: "Alpha",
+            title:
+              "Alpha systems with an exceptionally long candidate title that must wrap",
             score: 0.91,
             contributingKinds: ["article_summary"],
             provenance: "semantic",
@@ -98,7 +105,12 @@ describe("RagTesterPane", () => {
           selectedImageCount: 0,
           selectedKinds: ["article_summary"],
           exclusions: [
-            { documentId: "article_body:beta:0", reason: "below_top_k" },
+            {
+              documentId:
+                "article_body:beta-with-an-exceptionally-long-document-identifier:0",
+              reason: "below_min_score",
+              score: 0.38,
+            },
           ],
         },
       },
@@ -152,7 +164,15 @@ describe("RagTesterPane", () => {
       within(metadataTable).getByText("categories[0]"),
     ).toBeInTheDocument();
     expect(screen.getAllByText("semantic").length).toBeGreaterThan(0);
-    expect(screen.getByText("below_top_k")).toBeInTheDocument();
+    expect(screen.getByText("below_min_score")).toBeInTheDocument();
+    expect(screen.getByText("0.3800")).toBeInTheDocument();
+    expect(
+      screen.getByRole("progressbar", { name: "Exclusion score 0.3800" }),
+    ).toBeInTheDocument();
+    const candidateLink = screen.getByRole("link", {
+      name: "Alpha systems with an exceptionally long candidate title that must wrap",
+    });
+    expect(candidateLink).toHaveClass("[overflow-wrap:anywhere]");
     expect(screen.getByText("preview only · not sent")).toBeInTheDocument();
     expect(screen.getByTestId("rag-model-packet-preview")).toHaveTextContent(
       "[QUERY]",
@@ -169,5 +189,23 @@ describe("RagTesterPane", () => {
         targetSlug: "",
       }),
     });
+  });
+
+  it.each([
+    ["Control", { ctrlKey: true }],
+    ["Command", { metaKey: true }],
+  ])("submits the query with %s+Enter", async (_label, modifier) => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RagTesterPane />);
+    await userEvent.click(screen.getByRole("button", { name: "Raw markdown" }));
+    const prompt = screen.getByPlaceholderText(
+      "Describe the material to retrieve…",
+    );
+    await userEvent.type(prompt, "Alpha systems");
+    fireEvent.keyDown(prompt, { key: "Enter", ...modifier });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

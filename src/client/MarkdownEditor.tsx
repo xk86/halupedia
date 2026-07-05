@@ -47,6 +47,7 @@ import { normalizeSlug } from "../server/slug";
 interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
+  ariaLabel?: string;
   disabled?: boolean;
   placeholder?: string;
   /** Extra class on the outer box (so existing textarea styling hooks apply). */
@@ -107,6 +108,7 @@ function PlainTextEditor({
   value,
   onChange,
   disabled,
+  ariaLabel,
   placeholder,
   className,
   minRows = 4,
@@ -137,10 +139,11 @@ function PlainTextEditor({
 
   return (
     <div
-      className={`mdedit mdedit--plain${disabled ? " mdedit--disabled" : ""}${className ? ` ${className}` : ""}`}
+      className={`mdedit mdedit--plain${disabled ? "mdedit--disabled" : ""}${className ? ` ${className}` : ""}`}
     >
       <textarea
         ref={ref}
+        aria-label={ariaLabel}
         className="mdedit-plain"
         value={value}
         spellCheck={false}
@@ -270,7 +273,7 @@ function Inner({
 
   return (
     <div
-      className={`mdedit${disabled ? " mdedit--disabled" : ""}${className ? ` ${className}` : ""}`}
+      className={`mdedit${disabled ? "mdedit--disabled" : ""}${className ? ` ${className}` : ""}`}
     >
       {!disabled && (
         <Toolbar
@@ -371,7 +374,7 @@ function Toolbar({
             <button
               key={level}
               type="button"
-              className={`mdedit-tool${active ? " mdedit-tool--active" : ""}`}
+              className={`mdedit-tool${active ? "mdedit-tool--active" : ""}`}
               aria-label={`Heading ${level}`}
               title={`Heading ${level}`}
               onClick={() => cmd.toggleHeading?.({ level })}
@@ -413,7 +416,7 @@ function Toolbar({
         >
           <PopoverTrigger
             type="button"
-            className={`mdedit-tool${linkDraft || s.context?.kind === "link" ? " mdedit-tool--active" : ""}`}
+            className={`mdedit-tool${linkDraft || s.context?.kind === "link" ? "mdedit-tool--active" : ""}`}
             aria-label="Link to an article or URL"
             title="Link to an article or URL"
           >
@@ -438,7 +441,7 @@ function Toolbar({
       <div className="mdedit-tool-group">
         <button
           type="button"
-          className={`mdedit-tool${s.bulletList ? " mdedit-tool--active" : ""}`}
+          className={`mdedit-tool${s.bulletList ? "mdedit-tool--active" : ""}`}
           aria-label="Bullet list"
           title="Bullet list"
           onClick={() => cmd.toggleList?.({ kind: "bullet" })}
@@ -447,7 +450,7 @@ function Toolbar({
         </button>
         <button
           type="button"
-          className={`mdedit-tool${s.orderedList ? " mdedit-tool--active" : ""}`}
+          className={`mdedit-tool${s.orderedList ? "mdedit-tool--active" : ""}`}
           aria-label="Numbered list"
           title="Numbered list"
           onClick={() => cmd.toggleList?.({ kind: "ordered" })}
@@ -456,7 +459,7 @@ function Toolbar({
         </button>
         <button
           type="button"
-          className={`mdedit-tool${s.blockquote ? " mdedit-tool--active" : ""}`}
+          className={`mdedit-tool${s.blockquote ? "mdedit-tool--active" : ""}`}
           aria-label="Quote"
           title="Quote"
           onClick={() => cmd.toggleBlockquote?.()}
@@ -484,7 +487,7 @@ function ToolButton({
   return (
     <button
       type="button"
-      className={`mdedit-tool${state.active ? " mdedit-tool--active" : ""}`}
+      className={`mdedit-tool${state.active ? "mdedit-tool--active" : ""}`}
       aria-label={title}
       title={title}
       disabled={!state.can}
@@ -671,7 +674,7 @@ function LinkPopoverBody({
             <button
               key={s.id}
               type="button"
-              className={`mdedit-tool${scheme === s.id ? " mdedit-tool--active" : ""}`}
+              className={`mdedit-tool${scheme === s.id ? "mdedit-tool--active" : ""}`}
               onClick={() => setScheme(s.id)}
             >
               {s.label}
@@ -715,7 +718,11 @@ function LinkPopoverBody({
         />
       </div>
       <div className="flex items-center justify-end gap-1.5">
-        <button type="button" className="mdedit-mode-btn" onClick={() => apply()}>
+        <button
+          type="button"
+          className="mdedit-mode-btn"
+          onClick={() => apply()}
+        >
           Apply
         </button>
         <button

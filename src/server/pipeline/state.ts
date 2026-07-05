@@ -31,7 +31,10 @@ import { z } from "zod";
 
 // ─── Identifiers ─────────────────────────────────────────────────────────────
 
-export const SlugSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
+export const SlugSchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-z0-9-]+$/);
 export type Slug = z.infer<typeof SlugSchema>;
 
 // ─── Input layer ─────────────────────────────────────────────────────────────
@@ -91,7 +94,6 @@ export const WorkflowInputSchema = z.object({
   inspiration: z
     .array(z.object({ slug: z.string(), title: z.string() }))
     .optional(),
-
 });
 export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
 
@@ -120,14 +122,16 @@ export const SeeAlsoEntrySchema = z.object({
 export type SeeAlsoEntry = z.infer<typeof SeeAlsoEntrySchema>;
 
 /** Snapshot of an article loaded from the DB. */
-export const LoadedArticleSchema = z.object({
-  slug: SlugSchema,
-  canonicalSlug: SlugSchema,
-  title: z.string(),
-  body: z.string(),
-  summary: z.string(),
-  generatedAt: z.number(),
-}).nullable();
+export const LoadedArticleSchema = z
+  .object({
+    slug: SlugSchema,
+    canonicalSlug: SlugSchema,
+    title: z.string(),
+    body: z.string(),
+    summary: z.string(),
+    generatedAt: z.number(),
+  })
+  .nullable();
 export type LoadedArticle = z.infer<typeof LoadedArticleSchema>;
 
 /** Retrieved context from RAG; structured, never raw concatenated prose. */
@@ -292,7 +296,10 @@ export const PipelineStateSchema = z.object({
   /** Markdown for the selection range being rewritten (partial-rewrite path). */
   selectedMarkdown: z.string().optional(),
   /** Character range within the full article markdown for the selected text. */
-  selectionRange: z.object({ start: z.number(), end: z.number() }).nullable().optional(),
+  selectionRange: z
+    .object({ start: z.number(), end: z.number() })
+    .nullable()
+    .optional(),
   /** Section id being rewritten (section-rewrite path). */
   sectionId: z.string().optional(),
   /** Rewrite mode label (from rewriteModes config). */
@@ -360,7 +367,9 @@ export const PipelineStateSchema = z.object({
 
   // Random page ──────────────────────────────────────────────────────────────
   /** Title/slug the model chose for a random page (random.page workflow). */
-  randomPageChoice: z.object({ slug: z.string(), title: z.string() }).optional(),
+  randomPageChoice: z
+    .object({ slug: z.string(), title: z.string() })
+    .optional(),
 
   // Image caption ──────────────────────────────────────────────────────────
   /** LLM-generated caption result for the image.caption workflow. */
@@ -403,7 +412,6 @@ export const PipelineStateSchema = z.object({
       revisedPrompt: z.string().optional(),
     })
     .optional(),
-
 });
 export type PipelineState = z.infer<typeof PipelineStateSchema>;
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
-import { ERROR_BOX } from "@/lib/utils";
+import { cn, ERROR_BOX } from "@/lib/utils";
 import { RuntimePane } from "./admin/panes/RuntimePane";
 import { PipelinesPane } from "./admin/panes/PipelinesPane";
 import { PromptModelsPane } from "./admin/panes/PromptModelsPane";
@@ -16,6 +16,7 @@ import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
 import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
 import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
 import { RagTesterPane } from "./admin/panes/RagTesterPane";
+import { OntologyVocabularyPane } from "./admin/panes/OntologyVocabularyPane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { LiveLlmView } from "./admin/LiveLlmViews";
@@ -567,6 +568,11 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
             span: "full",
             content: <RagTesterPane />,
           },
+          {
+            id: "ontology-vocabulary",
+            span: "full",
+            content: <OntologyVocabularyPane />,
+          },
         ];
       case "models":
         return [
@@ -680,6 +686,8 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
 
   const visibleViews =
     adminLayout.mode === "split" ? ADMIN_VIEWS : [adminLayout.activeView];
+  const promptViewIsFullTab =
+    adminLayout.mode === "tabs" && adminLayout.activeView === "prompts";
 
   return (
     <div className="w-full max-w-full min-w-0 font-sans text-foreground">
@@ -806,7 +814,12 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
         ) : null}
       </div>
 
-      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_19rem]">
+      <div
+        className={cn(
+          "grid items-start gap-3",
+          !promptViewIsFullTab && "xl:grid-cols-[minmax(0,1fr)_19rem]",
+        )}
+      >
         <main className="flex min-w-0 flex-col gap-4">
           {visibleViews.map((view) => (
             <section key={view} aria-labelledby={`admin-view-${view}`}>
@@ -827,10 +840,12 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
             </section>
           ))}
         </main>
-        <LiveGenerationTracker
-          items={generationQueue}
-          onNavigate={onNavigate}
-        />
+        {!promptViewIsFullTab ? (
+          <LiveGenerationTracker
+            items={generationQueue}
+            onNavigate={onNavigate}
+          />
+        ) : null}
       </div>
     </div>
   );

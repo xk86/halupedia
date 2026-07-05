@@ -86,7 +86,8 @@ function fromStateEntry(
 export const reloadSavedArticleNode = defineNode({
   name: "read.reload_article",
   kind: "read",
-  description: "Reload article from DB after the prior save. Provides staleness guard timestamp.",
+  description:
+    "Reload article from DB after the prior save. Provides staleness guard timestamp.",
   reads: ["input", "persistedAt"] as const,
   writes: ["loadedArticle", "postProcessExpectedGeneratedAt"] as const,
   run({ input, persistedAt }, deps: PipelineDeps) {
@@ -99,7 +100,8 @@ export const reloadSavedArticleNode = defineNode({
     // empty body and end with update_article_in_place wiping the article text
     // the moment generation lands — with no staleness guard, since there was
     // no generated_at to capture here.
-    if (!record) throw new Error(`post_process: article not found for slug "${slug}"`);
+    if (!record)
+      throw new Error(`post_process: article not found for slug "${slug}"`);
     return {
       loadedArticle: {
         slug: record.slug,
@@ -121,12 +123,16 @@ export const reloadSavedArticleNode = defineNode({
 export const repairLinksNode = defineNode({
   name: "transform.load_body",
   kind: "transform",
-  description: "Strip metadata sections (References, See also) from the loaded article body.",
+  description:
+    "Strip metadata sections (References, See also) from the loaded article body.",
   reads: ["loadedArticle"] as const,
   writes: ["finalArticleBody"] as const,
   run({ loadedArticle }) {
     if (!loadedArticle) return { finalArticleBody: "" };
-    const body = stripTopLevelSections(loadedArticle.body, ["References", "See also"]);
+    const body = stripTopLevelSections(loadedArticle.body, [
+      "References",
+      "See also",
+    ]);
     return { finalArticleBody: body };
   },
 });
@@ -136,7 +142,8 @@ export const repairLinksNode = defineNode({
 export const rebuildReferenceListNode = defineNode({
   name: "transform.rebuild_reference_list",
   kind: "transform",
-  description: "Rebuild reference sidecar from body links + prior + RAG after link repair.",
+  description:
+    "Rebuild reference sidecar from body links + prior + RAG after link repair.",
   reads: ["input", "finalArticleBody", "retrievedContext"] as const,
   writes: ["references"] as const,
   run({ input, finalArticleBody, retrievedContext }, deps: PipelineDeps) {
@@ -144,7 +151,9 @@ export const rebuildReferenceListNode = defineNode({
     if (!slug || !finalArticleBody) return { references: [] };
 
     const hints = listIncomingHints(deps.db, slug);
-    const backlinkSlugs = [...new Set(hints.map((h) => h.sourceSlug).filter(Boolean))];
+    const backlinkSlugs = [
+      ...new Set(hints.map((h) => h.sourceSlug).filter(Boolean)),
+    ];
 
     // Backlink article content is folded in below via `backlinkAdditions`
     // (each backlink's summary), so RAG sources feed the reference list directly.
@@ -155,9 +164,15 @@ export const rebuildReferenceListNode = defineNode({
     // user pinned: additions are merged before prior refs in
     // buildReferenceList, so an unpinned addition for the same slug would win
     // and silently drop the pin on every post-process run.
-    const priorPinned = new Set(priorRefs.filter((r) => r.pinned).map((r) => r.slug));
+    const priorPinned = new Set(
+      priorRefs.filter((r) => r.pinned).map((r) => r.slug),
+    );
 
-    const bodyRefs = findBodyReferencedArticles(deps.db, finalArticleBody, slug);
+    const bodyRefs = findBodyReferencedArticles(
+      deps.db,
+      finalArticleBody,
+      slug,
+    );
     const backlinkAdditions = backlinkSlugs
       .map((s) => getArticleByLookup(deps.db, s))
       .filter(Boolean)
@@ -173,7 +188,10 @@ export const rebuildReferenceListNode = defineNode({
 
     const additionsBySlug = new Map<string, ReferenceListEntry>();
     for (const ref of [...backlinkAdditions, ...bodyRefs]) {
-      additionsBySlug.set(ref.slug, { ...ref, pinned: ref.pinned || priorPinned.has(ref.slug) });
+      additionsBySlug.set(ref.slug, {
+        ...ref,
+        pinned: ref.pinned || priorPinned.has(ref.slug),
+      });
     }
 
     const refs = buildReferenceList(
@@ -199,12 +217,16 @@ export const rebuildReferenceListNode = defineNode({
 export const resolveLinksPostProcessNode = defineNode({
   name: "transform.resolve_links_post",
   kind: "transform",
-  description: "Re-resolve and convert links against the rebuilt reference list; strip self-links.",
+  description:
+    "Re-resolve and convert links against the rebuilt reference list; strip self-links.",
   reads: ["finalArticleBody", "references", "input"] as const,
   writes: ["finalArticleBody"] as const,
   run({ finalArticleBody, references, input }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
-    let body = normalizeMarkdownLinks(finalArticleBody ?? "", "article").markdown;
+    let body = normalizeMarkdownLinks(
+      finalArticleBody ?? "",
+      "article",
+    ).markdown;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
     body = linkReferences(body, refs, slug, deps.db);
     body = convertExistingArticleLinksToRefs(deps.db, body, slug);
@@ -221,10 +243,19 @@ export const resolveLinksPostProcessNode = defineNode({
 export const generateSeeAlsoNode = defineNode({
   name: "llm.generate_see_also",
   kind: "llm",
-  description: "Generate see-also candidates from article summary + title; filtered to non-existing articles only.",
-  reads: ["finalArticleBody", "articleSummary", "canonicalTitle", "input"] as const,
+  description:
+    "Generate see-also candidates from article summary + title; filtered to non-existing articles only.",
+  reads: [
+    "finalArticleBody",
+    "articleSummary",
+    "canonicalTitle",
+    "input",
+  ] as const,
   writes: ["seeAlso"] as const,
-  async run({ finalArticleBody, articleSummary, canonicalTitle, input }, deps: PipelineDeps) {
+  async run(
+    { finalArticleBody, articleSummary, canonicalTitle, input },
+    deps: PipelineDeps,
+  ) {
     const slug = slugify(input.slug ?? "");
     const title = canonicalTitle ?? input.requestedTitle ?? slug;
     const body = finalArticleBody ?? "";
@@ -242,30 +273,52 @@ export const generateSeeAlsoNode = defineNode({
     });
     const seeAlsoRole = rendered.role ?? "light";
     try {
-      deps.onSidecarUpdate?.(slug, { type: "generating", node: "llm.generate_see_also" });
-      const raw = await deps.llm.chat(seeAlsoRole, rendered.system, rendered.user, {
-        thinking: rendered.thinking,
-        jsonMode: rendered.json,
+      deps.onSidecarUpdate?.(slug, {
+        type: "generating",
+        node: "llm.generate_see_also",
       });
+      const raw = await deps.llm.chat(
+        seeAlsoRole,
+        rendered.system,
+        rendered.user,
+        {
+          thinking: rendered.thinking,
+          jsonMode: rendered.json,
+        },
+      );
       const arrayMatch = raw.match(/\[[\s\S]*\]/);
       const objectMatch = raw.match(/\{[\s\S]*\}/);
       let items: Array<{ slug?: string; hint?: string }> = [];
       if (arrayMatch) {
-        try { items = JSON.parse(arrayMatch[0]); } catch { /* fall through */ }
+        try {
+          items = JSON.parse(arrayMatch[0]);
+        } catch {
+          /* fall through */
+        }
       }
       if (!items.length && objectMatch) {
-        try { const o = JSON.parse(objectMatch[0]); items = o.items ?? []; } catch { /* fall through */ }
+        try {
+          const o = JSON.parse(objectMatch[0]);
+          items = o.items ?? [];
+        } catch {
+          /* fall through */
+        }
       }
       const valid = items
         .filter((i) => i.slug)
-        .map((i) => ({ slug: slugify(i.slug ?? ""), hint: (i.hint ?? "").replace(/\s+/g, " ").trim() }))
+        .map((i) => ({
+          slug: slugify(i.slug ?? ""),
+          hint: (i.hint ?? "").replace(/\s+/g, " ").trim(),
+        }))
         .filter((i) => i.slug && isHaluOnly(i.slug))
         .slice(0, 7);
 
       return {
         seeAlso: valid.map((c) => ({
           slug: c.slug,
-          title: c.slug.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase()),
+          title: c.slug
+            .replace(/-/g, " ")
+            .replace(/\b\w/g, (ch) => ch.toUpperCase()),
           hint: c.hint,
         })),
       };
@@ -280,14 +333,18 @@ export const generateSeeAlsoNode = defineNode({
 export const regenerateSummaryNode = defineNode({
   name: "llm.regenerate_summary",
   kind: "llm",
-  description: "Regenerate article summary via article_summary prompt (light model preferred).",
+  description:
+    "Regenerate article summary via article_summary prompt (light model preferred).",
   reads: ["finalArticleBody", "canonicalTitle", "input"] as const,
   writes: ["articleSummary"] as const,
   async run({ finalArticleBody, canonicalTitle, input }, deps: PipelineDeps) {
     const body = finalArticleBody ?? "";
     if (!body) return { articleSummary: "" };
     const title = canonicalTitle ?? input.requestedTitle ?? input.slug ?? "";
-    const trimmed = stripTopLevelSections(body, ["References", "See also"]).slice(0, 12_000);
+    const trimmed = stripTopLevelSections(body, [
+      "References",
+      "See also",
+    ]).slice(0, 12_000);
     const rendered = deps.prompts.render("article_summary", {
       slug: slugify(input.slug ?? ""),
       requested_title: title,
@@ -300,11 +357,20 @@ export const regenerateSummaryNode = defineNode({
     const articleSlug = slugify(input.slug ?? "");
     const summaryRole = rendered.role ?? "heavy";
     try {
-      deps.onSidecarUpdate?.(articleSlug, { type: "generating", node: "llm.regenerate_summary" });
+      deps.onSidecarUpdate?.(articleSlug, {
+        type: "generating",
+        node: "llm.regenerate_summary",
+      });
       const { content: raw } = await deps.llm.streamChat(
-        summaryRole, rendered.system, rendered.user,
+        summaryRole,
+        rendered.system,
+        rendered.user,
         (_delta, accumulated) => {
-          deps.onSidecarUpdate?.(articleSlug, { type: "generating", node: "llm.regenerate_summary", partial: accumulated });
+          deps.onSidecarUpdate?.(articleSlug, {
+            type: "generating",
+            node: "llm.regenerate_summary",
+            partial: accumulated,
+          });
         },
         { thinking: rendered.thinking, jsonMode: rendered.json },
       );
@@ -320,7 +386,8 @@ export const regenerateSummaryNode = defineNode({
 export const updateArticleInPlaceNode = defineNode({
   name: "write.update_article_in_place",
   kind: "write",
-  description: "Persist repaired body + regenerated summary + see-also sidecar; stale-write guard.",
+  description:
+    "Persist repaired body + regenerated summary + see-also sidecar; stale-write guard.",
   reads: [
     "input",
     "finalArticleBody",
@@ -331,7 +398,14 @@ export const updateArticleInPlaceNode = defineNode({
   ] as const,
   writes: ["persistedAt"] as const,
   run(
-    { input, finalArticleBody, references, seeAlso, articleSummary, postProcessExpectedGeneratedAt },
+    {
+      input,
+      finalArticleBody,
+      references,
+      seeAlso,
+      articleSummary,
+      postProcessExpectedGeneratedAt,
+    },
     deps: PipelineDeps,
   ) {
     const slug = slugify(input.slug ?? "");
@@ -412,7 +486,8 @@ export const updateArticleInPlaceNode = defineNode({
     // Push the updated article body/summary/see-also to subscribed clients.
     if (deps.onSidecarUpdate) {
       const updated = getArticleByLookup(deps.db, slug);
-      if (updated) deps.onSidecarUpdate(slug, { type: "article", article: updated });
+      if (updated)
+        deps.onSidecarUpdate(slug, { type: "article", article: updated });
     }
 
     return { persistedAt: now };
@@ -428,7 +503,10 @@ export const generateInfoboxNode = defineNode({
     "Generate structured infobox rows (heavy, JSON). Runs for all articles regardless of image.",
   reads: ["finalArticleBody", "canonicalTitle", "input", "references"] as const,
   writes: ["infobox"] as const,
-  async run({ finalArticleBody, canonicalTitle, input, references }, deps: PipelineDeps) {
+  async run(
+    { finalArticleBody, canonicalTitle, input, references },
+    deps: PipelineDeps,
+  ) {
     const slug = slugify(input.slug ?? "");
     const body = finalArticleBody ?? "";
     if (!slug || !body) return { infobox: undefined };
@@ -451,7 +529,10 @@ export const generateInfoboxNode = defineNode({
     });
 
     try {
-      deps.onSidecarUpdate?.(slug, { type: "generating", node: "llm.generate_infobox" });
+      deps.onSidecarUpdate?.(slug, {
+        type: "generating",
+        node: "llm.generate_infobox",
+      });
       const raw = await deps.llm.chat(
         rendered.role ?? "heavy",
         rendered.system,
@@ -461,7 +542,8 @@ export const generateInfoboxNode = defineNode({
       const match = raw.match(/\{[\s\S]*\}/);
       if (!match) throw new Error("no JSON in infobox response");
       const parsed = JSON.parse(match[0]) as InfoboxData;
-      if (!parsed.title || !Array.isArray(parsed.groups)) throw new Error("invalid infobox shape");
+      if (!parsed.title || !Array.isArray(parsed.groups))
+        throw new Error("invalid infobox shape");
       return { infobox: parsed };
     } catch (err) {
       deps.logger.warn("pipeline.infobox.failed", {
@@ -488,7 +570,8 @@ export const persistInfoboxNode = defineNode({
       setArticleInfobox(deps.db, slug, infobox as InfoboxData);
       deps.logger.info("pipeline.infobox.saved", { slug });
       const normalized = normalizeInfoboxData(infobox);
-      if (normalized) deps.onSidecarUpdate?.(slug, { type: "infobox", infobox: normalized });
+      if (normalized)
+        deps.onSidecarUpdate?.(slug, { type: "infobox", infobox: normalized });
     } catch (err) {
       deps.logger.warn("pipeline.infobox.save_failed", {
         slug,
@@ -533,7 +616,13 @@ export const extractOntologyNode = defineNode({
       llmReason = outcome.reason;
     }
 
-    const merged = indexArticleOntology(deps.db, { slug, title, infobox, vocab, llmExtraction });
+    const merged = indexArticleOntology(deps.db, {
+      slug,
+      title,
+      infobox,
+      vocab,
+      llmExtraction,
+    });
     deps.logger.info("pipeline.ontology.extracted", {
       slug,
       entities: merged.entities.length,
@@ -561,7 +650,8 @@ export const extractOntologyNode = defineNode({
 export const indexRagChunksNode = defineNode({
   name: "write.index_rag_chunks",
   kind: "write",
-  description: "Enqueue a durable LanceDB indexing job for the freshly-saved article.",
+  description:
+    "Enqueue a durable LanceDB indexing job for the freshly-saved article.",
   reads: ["input", "finalArticleBody"] as const,
   writes: ["ragIndexed"] as const,
   async run({ input, finalArticleBody }, deps: PipelineDeps) {
@@ -609,7 +699,10 @@ export const generateSidebarCaptionNode = defineNode({
     if (!mediaRecord?.description) return {};
 
     const title = canonicalTitle ?? input.requestedTitle ?? slug;
-    const articleExcerpt = stripTopLevelSections(body, ["References", "See also"]).slice(0, 1500);
+    const articleExcerpt = stripTopLevelSections(body, [
+      "References",
+      "See also",
+    ]).slice(0, 1500);
 
     const rendered = deps.prompts.render("image_caption", {
       requested_title: title,
@@ -627,13 +720,22 @@ export const generateSidebarCaptionNode = defineNode({
       const match = raw.match(/\{[\s\S]*\}/);
       if (!match) throw new Error("no JSON in caption response");
       const parsed = JSON.parse(match[0]) as Partial<Record<string, string>>;
-      const caption = String(parsed.caption ?? "").replace(/\s+/g, " ").trim();
+      const caption = String(parsed.caption ?? "")
+        .replace(/\s+/g, " ")
+        .trim();
       if (caption) {
         updateArticleMediaCaption(deps.db, slug, 1, caption, "generated", {
           updateArticleRevision: true,
         });
-        deps.logger.info("pipeline.sidebar_caption.saved", { slug, mediaId: headlineMedia.mediaId });
-        deps.onSidecarUpdate?.(slug, { type: "caption", caption, mediaId: headlineMedia.mediaId });
+        deps.logger.info("pipeline.sidebar_caption.saved", {
+          slug,
+          mediaId: headlineMedia.mediaId,
+        });
+        deps.onSidecarUpdate?.(slug, {
+          type: "caption",
+          caption,
+          mediaId: headlineMedia.mediaId,
+        });
       }
     } catch (err) {
       deps.logger.warn("pipeline.sidebar_caption.failed", {

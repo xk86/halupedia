@@ -496,12 +496,13 @@ export function PipelinesPane({
                     <TableRow
                       className={cn(
                         open && "bg-muted/60 font-semibold",
-                        displayStatus === "partial" && "bg-amber-50/50 dark:bg-amber-950/20",
+                        displayStatus === "partial" &&
+                          "bg-amber-50/50 dark:bg-amber-950/20",
                       )}
                       title={
-                        run.error_message
-                          ?? warningMessages[0]
-                          ?? "Expand node timing"
+                        run.error_message ??
+                        warningMessages[0] ??
+                        "Expand node timing"
                       }
                     >
                       <TableCell
@@ -552,15 +553,20 @@ export function PipelinesPane({
                       <TableCell>
                         <Badge
                           variant={
-                            displayStatus === "error" ? "destructive" : "secondary"
+                            displayStatus === "error"
+                              ? "destructive"
+                              : "secondary"
                           }
                           className={cn(
-                            displayStatus === "partial"
-                              && "gap-1 border border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100",
+                            displayStatus === "partial" &&
+                              "gap-1 border border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100",
                           )}
                         >
                           {displayStatus === "partial" ? (
-                            <AlertTriangle data-icon="inline-start" className="size-3" />
+                            <AlertTriangle
+                              data-icon="inline-start"
+                              className="size-3"
+                            />
                           ) : null}
                           {displayStatus}
                         </Badge>
@@ -608,15 +614,19 @@ export function PipelinesPane({
                         </TableCell>
                       </TableRow>
                     ) : null}
-                    {!open && displayStatus === "partial" && warningMessages.length ? (
+                    {!open &&
+                    displayStatus === "partial" &&
+                    warningMessages.length ? (
                       <TableRow className="hover:bg-transparent">
                         <TableCell
                           colSpan={6}
-                          className="px-2 pb-2 pt-0 whitespace-normal"
+                          className="px-2 pt-0 pb-2 whitespace-normal"
                         >
                           <p className="m-0 rounded-md border border-amber-300/80 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700/80 dark:bg-amber-950/40 dark:text-amber-100">
                             {warningMessages[0]}
-                            {warningCount > 1 ? ` (+${warningCount - 1} more)` : ""}
+                            {warningCount > 1
+                              ? ` (+${warningCount - 1} more)`
+                              : ""}
                           </p>
                         </TableCell>
                       </TableRow>
@@ -1019,7 +1029,10 @@ function NodeBreakdown({
                     className="h-6 gap-1 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300"
                     title={warnings.join("\n")}
                   >
-                    <AlertTriangle data-icon="inline-start" className="size-3" />
+                    <AlertTriangle
+                      data-icon="inline-start"
+                      className="size-3"
+                    />
                     {warnings.length}
                   </Badge>
                 ) : null}
@@ -1117,7 +1130,7 @@ function NodeTimingBar({
 function normalizeWarnings(warnings: unknown): string[] {
   if (!Array.isArray(warnings)) return [];
   return warnings
-    .map((warning) => typeof warning === "string" ? warning.trim() : "")
+    .map((warning) => (typeof warning === "string" ? warning.trim() : ""))
     .filter(Boolean);
 }
 

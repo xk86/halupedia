@@ -137,10 +137,11 @@ describe("PromptEditorPane image presets", () => {
     const user = userEvent.setup();
     render(<PromptEditorPane />);
 
-    await user.click(await screen.findByRole("combobox"));
-    await user.click(
-      await screen.findByRole("option", { name: "article_image" }),
-    );
+    expect(
+      await screen.findByRole("textbox", {
+        name: "article_image system prompt",
+      }),
+    ).toHaveValue("default system");
 
     expect(await screen.findByText("Image preset")).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Image preset" }));
@@ -151,12 +152,10 @@ describe("PromptEditorPane image presets", () => {
       await screen.findByText("psychedelic editorial system"),
     ).toBeInTheDocument();
 
-    const systemLabel = screen
-      .getByText("System")
-      .closest("label") as HTMLElement;
-    const systemInput = within(systemLabel).getByDisplayValue(
-      "psychedelic editorial system",
-    );
+    const systemInput = screen.getByRole("textbox", {
+      name: "article_image system prompt",
+    });
+    expect(systemInput).toHaveValue("psychedelic editorial system");
     await user.clear(systemInput);
     await user.type(systemInput, "updated psychedelic editorial system");
     await user.click(screen.getByRole("button", { name: /^save$/i }));
@@ -196,11 +195,10 @@ describe("PromptEditorPane image presets", () => {
     await user.click(
       await screen.findByRole("option", { name: "psychedelic_editorial" }),
     );
-    const presetPanel = screen
-      .getByText("Image preset")
-      .closest(".admin-prompt-presets");
     await user.click(
-      within(presetPanel as HTMLElement).getByRole("button", {
+      within(
+        screen.getByTestId("prompt-editor-runnable-article_image"),
+      ).getByRole("button", {
         name: /delete preset/i,
       }),
     );
@@ -211,5 +209,76 @@ describe("PromptEditorPane image presets", () => {
         expect.objectContaining({ method: "DELETE" }),
       );
     });
+  });
+
+  it("shows the first prompt immediately and can display every prompt", async () => {
+    const articleMeta = {
+      key: "article",
+      scope: "runnable",
+      description: "Writes a new article body.",
+      usedBy: ["article.generate"],
+      model: "heavy",
+      thinking: true,
+      json: false,
+      hasModes: false,
+    };
+    const toneMeta = {
+      key: "shared_tone",
+      scope: "shared",
+      description: "Base tone included by model-facing prompts.",
+      usedBy: ["shared prompt include"],
+      hasModes: false,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/admin/prompts") {
+        return jsonResponse({
+          runnable: [articleMeta],
+          shared: [toneMeta],
+        });
+      }
+      if (url === "/api/admin/prompt/runnable/article") {
+        return jsonResponse({
+          ...articleMeta,
+          system: "article system",
+          user: "article user",
+          path: "config/prompts/article.toml",
+        });
+      }
+      if (url === "/api/admin/prompt/shared/shared_tone") {
+        return jsonResponse({
+          ...toneMeta,
+          system: "tone system",
+          user: "",
+          path: "config/prompts/shared/shared_tone.toml",
+        });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<PromptEditorPane />);
+
+    expect(
+      await screen.findByRole("textbox", { name: "article system prompt" }),
+    ).toHaveValue("article system");
+    expect(screen.getByText("Writes a new article body.")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "All prompts",
+      }),
+    );
+
+    expect(await screen.findByTestId("all-prompt-editors")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("textbox", { name: "shared_tone system prompt" }),
+    ).toHaveValue("tone system");
+    expect(
+      screen.getByTestId("prompt-editor-runnable-article"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("prompt-editor-shared-shared_tone"),
+    ).toBeInTheDocument();
   });
 });

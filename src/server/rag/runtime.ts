@@ -77,7 +77,10 @@ export async function createRagRuntime(opts: RagRuntimeOptions): Promise<RagRunt
       );
     },
     assemble(result, profile) {
-      return assembleEvidence(result, { maxTokens: profiles[profile].maxPromptTokens });
+      return assembleEvidence(result, {
+        maxTokens: profiles[profile].maxPromptTokens,
+        bodyReserveTokens: profiles[profile].bodyReserveTokens,
+      });
     },
     drain() {
       return processJobs({

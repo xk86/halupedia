@@ -37,6 +37,9 @@ export interface AssembledEvidence {
 
 export interface AssembleOptions {
   maxTokens: number;
+  /** Token budget guaranteed to prose body chunks (top-ranked first) before the
+   *  priority fill runs, so compact docs can't starve article_body. Default 0. */
+  bodyReserveTokens?: number;
 }
 
 // Compact, high-value evidence first; prose body fills the remainder.
@@ -72,16 +75,34 @@ export function assembleEvidence(
 
   const decisions: AssembledEvidence["decisions"] = [];
   const included: RetrievedTextDocument[] = [];
+  const includedIds = new Set<string>();
   let used = 0;
+  const cost = (doc: RetrievedTextDocument): number => countTokens(doc.content) + 8; // + small header allowance
+  const take = (doc: RetrievedTextDocument, reason: string): void => {
+    used += cost(doc);
+    included.push(doc);
+    includedIds.add(doc.documentId);
+    decisions.push({ documentId: doc.documentId, kind: doc.sourceKind, included: true, reason });
+  };
+
+  // Phase 1: guarantee prose body its reserved slice (best-ranked first) so the
+  // compact summary/infobox/ontology docs can't crowd it out entirely.
+  const bodyReserve = Math.min(Math.max(opts.bodyReserveTokens ?? 0, 0), budget);
+  if (bodyReserve > 0) {
+    for (const doc of ordered.filter((d) => d.sourceKind === "article_body")) {
+      if (used + cost(doc) > bodyReserve) continue;
+      take(doc, "body_reserve");
+    }
+  }
+
+  // Phase 2: priority fill over everything not already taken, up to full budget.
   for (const doc of ordered) {
-    const cost = countTokens(doc.content) + 8; // + small header allowance
-    if (used + cost > budget) {
+    if (includedIds.has(doc.documentId)) continue;
+    if (used + cost(doc) > budget) {
       decisions.push({ documentId: doc.documentId, kind: doc.sourceKind, included: false, reason: "over_budget" });
       continue;
     }
-    used += cost;
-    included.push(doc);
-    decisions.push({ documentId: doc.documentId, kind: doc.sourceKind, included: true, reason: doc.retrievalReason });
+    take(doc, doc.retrievalReason);
   }
 
   const render = (kinds: TextDocumentKind[]): string =>

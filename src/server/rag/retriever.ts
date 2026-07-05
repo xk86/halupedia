@@ -30,6 +30,9 @@ export interface ProfileConfig {
   maxPromptTokens: number;
   /** Minimum slots reserved for ontology_fact evidence. */
   ontologyQuota: number;
+  /** Token budget reserved for prose body chunks so compact summary/infobox/
+   *  ontology docs can't crowd article_body out of the assembled context. */
+  bodyReserveTokens: number;
   /** Default document kinds when the caller doesn't restrict. */
   defaultKinds: TextDocumentKind[];
 }
@@ -46,10 +49,10 @@ const ALL_TEXT_KINDS: TextDocumentKind[] = [
 ];
 
 export const DEFAULT_PROFILES: Record<RetrievalProfile, ProfileConfig> = {
-  article_generation: { textTopK: 12, imageTopK: 3, maxPromptTokens: 7000, ontologyQuota: 3, defaultKinds: ALL_TEXT_KINDS },
-  article_rewrite: { textTopK: 8, imageTopK: 2, maxPromptTokens: 4000, ontologyQuota: 2, defaultKinds: ALL_TEXT_KINDS },
-  article_refresh: { textTopK: 4, imageTopK: 1, maxPromptTokens: 1800, ontologyQuota: 1, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact", "article_body"] },
-  reference_search: { textTopK: 10, imageTopK: 0, maxPromptTokens: 0, ontologyQuota: 0, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact"] },
+  article_generation: { textTopK: 12, imageTopK: 3, maxPromptTokens: 7000, ontologyQuota: 3, bodyReserveTokens: 2000, defaultKinds: ALL_TEXT_KINDS },
+  article_rewrite: { textTopK: 8, imageTopK: 2, maxPromptTokens: 4000, ontologyQuota: 2, bodyReserveTokens: 1200, defaultKinds: ALL_TEXT_KINDS },
+  article_refresh: { textTopK: 4, imageTopK: 1, maxPromptTokens: 1800, ontologyQuota: 1, bodyReserveTokens: 600, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact", "article_body"] },
+  reference_search: { textTopK: 10, imageTopK: 0, maxPromptTokens: 0, ontologyQuota: 0, bodyReserveTokens: 0, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact"] },
 };
 
 export interface RetrieverDeps {

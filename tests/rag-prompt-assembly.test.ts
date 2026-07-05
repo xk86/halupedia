@@ -65,6 +65,22 @@ test("link allowlist is independent of evidence inclusion", () => {
   assert.equal(renderLinkAllowlist(out.linkAllowlist), "- [Ethereum](ref:ethereum)");
 });
 
+test("bodyReserveTokens guarantees prose survives a compact-doc-heavy budget", () => {
+  // Same tight budget as above, but a body reserve keeps prose in the mix.
+  const out = assembleEvidence(
+    result([
+      doc({ documentId: "body", sourceKind: "article_body", content: "long ".repeat(20) }),
+      doc({ documentId: "onto", sourceKind: "ontology_fact", content: "Ethereum — ticker: ETH" }),
+      doc({ documentId: "sum", sourceKind: "article_summary", content: "A blockchain." }),
+    ]),
+    { maxTokens: 40, bodyReserveTokens: 30 },
+  );
+  const included = out.decisions.filter((d) => d.included).map((d) => d.documentId);
+  assert.ok(included.includes("body"), "body kept via reserve");
+  assert.ok(out.decisions.some((d) => d.documentId === "body" && d.reason === "body_reserve"));
+  assert.ok(out.articleContext.includes("long"), "prose reaches the article context");
+});
+
 test("compact high-value evidence is prioritized over body under tight budget", () => {
   const out = assembleEvidence(
     result([

@@ -31,6 +31,11 @@ Hard rules — anything violating these is dropped:
   listed in "entities". Never relate to something you did not declare.
 - Only assert relations the article actually supports. Precision over recall —
   omit anything speculative. Do not invent entities to satisfy a relation.
+- You may be given the facts already recorded for this article. Reevaluate them
+  against the current article: re-assert the ones it still supports, add any it
+  now supports that are missing, and simply omit any it no longer supports
+  (omitting a previously-recorded fact removes it). Return your full current
+  view — not a diff.
 - Keep it tight: at most ~12 entities and ~20 relations for a typical article.
 - "categories" are emergent topical tags (e.g. "Blockchain networks"); they are
   not constrained to the vocabulary.
@@ -44,6 +49,10 @@ Allowed predicates (name: subject_type -> object_type):
 
 user = """
 Article title: {{requested_title}}
+
+Facts already recorded for this article (reevaluate — keep what still holds,
+add what's missing, omit what's no longer supported):
+{{existing_facts}}
 
 Article body:
 {{article_body}}

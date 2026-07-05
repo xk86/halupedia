@@ -19,6 +19,7 @@ import { prepared } from "../db";
 import { contentHash } from "../rag/documents";
 import { getPrompt, parseJsonLoose, renderTemplate } from "../prompts";
 import { validateLlmExtraction } from "./extract";
+import { listArticleEntityFacts } from "./store";
 import { emptyExtraction, type ExtractionResult } from "./types";
 import type { OntologyVocabulary } from "./vocabulary";
 
@@ -34,6 +35,21 @@ function describePredicates(vocab: OntologyVocabulary): string {
     .filter((p) => p.arity === "binary")
     .map((p) => `- ${p.name}: ${p.subject} -> ${p.object}`)
     .join("\n");
+}
+
+/**
+ * The article's currently-recorded facts as "predicate object" lines, for the
+ * model to reevaluate against — so it confirms/extends/prunes an existing set
+ * rather than re-deriving from scratch. Excludes the redundant `is_a` tag and
+ * caps the list to bound the prompt.
+ */
+function describeExistingFacts(db: DatabaseSync, slug: string): string {
+  const { facts } = listArticleEntityFacts(db, slug);
+  const lines = facts
+    .filter((f) => f.predicate !== "is_a")
+    .slice(0, 40)
+    .map((f) => `- ${f.predicate} ${f.object}`);
+  return lines.length ? lines.join("\n") : "(none yet)";
 }
 
 interface CacheRow {
@@ -111,6 +127,7 @@ export async function deriveLlmExtraction(
         requested_title: title,
         entity_types: [...vocab.entityTypes].join(", "),
         predicates: describePredicates(vocab),
+        existing_facts: describeExistingFacts(db, article.slug),
         article_body: body.slice(0, 12000),
       }),
       { thinking: prompt.thinking, jsonMode: prompt.json },

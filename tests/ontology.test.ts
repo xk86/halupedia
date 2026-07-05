@@ -573,6 +573,56 @@ test("LLM extraction is validated, merged, and cached by content hash", async (t
   assert.equal(third.reason, "content_changed");
 });
 
+test("LLM reevaluation feeds the article's currently-recorded facts into the prompt", async (t) => {
+  const db = makeDb(t);
+  const article: ArticleRecord = {
+    slug: "solana",
+    canonicalSlug: "solana",
+    title: "Solana",
+    markdown: "# Solana\n\nSolana is a blockchain.",
+    html: "",
+    summaryMarkdown: "",
+    plain_text: "Solana is a blockchain.",
+    generated_at: 1,
+  };
+  saveArticle(db, article, [], [], {});
+  setArticleInfobox(db, "solana", INFOBOX, "test");
+  // Record deterministic facts so there is an existing set to reevaluate.
+  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+
+  let sentUser = "";
+  const capturing = {
+    async chat(_model: string, _system: string, user: string) {
+      sentUser = user;
+      return JSON.stringify({ entities: [], relations: [], categories: [] });
+    },
+    supportsVision: () => false,
+    async streamChat() {
+      return { content: "", finishReason: "stop" };
+    },
+    async embed() {
+      return [];
+    },
+    async probeConnections() {},
+  } as unknown as LlmRouter;
+
+  const prompts = {
+    prompts: {
+      ontology: {
+        system: "s",
+        user: "title: {{requested_title}}\nfacts:\n{{existing_facts}}\nbody:\n{{article_body}}",
+        model: "light",
+        thinking: false,
+        json: true,
+      },
+    },
+    shared: {},
+  } as unknown as PromptConfig;
+
+  await deriveLlmExtraction(db, vocab, article, { llm: capturing, prompts });
+  assert.match(sentUser, /founded_by Anatoly Yakovenko/, "recorded facts are injected for reevaluation");
+});
+
 test("deleteArticleOntology removes provenance rows and detaches entity", (t) => {
   const db = makeDb(t);
   indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });

@@ -424,6 +424,16 @@ export function openDatabase(databasePath: string): DatabaseSync {
       extraction TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    -- Records the vocabulary signature an article's ontology was last extracted
+    -- under. When the live vocabulary signature differs (a predicate was added
+    -- or removed), the article is stale and is re-extracted lazily on demand —
+    -- no manual version bump or full corpus refresh required.
+    CREATE TABLE IF NOT EXISTS article_ontology_state (
+      article_slug TEXT PRIMARY KEY,
+      signature TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
   // Provable-inference basis for inferred ontology relations (source='inferred').
   if (!hasColumn(db, "entity_relations", "inferred_from")) {

@@ -45,8 +45,17 @@ export interface OntologyVocabulary {
   labelPredicates: Map<string, string>;
   /** Lowercased infobox label -> identifier scheme. */
   identifierLabels: Map<string, string>;
-  /** Stable hash of the vocabulary content (feeds corpus config hash). */
+  /** Stable hash of the raw vocabulary file (feeds corpus config hash). */
   hash: string;
+  /**
+   * Content-derived signature over the parts of the vocabulary that actually
+   * shape an extraction — predicates, entity types, classification, and the
+   * label maps. Adding or removing a predicate changes this; editing a comment
+   * or the `version` field does not. Per-article ontology staleness is keyed on
+   * this, so a meaningful vocabulary change triggers lazy re-extraction without
+   * a manual version bump or a full corpus refresh.
+   */
+  signature: string;
 }
 
 interface RawVocabulary {
@@ -118,7 +127,40 @@ export function loadOntologyVocabulary(path = DEFAULT_PATH): OntologyVocabulary 
     labelPredicates,
     identifierLabels,
     hash: createHash("sha256").update(raw).digest("hex").slice(0, 16),
+    signature: computeVocabularySignature({
+      entityTypes,
+      predicates,
+      classification,
+      labelPredicates,
+      identifierLabels,
+    }),
   };
+}
+
+/**
+ * Canonicalize the extraction-shaping parts of the vocabulary into a stable
+ * string and hash it. Everything is sorted so the signature depends only on
+ * content, not declaration order in the TOML.
+ */
+function computeVocabularySignature(v: {
+  entityTypes: Set<string>;
+  predicates: Map<string, PredicateDef>;
+  classification: ClassificationRule[];
+  labelPredicates: Map<string, string>;
+  identifierLabels: Map<string, string>;
+}): string {
+  const canonical = JSON.stringify({
+    entityTypes: [...v.entityTypes].sort(),
+    predicates: [...v.predicates.values()]
+      .map((p) => [p.name, p.arity, p.subject, p.object, p.symmetric, p.transitive, p.inverse ?? ""])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    classification: v.classification
+      .map((c) => [c.type, [...c.match].sort(), c.category ?? ""])
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    labelPredicates: [...v.labelPredicates.entries()].sort(),
+    identifierLabels: [...v.identifierLabels.entries()].sort(),
+  });
+  return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
 }
 
 // A personal honorific in the title itself ("Mr. Test", "Dr. Okafor") is a

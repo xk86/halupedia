@@ -71,7 +71,7 @@ export async function deriveLlmExtraction(
   const body = article.markdown || article.plain_text || "";
   if (!body.trim()) return { extraction: emptyExtraction(), called: false, reason: "cache_hit" };
   const hash = contentHash(body);
-  const vocabHash = `${vocab.version}:${vocab.hash}`;
+  const vocabHash = vocab.signature;
 
   const cached = prepared(
     db,

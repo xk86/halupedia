@@ -7,6 +7,9 @@ import { openDatabase, prepared, saveArticle, setArticleInfobox, type InfoboxDat
 import {
   buildOntologyFactDocuments,
   deleteArticleOntology,
+  ensureArticleOntologyFresh,
+  getArticleOntologySignature,
+  isArticleOntologyStale,
   deriveLlmExtraction,
   emptyExtraction,
   extractDeterministic,
@@ -323,6 +326,37 @@ test("indexArticleOntology persists entities, relations, categories", (t) => {
   assert.ok(facts.some((f) => f.predicate === "founded_by" && f.object === "Anatoly Yakovenko"));
   assert.ok(identifiers.some((i) => i.value === "SOL"));
   assert.ok(categories.includes("Blockchain network"));
+});
+
+test("ontology staleness tracks the vocabulary signature; lazy refresh re-extracts", (t) => {
+  const db = makeDb(t);
+  const article: ArticleRecord = {
+    slug: "solana",
+    canonicalSlug: "solana",
+    title: "Solana",
+    markdown: "# Solana",
+    html: "",
+    summaryMarkdown: "",
+    plain_text: "Solana",
+    generated_at: 1,
+  };
+  saveArticle(db, article, [], [], {});
+  setArticleInfobox(db, "solana", INFOBOX, "test");
+
+  // First extraction stamps the current signature; the article is now fresh.
+  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  assert.equal(getArticleOntologySignature(db, "solana"), vocab.signature);
+  assert.equal(isArticleOntologyStale(db, "solana", vocab), false);
+  assert.equal(ensureArticleOntologyFresh(db, "solana", vocab), false, "no work when fresh");
+
+  // A vocabulary whose predicates changed has a different signature -> stale.
+  const evolved = { ...vocab, signature: "changed-signature" };
+  assert.equal(isArticleOntologyStale(db, "solana", evolved), true);
+
+  // Lazy refresh re-extracts deterministically and re-stamps the new signature.
+  assert.equal(ensureArticleOntologyFresh(db, "solana", evolved), true, "re-extracted when stale");
+  assert.equal(getArticleOntologySignature(db, "solana"), "changed-signature");
+  assert.equal(isArticleOntologyStale(db, "solana", evolved), false);
 });
 
 test("curated/pinned relations survive re-extraction", (t) => {

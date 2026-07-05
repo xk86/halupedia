@@ -10,7 +10,11 @@ import type { DatabaseSync } from "node:sqlite";
 import { contentHash } from "../rag/documents";
 import type { RagTextDocument } from "../rag/types";
 import { buildRefLink } from "../text/links/haluLinks";
-import { listArticleEntityFacts, type ArticleOntologyFact } from "./store";
+import {
+  listArticleEntityFacts,
+  resolveArticleSlugByName,
+  type ArticleOntologyFact,
+} from "./store";
 import type { OntologyVocabulary } from "./vocabulary";
 
 const MAX_RELATION_DOCS = 60;
@@ -51,6 +55,21 @@ export function buildOntologyFactDocuments(
 ): RagTextDocument[] {
   const { entity, facts, identifiers, categories } = listArticleEntityFacts(db, slug);
   if (!entity) return [];
+
+  // A fact's object may be a literal that nonetheless names a real article (e.g.
+  // an LLM-extracted `related_to` target that was never linked to an entity).
+  // Resolve those to a slug so they render as proper links — but only when a
+  // backing article exists, so descriptive literals stay plain text. `is_a`
+  // objects are class names, never articles, so skip them.
+  const slugCache = new Map<string, string | null>();
+  for (const fact of facts) {
+    if (fact.objectSlug || fact.predicate === "is_a") continue;
+    const cached = slugCache.get(fact.object);
+    const resolved =
+      cached !== undefined ? cached : resolveArticleSlugByName(db, fact.object);
+    slugCache.set(fact.object, resolved);
+    if (resolved && resolved !== slug) fact.objectSlug = resolved;
+  }
 
   const docs: RagTextDocument[] = [];
   const parts = [`type: ${entity.entityType}`];

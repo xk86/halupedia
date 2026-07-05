@@ -133,6 +133,40 @@ test("ontology fact documents render attributes with their label, links as ref-l
   assert.ok(rel?.content.startsWith("Haha test — Hypothesis: Proposed explanation"));
 });
 
+test("ontology fact documents link literal objects that name a real article", (t) => {
+  const db = makeDb(t);
+  const mk = (slug: string, title: string): ArticleRecord => ({
+    slug,
+    canonicalSlug: slug,
+    title,
+    markdown: `# ${title}\n\nBody.`,
+    html: "",
+    summaryMarkdown: "",
+    plain_text: "Body.",
+    generated_at: 1,
+  });
+  // Target article exists and owns an ontology entity.
+  saveArticle(db, mk("proprioception", "Proprioception"), [], [], {});
+  indexArticleOntology(db, { slug: "proprioception", title: "Proprioception", infobox: null, vocab });
+  // Source article with a related_to fact stored as a bare literal — the shape
+  // an LLM-extracted relation that never got linked to an entity produces.
+  saveArticle(db, mk("awa-test", "Awa test"), [], [], {});
+  indexArticleOntology(db, { slug: "awa-test", title: "Awa test", infobox: null, vocab });
+  const { entity } = listArticleEntityFacts(db, "awa-test");
+  prepared(
+    db,
+    `INSERT INTO entity_relations (subject_entity_id, predicate, object_literal, provenance_slug, source, pinned, confidence, created_at)
+     VALUES (?, 'related_to', 'Proprioception', 'awa-test', 'curated', 1, 1, ?)`,
+  ).run(entity!.id, Date.now());
+
+  const docs = buildOntologyFactDocuments(db, "awa-test", "Awa test", Date.now(), vocab);
+  const linked = docs.find((d) => d.content.includes("Proprioception"));
+  assert.ok(
+    linked?.content.includes("[Proprioception](ref:proprioception)"),
+    "literal object naming a real article resolves to a ref link",
+  );
+});
+
 test("LLM extraction validation drops off-vocabulary entities and relations", () => {
   const validated = validateLlmExtraction(
     {

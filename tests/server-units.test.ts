@@ -47,7 +47,7 @@ import {
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
 import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
-import { getPrompt, getSharedPrompt, stripJsonFences } from "../src/server/prompts";
+import { getPrompt, getSharedPrompt, parseJsonLoose, stripJsonFences } from "../src/server/prompts";
 import { replaceTomlTripleQuoted } from "../src/server/promptEditor";
 import { parse as parseToml } from "smol-toml";
 import {
@@ -1432,6 +1432,36 @@ test("stripJsonFences passes through plain JSON unchanged", () => {
 test("stripJsonFences handles leading/trailing whitespace around fences", () => {
   const wrapped = '  \n```json\n{"ok":true}\n```\n  ';
   assert.equal(stripJsonFences(wrapped), '{"ok":true}');
+});
+
+test("stripJsonFences strips an opening fence even when the closing fence is missing", () => {
+  // Truncated model output: opening ```json survives, no closing fence.
+  const truncated = '```json\n{"relations":[{"subject":"A"';
+  assert.equal(stripJsonFences(truncated), '{"relations":[{"subject":"A"');
+});
+
+/* -------------------------------------------------------------------------- */
+/*  parseJsonLoose                                                             */
+/* -------------------------------------------------------------------------- */
+
+test("parseJsonLoose parses clean JSON", () => {
+  assert.deepEqual(parseJsonLoose('{"a":1}'), { a: 1 });
+});
+
+test("parseJsonLoose repairs and salvages a truncated array", () => {
+  // finish_reason=length mid-array: the two complete objects must survive.
+  const truncated =
+    '```json\n{"relations":[{"subject":"A","predicate":"related_to","object":"B"},' +
+    '{"subject":"A","predicate":"related_to","object":"C"},{"subject":"A","predi';
+  const parsed = parseJsonLoose(truncated) as { relations: unknown[] };
+  assert.ok(parsed && Array.isArray(parsed.relations));
+  assert.ok(parsed.relations.length >= 2, "keeps the complete leading entries");
+  assert.deepEqual(parsed.relations[0], { subject: "A", predicate: "related_to", object: "B" });
+});
+
+test("parseJsonLoose returns null for empty input", () => {
+  assert.equal(parseJsonLoose(""), null);
+  assert.equal(parseJsonLoose("   \n  "), null);
 });
 
 /* -------------------------------------------------------------------------- */

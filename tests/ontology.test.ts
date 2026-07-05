@@ -8,6 +8,7 @@ import {
   buildOntologyFactDocuments,
   deleteArticleOntology,
   deriveLlmExtraction,
+  emptyExtraction,
   extractDeterministic,
   inferRelations,
   indexArticleOntology,
@@ -153,6 +154,37 @@ test("LLM extraction validation drops off-vocabulary entities and relations", ()
   assert.equal(validated.relations.length, 1);
   assert.equal(validated.relations[0].predicate, "founded_by");
   assert.deepEqual(validated.categories, ["Layer 1 blockchains"]);
+});
+
+test("LLM extraction validation tolerates non-string and malformed fields", () => {
+  // The model sometimes emits nested objects / numbers where strings are
+  // expected; validation must coerce or skip, never throw on `.trim()`.
+  const validated = validateLlmExtraction(
+    {
+      entities: [
+        { name: "Solana", type: "organization" },
+        { name: "Anatoly Yakovenko", type: "person" },
+        { name: 42, type: "person" }, // non-string name -> skipped
+        "garbage", // non-object entry -> skipped
+      ],
+      relations: [
+        // object is a nested object, not a string -> must not crash, dropped.
+        { subject: "Solana", predicate: "founded_by", object: { nested: true } },
+        { subject: "Solana", predicate: "founded_by", object: "Anatoly Yakovenko" }, // valid
+        null, // non-object entry -> skipped
+      ],
+      categories: ["Blockchain", 7, { bad: 1 }],
+    },
+    vocab,
+  );
+  assert.equal(validated.relations.length, 1);
+  assert.equal(validated.relations[0].object, "Anatoly Yakovenko");
+  assert.deepEqual(validated.categories, ["Blockchain", "7"]);
+});
+
+test("LLM extraction validation tolerates a null/garbage root", () => {
+  assert.deepEqual(validateLlmExtraction(null, vocab), emptyExtraction());
+  assert.deepEqual(validateLlmExtraction("nope", vocab), emptyExtraction());
 });
 
 test("indexArticleOntology persists entities, relations, categories", (t) => {

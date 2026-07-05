@@ -146,40 +146,54 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
   return result;
 }
 
-/** Shape the model is asked to return (before validation). */
-interface RawLlmExtraction {
-  entities?: Array<{ name?: string; type?: string; aliases?: string[]; description?: string }>;
-  relations?: Array<{ subject?: string; predicate?: string; object?: string }>;
-  categories?: string[];
+/**
+ * Coerce an untrusted model field to a trimmed string. The model sometimes
+ * emits a number, boolean, or a nested object/array where a string is expected;
+ * anything non-scalar becomes "" (and is dropped downstream) rather than
+ * crashing on a `.trim()` that isn't a function.
+ */
+function asText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 /**
- * Validate a raw model extraction against the vocabulary. Drops off-vocabulary
- * entities/relations; keeps emergent category tags. Entity types must be in the
- * core set and relation predicates must satisfy their signature.
+ * Validate a raw model extraction against the vocabulary. Tolerates arbitrary
+ * malformed input (`unknown`): missing/mistyped fields are coerced or skipped,
+ * never thrown on. Drops off-vocabulary entities/relations; keeps emergent
+ * category tags. Entity types must be in the core set and relation predicates
+ * must satisfy their signature.
  */
 export function validateLlmExtraction(
-  raw: RawLlmExtraction,
+  raw: unknown,
   vocab: OntologyVocabulary,
 ): ExtractionResult {
   const result = emptyExtraction();
+  const root = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const typeByName = new Map<string, string>();
-  for (const e of raw.entities ?? []) {
-    const name = (e.name ?? "").trim();
-    const type = (e.type ?? "").trim().toLowerCase();
+  for (const entry of asArray(root.entities)) {
+    const e = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
+    const name = asText(e.name);
+    const type = asText(e.type).toLowerCase();
     if (!name || !vocab.entityTypes.has(type)) continue;
     typeByName.set(name, type);
     result.entities.push({
       name,
       type,
-      aliases: (e.aliases ?? []).map((a) => a.trim()).filter(Boolean),
-      description: e.description?.trim(),
+      aliases: asArray(e.aliases).map(asText).filter(Boolean),
+      description: asText(e.description) || undefined,
     });
   }
-  for (const r of raw.relations ?? []) {
-    const subject = (r.subject ?? "").trim();
-    const predicate = (r.predicate ?? "").trim();
-    const object = (r.object ?? "").trim();
+  for (const entry of asArray(root.relations)) {
+    const r = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
+    const subject = asText(r.subject);
+    const predicate = asText(r.predicate);
+    const object = asText(r.object);
     if (!subject || !predicate || !object) continue;
     const subjectType = typeByName.get(subject);
     const objectType = typeByName.get(object);
@@ -187,8 +201,8 @@ export function validateLlmExtraction(
     if (!relationMatchesVocabulary(vocab, predicate, subjectType, objectType)) continue;
     result.relations.push({ subject, predicate, object, source: "extracted" });
   }
-  for (const c of raw.categories ?? []) {
-    const clean = (c ?? "").trim();
+  for (const c of asArray(root.categories)) {
+    const clean = asText(c);
     if (clean) result.categories.push(clean);
   }
   return result;

@@ -17,7 +17,7 @@ import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
 import { prepared } from "../db";
 import { contentHash } from "../rag/documents";
-import { getPrompt, renderTemplate, stripJsonFences } from "../prompts";
+import { getPrompt, parseJsonLoose, renderTemplate } from "../prompts";
 import { validateLlmExtraction } from "./extract";
 import { emptyExtraction, type ExtractionResult } from "./types";
 import type { OntologyVocabulary } from "./vocabulary";
@@ -85,8 +85,16 @@ export async function deriveLlmExtraction(
       }),
       { thinking: prompt.thinking, jsonMode: prompt.json },
     );
-    const parsed = JSON.parse(stripJsonFences(raw));
-    extraction = validateLlmExtraction(parsed, vocab);
+    const parsed = parseJsonLoose(raw);
+    if (parsed === null) {
+      // Unrecoverable even after repair (rare): log, keep the empty result, and
+      // let deterministic extraction carry the article on its own.
+      options.logger?.warn?.("ontology.llm_extraction_unparseable", { slug: article.slug });
+    } else {
+      // validateLlmExtraction tolerates malformed/partial input and never throws,
+      // so a truncated-but-repaired array still yields its complete entries.
+      extraction = validateLlmExtraction(parsed, vocab);
+    }
   } catch (err) {
     options.logger?.warn?.("ontology.llm_extraction_failed", {
       slug: article.slug,

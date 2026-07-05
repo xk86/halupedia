@@ -1,3 +1,4 @@
+import { jsonrepair } from "jsonrepair";
 import type { PromptConfig } from "./types";
 
 const TEMPLATE_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
@@ -51,11 +52,38 @@ export function renderTemplate(
   });
 }
 
-// todo: should be jsonrepair, not bespoke regex
-const JSON_FENCE_RE = /^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/;
-
+/**
+ * Strip a Markdown code fence from model output. Tolerates a *missing* closing
+ * fence, which happens when the response is truncated (finish_reason=length)
+ * mid-JSON — so the opening ```json is still removed and the body stays parseable.
+ */
 export function stripJsonFences(raw: string): string {
-  const trimmed = raw.trim();
-  const match = JSON_FENCE_RE.exec(trimmed);
-  return match ? match[1].trim() : trimmed;
+  return raw
+    .trim()
+    .replace(/^```(?:json)?[ \t]*\r?\n?/i, "")
+    .replace(/\r?\n?```$/, "")
+    .trim();
+}
+
+/**
+ * Parse model output that is meant to be JSON but frequently isn't quite:
+ * fenced, truncated (finish_reason=length), or trailed by prose. Strips fences,
+ * tries a strict parse, then falls back to `jsonrepair` — which closes open
+ * strings/arrays/objects, salvaging the complete leading entries of a truncated
+ * array. Returns `null` when nothing usable survives; callers MUST handle null
+ * rather than let a parse error abort the whole operation.
+ */
+export function parseJsonLoose(raw: string): unknown {
+  const text = stripJsonFences(raw);
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Not strictly valid — try to repair (handles truncation + minor syntax).
+  }
+  try {
+    return JSON.parse(jsonrepair(text));
+  } catch {
+    return null;
+  }
 }

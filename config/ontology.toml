@@ -318,6 +318,58 @@ object = "*"
 label = "is related to"
 symmetric = true
 
+# --- Company / organization relations ------------------------------------
+# An organization is listed on an exchange (itself an organization).
+[[predicates]]
+name = "listed_on"
+subject = "organization"
+object = "organization"
+label = "is listed on"
+
+# Executive leadership. led_by/leads are inverses so the fact shows on both
+# the company and the person.
+[[predicates]]
+name = "led_by"
+subject = "organization"
+object = "person"
+label = "is led by"
+inverse = "leads"
+
+[[predicates]]
+name = "leads"
+subject = "person"
+object = "organization"
+label = "leads"
+inverse = "led_by"
+
+# Founding/inception date (object is a date literal or a date entity).
+[[predicates]]
+name = "founded_on"
+subject = "*"
+object = "*"
+label = "was founded on"
+
+# --- Date decomposition --------------------------------------------------
+# A date entity's calendar components. Objects are literals (numbers / month
+# names); these read as facts and also feed retrieval.
+[[predicates]]
+name = "in_year"
+subject = "*"
+object = "*"
+label = "is in the year"
+
+[[predicates]]
+name = "in_month"
+subject = "*"
+object = "*"
+label = "is in the month"
+
+[[predicates]]
+name = "on_day"
+subject = "*"
+object = "*"
+label = "is on day"
+
 # Maps common infobox row labels (lowercased) to a core predicate, so
 # deterministic infobox extraction yields typed relations where possible.
 [label_predicates]
@@ -386,6 +438,25 @@ successor = "precedes"
 "based on" = "derived_from"
 influences = "influenced_by"
 "influenced by" = "influenced_by"
+# Company leadership + listing.
+ceo = "led_by"
+"chief executive" = "led_by"
+"chief executive officer" = "led_by"
+exchange = "listed_on"
+"stock exchange" = "listed_on"
+"listed on" = "listed_on"
+"traded on" = "listed_on"
+# Founding / inception date.
+founded = "founded_on"
+established = "founded_on"
+"established on" = "founded_on"
+inception = "founded_on"
+incorporated = "founded_on"
+"date founded" = "founded_on"
+# Date components.
+year = "in_year"
+month = "in_month"
+day = "on_day"
 
 # Infobox labels (lowercased) that denote a typed identifier rather than a relation.
 [identifier_labels]
@@ -393,6 +464,7 @@ ticker = "ticker"
 symbol = "ticker"
 "stock symbol" = "ticker"
 "ticker symbol" = "ticker"
+"traded as" = "ticker"
 isin = "isin"
 coordinates = "coordinate"
 "coordinate" = "coordinate"

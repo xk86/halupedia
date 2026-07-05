@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { parse } from "smol-toml";
+import { getPromptUsage } from "./promptUsage";
 
 // Matches a `key = """…"""` OR `key = '''…'''` multiline string assignment so a
 // re-save can replace either quoting style in place.
@@ -41,6 +42,8 @@ export function replaceTomlTripleQuoted(
 export interface PromptFileMeta {
   key: string;
   scope: "runnable" | "shared";
+  description: string;
+  usedBy: string[];
   model?: "heavy" | "light";
   thinking?: boolean;
   json?: boolean;
@@ -89,9 +92,11 @@ export function listPromptFiles(): { runnable: PromptFileMeta[]; shared: PromptF
       .map((file) => {
         const key = basename(file, ".toml");
         const raw = parse(readFileSync(resolve(dir, file), "utf8")) as Record<string, unknown>;
+        const usage = getPromptUsage(scope, key);
         return {
           key,
           scope,
+          ...usage,
           model: raw.model === "light" ? "light" : raw.model === "heavy" ? "heavy" : undefined,
           thinking: typeof raw.thinking === "boolean" ? raw.thinking : undefined,
           json: typeof raw.json === "boolean" ? raw.json : undefined,
@@ -114,9 +119,11 @@ export function readPromptFile(
   const path = resolve(dir, `${key}.toml`);
   if (!existsSync(path)) return null;
   const raw = parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  const usage = getPromptUsage(scope, key);
   return {
     key,
     scope,
+    ...usage,
     system: typeof raw.system === "string" ? raw.system : "",
     user: typeof raw.user === "string" ? raw.user : "",
     model: raw.model === "light" ? "light" : raw.model === "heavy" ? "heavy" : undefined,

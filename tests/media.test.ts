@@ -1160,7 +1160,10 @@ describe("http", () => {
     assert.equal(promptKeys.has("article_image_psychedelic_editorial"), false);
 
     const promptList = await (await s.go("/api/admin/prompts")).json() as any;
-    assert.ok(promptList.runnable.some((prompt: any) => prompt.key === "article_image"));
+    const articleImagePrompt = promptList.runnable.find((prompt: any) => prompt.key === "article_image");
+    assert.ok(articleImagePrompt);
+    assert.match(articleImagePrompt.description, /image-generation instructions/i);
+    assert.deepEqual(articleImagePrompt.usedBy, ["article.image_generate"]);
     assert.equal(promptList.runnable.some((prompt: any) => prompt.key === "trading_card"), false);
   });
 

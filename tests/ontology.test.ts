@@ -394,6 +394,34 @@ test("addCuratedFact/deleteCuratedFact manage hand-authored, re-extraction-safe 
   assert.ok(!listArticleEntityFacts(db, "solana").facts.some((f) => f.object === "Hand Authored"));
 });
 
+test("re-extraction reconciles incrementally: unchanged facts keep their id; gone facts removed; new added", (t) => {
+  const db = makeDb(t);
+  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  const before = listArticleEntityFacts(db, "solana").facts;
+  const isAId = before.find((f) => f.predicate === "is_a")!.relationId;
+  const foundedId = before.find((f) => f.predicate === "founded_by")!.relationId;
+
+  // Re-extract from the identical infobox: every fact keeps its row id (so the
+  // RAG ontology_fact docs keyed on the id don't churn).
+  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  const same = listArticleEntityFacts(db, "solana").facts;
+  assert.equal(same.find((f) => f.predicate === "is_a")!.relationId, isAId, "is_a id stable");
+  assert.equal(same.find((f) => f.predicate === "founded_by")!.relationId, foundedId, "founded_by id stable");
+
+  // Re-extract from a changed infobox: Founder dropped, Region added. The
+  // founded_by fact is removed; a located_in fact appears; is_a keeps its id.
+  const changed: InfoboxData = {
+    title: "Solana",
+    subtitle: "Blockchain network",
+    groups: [{ label: "Operations", rows: [{ label: "Region", value: "Global" }] }],
+  };
+  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: changed, vocab });
+  const after = listArticleEntityFacts(db, "solana").facts;
+  assert.equal(after.find((f) => f.predicate === "is_a")!.relationId, isAId, "is_a id survived the change");
+  assert.ok(!after.some((f) => f.predicate === "founded_by"), "unsupported founded_by removed");
+  assert.ok(after.some((f) => f.predicate === "located_in" && f.object === "Global"), "new located_in added");
+});
+
 test("curated/pinned relations survive re-extraction", (t) => {
   const db = makeDb(t);
   indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });

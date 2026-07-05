@@ -152,9 +152,36 @@ export function setArticleCategories(
   }
 }
 
+/** Identity of a relation independent of its id/source/confidence. */
+function relationKey(
+  subjectId: number,
+  predicate: string,
+  objectEntityId: number | null,
+  objectLiteral: string | null,
+): string {
+  return `${subjectId}${predicate}${objectEntityId ?? ""}${objectLiteral ?? ""}`;
+}
+
+interface ExistingRelationRow {
+  id: number;
+  subject_entity_id: number;
+  predicate: string;
+  object_entity_id: number | null;
+  object_literal: string | null;
+  source: string;
+  confidence: number;
+  pinned: number;
+  inferred_from: string | null;
+}
+
 /**
- * Persist an extraction result for an article: upsert entities, replace the
- * article's non-curated relations and categories. Curated/pinned rows survive.
+ * Persist an extraction result for an article by **reconciling** — not
+ * rebuilding — its non-curated relations. Facts that are still derived keep
+ * their existing row (and id, so the RAG `ontology_fact` docs keyed on it stay
+ * stable); newly derived facts are inserted; previously-derived facts that are
+ * no longer supported are removed. Curated/pinned rows are never added, updated,
+ * or deleted here. Categories are still replaced wholesale (no ids depend on
+ * them).
  */
 export function reconcileArticleOntology(
   db: DatabaseSync,
@@ -173,15 +200,11 @@ export function reconcileArticleOntology(
     return null;
   };
 
-  // Replace this article's extracted/infobox/inferred relations; keep curated +
-  // pinned. Inferred rows are re-derived on every extraction, so they clobber too.
-  prepared(
-    db,
-    `DELETE FROM entity_relations
-     WHERE provenance_slug = ? AND pinned = 0 AND source IN ('extracted', 'infobox', 'inferred')`,
-  ).run(slug);
-
-  const now = Date.now();
+  // Desired non-curated rows, deduped by identity.
+  const desired = new Map<
+    string,
+    { subjectId: number; predicate: string; objectEntityId: number | null; objectLiteral: string | null; source: string; confidence: number; inferredFrom: string | null }
+  >();
   for (const rel of extraction.relations) {
     const subjectId = resolveByName(rel.subject);
     if (subjectId === null) continue;
@@ -191,31 +214,71 @@ export function reconcileArticleOntology(
       objectLiteral = rel.object;
     } else {
       objectEntityId = resolveByName(rel.object);
-      if (objectEntityId === null) {
-        // Object entity not in this extraction: store as literal so the fact
-        // isn't lost, rather than fabricating an entity.
-        objectLiteral = rel.object;
-      }
+      // Object entity not in this extraction: store as literal so the fact
+      // isn't lost, rather than fabricating an entity.
+      if (objectEntityId === null) objectLiteral = rel.object;
     }
-    prepared(
-      db,
-      `INSERT OR IGNORE INTO entity_relations
-         (subject_entity_id, predicate, object_entity_id, object_literal,
-          provenance_slug, provenance_revision_id, source, confidence, pinned,
-          inferred_from, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-    ).run(
-      subjectId,
-      rel.predicate,
-      objectEntityId,
-      objectLiteral,
-      slug,
-      revisionId,
-      rel.source,
-      rel.confidence ?? 1,
-      rel.inferredFrom ?? null,
-      now,
+    const key = relationKey(subjectId, rel.predicate, objectEntityId, objectLiteral);
+    if (!desired.has(key)) {
+      desired.set(key, {
+        subjectId,
+        predicate: rel.predicate,
+        objectEntityId,
+        objectLiteral,
+        source: rel.source,
+        confidence: rel.confidence ?? 1,
+        inferredFrom: rel.inferredFrom ?? null,
+      });
+    }
+  }
+
+  // Existing rows for this article. Curated/pinned rows are matched (so a
+  // desired fact that coincides with one is not duplicated) but never mutated.
+  const existing = prepared(
+    db,
+    `SELECT id, subject_entity_id, predicate, object_entity_id, object_literal,
+            source, confidence, pinned, inferred_from
+     FROM entity_relations WHERE provenance_slug = ?`,
+  ).all(slug) as unknown as ExistingRelationRow[];
+  const existingByKey = new Map<string, ExistingRelationRow>();
+  for (const row of existing) {
+    existingByKey.set(
+      relationKey(row.subject_entity_id, row.predicate, row.object_entity_id, row.object_literal),
+      row,
     );
+  }
+  const isReplaceable = (row: ExistingRelationRow): boolean =>
+    row.pinned === 0 && (row.source === "extracted" || row.source === "infobox" || row.source === "inferred");
+
+  // Remove replaceable rows that are no longer desired.
+  for (const row of existing) {
+    if (isReplaceable(row) && !desired.has(relationKey(row.subject_entity_id, row.predicate, row.object_entity_id, row.object_literal))) {
+      prepared(db, `DELETE FROM entity_relations WHERE id = ?`).run(row.id);
+    }
+  }
+
+  // Insert new desired rows; refresh source/confidence on kept replaceable rows.
+  const now = Date.now();
+  for (const [key, d] of desired) {
+    const row = existingByKey.get(key);
+    if (!row) {
+      prepared(
+        db,
+        `INSERT INTO entity_relations
+           (subject_entity_id, predicate, object_entity_id, object_literal,
+            provenance_slug, provenance_revision_id, source, confidence, pinned,
+            inferred_from, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      ).run(d.subjectId, d.predicate, d.objectEntityId, d.objectLiteral, slug, revisionId, d.source, d.confidence, d.inferredFrom, now);
+    } else if (isReplaceable(row) && (row.source !== d.source || row.confidence !== d.confidence || row.inferred_from !== d.inferredFrom)) {
+      // Same fact, but its derivation changed (e.g. promoted infobox->extracted
+      // or a new confidence). Update in place; the id — and its RAG doc — stays.
+      prepared(
+        db,
+        `UPDATE entity_relations SET source = ?, confidence = ?, inferred_from = ?, provenance_revision_id = ? WHERE id = ?`,
+      ).run(d.source, d.confidence, d.inferredFrom, revisionId, row.id);
+    }
+    // A curated/pinned row with the same key is left untouched.
   }
 
   setArticleCategories(db, slug, extraction.categories, "extracted");

@@ -569,6 +569,78 @@ describe("PipelinesPane", () => {
     expect(screen.getByText("Related titles in prompt")).toBeInTheDocument();
   });
 
+  it("shows an Ontology button on write.extract_ontology with entity/relation counts and the LLM reason", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              nodes: [
+                {
+                  node_name: "write.extract_ontology",
+                  node_kind: "write",
+                  duration_ms: 5,
+                  status: "ok",
+                  diff: {
+                    ontologyExtraction: {
+                      kind: "add",
+                      after: {
+                        entities: 3,
+                        relations: 4,
+                        categories: 1,
+                        llmEnabled: true,
+                        llmReason: "first_extraction",
+                      },
+                    },
+                  },
+                },
+              ],
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    render(
+      <PipelinesPane
+        workflows={[]}
+        runs={[
+          {
+            run_id: "run-3",
+            workflow: "article.post_process",
+            slug: "target-slug",
+            started_at: 1,
+            duration_ms: 10,
+            status: "ok",
+            nodes_executed: 1,
+            error_message: null,
+          },
+        ]}
+        traceEnabled
+        error={null}
+        onRefresh={() => {}}
+      />,
+    );
+
+    await userEvent.click(screen.getByText("article.post_process"));
+    const ontologyButton = await screen.findByRole("button", {
+      name: "Ontology 4",
+    });
+    await userEvent.click(ontologyButton);
+
+    const detail = screen
+      .getByText(/right when this article was written/)
+      .closest('[data-testid="trace-detail"]');
+    expect(detail).toBeTruthy();
+    expect(within(detail as HTMLElement).getByText("Entities")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("3")).toBeInTheDocument();
+    expect(within(detail as HTMLElement).getByText("4")).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getByText(/never run for this article before/),
+    ).toBeInTheDocument();
+  });
+
   it("puts infobox reference context on the infobox LLM row", async () => {
     vi.stubGlobal(
       "fetch",

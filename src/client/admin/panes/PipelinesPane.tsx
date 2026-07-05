@@ -943,11 +943,15 @@ function NodeBreakdown({
         );
         const ragDetail = getRagTraceDetail(node);
         const hasRag = Boolean(ragDetail);
+        const ontologyDetail = getOntologyTraceDetail(node);
+        const hasOntology = Boolean(ontologyDetail);
         const warnings = normalizeWarnings(node.warnings);
         const promptKey = `${i}:prompt`;
         const ragKey = `${i}:rag`;
+        const ontologyKey = `${i}:ontology`;
         const promptOpen = openPanels.has(promptKey);
         const ragOpen = openPanels.has(ragKey);
+        const ontologyOpen = openPanels.has(ontologyKey);
         return (
           <Fragment key={i}>
             <div
@@ -1030,6 +1034,22 @@ function NodeBreakdown({
                     />
                   </Button>
                 ) : null}
+                {hasOntology ? (
+                  <Button
+                    type="button"
+                    variant={ontologyOpen ? "secondary" : "outline"}
+                    size="sm"
+                    className="h-6 px-1.5 text-[0.68rem]"
+                    title="Show entities/relations/categories extracted for this article"
+                    onClick={() => togglePanel(ontologyKey)}
+                  >
+                    Ontology {ontologyDetail?.relations ?? 0}
+                    <ChevronDown
+                      data-icon="inline-end"
+                      className={cn(!ontologyOpen && "-rotate-90")}
+                    />
+                  </Button>
+                ) : null}
               </span>
             </div>
             {promptOpen && hasPrompt && (
@@ -1045,6 +1065,9 @@ function NodeBreakdown({
               </div>
             )}
             {ragOpen && ragDetail && <RagDetail detail={ragDetail} />}
+            {ontologyOpen && ontologyDetail && (
+              <OntologyDetail detail={ontologyDetail} />
+            )}
             {warnings.length ? (
               <div className="rounded-md border border-amber-300/80 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700/80 dark:bg-amber-950/40 dark:text-amber-100">
                 {warnings.map((warning, warningIndex) => (
@@ -1150,6 +1173,66 @@ interface RagTraceDetail {
   embedding?: EmbeddingTrace;
   /** Byte-exact capture (render nodes) — authoritative over the reconstruction. */
   exact?: RagExactCapture;
+}
+
+interface OntologyTraceDetail {
+  entities: number;
+  relations: number;
+  categories: number;
+  llmEnabled: boolean;
+  llmReason?: string;
+}
+
+const LLM_REASON_LABEL: Record<string, string> = {
+  first_extraction: "first extraction — never run for this article before",
+  content_changed: "article body changed since the last extraction",
+  vocabulary_changed: "ontology vocabulary changed since the last extraction",
+  cache_hit: "cache hit — content and vocabulary unchanged, model not called",
+};
+
+/** Extraction summary written by write.extract_ontology (patch, falling back
+ *  to diff so it's visible at the default "normal" trace level). */
+function getOntologyTraceDetail(node: NodeSpan): OntologyTraceDetail | null {
+  if (node.node_name !== "write.extract_ontology") return null;
+  const patch = asRecord(node.patch);
+  const diff = asRecord(node.diff);
+  const summary =
+    asRecord(patch?.ontologyExtraction) ?? asRecord(diffAfter(diff, "ontologyExtraction"));
+  if (!summary) return null;
+  return {
+    entities: typeof summary.entities === "number" ? summary.entities : 0,
+    relations: typeof summary.relations === "number" ? summary.relations : 0,
+    categories: typeof summary.categories === "number" ? summary.categories : 0,
+    llmEnabled: summary.llmEnabled === true,
+    llmReason: typeof summary.llmReason === "string" ? summary.llmReason : undefined,
+  };
+}
+
+function OntologyDetail({ detail }: { detail: OntologyTraceDetail }) {
+  const rows: Array<[string, string]> = [
+    ["Entities", String(detail.entities)],
+    ["Relations", String(detail.relations)],
+    ["Categories", String(detail.categories)],
+    ["LLM extraction", detail.llmEnabled ? "on" : "off (deterministic only)"],
+  ];
+  if (detail.llmEnabled) {
+    rows.push([
+      "Why the model ran",
+      detail.llmReason
+        ? LLM_REASON_LABEL[detail.llmReason] ?? detail.llmReason
+        : "n/a",
+    ]);
+  }
+  return (
+    <div className="flex flex-col gap-2" data-testid="trace-detail">
+      <p className="m-0 text-[0.7rem] text-muted-foreground">
+        Entities/relations/categories derived from the infobox (and, if enabled,
+        a light-model pass) right when this article was written — not on the
+        next async RAG drain.
+      </p>
+      <TraceMetadata rows={rows} />
+    </div>
+  );
 }
 
 function getRagTraceDetail(node: NodeSpan): RagTraceDetail | null {

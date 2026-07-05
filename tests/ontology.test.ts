@@ -15,6 +15,7 @@ import {
   listArticleEntityFacts,
   loadOntologyVocabulary,
   mergeExtractions,
+  resolveArticleSlugByName,
   validateLlmExtraction,
 } from "../src/server/ontology";
 import { sanitizeFactText } from "../src/server/ontology/extract";
@@ -194,6 +195,34 @@ test("ontology fact documents render attributes with their label, links as ref-l
   assert.ok(!consolidated?.content.includes("related to"));
   const rel = docs.find((d) => d.content.includes("Hypothesis:") && d.sourceId !== "haha-test:entity");
   assert.ok(rel?.content.startsWith("Haha test — Hypothesis: Proposed explanation"));
+});
+
+test("resolveArticleSlugByName matches case-insensitively and via aliases", (t) => {
+  const db = makeDb(t);
+  const mk = (slug: string, title: string): ArticleRecord => ({
+    slug,
+    canonicalSlug: slug,
+    title,
+    markdown: `# ${title}\n\nBody.`,
+    html: "",
+    summaryMarkdown: "",
+    plain_text: "Body.",
+    generated_at: 1,
+  });
+  saveArticle(db, mk("global-reporting-desk", "Global Reporting Desk"), [], [], {});
+  saveArticle(db, mk("triton-institute", "Triton Institute of Applied Phasing"), [], [], {});
+  prepared(db, `INSERT INTO article_aliases (alias_slug, article_slug) VALUES (?, ?)`).run(
+    "tiap",
+    "triton-institute",
+  );
+
+  // Case-insensitive direct title match — the LLM rarely gets casing exact.
+  assert.equal(resolveArticleSlugByName(db, "global reporting desk"), "global-reporting-desk");
+  assert.equal(resolveArticleSlugByName(db, "GLOBAL REPORTING DESK"), "global-reporting-desk");
+  // Article alias slug match.
+  assert.equal(resolveArticleSlugByName(db, "TIAP"), "triton-institute");
+  // No backing article at all -> null, never fabricates a link.
+  assert.equal(resolveArticleSlugByName(db, "Nonexistent Thing"), null);
 });
 
 test("ontology fact documents link literal objects that name a real article", (t) => {

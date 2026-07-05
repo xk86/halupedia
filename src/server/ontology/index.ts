@@ -29,6 +29,7 @@ export {
   deleteArticleOntology,
   findEntityId,
   upsertEntity,
+  resolveArticleSlugByName,
 } from "./store";
 export { buildOntologyFactDocuments } from "./documents";
 export {

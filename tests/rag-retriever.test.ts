@@ -173,5 +173,9 @@ test("semantic retrieval excludes documents below minScore", async (t) => {
   );
 
   assert.deepEqual(res.sourceArticles, []);
-  assert.ok(res.diagnostics.exclusions.some((entry) => entry.reason === "below_min_score"));
+  const exclusion = res.diagnostics.exclusions.find(
+    (entry) => entry.reason === "below_min_score",
+  );
+  assert.equal(typeof exclusion?.score, "number");
+  assert.ok(exclusion!.score < 2);
 });

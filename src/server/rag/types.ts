@@ -105,7 +105,7 @@ export interface RetrievalDiagnostics {
   selectedImageCount: number;
   selectedKinds: TextDocumentKind[];
   /** Documents considered but excluded, with a reason (blacklist, dedupe, …). */
-  exclusions: Array<{ documentId: string; reason: string }>;
+  exclusions: Array<{ documentId: string; reason: string; score: number }>;
   degraded?: string;
 }
 

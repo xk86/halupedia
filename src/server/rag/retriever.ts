@@ -217,7 +217,11 @@ export async function retrieveContext(
   const semanticHits = rawSemanticHits.filter((hit) => hit.score >= minScore);
   for (const hit of rawSemanticHits) {
     if (hit.score < minScore) {
-      exclusions.push({ documentId: hit.documentId, reason: "below_min_score" });
+      exclusions.push({
+        documentId: hit.documentId,
+        reason: "below_min_score",
+        score: hit.score,
+      });
     }
   }
 
@@ -323,7 +327,11 @@ export async function retrieveContext(
 
   for (const hit of semanticHits) {
     if (!textDocuments.some((d) => d.documentId === hit.documentId)) {
-      exclusions.push({ documentId: hit.documentId, reason: "below_top_k" });
+      exclusions.push({
+        documentId: hit.documentId,
+        reason: "below_top_k",
+        score: hit.score,
+      });
     }
   }
 

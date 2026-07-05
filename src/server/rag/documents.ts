@@ -119,6 +119,37 @@ export interface LinkHintInput {
   hint: string;
 }
 
+const STOPWORDS = new Set(["the", "a", "an", "of", "and", "or"]);
+
+function significantWords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w && !STOPWORDS.has(w)),
+  );
+}
+
+/**
+ * A hint that's just the target's own name restated — "Test G: Test G",
+ * "Global Test: Global Test Exchange" — explains nothing about *why* the link
+ * is relevant. Detect this generically: strip the title's own words out of the
+ * hint and see what's left. A real explanation draws its words from the
+ * relationship, not the target's name, so it leaves several; a tautology
+ * leaves at most one.
+ */
+function isTautologicalHint(title: string, hint: string): boolean {
+  const titleWords = significantWords(title);
+  const hintWords = significantWords(hint);
+  if (hintWords.size === 0) return true;
+  let remaining = 0;
+  for (const word of hintWords) {
+    if (!titleWords.has(word)) remaining += 1;
+  }
+  return remaining <= 1;
+}
+
 /** A `link_hint` carries a target article's summary/hint as retrievable context. */
 export function buildLinkHintDocuments(
   slug: string,
@@ -131,8 +162,12 @@ export function buildLinkHintDocuments(
     const target = slugify(link.targetSlug);
     const hint = (link.hint ?? "").trim();
     if (!target || !hint || seen.has(target)) continue;
-    seen.add(target);
     const title = link.targetTitle?.trim() || target;
+    // A tautological hint ("basically just the title") adds no explanatory
+    // value, so it's excluded entirely — it isn't retrievable, doesn't count
+    // toward any quota, and can't surface as evidence.
+    if (isTautologicalHint(title, hint)) continue;
+    seen.add(target);
     docs.push(
       makeDoc("link_hint", slug, `${slug}->${target}`, `${title}: ${stripLinks(hint)}`, updatedAt, {
         metadata: { targetSlug: target, targetTitle: title },

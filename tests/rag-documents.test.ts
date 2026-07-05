@@ -76,6 +76,29 @@ test("link hints dedupe by target and carry the hint text", () => {
   assert.ok(docs[0].content.includes("Proof of History: Ordering mechanism."));
 });
 
+test("link hints that are just the target's own name are excluded — they explain nothing", () => {
+  const docs = buildLinkHintDocuments(
+    "todays-news-day-001038",
+    [
+      // Exact restatement of the title.
+      { targetSlug: "test-g", targetTitle: "Test G", hint: "Test G" },
+      // Title + one generic trailing word — still no explanation of *why*.
+      { targetSlug: "global-test", targetTitle: "Global Test", hint: "Global Test Exchange" },
+      // A real explanation: mostly words NOT drawn from the target's name.
+      {
+        targetSlug: "proof-of-history",
+        targetTitle: "Proof of History",
+        hint: "Provides the cryptographic ordering mechanism Solana's consensus relies on.",
+      },
+    ],
+    1,
+  );
+  const targets = docs.map((d) => d.metadata?.targetSlug);
+  assert.ok(!targets.includes("test-g"), "exact self-restatement excluded");
+  assert.ok(!targets.includes("global-test"), "title + one generic word excluded");
+  assert.ok(targets.includes("proof-of-history"), "substantive explanation kept");
+});
+
 test("image text builder emits caption + description docs", () => {
   const docs = buildImageTextDocuments(
     "solana",

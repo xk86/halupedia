@@ -550,6 +550,7 @@ export const extractOntologyNode = defineNode({
         categories: merged.categories.length,
         llmEnabled,
         llmReason,
+        extraction: merged,
       },
     };
   },

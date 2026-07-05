@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, prepared, saveArticle, setArticleInfobox, type InfoboxData } from "../src/server/db";
+import {
+  openDatabase,
+  prepared,
+  saveArticle,
+  setArticleInfobox,
+  type InfoboxData,
+} from "../src/server/db";
 import {
   buildOntologyFactDocuments,
   deleteArticleOntology,
@@ -40,7 +46,10 @@ const INFOBOX: InfoboxData = {
     {
       label: "Operations",
       rows: [
-        { label: "Founder", value: "[Anatoly Yakovenko](ref:anatoly-yakovenko)" },
+        {
+          label: "Founder",
+          value: "[Anatoly Yakovenko](ref:anatoly-yakovenko)",
+        },
         { label: "Ticker", value: "SOL" },
         { label: "Launched", value: "2020-03-16" },
       ],
@@ -52,23 +61,50 @@ test("a personal honorific in the title classifies as person even when the subti
   const infobox: InfoboxData = {
     title: "Mr. Test",
     subtitle: "Diagnostic Expert",
-    groups: [{ label: "", rows: [{ label: "Expertise", value: "Diagnostician" }] }],
+    groups: [
+      { label: "", rows: [{ label: "Expertise", value: "Diagnostician" }] },
+    ],
   };
-  const res = extractDeterministic({ slug: "mr-test", title: "Mr. Test", infobox, vocab });
+  const res = extractDeterministic({
+    slug: "mr-test",
+    title: "Mr. Test",
+    infobox,
+    vocab,
+  });
   const article = res.entities.find((e) => e.articleSlug === "mr-test");
-  assert.equal(article?.type, "person", "'Mr.' honorific overrides an unmatched role subtitle");
-  assert.ok(res.relations.some((r) => r.predicate === "is_a" && r.object === "person"));
+  assert.equal(
+    article?.type,
+    "person",
+    "'Mr.' honorific overrides an unmatched role subtitle",
+  );
+  assert.ok(
+    res.relations.some((r) => r.predicate === "is_a" && r.object === "person"),
+  );
 });
 
 test("a personal honorific still classifies as person with no infobox at all", () => {
-  const res = extractDeterministic({ slug: "dr-okafor", title: "Dr. Okafor", infobox: null, vocab });
+  const res = extractDeterministic({
+    slug: "dr-okafor",
+    title: "Dr. Okafor",
+    infobox: null,
+    vocab,
+  });
   const article = res.entities.find((e) => e.articleSlug === "dr-okafor");
   assert.equal(article?.type, "person");
 });
 
 test("an unrelated word starting with an honorific-like prefix is not misclassified", () => {
-  const infobox: InfoboxData = { title: "Drought", subtitle: "Climate phenomenon", groups: [] };
-  const res = extractDeterministic({ slug: "drought", title: "Drought", infobox, vocab });
+  const infobox: InfoboxData = {
+    title: "Drought",
+    subtitle: "Climate phenomenon",
+    groups: [],
+  };
+  const res = extractDeterministic({
+    slug: "drought",
+    title: "Drought",
+    infobox,
+    vocab,
+  });
   const article = res.entities.find((e) => e.articleSlug === "drought");
   assert.notEqual(article?.type, "person");
 });
@@ -80,17 +116,34 @@ function makeDb(t: { after: (fn: () => void) => void }) {
 }
 
 test("deterministic extraction maps infobox rows to typed facts + identifiers", () => {
-  const res = extractDeterministic({ slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  const res = extractDeterministic({
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   const article = res.entities.find((e) => e.articleSlug === "solana");
-  assert.equal(article?.type, "organization", "subtitle 'network' -> organization");
+  assert.equal(
+    article?.type,
+    "organization",
+    "subtitle 'network' -> organization",
+  );
   // Founder maps to founded_by predicate via label_predicates
   const founded = res.relations.find((r) => r.predicate === "founded_by");
   assert.equal(founded?.object, "Anatoly Yakovenko");
   assert.equal(founded?.objectIsLiteral, false);
   // Ticker becomes an identifier, not a relation
-  assert.ok(article?.identifiers?.some((i) => i.scheme === "ticker" && i.value === "SOL"));
+  assert.ok(
+    article?.identifiers?.some(
+      (i) => i.scheme === "ticker" && i.value === "SOL",
+    ),
+  );
   // ISO date literal becomes an iso_date identifier too
-  assert.ok(article?.identifiers?.some((i) => i.scheme === "iso_date" && i.value === "2020-03-16"));
+  assert.ok(
+    article?.identifiers?.some(
+      (i) => i.scheme === "iso_date" && i.value === "2020-03-16",
+    ),
+  );
   assert.ok(res.categories.includes("Blockchain network"));
 });
 
@@ -110,7 +163,12 @@ test("infobox link objects are recognized in every internal form and re-wrapped"
       },
     ],
   };
-  const res = extractDeterministic({ slug: "widget", title: "Widget", infobox, vocab });
+  const res = extractDeterministic({
+    slug: "widget",
+    title: "Widget",
+    infobox,
+    vocab,
+  });
   const owned = res.relations.find((r) => r.predicate === "owned_by");
   assert.equal(owned?.object, "Acme Corp");
   assert.equal(owned?.objectSlug, "acme-corp");
@@ -131,16 +189,33 @@ test("unmapped infobox labels are preserved verbatim, not collapsed to related_t
         rows: [
           // Unknown label + literal value -> descriptive attribute, label kept.
           // Trailing colon is trimmed so it renders as "Hypothesis: ...".
-          { label: "Hypothesis:", value: "Proposed explanation guiding the test" },
+          {
+            label: "Hypothesis:",
+            value: "Proposed explanation guiding the test",
+          },
           // Unknown label + linked value -> label kept AND the link preserved.
-          { label: "Builds on", value: "[Scientific Method](ref:scientific-method)" },
+          {
+            label: "Builds on",
+            value: "[Scientific Method](ref:scientific-method)",
+          },
         ],
       },
     ],
   };
-  const res = extractDeterministic({ slug: "haha-test", title: "Haha test", infobox, vocab });
-  assert.ok(!res.relations.some((r) => r.predicate === "related_to"), "no related_to fabricated");
-  assert.ok(!res.relations.some((r) => r.predicate.endsWith(":")), "trailing colon trimmed from labels");
+  const res = extractDeterministic({
+    slug: "haha-test",
+    title: "Haha test",
+    infobox,
+    vocab,
+  });
+  assert.ok(
+    !res.relations.some((r) => r.predicate === "related_to"),
+    "no related_to fabricated",
+  );
+  assert.ok(
+    !res.relations.some((r) => r.predicate.endsWith(":")),
+    "trailing colon trimmed from labels",
+  );
   const attr = res.relations.find((r) => r.predicate === "Hypothesis");
   assert.equal(attr?.object, "Proposed explanation guiding the test");
   assert.equal(attr?.objectIsLiteral, true);
@@ -153,9 +228,15 @@ test("unmapped infobox labels are preserved verbatim, not collapsed to related_t
 test("sanitizeFactText unwraps links/bare-brackets but leaves real emphasis alone", () => {
   // Legitimate italics/bold/code are formatting, not stray markup — kept as-is.
   assert.equal(sanitizeFactText("*Pensi* nodes"), "*Pensi* nodes");
-  assert.equal(sanitizeFactText("**bold** and `code`  spaced"), "**bold** and `code` spaced");
+  assert.equal(
+    sanitizeFactText("**bold** and `code`  spaced"),
+    "**bold** and `code` spaced",
+  );
   // Bare [brackets] with no link target and markdown links both unwrap to plain text.
-  assert.equal(sanitizeFactText("[Venous return abnormalities]"), "Venous return abnormalities");
+  assert.equal(
+    sanitizeFactText("[Venous return abnormalities]"),
+    "Venous return abnormalities",
+  );
   assert.equal(sanitizeFactText("see [the docs](https://x.y)"), "see the docs");
   // Underscores are preserved so slugs/identifiers aren't mangled.
   assert.equal(sanitizeFactText("let_const_static"), "let_const_static");
@@ -170,16 +251,32 @@ test("messy infobox values are cleaned without touching legitimate emphasis", ()
         label: "Detail",
         rows: [
           { label: "Associated Systems", value: "*Pensi* nodes [Penis pensi]" },
-          { label: "Flow Issues", value: "[Venous return abnormalities in the shaft]" },
+          {
+            label: "Flow Issues",
+            value: "[Venous return abnormalities in the shaft]",
+          },
         ],
       },
     ],
   };
-  const res = extractDeterministic({ slug: "wenis-tissue", title: "Wenis Tissue", infobox, vocab });
+  const res = extractDeterministic({
+    slug: "wenis-tissue",
+    title: "Wenis Tissue",
+    infobox,
+    vocab,
+  });
   const assoc = res.relations.find((r) => r.predicate === "Associated Systems");
-  assert.equal(assoc?.object, "*Pensi* nodes Penis pensi", "emphasis kept, bare bracket unwrapped");
+  assert.equal(
+    assoc?.object,
+    "*Pensi* nodes Penis pensi",
+    "emphasis kept, bare bracket unwrapped",
+  );
   const flow = res.relations.find((r) => r.predicate === "Flow Issues");
-  assert.equal(flow?.object, "Venous return abnormalities in the shaft", "bare bracket unwrapped");
+  assert.equal(
+    flow?.object,
+    "Venous return abnormalities in the shaft",
+    "bare bracket unwrapped",
+  );
 });
 
 test("ontology fact documents render attributes with their label, links as ref-links", (t) => {
@@ -189,18 +286,43 @@ test("ontology fact documents render attributes with their label, links as ref-l
     groups: [
       {
         label: "Protocol Components",
-        rows: [{ label: "Hypothesis", value: "Proposed explanation guiding the test" }],
+        rows: [
+          {
+            label: "Hypothesis",
+            value: "Proposed explanation guiding the test",
+          },
+        ],
       },
     ],
   };
   const db = makeDb(t);
-  indexArticleOntology(db, { slug: "haha-test", title: "Haha test", infobox, vocab });
-  const docs = buildOntologyFactDocuments(db, "haha-test", "Haha test", Date.now(), vocab);
+  indexArticleOntology(db, {
+    slug: "haha-test",
+    title: "Haha test",
+    infobox,
+    vocab,
+  });
+  const docs = buildOntologyFactDocuments(
+    db,
+    "haha-test",
+    "Haha test",
+    Date.now(),
+    vocab,
+  );
   const consolidated = docs.find((d) => d.sourceId === "haha-test:entity");
-  assert.ok(consolidated?.content.includes("Hypothesis: Proposed explanation guiding the test"));
+  assert.ok(
+    consolidated?.content.includes(
+      "Hypothesis: Proposed explanation guiding the test",
+    ),
+  );
   assert.ok(!consolidated?.content.includes("related to"));
-  const rel = docs.find((d) => d.content.includes("Hypothesis:") && d.sourceId !== "haha-test:entity");
-  assert.ok(rel?.content.startsWith("Haha test — Hypothesis: Proposed explanation"));
+  const rel = docs.find(
+    (d) =>
+      d.content.includes("Hypothesis:") && d.sourceId !== "haha-test:entity",
+  );
+  assert.ok(
+    rel?.content.startsWith("Haha test — Hypothesis: Proposed explanation"),
+  );
 });
 
 test("resolveArticleSlugByName matches case-insensitively and via aliases", (t) => {
@@ -215,16 +337,34 @@ test("resolveArticleSlugByName matches case-insensitively and via aliases", (t) 
     plain_text: "Body.",
     generated_at: 1,
   });
-  saveArticle(db, mk("global-reporting-desk", "Global Reporting Desk"), [], [], {});
-  saveArticle(db, mk("triton-institute", "Triton Institute of Applied Phasing"), [], [], {});
-  prepared(db, `INSERT INTO article_aliases (alias_slug, article_slug) VALUES (?, ?)`).run(
-    "tiap",
-    "triton-institute",
+  saveArticle(
+    db,
+    mk("global-reporting-desk", "Global Reporting Desk"),
+    [],
+    [],
+    {},
   );
+  saveArticle(
+    db,
+    mk("triton-institute", "Triton Institute of Applied Phasing"),
+    [],
+    [],
+    {},
+  );
+  prepared(
+    db,
+    `INSERT INTO article_aliases (alias_slug, article_slug) VALUES (?, ?)`,
+  ).run("tiap", "triton-institute");
 
   // Case-insensitive direct title match — the LLM rarely gets casing exact.
-  assert.equal(resolveArticleSlugByName(db, "global reporting desk"), "global-reporting-desk");
-  assert.equal(resolveArticleSlugByName(db, "GLOBAL REPORTING DESK"), "global-reporting-desk");
+  assert.equal(
+    resolveArticleSlugByName(db, "global reporting desk"),
+    "global-reporting-desk",
+  );
+  assert.equal(
+    resolveArticleSlugByName(db, "GLOBAL REPORTING DESK"),
+    "global-reporting-desk",
+  );
   // Article alias slug match.
   assert.equal(resolveArticleSlugByName(db, "TIAP"), "triton-institute");
   // No backing article at all -> null, never fabricates a link.
@@ -245,11 +385,21 @@ test("ontology fact documents link literal objects that name a real article", (t
   });
   // Target article exists and owns an ontology entity.
   saveArticle(db, mk("proprioception", "Proprioception"), [], [], {});
-  indexArticleOntology(db, { slug: "proprioception", title: "Proprioception", infobox: null, vocab });
+  indexArticleOntology(db, {
+    slug: "proprioception",
+    title: "Proprioception",
+    infobox: null,
+    vocab,
+  });
   // Source article with a related_to fact stored as a bare literal — the shape
   // an LLM-extracted relation that never got linked to an entity produces.
   saveArticle(db, mk("awa-test", "Awa test"), [], [], {});
-  indexArticleOntology(db, { slug: "awa-test", title: "Awa test", infobox: null, vocab });
+  indexArticleOntology(db, {
+    slug: "awa-test",
+    title: "Awa test",
+    infobox: null,
+    vocab,
+  });
   const { entity } = listArticleEntityFacts(db, "awa-test");
   prepared(
     db,
@@ -257,7 +407,13 @@ test("ontology fact documents link literal objects that name a real article", (t
      VALUES (?, 'related_to', 'Proprioception', 'awa-test', 'curated', 1, 1, ?)`,
   ).run(entity!.id, Date.now());
 
-  const docs = buildOntologyFactDocuments(db, "awa-test", "Awa test", Date.now(), vocab);
+  const docs = buildOntologyFactDocuments(
+    db,
+    "awa-test",
+    "Awa test",
+    Date.now(),
+    vocab,
+  );
   const linked = docs.find((d) => d.content.includes("Proprioception"));
   assert.ok(
     linked?.content.includes("[Proprioception](ref:proprioception)"),
@@ -274,9 +430,21 @@ test("LLM extraction validation drops off-vocabulary entities and relations", ()
         { name: "Bogus", type: "alien" }, // off-vocab type -> dropped
       ],
       relations: [
-        { subject: "Solana", predicate: "founded_by", object: "Anatoly Yakovenko" }, // valid signature
-        { subject: "Solana", predicate: "born_on", object: "Anatoly Yakovenko" }, // bad signature -> dropped
-        { subject: "Solana", predicate: "teleports_to", object: "Anatoly Yakovenko" }, // unknown predicate -> dropped
+        {
+          subject: "Solana",
+          predicate: "founded_by",
+          object: "Anatoly Yakovenko",
+        }, // valid signature
+        {
+          subject: "Solana",
+          predicate: "born_on",
+          object: "Anatoly Yakovenko",
+        }, // bad signature -> dropped
+        {
+          subject: "Solana",
+          predicate: "teleports_to",
+          object: "Anatoly Yakovenko",
+        }, // unknown predicate -> dropped
       ],
       categories: ["Layer 1 blockchains"],
     },
@@ -301,8 +469,16 @@ test("LLM extraction validation tolerates non-string and malformed fields", () =
       ],
       relations: [
         // object is a nested object, not a string -> must not crash, dropped.
-        { subject: "Solana", predicate: "founded_by", object: { nested: true } },
-        { subject: "Solana", predicate: "founded_by", object: "Anatoly Yakovenko" }, // valid
+        {
+          subject: "Solana",
+          predicate: "founded_by",
+          object: { nested: true },
+        },
+        {
+          subject: "Solana",
+          predicate: "founded_by",
+          object: "Anatoly Yakovenko",
+        }, // valid
         null, // non-object entry -> skipped
       ],
       categories: ["Blockchain", 7, { bad: 1 }],
@@ -321,12 +497,26 @@ test("LLM extraction validation tolerates a null/garbage root", () => {
 
 test("indexArticleOntology persists entities, relations, categories", (t) => {
   const db = makeDb(t);
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
-  const { entity, facts, identifiers, categories } = listArticleEntityFacts(db, "solana");
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
+  const { entity, facts, identifiers, categories } = listArticleEntityFacts(
+    db,
+    "solana",
+  );
   assert.equal(entity?.entityType, "organization");
   // Every entity gets an explicit, provable is_a classification fact.
-  assert.ok(facts.some((f) => f.predicate === "is_a" && f.object === "organization"));
-  assert.ok(facts.some((f) => f.predicate === "founded_by" && f.object === "Anatoly Yakovenko"));
+  assert.ok(
+    facts.some((f) => f.predicate === "is_a" && f.object === "organization"),
+  );
+  assert.ok(
+    facts.some(
+      (f) => f.predicate === "founded_by" && f.object === "Anatoly Yakovenko",
+    ),
+  );
   assert.ok(identifiers.some((i) => i.value === "SOL"));
   assert.ok(categories.includes("Blockchain network"));
 });
@@ -347,24 +537,42 @@ test("ontology staleness tracks the vocabulary signature; lazy refresh re-extrac
   setArticleInfobox(db, "solana", INFOBOX, "test");
 
   // First extraction stamps the current signature; the article is now fresh.
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   assert.equal(getArticleOntologySignature(db, "solana"), vocab.signature);
   assert.equal(isArticleOntologyStale(db, "solana", vocab), false);
-  assert.equal(ensureArticleOntologyFresh(db, "solana", vocab), false, "no work when fresh");
+  assert.equal(
+    ensureArticleOntologyFresh(db, "solana", vocab),
+    false,
+    "no work when fresh",
+  );
 
   // A vocabulary whose predicates changed has a different signature -> stale.
   const evolved = { ...vocab, signature: "changed-signature" };
   assert.equal(isArticleOntologyStale(db, "solana", evolved), true);
 
   // Lazy refresh re-extracts deterministically and re-stamps the new signature.
-  assert.equal(ensureArticleOntologyFresh(db, "solana", evolved), true, "re-extracted when stale");
+  assert.equal(
+    ensureArticleOntologyFresh(db, "solana", evolved),
+    true,
+    "re-extracted when stale",
+  );
   assert.equal(getArticleOntologySignature(db, "solana"), "changed-signature");
   assert.equal(isArticleOntologyStale(db, "solana", evolved), false);
 });
 
 test("addCuratedFact/deleteCuratedFact manage hand-authored, re-extraction-safe facts", (t) => {
   const db = makeDb(t);
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   const subjectId = getArticleEntityId(db, "solana")!;
 
   const id = addCuratedFact(db, {
@@ -374,57 +582,125 @@ test("addCuratedFact/deleteCuratedFact manage hand-authored, re-extraction-safe 
     provenanceSlug: "solana",
   });
   assert.ok(id > 0);
-  const added = listArticleEntityFacts(db, "solana").facts.find((f) => f.object === "Hand Authored");
+  const added = listArticleEntityFacts(db, "solana").facts.find(
+    (f) => f.object === "Hand Authored",
+  );
   assert.equal(added?.source, "curated");
   assert.equal(added?.pinned, 1);
 
   // Adding the identical fact again is idempotent (same row id).
   assert.equal(
-    addCuratedFact(db, { subjectId, predicate: "related_to", objectLiteral: "Hand Authored", provenanceSlug: "solana" }),
+    addCuratedFact(db, {
+      subjectId,
+      predicate: "related_to",
+      objectLiteral: "Hand Authored",
+      provenanceSlug: "solana",
+    }),
     id,
   );
 
   // Survives re-extraction, then can be deleted; an extracted fact cannot.
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
-  assert.ok(listArticleEntityFacts(db, "solana").facts.some((f) => f.object === "Hand Authored"));
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
+  assert.ok(
+    listArticleEntityFacts(db, "solana").facts.some(
+      (f) => f.object === "Hand Authored",
+    ),
+  );
 
-  const extractedId = listArticleEntityFacts(db, "solana").facts.find((f) => f.source === "infobox")!.relationId;
-  assert.equal(deleteCuratedFact(db, "solana", extractedId), false, "extracted facts are not hand-deletable");
+  const extractedId = listArticleEntityFacts(db, "solana").facts.find(
+    (f) => f.source === "infobox",
+  )!.relationId;
+  assert.equal(
+    deleteCuratedFact(db, "solana", extractedId),
+    false,
+    "extracted facts are not hand-deletable",
+  );
   assert.equal(deleteCuratedFact(db, "solana", id), true);
-  assert.ok(!listArticleEntityFacts(db, "solana").facts.some((f) => f.object === "Hand Authored"));
+  assert.ok(
+    !listArticleEntityFacts(db, "solana").facts.some(
+      (f) => f.object === "Hand Authored",
+    ),
+  );
 });
 
 test("re-extraction reconciles incrementally: unchanged facts keep their id; gone facts removed; new added", (t) => {
   const db = makeDb(t);
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   const before = listArticleEntityFacts(db, "solana").facts;
   const isAId = before.find((f) => f.predicate === "is_a")!.relationId;
-  const foundedId = before.find((f) => f.predicate === "founded_by")!.relationId;
+  const foundedId = before.find(
+    (f) => f.predicate === "founded_by",
+  )!.relationId;
 
   // Re-extract from the identical infobox: every fact keeps its row id (so the
   // RAG ontology_fact docs keyed on the id don't churn).
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   const same = listArticleEntityFacts(db, "solana").facts;
-  assert.equal(same.find((f) => f.predicate === "is_a")!.relationId, isAId, "is_a id stable");
-  assert.equal(same.find((f) => f.predicate === "founded_by")!.relationId, foundedId, "founded_by id stable");
+  assert.equal(
+    same.find((f) => f.predicate === "is_a")!.relationId,
+    isAId,
+    "is_a id stable",
+  );
+  assert.equal(
+    same.find((f) => f.predicate === "founded_by")!.relationId,
+    foundedId,
+    "founded_by id stable",
+  );
 
   // Re-extract from a changed infobox: Founder dropped, Region added. The
   // founded_by fact is removed; a located_in fact appears; is_a keeps its id.
   const changed: InfoboxData = {
     title: "Solana",
     subtitle: "Blockchain network",
-    groups: [{ label: "Operations", rows: [{ label: "Region", value: "Global" }] }],
+    groups: [
+      { label: "Operations", rows: [{ label: "Region", value: "Global" }] },
+    ],
   };
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: changed, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: changed,
+    vocab,
+  });
   const after = listArticleEntityFacts(db, "solana").facts;
-  assert.equal(after.find((f) => f.predicate === "is_a")!.relationId, isAId, "is_a id survived the change");
-  assert.ok(!after.some((f) => f.predicate === "founded_by"), "unsupported founded_by removed");
-  assert.ok(after.some((f) => f.predicate === "located_in" && f.object === "Global"), "new located_in added");
+  assert.equal(
+    after.find((f) => f.predicate === "is_a")!.relationId,
+    isAId,
+    "is_a id survived the change",
+  );
+  assert.ok(
+    !after.some((f) => f.predicate === "founded_by"),
+    "unsupported founded_by removed",
+  );
+  assert.ok(
+    after.some((f) => f.predicate === "located_in" && f.object === "Global"),
+    "new located_in added",
+  );
 });
 
 test("curated/pinned relations survive re-extraction", (t) => {
   const db = makeDb(t);
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   // Simulate a curator pinning a hand-authored relation.
   const subjectId = listArticleEntityFacts(db, "solana").entity!.id;
   prepared(
@@ -434,14 +710,27 @@ test("curated/pinned relations survive re-extraction", (t) => {
   ).run(subjectId, Date.now());
 
   // Re-extract (e.g. article edited): pinned curated relation must remain.
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   const facts = listArticleEntityFacts(db, "solana").facts;
-  assert.ok(facts.some((f) => f.object === "Curated Fact"), "pinned curated relation survived");
+  assert.ok(
+    facts.some((f) => f.object === "Curated Fact"),
+    "pinned curated relation survived",
+  );
 });
 
 test("ontology_fact documents are compact and provenance-tagged", (t) => {
   const db = makeDb(t);
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   const docs = buildOntologyFactDocuments(db, "solana", "Solana", 1, vocab);
   assert.ok(docs.length >= 2);
   const consolidated = docs.find((d) => d.sourceId === "solana:entity");
@@ -449,15 +738,29 @@ test("ontology_fact documents are compact and provenance-tagged", (t) => {
   assert.ok(consolidated?.content.includes("ticker: SOL"));
   // The founder is an internal link, so it must render as a ref-link.
   assert.ok(
-    consolidated?.content.includes("was founded by: [Anatoly Yakovenko](ref:anatoly-yakovenko)"),
+    consolidated?.content.includes(
+      "was founded by: [Anatoly Yakovenko](ref:anatoly-yakovenko)",
+    ),
   );
-  assert.ok(docs.every((d) => d.sourceKind === "ontology_fact" && d.articleSlug === "solana"));
+  assert.ok(
+    docs.every(
+      (d) => d.sourceKind === "ontology_fact" && d.articleSlug === "solana",
+    ),
+  );
 });
 
 test("merge prefers deterministic and dedupes", () => {
-  const det = extractDeterministic({ slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  const det = extractDeterministic({
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   const llm = validateLlmExtraction(
-    { entities: [{ name: "Solana", type: "organization" }], categories: ["Crypto"] },
+    {
+      entities: [{ name: "Solana", type: "organization" }],
+      categories: ["Crypto"],
+    },
     vocab,
   );
   const merged = mergeExtractions(det, llm);
@@ -468,11 +771,29 @@ test("merge prefers deterministic and dedupes", () => {
 test("inference derives inverse/symmetric relations with decayed confidence", () => {
   const inferred = inferRelations(vocab, [
     // founded_by has inverse founder_of.
-    { subject: "Solana", predicate: "founded_by", object: "Anatoly Yakovenko", source: "infobox", confidence: 1 },
+    {
+      subject: "Solana",
+      predicate: "founded_by",
+      object: "Anatoly Yakovenko",
+      source: "infobox",
+      confidence: 1,
+    },
     // spouse_of is symmetric.
-    { subject: "Alice", predicate: "spouse_of", object: "Bob", source: "infobox", confidence: 1 },
+    {
+      subject: "Alice",
+      predicate: "spouse_of",
+      object: "Bob",
+      source: "infobox",
+      confidence: 1,
+    },
     // Literal + is_a objects must not be reversed.
-    { subject: "Solana", predicate: "is_a", object: "organization", objectIsLiteral: true, source: "infobox" },
+    {
+      subject: "Solana",
+      predicate: "is_a",
+      object: "organization",
+      objectIsLiteral: true,
+      source: "infobox",
+    },
   ]);
   const inverse = inferred.find((r) => r.predicate === "founder_of");
   assert.equal(inverse?.subject, "Anatoly Yakovenko");
@@ -480,7 +801,9 @@ test("inference derives inverse/symmetric relations with decayed confidence", ()
   assert.equal(inverse?.source, "inferred");
   assert.ok((inverse?.confidence ?? 1) < 1, "inferred confidence is decayed");
   assert.ok(inverse?.inferredFrom?.includes("founded_by"), "records its basis");
-  const symmetric = inferred.find((r) => r.predicate === "spouse_of" && r.subject === "Bob");
+  const symmetric = inferred.find(
+    (r) => r.predicate === "spouse_of" && r.subject === "Bob",
+  );
   assert.equal(symmetric?.object, "Alice");
   // No inference off the is_a literal.
   assert.ok(!inferred.some((r) => r.predicate === "is_a"));
@@ -488,7 +811,12 @@ test("inference derives inverse/symmetric relations with decayed confidence", ()
 
 test("indexArticleOntology stores inferred relations, provable via basis", (t) => {
   const db = makeDb(t);
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   // The founder relation must yield an inferred founder_of on the person entity.
   const person = listArticleEntityFacts(db, "anatoly-yakovenko");
   const founderOf = person.facts.find((f) => f.predicate === "founder_of");
@@ -546,17 +874,28 @@ test("LLM extraction is validated, merged, and cached by content hash", async (t
       { name: "Solana", type: "organization" },
       { name: "Anatoly Yakovenko", type: "person" },
     ],
-    relations: [{ subject: "Solana", predicate: "founded_by", object: "Anatoly Yakovenko" }],
+    relations: [
+      {
+        subject: "Solana",
+        predicate: "founded_by",
+        object: "Anatoly Yakovenko",
+      },
+    ],
     categories: ["Blockchain networks"],
   });
   let calls = 0;
-  const opts = { llm: stubLlm(reply, () => (calls += 1)), prompts: ONTOLOGY_PROMPTS };
+  const opts = {
+    llm: stubLlm(reply, () => (calls += 1)),
+    prompts: ONTOLOGY_PROMPTS,
+  };
 
   const first = await deriveLlmExtraction(db, vocab, article, opts);
   assert.equal(calls, 1, "model called once");
   assert.equal(first.called, true);
   assert.equal(first.reason, "first_extraction");
-  assert.ok(first.extraction.relations.some((r) => r.predicate === "founded_by"));
+  assert.ok(
+    first.extraction.relations.some((r) => r.predicate === "founded_by"),
+  );
 
   // Same content -> served from cache, no second model call.
   const second = await deriveLlmExtraction(db, vocab, article, opts);
@@ -566,7 +905,10 @@ test("LLM extraction is validated, merged, and cached by content hash", async (t
   assert.deepEqual(second.extraction.relations, first.extraction.relations);
 
   // Changed content -> re-derives (model called again).
-  const edited = { ...article, markdown: article.markdown + " It launched in 2020." };
+  const edited = {
+    ...article,
+    markdown: article.markdown + " It launched in 2020.",
+  };
   const third = await deriveLlmExtraction(db, vocab, edited, opts);
   assert.equal(calls, 2, "content change re-invokes the model");
   assert.equal(third.called, true);
@@ -588,7 +930,12 @@ test("LLM reevaluation feeds the article's currently-recorded facts into the pro
   saveArticle(db, article, [], [], {});
   setArticleInfobox(db, "solana", INFOBOX, "test");
   // Record deterministic facts so there is an existing set to reevaluate.
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
 
   let sentUser = "";
   const capturing = {
@@ -620,16 +967,28 @@ test("LLM reevaluation feeds the article's currently-recorded facts into the pro
   } as unknown as PromptConfig;
 
   await deriveLlmExtraction(db, vocab, article, { llm: capturing, prompts });
-  assert.match(sentUser, /founded_by Anatoly Yakovenko/, "recorded facts are injected for reevaluation");
+  assert.match(
+    sentUser,
+    /founded_by Anatoly Yakovenko/,
+    "recorded facts are injected for reevaluation",
+  );
 });
 
 test("deleteArticleOntology removes provenance rows and detaches entity", (t) => {
   const db = makeDb(t);
-  indexArticleOntology(db, { slug: "solana", title: "Solana", infobox: INFOBOX, vocab });
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
   deleteArticleOntology(db, "solana");
   const after = listArticleEntityFacts(db, "solana");
   assert.equal(after.entity, null, "owned entity detached from article");
-  const relCount = prepared(db, `SELECT COUNT(*) AS n FROM entity_relations WHERE provenance_slug = 'solana'`).get() as { n: number };
+  const relCount = prepared(
+    db,
+    `SELECT COUNT(*) AS n FROM entity_relations WHERE provenance_slug = 'solana'`,
+  ).get() as { n: number };
   assert.equal(relCount.n, 0);
 });
 
@@ -646,12 +1005,19 @@ function noopLogger() {
   return { debug() {}, info() {}, warn() {}, error() {} };
 }
 
-function pipelineDeps(db: ReturnType<typeof openDatabase>, llm: LlmRouter, llmEnabled: boolean) {
+function pipelineDeps(
+  db: ReturnType<typeof openDatabase>,
+  llm: LlmRouter,
+  llmEnabled: boolean,
+) {
   return {
     db,
     llm,
     logger: noopLogger(),
-    runtime: { app: { rag: { ontology_llm_extraction: llmEnabled } }, prompts: ONTOLOGY_PROMPTS },
+    runtime: {
+      app: { rag: { ontology_llm_extraction: llmEnabled } },
+      prompts: ONTOLOGY_PROMPTS,
+    },
   };
 }
 
@@ -677,11 +1043,21 @@ test("extractOntologyNode: runs deterministic extraction synchronously at write-
 
   const patch = await extractOntologyNode.run(
     pipelineInput("solana") as never,
-    pipelineDeps(db, stubLlm("{}", () => {}), false) as never,
+    pipelineDeps(
+      db,
+      stubLlm("{}", () => {}),
+      false,
+    ) as never,
   );
   assert.ok(patch.ontologyExtraction);
   assert.equal(patch.ontologyExtraction?.llmEnabled, false);
   assert.ok((patch.ontologyExtraction?.entities ?? 0) > 0);
+  assert.ok(
+    patch.ontologyExtraction?.extraction.relations.some(
+      (relation) => relation.predicate === "founded_by",
+    ),
+    "trace payload includes the extracted ontology facts",
+  );
   // No async drain needed — the facts are queryable immediately.
   const { facts } = listArticleEntityFacts(db, "solana");
   assert.ok(facts.some((f) => f.predicate === "founded_by"));
@@ -710,7 +1086,11 @@ test("extractOntologyNode: calls the LLM only when ontology_llm_extraction is on
   const reply = JSON.stringify({ entities: [], relations: [], categories: [] });
   const offPatch = await extractOntologyNode.run(
     pipelineInput("solana") as never,
-    pipelineDeps(db, stubLlm(reply, () => (calls += 1)), false) as never,
+    pipelineDeps(
+      db,
+      stubLlm(reply, () => (calls += 1)),
+      false,
+    ) as never,
   );
   assert.equal(calls, 0, "LLM not called when the flag is off");
   assert.equal(offPatch.ontologyExtraction?.llmEnabled, false);
@@ -718,7 +1098,11 @@ test("extractOntologyNode: calls the LLM only when ontology_llm_extraction is on
 
   const onPatch = await extractOntologyNode.run(
     pipelineInput("solana") as never,
-    pipelineDeps(db, stubLlm(reply, () => (calls += 1)), true) as never,
+    pipelineDeps(
+      db,
+      stubLlm(reply, () => (calls += 1)),
+      true,
+    ) as never,
   );
   assert.equal(calls, 1, "LLM called once when the flag is on");
   assert.equal(onPatch.ontologyExtraction?.llmEnabled, true);

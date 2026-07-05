@@ -36,6 +36,11 @@ import {
 } from "@/components/ui/table";
 import { toWikiSegment } from "../../wikiPath";
 import { LiveLlmViews, type LiveLlmView } from "../LiveLlmViews";
+import {
+  normalizeOntologyExtraction,
+  OntologyFacts,
+  type OntologyExtractionTrace,
+} from "./OntologyTraceDetail";
 
 const RUNS_PER_PAGE = 10;
 
@@ -1181,6 +1186,7 @@ interface OntologyTraceDetail {
   categories: number;
   llmEnabled: boolean;
   llmReason?: string;
+  extraction?: OntologyExtractionTrace;
 }
 
 const LLM_REASON_LABEL: Record<string, string> = {
@@ -1197,40 +1203,37 @@ function getOntologyTraceDetail(node: NodeSpan): OntologyTraceDetail | null {
   const patch = asRecord(node.patch);
   const diff = asRecord(node.diff);
   const summary =
-    asRecord(patch?.ontologyExtraction) ?? asRecord(diffAfter(diff, "ontologyExtraction"));
+    asRecord(patch?.ontologyExtraction) ??
+    asRecord(diffAfter(diff, "ontologyExtraction"));
   if (!summary) return null;
   return {
     entities: typeof summary.entities === "number" ? summary.entities : 0,
     relations: typeof summary.relations === "number" ? summary.relations : 0,
     categories: typeof summary.categories === "number" ? summary.categories : 0,
     llmEnabled: summary.llmEnabled === true,
-    llmReason: typeof summary.llmReason === "string" ? summary.llmReason : undefined,
+    llmReason:
+      typeof summary.llmReason === "string" ? summary.llmReason : undefined,
+    extraction: normalizeOntologyExtraction(summary.extraction),
   };
 }
 
 function OntologyDetail({ detail }: { detail: OntologyTraceDetail }) {
   const rows: Array<[string, string]> = [
-    ["Entities", String(detail.entities)],
-    ["Relations", String(detail.relations)],
-    ["Categories", String(detail.categories)],
     ["LLM extraction", detail.llmEnabled ? "on" : "off (deterministic only)"],
   ];
   if (detail.llmEnabled) {
     rows.push([
       "Why the model ran",
       detail.llmReason
-        ? LLM_REASON_LABEL[detail.llmReason] ?? detail.llmReason
+        ? (LLM_REASON_LABEL[detail.llmReason] ?? detail.llmReason)
         : "n/a",
     ]);
   }
+  const extraction = detail.extraction;
   return (
     <div className="flex flex-col gap-2" data-testid="trace-detail">
-      <p className="m-0 text-[0.7rem] text-muted-foreground">
-        Entities/relations/categories derived from the infobox (and, if enabled,
-        a light-model pass) right when this article was written — not on the
-        next async RAG drain.
-      </p>
       <TraceMetadata rows={rows} />
+      {extraction && <OntologyFacts extraction={extraction} />}
     </div>
   );
 }

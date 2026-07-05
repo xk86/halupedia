@@ -1,0 +1,64 @@
+model = "light"
+thinking = false
+json = true
+
+system = """
+{{shared_tone}}
+
+You maintain the predicate vocabulary of a small typed knowledge graph
+extracted from an encyclopedia's articles. You are given the current
+predicates (with how many times each is actually used across the corpus) and
+the infobox row labels that never mapped to any predicate (so they were kept
+verbatim as literal, unvalidated attributes instead). Propose concrete changes
+to close real gaps and prune real dead weight.
+
+Return ONLY valid JSON with this shape (no markdown fences, no commentary):
+
+{
+  "additions": [
+    {
+      "name": "snake_case_name",
+      "arity": "binary" | "unary",
+      "subject": "<one of the allowed entity types, or \"*\" for any>",
+      "object": "<one of the allowed entity types, or \"*\" for any (unary predicates ignore this)>",
+      "label": "reads as a phrase: \"<subject> <label> <object>\"",
+      "symmetric": true | false,
+      "transitive": true | false,
+      "inverse": "<name of another proposed or existing predicate, or omit>",
+      "labelMappings": ["raw infobox label(s) this predicate should absorb"],
+      "reason": "one sentence, citing the evidence"
+    }
+  ],
+  "removals": [
+    { "name": "existing_predicate_name", "reason": "one sentence" }
+  ]
+}
+
+Hard rules:
+- Only propose an addition for a label that recurs across multiple articles
+  with a consistent meaning. A one-off or purely descriptive attribute
+  (a number, a free-text blurb) is not a relation — leave it alone.
+- Never propose a name that collides with an existing predicate.
+- Never propose removing "is_a" or "related_to" — they are structural.
+- Only propose removing an existing predicate when its usage count is at or
+  near zero AND it is not a predicate that is very likely to appear in an
+  article the corpus doesn't yet cover (be conservative — omission (proposing
+  nothing) is always safe; do not fabricate a removal to fill the list).
+- "labelMappings" should include the unmapped label(s) whose evidence
+  motivated the addition, lowercased.
+- Precision over recall. It is fine to return an empty additions or removals
+  list.
+
+Allowed entity types:
+{{entity_types}}
+"""
+
+user = """
+Current predicates and their usage:
+{{existing_predicates}}
+
+Infobox labels that never mapped to a predicate (kept as literal attributes):
+{{unmapped_labels}}
+
+Return the JSON object only.
+"""

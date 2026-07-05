@@ -591,6 +591,40 @@ describe("PipelinesPane", () => {
                         categories: 1,
                         llmEnabled: true,
                         llmReason: "first_extraction",
+                        extraction: {
+                          entities: [
+                            {
+                              name: "Target Organization",
+                              type: "organization",
+                              articleSlug: "target-organization",
+                              aliases: ["Target Org"],
+                              identifiers: [
+                                { scheme: "registry", value: "ORG-42" },
+                              ],
+                              description:
+                                "The organization described by the article.",
+                            },
+                          ],
+                          relations: [
+                            {
+                              subject: "Target Organization",
+                              predicate: "located_in",
+                              object: "Target City",
+                              objectSlug: "target-city",
+                              source: "infobox",
+                              confidence: 0.96,
+                            },
+                            {
+                              subject: "Target City",
+                              predicate: "shares_region_with",
+                              object: "Other City",
+                              source: "inferred",
+                              inferredFrom:
+                                "Both cities are located in Target Region.",
+                            },
+                          ],
+                          categories: ["Organizations"],
+                        },
                       },
                     },
                   },
@@ -630,14 +664,36 @@ describe("PipelinesPane", () => {
     await userEvent.click(ontologyButton);
 
     const detail = screen
-      .getByText(/right when this article was written/)
+      .getByText("Ontology facts")
       .closest('[data-testid="trace-detail"]');
     expect(detail).toBeTruthy();
-    expect(within(detail as HTMLElement).getByText("Entities")).toBeInTheDocument();
-    expect(within(detail as HTMLElement).getByText("3")).toBeInTheDocument();
-    expect(within(detail as HTMLElement).getByText("4")).toBeInTheDocument();
     expect(
-      within(detail as HTMLElement).getByText(/never run for this article before/),
+      within(detail as HTMLElement).getByText("located_in"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getAllByText("Target City"),
+    ).not.toHaveLength(0);
+    expect(
+      within(detail as HTMLElement).getByText("96% confidence"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getByText(
+        "Both cities are located in Target Region.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getByText("Target Org"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getByText("ORG-42"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getByText("Organizations"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail as HTMLElement).getByText(
+        /never run for this article before/,
+      ),
     ).toBeInTheDocument();
   });
 

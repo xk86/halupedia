@@ -114,7 +114,13 @@ import {
   getArticleEntityId,
   addCuratedFact,
   deleteCuratedFact,
+  getVocabularyReviewStats,
+  sanitizePredicateAddition,
+  sanitizePredicateRemoval,
+  appendPredicates,
+  removePredicates,
   type ArticleOntologyFact,
+  type PredicateAdditionProposal,
 } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
@@ -3687,7 +3693,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   registerPipelineAdminRoutes(app, () => runtime.app.pipeline.trace, () => buildPipelineDeps());
-  registerRagAdminRoutes(app, () => rag, () => runtime.app.rag.min_score);
+  registerRagAdminRoutes(app, () => rag, () => runtime.app.rag.min_score, {
+    db,
+    getLlm: () => llm,
+    getPrompts: () => runtime.prompts,
+    logger,
+  });
 
   app.get("/api/admin/overview", (c) => {
     const modelConfigs = {
@@ -3812,6 +3823,50 @@ export async function createApp(options: CreateAppOptions = {}) {
         : "";
     writeFileSync(path, mutate(src));
   };
+  const editOntologyToml = (mutate: (src: string) => string) => {
+    const path = resolve(process.cwd(), "config", "ontology.toml");
+    const examplePath = resolve(process.cwd(), "config", "ontology.toml.example");
+    const src = existsSync(path)
+      ? readFileSync(path, "utf8")
+      : existsSync(examplePath)
+        ? readFileSync(examplePath, "utf8")
+        : "";
+    writeFileSync(path, mutate(src));
+  };
+
+  // POST /api/admin/ontology/apply — write operator-selected vocabulary review
+  // proposals into config/ontology.toml and hot-reload the running vocabulary
+  // (no restart needed; existing articles re-extract lazily on next view/ref).
+  app.post("/api/admin/ontology/apply", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      additions?: PredicateAdditionProposal[];
+      removals?: string[];
+    };
+    const vocab = rag.vocab;
+    const seenNames = new Set<string>();
+    const additions = (Array.isArray(body.additions) ? body.additions : [])
+      .map((a) => sanitizePredicateAddition(a, vocab, seenNames))
+      .filter((a): a is PredicateAdditionProposal => a !== null);
+    const removalNames = new Set<string>();
+    const removals = (Array.isArray(body.removals) ? body.removals : [])
+      .filter((n): n is string => typeof n === "string")
+      .map((name) => sanitizePredicateRemoval({ name }, vocab, removalNames)?.name ?? null)
+      .filter((n): n is string => n !== null);
+
+    if (additions.length === 0 && removals.length === 0) {
+      return c.json({ error: "no valid additions or removals" }, 400);
+    }
+
+    editOntologyToml((src) => {
+      let next = removePredicates(src, removals);
+      next = appendPredicates(next, additions);
+      return next;
+    });
+    rag.reloadVocab();
+
+    return c.json(getVocabularyReviewStats(db, rag.vocab));
+  });
+
   const liveRouter = () => (llm instanceof OpenAICompatRouter ? llm : null);
 
   app.get("/api/admin/llm", (c) => {

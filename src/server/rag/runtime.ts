@@ -12,7 +12,12 @@ import type { DatabaseSync } from "node:sqlite";
 import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
 import type { PromptConfig } from "../types";
-import { createOntologyDocumentProvider, loadOntologyVocabulary, type OntologyVocabulary } from "../ontology";
+import {
+  createOntologyDocumentProvider,
+  loadOntologyVocabulary,
+  reloadOntologyVocabularyInto,
+  type OntologyVocabulary,
+} from "../ontology";
 import { createTextEmbedder, type TextEmbedder } from "./embeddings";
 import { processJobs, type ProcessJobsResult } from "./jobs";
 import { assembleEvidence, type AssembledEvidence } from "./promptAssembly";
@@ -49,6 +54,13 @@ export interface RagRuntime {
   assemble(result: RetrievalResult, profile: RetrievalProfile): AssembledEvidence;
   /** Process pending indexing jobs (re-derive docs, embed, upsert to LanceDB). */
   drain(): Promise<ProcessJobsResult>;
+  /**
+   * Re-read the ontology vocabulary from disk, in place (same `vocab` object
+   * identity — see `reloadOntologyVocabularyInto`). Call after an admin edit to
+   * `config/ontology.toml` (e.g. applying a vocabulary review) so the change
+   * takes effect without a server restart.
+   */
+  reloadVocab(): void;
   close(): Promise<void>;
 }
 
@@ -91,6 +103,9 @@ export async function createRagRuntime(opts: RagRuntimeOptions): Promise<RagRunt
         extraDocuments: ontologyProvider,
         imageDescriptions: opts.imageDescriptions,
       });
+    },
+    reloadVocab() {
+      reloadOntologyVocabularyInto(vocab);
     },
     close() {
       return store.close();

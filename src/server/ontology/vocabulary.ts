@@ -78,6 +78,26 @@ interface RawVocabulary {
 
 const DEFAULT_PATH = "config/ontology.toml";
 
+/**
+ * Re-read `path` and mutate `target`'s fields in place so it reflects the file
+ * on disk, without changing its object identity. `RagRuntime.vocab` — and every
+ * closure that captured it by reference (the ontology document provider, the
+ * article-fact endpoints) — observes the update immediately, so an admin edit
+ * to the vocabulary (e.g. via the vocabulary review tool) takes effect without
+ * a server restart.
+ */
+export function reloadOntologyVocabularyInto(target: OntologyVocabulary, path = DEFAULT_PATH): void {
+  const fresh = loadOntologyVocabulary(path);
+  target.version = fresh.version;
+  target.entityTypes = fresh.entityTypes;
+  target.predicates = fresh.predicates;
+  target.classification = fresh.classification;
+  target.labelPredicates = fresh.labelPredicates;
+  target.identifierLabels = fresh.identifierLabels;
+  target.hash = fresh.hash;
+  target.signature = fresh.signature;
+}
+
 export function loadOntologyVocabulary(path = DEFAULT_PATH): OntologyVocabulary {
   const root = process.cwd();
   const configPath = resolve(root, path);

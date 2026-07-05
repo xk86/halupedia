@@ -313,6 +313,35 @@ export const PipelineStateSchema = z.object({
       categories: z.number(),
       llmEnabled: z.boolean(),
       llmReason: z.string().optional(),
+      extraction: z
+        .object({
+          entities: z.array(
+            z.object({
+              name: z.string(),
+              type: z.string(),
+              articleSlug: z.string().optional(),
+              aliases: z.array(z.string()).optional(),
+              identifiers: z
+                .array(z.object({ scheme: z.string(), value: z.string() }))
+                .optional(),
+              description: z.string().optional(),
+            }),
+          ),
+          relations: z.array(
+            z.object({
+              subject: z.string(),
+              predicate: z.string(),
+              object: z.string(),
+              objectSlug: z.string().optional(),
+              objectIsLiteral: z.boolean().optional(),
+              source: z.enum(["infobox", "extracted", "curated", "inferred"]),
+              confidence: z.number().optional(),
+              inferredFrom: z.string().optional(),
+            }),
+          ),
+          categories: z.array(z.string()),
+        })
+        .optional(),
     })
     .optional(),
 

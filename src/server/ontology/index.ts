@@ -50,6 +50,22 @@ export {
   type LlmExtractionReason,
 } from "./llmExtract";
 export { inferRelations } from "./infer";
+export {
+  getPredicateUsageStats,
+  getUnmappedLabelStats,
+  getVocabularyReviewStats,
+  runOntologyVocabularyReview,
+  sanitizePredicateAddition,
+  sanitizePredicateRemoval,
+  type PredicateUsage,
+  type UnmappedLabelUsage,
+  type VocabularyReviewStats,
+  type PredicateAdditionProposal,
+  type PredicateRemovalProposal,
+  type VocabularyReviewProposals,
+  type OntologyVocabularyReviewOptions,
+} from "./vocabularyReview";
+export { appendPredicates, removePredicates } from "./vocabularyToml";
 
 export interface IndexArticleOntologyArgs {
   slug: string;

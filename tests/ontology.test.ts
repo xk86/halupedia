@@ -118,16 +118,18 @@ test("unmapped infobox labels are preserved verbatim, not collapsed to related_t
   assert.equal(linked?.objectIsLiteral, false);
 });
 
-test("sanitizeFactText strips stray markup so fact text stays clean", () => {
-  assert.equal(sanitizeFactText("*Pensi* nodes"), "Pensi nodes");
+test("sanitizeFactText unwraps links/bare-brackets but leaves real emphasis alone", () => {
+  // Legitimate italics/bold/code are formatting, not stray markup — kept as-is.
+  assert.equal(sanitizeFactText("*Pensi* nodes"), "*Pensi* nodes");
+  assert.equal(sanitizeFactText("**bold** and `code`  spaced"), "**bold** and `code` spaced");
+  // Bare [brackets] with no link target and markdown links both unwrap to plain text.
   assert.equal(sanitizeFactText("[Venous return abnormalities]"), "Venous return abnormalities");
   assert.equal(sanitizeFactText("see [the docs](https://x.y)"), "see the docs");
-  assert.equal(sanitizeFactText("**bold** and `code`  spaced"), "bold and code spaced");
   // Underscores are preserved so slugs/identifiers aren't mangled.
   assert.equal(sanitizeFactText("let_const_static"), "let_const_static");
 });
 
-test("messy infobox values are cleaned before becoming fact literals", () => {
+test("messy infobox values are cleaned without touching legitimate emphasis", () => {
   const infobox: InfoboxData = {
     title: "Wenis Tissue",
     subtitle: "Anatomical Component",
@@ -143,7 +145,7 @@ test("messy infobox values are cleaned before becoming fact literals", () => {
   };
   const res = extractDeterministic({ slug: "wenis-tissue", title: "Wenis Tissue", infobox, vocab });
   const assoc = res.relations.find((r) => r.predicate === "Associated Systems");
-  assert.equal(assoc?.object, "Pensi nodes Penis pensi", "emphasis + bare brackets stripped");
+  assert.equal(assoc?.object, "*Pensi* nodes Penis pensi", "emphasis kept, bare bracket unwrapped");
   const flow = res.relations.find((r) => r.predicate === "Flow Issues");
   assert.equal(flow?.object, "Venous return abnormalities in the shaft", "bare bracket unwrapped");
 });

@@ -24,16 +24,16 @@ const INTERNAL_LINK_KINDS = new Set(["ref", "halu", "wiki", "plain-slug"]);
 /**
  * Reduce an infobox/model value to clean plain text for a fact. Unwraps proper
  * markdown links AND the bare `[brackets]` the model sometimes emits without a
- * target, strips inline emphasis/code markers (`*`, `**`, backticks), and
- * collapses whitespace. Underscores are left alone so slugs/identifiers aren't
- * mangled. Keeping fact text clean at the source stops malformed markup from
+ * target, and collapses whitespace. Emphasis (`*italic*`, `**bold**`) and
+ * inline code are left as-is — they're legitimate formatting, not stray
+ * markup — and underscores are untouched so slugs/identifiers aren't mangled.
+ * Keeping fact text clean at the source stops malformed link syntax from
  * reaching the model, where it compounds into worse output downstream.
  */
 export function sanitizeFactText(text: string): string {
   return text
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // [text](url) -> text
     .replace(/\[([^\]]+)\]/g, "$1") // bare [text] -> text
-    .replace(/[*`]+/g, "") // emphasis / inline-code markers
     .replace(/\s+/g, " ")
     .trim();
 }

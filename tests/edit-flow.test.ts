@@ -486,6 +486,11 @@ test("quick edit works without a vibe and remains request-scoped", async (t) => 
   const rewriteCall = llm.chatCalls.find((call) => call.system.includes("Rewrite"));
   assert.ok(rewriteCall);
   assert.match(rewriteCall.system, /Make the article shorter\./);
+  assert.match(rewriteCall.system, /Quick Edit Rewrite Mode/);
+  assert.doesNotMatch(
+    rewriteCall.system,
+    /bring the article into full conformance with the article vibe/i,
+  );
 
   const vibeRes = await server.request("/api/article/quick-edit/vibe");
   assert.equal((await vibeRes.json()).content, "");
@@ -539,6 +544,14 @@ test("vibe-only rewrite does not expose its revision marker as an edit instructi
   const rewriteCall = llm.chatCalls.find((call) => call.system.includes("Rewrite"));
   assert.ok(rewriteCall);
   assert.doesNotMatch(rewriteCall.system, /rewrite-to-vibe/);
+  assert.doesNotMatch(
+    rewriteCall.system,
+    /One-off edit instruction|Quick Edit Rewrite Mode/i,
+  );
+  assert.match(
+    rewriteCall.system,
+    /bring the article into full conformance with the article vibe/i,
+  );
 
   const historyRes = await server.request("/api/article/vibe-only/history");
   const historyBody = await historyRes.json();

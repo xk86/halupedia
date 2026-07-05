@@ -43,7 +43,8 @@ Every prompt currently shipped in this directory. Each entry says *what* the pro
 |---|---|---|
 | `article.toml` | `index.ts` — `buildArticleBody` (page generation path) | Initial generation of a brand-new article from a requested title + RAG context. Streams Markdown that becomes the article body. |
 | `article_refresh.toml` | `index.ts` — `/api/article/:slug/refresh-context` handler | Re-write an existing article using newly-retrieved RAG context. Keeps the same topic, fixes link/ref syntax, and reincorporates current sources. |
-| `article_rewrite.toml` | `index.ts` — `/api/article/:slug/rewrite` handler | User-instructed rewrite. Applies free-form `edit_instructions` (full article or just a selected section), can operate in different `rewrite_mode`s. |
+| `article_rewrite.toml` | `index.ts` — `/api/article/:slug/rewrite` handler | Vibe-only rewrite. Conforms the article to its persistent canonical vibe without receiving one-off edit instructions. |
+| `article_quick_edit.toml` | `index.ts` — `/api/article/:slug/rewrite` handler | One-off instructed rewrite. Applies `edit_instructions` once while preserving the persistent article vibe. |
 
 ### Post-processing & analysis (`heavy` or `light`)
 
@@ -82,14 +83,14 @@ Files under `shared/` are NEVER invoked directly. They expand inline anywhere `{
 | File | Used by |
 |---|---|
 | `shared/shared_tone.toml` | Tone rules expanded into `shared_article_rules`, `comment`, and others. |
-| `shared/shared_article_rules.toml` | Full body of formatting + link + tone rules expanded into `article`, `article_refresh`, `article_rewrite`. |
+| `shared/shared_article_rules.toml` | Full body of formatting + link + tone rules expanded into `article`, `article_refresh`, `article_rewrite`, and `article_quick_edit`. |
 | `shared/shared_link_format.toml` | Halu + ref link syntax rules expanded into `shared_article_rules` and `link_*` prompts. |
-| `shared/shared_rewrite_modes.toml` | `{{rewrite_mode}}` blurb expanded into `article_rewrite` and `article_refresh`. |
+| `shared/shared_rewrite_modes.toml` | `{{rewrite_mode}}` blurb expanded into vibe rewrites, quick edits, and article refreshes. |
 | `shared/linking_guide.toml` | Reference material expanded into selection-edit prompts. |
 
 ## RAG Context Sources
 
-Article-body prompts (`article`, `article_refresh`, `article_rewrite`) get THREE distinct streams of context. Each has its own provenance and is exposed under its own template variable so the model never has to guess where a fact came from. Logs use matching names so prompt-context provenance is traceable end-to-end.
+Article-body prompts (`article`, `article_refresh`, `article_rewrite`, `article_quick_edit`) get THREE distinct streams of context. Each has its own provenance and is exposed under its own template variable so the model never has to guess where a fact came from. Logs use matching names so prompt-context provenance is traceable end-to-end.
 
 | Template variable | Source table | Helper / function | What it is |
 |---|---|---|---|

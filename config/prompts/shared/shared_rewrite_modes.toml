@@ -27,3 +27,21 @@ prompt = """
 - If the vibe introduces a fact or section, insert it between existing text with minimal disruption; only touch other passages if the new information is also relevant there.
 - If the vibe requires removing something, remove all references and mentions of it, updating the surrounding text only minimally for grammar and logical consistency.
 """
+
+[modes.quick_aggressive]
+label = "Quick edit — aggressive"
+prompt = """
+- Apply the one-off edit instruction fully, rewriting as much as it takes — potentially the entire article from scratch.
+- You MAY restructure sections, change tone, reinterpret the subject, and add or remove large amounts of content when the instruction requires it.
+- Preserve the article vibe as the canonical boundary. Where the instruction conflicts with the vibe, the vibe wins.
+- Do not reference prior versions or the editing process.
+"""
+
+[modes.quick_subtle]
+label = "Quick edit — subtle"
+prompt = """
+- Apply the one-off edit instruction with minimal, targeted, surgical changes.
+- Preserve the existing tone, voice, structure, and style except where the instruction specifically requires a change.
+- Preserve the article vibe as the canonical boundary. Where the instruction conflicts with the vibe, the vibe wins.
+- Do not reference prior versions or the editing process.
+"""

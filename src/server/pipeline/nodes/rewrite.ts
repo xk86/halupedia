@@ -320,14 +320,20 @@ export const renderRewritePromptNode = defineNode({
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
     const hints = listIncomingHints(deps.db, slug);
     const requestedMode = rewriteMode ?? input.rewriteModeName ?? "aggressive";
-    const modePrompt =
-      deps.runtime.prompts.rewriteModes?.[requestedMode]?.prompt ??
-      deps.runtime.prompts.rewriteModes?.aggressive?.prompt ??
-      "";
-    const vibe = (articleVibe ?? "").trim();
     const rawInstructions = (input.instructions ?? "").trim();
     const instructions =
       rawInstructions === "rewrite-to-vibe" ? "" : rawInstructions;
+    const isQuickEdit = instructions.length > 0;
+    const promptKey = isQuickEdit ? "article_quick_edit" : "article_rewrite";
+    const modeKey = isQuickEdit ? `quick_${requestedMode}` : requestedMode;
+    const modePrompt =
+      deps.runtime.prompts.rewriteModes?.[modeKey]?.prompt ??
+      (isQuickEdit
+        ? deps.runtime.prompts.rewriteModes?.quick_aggressive?.prompt
+        : undefined) ??
+      deps.runtime.prompts.rewriteModes?.aggressive?.prompt ??
+      "";
+    const vibe = (articleVibe ?? "").trim();
 
     // For partial edits (section or selection), feed only the targeted fragment
     // as current_article so the model returns just that fragment. For full rewrites,
@@ -374,13 +380,13 @@ export const renderRewritePromptNode = defineNode({
       retrievedContext?.sourceArticles ?? [],
     );
 
-    const rendered = deps.prompts.render("article_rewrite", {
+    const rendered = deps.prompts.render(promptKey, {
       slug,
       requested_title: title,
       current_article: currentArticle,
       selected_text: selectedMarkdown ?? "",
       article_vibe: vibe,
-      edit_instructions: instructions,
+      ...(isQuickEdit ? { edit_instructions: instructions } : {}),
       rewrite_mode: modePrompt,
       rewrite_scope_rules: scopeRules.trim(),
       link_hints: linkHints,
@@ -397,7 +403,7 @@ export const renderRewritePromptNode = defineNode({
     return {
       renderedPrompt: rendered,
       ragPromptTrace: buildRagPromptTrace({
-        promptKey: "article_rewrite",
+        promptKey,
         evidenceContext: ragContext || "(none)",
         linkAllowlist: referencesPromptText,
         relatedTitles,

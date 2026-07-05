@@ -72,8 +72,20 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     setError(null);
     fetch(`/api/article/${encodeURIComponent(slug)}/ontology`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((payload: OntologyPayload | null) => {
-        if (!cancelled) setData(payload);
+      .then((payload: Partial<OntologyPayload> | null) => {
+        if (cancelled) return;
+        // Coerce a partial/malformed payload (an unmocked endpoint in tests, a
+        // future API change) into a safe shape rather than crashing on render.
+        setData(
+          payload
+            ? {
+                entityType: payload.entityType ?? null,
+                facts: Array.isArray(payload.facts) ? payload.facts : [],
+                identifiers: Array.isArray(payload.identifiers) ? payload.identifiers : [],
+                categories: Array.isArray(payload.categories) ? payload.categories : [],
+              }
+            : null,
+        );
       })
       .catch(() => {
         if (!cancelled) setData(null);

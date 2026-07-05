@@ -94,7 +94,8 @@ test("unmapped infobox labels are preserved verbatim, not collapsed to related_t
         label: "Protocol Components",
         rows: [
           // Unknown label + literal value -> descriptive attribute, label kept.
-          { label: "Hypothesis", value: "Proposed explanation guiding the test" },
+          // Trailing colon is trimmed so it renders as "Hypothesis: ...".
+          { label: "Hypothesis:", value: "Proposed explanation guiding the test" },
           // Unknown label + linked value -> label kept AND the link preserved.
           { label: "Builds on", value: "[Scientific Method](ref:scientific-method)" },
         ],
@@ -103,6 +104,7 @@ test("unmapped infobox labels are preserved verbatim, not collapsed to related_t
   };
   const res = extractDeterministic({ slug: "haha-test", title: "Haha test", infobox, vocab });
   assert.ok(!res.relations.some((r) => r.predicate === "related_to"), "no related_to fabricated");
+  assert.ok(!res.relations.some((r) => r.predicate.endsWith(":")), "trailing colon trimmed from labels");
   const attr = res.relations.find((r) => r.predicate === "Hypothesis");
   assert.equal(attr?.object, "Proposed explanation guiding the test");
   assert.equal(attr?.objectIsLiteral, true);

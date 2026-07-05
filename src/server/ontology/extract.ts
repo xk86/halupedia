@@ -94,7 +94,10 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
 
   for (const group of infobox.groups ?? []) {
     for (const row of group.rows) {
-      const label = (row.label ?? "").trim();
+      // Drop a trailing colon some infobox labels carry ("Nature:"), so the
+      // label reads cleanly whether it's matched to a predicate or kept verbatim
+      // as one (otherwise the attribute renders as "Nature:: value").
+      const label = (row.label ?? "").trim().replace(/\s*:+\s*$/, "");
       const rawValue = (row.value ?? "").trim();
       if (!label || !rawValue) continue;
       const lowerLabel = label.toLowerCase();

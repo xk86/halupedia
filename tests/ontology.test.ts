@@ -84,6 +84,54 @@ test("infobox link objects are recognized in every internal form and re-wrapped"
   assert.equal(part?.objectIsLiteral, false);
 });
 
+test("unmapped infobox labels are preserved verbatim, not collapsed to related_to", () => {
+  const infobox: InfoboxData = {
+    title: "Haha test",
+    subtitle: "Methodological Framework",
+    groups: [
+      {
+        label: "Protocol Components",
+        rows: [
+          // Unknown label + literal value -> descriptive attribute, label kept.
+          { label: "Hypothesis", value: "Proposed explanation guiding the test" },
+          // Unknown label + linked value -> label kept AND the link preserved.
+          { label: "Builds on", value: "[Scientific Method](ref:scientific-method)" },
+        ],
+      },
+    ],
+  };
+  const res = extractDeterministic({ slug: "haha-test", title: "Haha test", infobox, vocab });
+  assert.ok(!res.relations.some((r) => r.predicate === "related_to"), "no related_to fabricated");
+  const attr = res.relations.find((r) => r.predicate === "Hypothesis");
+  assert.equal(attr?.object, "Proposed explanation guiding the test");
+  assert.equal(attr?.objectIsLiteral, true);
+  const linked = res.relations.find((r) => r.predicate === "Builds on");
+  assert.equal(linked?.object, "Scientific Method");
+  assert.equal(linked?.objectSlug, "scientific-method");
+  assert.equal(linked?.objectIsLiteral, false);
+});
+
+test("ontology fact documents render attributes with their label, links as ref-links", (t) => {
+  const infobox: InfoboxData = {
+    title: "Haha test",
+    subtitle: "Methodological Framework",
+    groups: [
+      {
+        label: "Protocol Components",
+        rows: [{ label: "Hypothesis", value: "Proposed explanation guiding the test" }],
+      },
+    ],
+  };
+  const db = makeDb(t);
+  indexArticleOntology(db, { slug: "haha-test", title: "Haha test", infobox, vocab });
+  const docs = buildOntologyFactDocuments(db, "haha-test", "Haha test", Date.now(), vocab);
+  const consolidated = docs.find((d) => d.sourceId === "haha-test:entity");
+  assert.ok(consolidated?.content.includes("Hypothesis: Proposed explanation guiding the test"));
+  assert.ok(!consolidated?.content.includes("related to"));
+  const rel = docs.find((d) => d.content.includes("Hypothesis:") && d.sourceId !== "haha-test:entity");
+  assert.ok(rel?.content.startsWith("Haha test — Hypothesis: Proposed explanation"));
+});
+
 test("LLM extraction validation drops off-vocabulary entities and relations", () => {
   const validated = validateLlmExtraction(
     {

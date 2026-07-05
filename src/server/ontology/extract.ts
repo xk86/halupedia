@@ -107,10 +107,15 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
         continue;
       }
 
+      // Map the row label onto a core predicate when we can. Otherwise keep the
+      // label verbatim as the predicate: the row is a descriptive attribute
+      // ("Hypothesis: …"), not a relation to another entity. Collapsing it to
+      // `related_to` would both discard the meaningful label and falsely imply a
+      // relationship — `related_to` is reserved for the vocabulary's use.
       const predicate =
         vocab.labelPredicates.get(lowerLabel) ??
         vocab.labelPredicates.get(normLabel) ??
-        (vocab.predicates.has(normLabel) ? normLabel : "related_to");
+        (vocab.predicates.has(normLabel) ? normLabel : label);
 
       const linked = resolveLinkedObject(rawValue);
       if (linked) {

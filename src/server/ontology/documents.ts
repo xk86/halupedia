@@ -25,6 +25,23 @@ function renderObject(fact: ArticleOntologyFact): string {
   return fact.objectSlug ? buildRefLink(fact.object, fact.objectSlug) : fact.object;
 }
 
+/**
+ * Render one relation as a standalone fact sentence. Vocabulary predicates read
+ * as a phrase ("<Title> was founded by <X>"); off-vocabulary predicates are
+ * descriptive attributes carried over verbatim from an infobox label, so they
+ * render as "<Title> — <Label>: <value>".
+ */
+function renderRelationSentence(
+  vocab: OntologyVocabulary,
+  title: string,
+  fact: ArticleOntologyFact,
+): string {
+  const label = predicateLabel(vocab, fact.predicate);
+  return vocab.predicates.has(fact.predicate)
+    ? `${title} ${label} ${renderObject(fact)}`
+    : `${title} — ${label}: ${renderObject(fact)}`;
+}
+
 export function buildOntologyFactDocuments(
   db: DatabaseSync,
   slug: string,
@@ -58,7 +75,7 @@ export function buildOntologyFactDocuments(
   });
 
   for (const fact of facts.slice(0, MAX_RELATION_DOCS)) {
-    const content = `${title} ${predicateLabel(vocab, fact.predicate)} ${renderObject(fact)}`;
+    const content = renderRelationSentence(vocab, title, fact);
     docs.push({
       documentId: `ontology_fact:${slug}:rel:${fact.relationId}`,
       articleSlug: slug,

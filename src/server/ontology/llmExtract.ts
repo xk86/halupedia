@@ -42,6 +42,21 @@ interface CacheRow {
   extraction: string;
 }
 
+/** Why (or whether) the light model was actually called for this article. */
+export type LlmExtractionReason =
+  | "cache_hit"
+  | "first_extraction"
+  | "content_changed"
+  | "vocabulary_changed";
+
+export interface LlmExtractionOutcome {
+  extraction: ExtractionResult;
+  /** True only when a model call was actually attempted (cache misses aside
+   *  from a corrupt row never skip the attempt). */
+  called: boolean;
+  reason: LlmExtractionReason;
+}
+
 /**
  * Return a validated LLM extraction for the article, using the cache when the
  * content + vocabulary hash are unchanged. Returns an empty extraction (never
@@ -52,9 +67,9 @@ export async function deriveLlmExtraction(
   vocab: OntologyVocabulary,
   article: ArticleRecord,
   options: OntologyLlmOptions,
-): Promise<ExtractionResult> {
+): Promise<LlmExtractionOutcome> {
   const body = article.markdown || article.plain_text || "";
-  if (!body.trim()) return emptyExtraction();
+  if (!body.trim()) return { extraction: emptyExtraction(), called: false, reason: "cache_hit" };
   const hash = contentHash(body);
   const vocabHash = `${vocab.version}:${vocab.hash}`;
 
@@ -66,7 +81,7 @@ export async function deriveLlmExtraction(
     try {
       const hit = JSON.parse(cached.extraction) as ExtractionResult;
       options.logger?.debug?.("ontology.llm_cache_hit", { slug: article.slug });
-      return hit;
+      return { extraction: hit, called: false, reason: "cache_hit" };
     } catch {
       // Corrupt cache row — fall through and re-derive.
     }
@@ -130,5 +145,5 @@ export async function deriveLlmExtraction(
        updated_at = excluded.updated_at`,
   ).run(article.slug, hash, vocabHash, JSON.stringify(extraction), Date.now());
 
-  return extraction;
+  return { extraction, called: true, reason };
 }

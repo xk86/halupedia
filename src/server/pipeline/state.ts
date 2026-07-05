@@ -302,6 +302,20 @@ export const PipelineStateSchema = z.object({
   /** True once RAG chunks have been re-indexed for this article. */
   ragIndexed: z.boolean().optional(),
 
+  // Ontology ─────────────────────────────────────────────────────────────────
+  /** Outcome of synchronous ontology extraction (post-process only) — the
+   *  trace pane's window into what facts were derived and why an LLM was
+   *  (or wasn't) called. */
+  ontologyExtraction: z
+    .object({
+      entities: z.number(),
+      relations: z.number(),
+      categories: z.number(),
+      llmEnabled: z.boolean(),
+      llmReason: z.string().optional(),
+    })
+    .optional(),
+
   // Homepage ────────────────────────────────────────────────────────────────
   /** Homepage cache payload produced by homepage.refresh. */
   homepagePayload: z.unknown().optional(),

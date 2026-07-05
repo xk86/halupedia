@@ -31,7 +31,12 @@ export {
   upsertEntity,
 } from "./store";
 export { buildOntologyFactDocuments } from "./documents";
-export { deriveLlmExtraction, type OntologyLlmOptions } from "./llmExtract";
+export {
+  deriveLlmExtraction,
+  type OntologyLlmOptions,
+  type LlmExtractionOutcome,
+  type LlmExtractionReason,
+} from "./llmExtract";
 export { inferRelations } from "./infer";
 
 export interface IndexArticleOntologyArgs {
@@ -83,7 +88,7 @@ export function createOntologyDocumentProvider(
     const title = article.displayTitle || article.title;
     const infobox = getArticleInfobox(db, slug);
     const llmExtraction = llmOptions
-      ? await deriveLlmExtraction(db, vocab, article, llmOptions)
+      ? (await deriveLlmExtraction(db, vocab, article, llmOptions)).extraction
       : undefined;
     indexArticleOntology(db, { slug, title, infobox, vocab, llmExtraction });
     return buildOntologyFactDocuments(db, slug, title, updatedAt, vocab);

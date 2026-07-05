@@ -17,7 +17,9 @@
 import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps, SidecarUpdateEvent } from "../deps";
 import {
+  getArticle,
   getArticleByLookup,
+  getArticleInfobox,
   listIncomingHints,
   normalizeInfoboxData,
   saveArticleSeeAlso,
@@ -29,6 +31,12 @@ import {
   type InfoboxData,
 } from "../../db";
 import { getMediaById } from "../../mediaDb";
+import {
+  deriveLlmExtraction,
+  indexArticleOntology,
+  loadOntologyVocabulary,
+  type ExtractionResult,
+} from "../../ontology";
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
@@ -488,6 +496,62 @@ export const persistInfoboxNode = defineNode({
       });
     }
     return {};
+  },
+});
+
+// ─── WRITE: extract ontology facts ────────────────────────────────────────────
+
+export const extractOntologyNode = defineNode({
+  name: "write.extract_ontology",
+  kind: "write",
+  description:
+    "Derive entities/relations/categories from the freshly-saved infobox (and, " +
+    "if enabled, a cached light-model pass over the body) right when the article " +
+    "is made — not on the next async RAG drain.",
+  reads: ["input"] as const,
+  writes: ["ontologyExtraction"] as const,
+  async run({ input }, deps: PipelineDeps) {
+    const slug = slugify(input.slug ?? "");
+    if (!slug) return {};
+    const article = getArticle(deps.db, slug);
+    if (!article) return {};
+
+    const vocab = deps.rag?.vocab ?? loadOntologyVocabulary();
+    const title = article.displayTitle || article.title;
+    const infobox = getArticleInfobox(deps.db, slug);
+    const llmEnabled = deps.runtime.app.rag.ontology_llm_extraction === true;
+
+    let llmExtraction: ExtractionResult | undefined;
+    let llmReason: string | undefined;
+    if (llmEnabled) {
+      const outcome = await deriveLlmExtraction(deps.db, vocab, article, {
+        llm: deps.llm,
+        prompts: deps.runtime.prompts,
+        logger: deps.logger,
+      });
+      llmExtraction = outcome.extraction;
+      llmReason = outcome.reason;
+    }
+
+    const merged = indexArticleOntology(deps.db, { slug, title, infobox, vocab, llmExtraction });
+    deps.logger.info("pipeline.ontology.extracted", {
+      slug,
+      entities: merged.entities.length,
+      relations: merged.relations.length,
+      categories: merged.categories.length,
+      llm_enabled: llmEnabled,
+      llm_reason: llmReason,
+    });
+
+    return {
+      ontologyExtraction: {
+        entities: merged.entities.length,
+        relations: merged.relations.length,
+        categories: merged.categories.length,
+        llmEnabled,
+        llmReason,
+      },
+    };
   },
 });
 

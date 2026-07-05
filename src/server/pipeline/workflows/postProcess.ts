@@ -34,18 +34,25 @@
  * 8. write.persist_infobox
  *    Saves the infobox JSON to article_infobox sidecar table.
  *
- * 9. llm.generate_sidebar_caption  [images model, text-only]
+ * 9. write.extract_ontology
+ *    Deterministic infobox extraction (+ cached light-model pass over the body,
+ *    if `rag.ontology_llm_extraction` is on) right now — entities/relations/
+ *    categories land in SQLite immediately rather than waiting for the async
+ *    RAG job drain. The drain still runs later to embed `ontology_fact` docs
+ *    into LanceDB, re-deriving the same facts (a cache hit on the LLM side).
+ *
+ * 10. llm.generate_sidebar_caption  [images model, text-only]
  *    Prompt: image_caption
  *    Input:  headline image description (from media DB) + first ~1500 chars of body
  *    Output: short per-article caption written to article_media.caption sidecar
  *    Skipped when the article has no headline image.
  *    This keeps the sidepane caption in sync after every article rewrite/refresh.
  *
- * 10. write.update_article_in_place
+ * 11. write.update_article_in_place
  *    Splices the link-repaired body and updated summary back into the DB row.
  *    Staleness guard: aborts if a concurrent edit landed since this pass started.
  *
- * 11. write.index_rag_chunks
+ * 12. write.index_rag_chunks
  *    Re-indexes article body as RAG chunks. Image descriptions stay out of
  *    article text retrieval.
  *
@@ -76,6 +83,7 @@ import {
   indexRagChunksNode,
   generateInfoboxNode,
   persistInfoboxNode,
+  extractOntologyNode,
   generateSidebarCaptionNode,
 } from "../nodes/postProcess";
 
@@ -92,6 +100,7 @@ export const postProcessWorkflow: WorkflowDefinition<PipelineDeps> = {
     { node: regenerateSummaryNode, parallel: [generateInfoboxNode] },
     { node: generateSeeAlsoNode },
     { node: persistInfoboxNode },
+    { node: extractOntologyNode },
     { node: generateSidebarCaptionNode },
     { node: updateArticleInPlaceNode },
     { node: indexRagChunksNode },

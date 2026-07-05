@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, prepared, saveArticle, type InfoboxData } from "../src/server/db";
+import { openDatabase, prepared, saveArticle, setArticleInfobox, type InfoboxData } from "../src/server/db";
 import {
   buildOntologyFactDocuments,
   deleteArticleOntology,
@@ -20,6 +20,9 @@ import {
 import { sanitizeFactText } from "../src/server/ontology/extract";
 import type { ArticleRecord, PromptConfig } from "../src/server/types";
 import type { LlmRouter } from "../src/server/llm";
+import { extractOntologyNode } from "../src/server/pipeline/nodes/postProcess";
+import { initialPipelineState } from "../src/server/pipeline/state";
+import { randomUUID } from "node:crypto";
 
 const vocab = loadOntologyVocabulary();
 
@@ -398,17 +401,23 @@ test("LLM extraction is validated, merged, and cached by content hash", async (t
 
   const first = await deriveLlmExtraction(db, vocab, article, opts);
   assert.equal(calls, 1, "model called once");
-  assert.ok(first.relations.some((r) => r.predicate === "founded_by"));
+  assert.equal(first.called, true);
+  assert.equal(first.reason, "first_extraction");
+  assert.ok(first.extraction.relations.some((r) => r.predicate === "founded_by"));
 
   // Same content -> served from cache, no second model call.
   const second = await deriveLlmExtraction(db, vocab, article, opts);
   assert.equal(calls, 1, "cache hit avoids a second model call");
-  assert.deepEqual(second.relations, first.relations);
+  assert.equal(second.called, false);
+  assert.equal(second.reason, "cache_hit");
+  assert.deepEqual(second.extraction.relations, first.extraction.relations);
 
   // Changed content -> re-derives (model called again).
   const edited = { ...article, markdown: article.markdown + " It launched in 2020." };
-  await deriveLlmExtraction(db, vocab, edited, opts);
+  const third = await deriveLlmExtraction(db, vocab, edited, opts);
   assert.equal(calls, 2, "content change re-invokes the model");
+  assert.equal(third.called, true);
+  assert.equal(third.reason, "content_changed");
 });
 
 test("deleteArticleOntology removes provenance rows and detaches entity", (t) => {
@@ -419,4 +428,96 @@ test("deleteArticleOntology removes provenance rows and detaches entity", (t) =>
   assert.equal(after.entity, null, "owned entity detached from article");
   const relCount = prepared(db, `SELECT COUNT(*) AS n FROM entity_relations WHERE provenance_slug = 'solana'`).get() as { n: number };
   assert.equal(relCount.n, 0);
+});
+
+function pipelineInput(slug: string) {
+  return initialPipelineState({
+    requestId: randomUUID(),
+    workflow: "article.post_process",
+    slug,
+    requestedTitle: slug,
+  });
+}
+
+function noopLogger() {
+  return { debug() {}, info() {}, warn() {}, error() {} };
+}
+
+function pipelineDeps(db: ReturnType<typeof openDatabase>, llm: LlmRouter, llmEnabled: boolean) {
+  return {
+    db,
+    llm,
+    logger: noopLogger(),
+    runtime: { app: { rag: { ontology_llm_extraction: llmEnabled } }, prompts: ONTOLOGY_PROMPTS },
+  };
+}
+
+test("extractOntologyNode: runs deterministic extraction synchronously at write-time", async (t) => {
+  const db = makeDb(t);
+  saveArticle(
+    db,
+    {
+      slug: "solana",
+      canonicalSlug: "solana",
+      title: "Solana",
+      markdown: "# Solana\n\nBody.",
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "Body.",
+      generated_at: Date.now(),
+    },
+    [],
+    [],
+    {},
+  );
+  setArticleInfobox(db, "solana", INFOBOX);
+
+  const patch = await extractOntologyNode.run(
+    pipelineInput("solana") as never,
+    pipelineDeps(db, stubLlm("{}", () => {}), false) as never,
+  );
+  assert.ok(patch.ontologyExtraction);
+  assert.equal(patch.ontologyExtraction?.llmEnabled, false);
+  assert.ok((patch.ontologyExtraction?.entities ?? 0) > 0);
+  // No async drain needed — the facts are queryable immediately.
+  const { facts } = listArticleEntityFacts(db, "solana");
+  assert.ok(facts.some((f) => f.predicate === "founded_by"));
+});
+
+test("extractOntologyNode: calls the LLM only when ontology_llm_extraction is on, and reports why", async (t) => {
+  const db = makeDb(t);
+  saveArticle(
+    db,
+    {
+      slug: "solana",
+      canonicalSlug: "solana",
+      title: "Solana",
+      markdown: "# Solana\n\nSolana was founded by Anatoly Yakovenko.",
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "Solana was founded by Anatoly Yakovenko.",
+      generated_at: Date.now(),
+    },
+    [],
+    [],
+    {},
+  );
+
+  let calls = 0;
+  const reply = JSON.stringify({ entities: [], relations: [], categories: [] });
+  const offPatch = await extractOntologyNode.run(
+    pipelineInput("solana") as never,
+    pipelineDeps(db, stubLlm(reply, () => (calls += 1)), false) as never,
+  );
+  assert.equal(calls, 0, "LLM not called when the flag is off");
+  assert.equal(offPatch.ontologyExtraction?.llmEnabled, false);
+  assert.equal(offPatch.ontologyExtraction?.llmReason, undefined);
+
+  const onPatch = await extractOntologyNode.run(
+    pipelineInput("solana") as never,
+    pipelineDeps(db, stubLlm(reply, () => (calls += 1)), true) as never,
+  );
+  assert.equal(calls, 1, "LLM called once when the flag is on");
+  assert.equal(onPatch.ontologyExtraction?.llmEnabled, true);
+  assert.equal(onPatch.ontologyExtraction?.llmReason, "first_extraction");
 });

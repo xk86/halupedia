@@ -142,6 +142,14 @@ export interface GraphRenderPaneProps {
   settings: GraphRenderSettings;
   onChange: (settings: GraphRenderSettings) => void;
   onReset?: () => void;
+  /**
+   * Link-graph-only: external shading toggle. When these are provided (and
+   * mode === "links"), the pane renders the "Shading" checkbox. The link-graph
+   * host owns this bit because it also flips shading automatically when path
+   * mode turns on.
+   */
+  shadingEnabled?: boolean;
+  onShadingEnabledChange?: (enabled: boolean) => void;
 }
 
 export function GraphRenderPane({
@@ -150,6 +158,8 @@ export function GraphRenderPane({
   settings,
   onChange,
   onReset,
+  shadingEnabled,
+  onShadingEnabledChange,
 }: GraphRenderPaneProps) {
   const set = <K extends keyof GraphRenderSettings>(
     key: K,
@@ -278,18 +288,16 @@ export function GraphRenderPane({
               </div>
             </>
           ) : null}
-          {isLinks ? (
+          {isLinks && shadingEnabled !== undefined && onShadingEnabledChange ? (
             <>
               <Toggle
                 id="grr-shaded"
                 label="Shading"
                 hint="dim nodes outside the highlight set (hover / path waypoints)"
-                checked={settings.shadedOpacity < 1}
-                onCheckedChange={(c) =>
-                  set("shadedOpacity", c ? 0.1 : 1)
-                }
+                checked={shadingEnabled}
+                onCheckedChange={onShadingEnabledChange}
               />
-              {settings.shadedOpacity < 1 ? (
+              {shadingEnabled ? (
                 <Row
                   id="grr-shaded-opacity"
                   label="Shaded opacity"

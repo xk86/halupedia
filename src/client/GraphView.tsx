@@ -41,6 +41,13 @@ import { toWikiSegment } from "./wikiPath";
 import { type Suggestion } from "./articleSuggest";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
 import { SemanticAtlas } from "./ontologyGraph/SemanticAtlas";
+import { GraphRenderPane } from "./graphRender/GraphRenderPane";
+import {
+  DEFAULT_GRAPH_RENDER_SETTINGS,
+  loadGraphRenderSettings,
+  saveGraphRenderSettings,
+  type GraphRenderSettings,
+} from "./graphRender/settings";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
@@ -417,75 +424,10 @@ function ArticlePicker({
 }
 
 // ── Render settings ──────────────────────────────────────────────────────────
-
-interface RenderSettings {
-  // Nodes
-  nodeResolution: number; // sphere segments: 4–32
-  nodeRelSize: number; // base sphere volume per val unit: 1–12
-  nodeOpacity: number; // 0.1–1.0
-  // Links
-  linkOpacity: number; // 0.01–0.6
-  linkWidth: number; // 0.1–4.0
-  arrowLength: number; // 0–10
-  linkCurvature: number; // 0–0.8
-  particles: number; // 0–8
-  particleSpeed: number; // 0.001–0.02
-  particleWidth: number; // 0.5–6
-  // Physics
-  chargeStrength: number; // -20 to -1200 (repulsion)
-  linkDistance: number; // 5–400
-  alphaDecay: number; // 0.001–0.06
-  velocityDecay: number; // 0.1–0.99
-  // Appearance
-  bgColor: string;
-  alwaysShowLabels: boolean; // show node-name labels above all nodes, not just on hover
-  shadedOpacity: number; // how visible shaded (non-highlighted) nodes, links, and labels are: 0–1; 0 fades them out (labels hidden entirely)
-  labelSize: number; // size multiplier for always-on node-name labels: 0.5–5
-  dynamicLabelSize: boolean; // scale each label by the node's link count
-  labelSizeInfluence: number; // how strongly the count affects label size: 0–1
-  labelDegreeMode: DegreeMode; // which links to count for sizing: in / out / both
-  directionalParticles: boolean;
-  // Path trace
-  maxPaths: number; // how many shortest routes to race between 2 waypoints: 1–10
-  particleGlow: boolean; // wrap the travelling particle in a soft glow halo
-  traceSpeed: number; // base traversal speed, nodes/sec: 0.4–5
-  traceAccel: number; // ease-in-out intensity (0 = constant speed): 0–1
-  traceLoopDelay: number; // seconds to wait after all routes finish before looping: 0–5
-  traceLightness: number; // OKLCH L for the trace colors: 0.4–0.95
-  traceChroma: number; // OKLCH C (vividness) for the trace colors: 0.02–0.37
-  traceStartHue: number; // hue (deg) at each route's start node: 0–360
-  traceEndHue: number; // hue (deg) at each route's end node: 0–360
-  traceHueSpread: number; // how far apart overlapping routes' hues fan out (deg), tapered to 0 at endpoints: 0–120
-  pathLinkBrightness: number; // how bright the (untraced) path edges are: 0–1
-}
-
-const DEFAULT_SETTINGS: RenderSettings = {
-  ...DEFAULT_FORCE_GRAPH_DRAW_SETTINGS,
-  particles: 0,
-  particleSpeed: 0.005,
-  particleWidth: 2,
-  alwaysShowLabels: false,
-  shadedOpacity: 0.1,
-  directionalParticles: false,
-  maxPaths: 3,
-  particleGlow: true,
-  traceSpeed: 1.4,
-  traceAccel: 0.5,
-  traceLoopDelay: 0.9,
-  traceLightness: 0.72,
-  traceChroma: 0.17,
-  traceStartHue: 200,
-  traceEndHue: 40,
-  traceHueSpread: 28,
-  pathLinkBrightness: 0.35,
-};
-
-const BG_PRESETS = [
-  { label: "Void", value: "#080810" },
-  { label: "Space", value: "#020408" },
-  { label: "Slate", value: "#0d1117" },
-  { label: "Paper", value: "#1a1a2e" },
-];
+//
+// The full type / defaults / persistence live in graphRender/settings so the
+// ontology view can share the exact same schema and pane.
+type RenderSettings = GraphRenderSettings;
 
 // ── Community colours ────────────────────────────────────────────────────────
 
@@ -824,42 +766,6 @@ export function isMobileDevice(): boolean {
 // from a shared glyph atlas, so it's crisp at any zoom, never truncated, and
 // costs a small geometry per label instead of a per-node canvas texture.
 
-// ── Knob helpers ─────────────────────────────────────────────────────────────
-
-function Knob({
-  label,
-  value,
-  min,
-  max,
-  step,
-  format,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  format?: (v: number) => string;
-  onChange: (v: number) => void;
-}) {
-  const display = format ? format(value) : String(value);
-  return (
-    <label className="grs-knob">
-      <span className="grs-knob-label">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-      <span className="grs-knob-val">{display}</span>
-    </label>
-  );
-}
-
 // ── Preferences persistence ──────────────────────────────────────────────────
 
 const PREFS_KEY = "halupedia-graph-prefs";
@@ -867,7 +773,6 @@ const PREFS_KEY = "halupedia-graph-prefs";
 interface SavedPrefs {
   graphMode: GraphMode;
   ontologyView: OntologyGraphView;
-  settings: RenderSettings;
   showHalu: boolean;
   topN: number;
   filterMode: FilterMode;
@@ -944,10 +849,9 @@ export function GraphView({
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
-  const [settings, setSettings] = useState<RenderSettings>(() => ({
-    ...DEFAULT_SETTINGS,
-    ...loadPrefs().settings,
-  }));
+  const [settings, setSettings] = useState<GraphRenderSettings>(
+    loadGraphRenderSettings,
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphInstance | null>(null);
   const seedsRef = useRef(seeds);
@@ -998,13 +902,6 @@ export function GraphView({
     [],
   );
 
-  const set = useCallback(
-    <K extends keyof RenderSettings>(key: K, value: RenderSettings[K]) => {
-      setSettings((s) => ({ ...s, [key]: value }));
-    },
-    [],
-  );
-
   // Fade the floating name labels of shaded (non-whitelisted) nodes so the text
   // recedes with the node. Reads the live shading refs; called whenever the
   // whitelist changes and when labels are (re)created.
@@ -1038,7 +935,6 @@ export function GraphView({
     savePrefs({
       graphMode,
       ontologyView,
-      settings,
       showHalu,
       topN,
       filterMode,
@@ -1052,7 +948,6 @@ export function GraphView({
   }, [
     graphMode,
     ontologyView,
-    settings,
     showHalu,
     topN,
     filterMode,
@@ -1063,6 +958,10 @@ export function GraphView({
     shadingEnabled,
     pathDir,
   ]);
+  // Render settings persist under their own key (shared with the ontology view).
+  useEffect(() => {
+    saveGraphRenderSettings(settings);
+  }, [settings]);
 
   // ── Graphology: build directed graph + stats ────────────────────────────────
 
@@ -1465,7 +1364,7 @@ export function GraphView({
     // permanent floating sprite above each node, instead of only in the
     // hover tooltip. nodeThreeObjectExtend keeps the default sphere and adds
     // the label sprite alongside it.
-    if (settings.alwaysShowLabels) {
+    if (settings.showLabels) {
       disposeLabels(labelSpritesRef.current);
       labelBaseColorRef.current.clear();
       fg.nodeThreeObjectExtend(true).nodeThreeObject((n: FgNode) => {
@@ -1518,7 +1417,7 @@ export function GraphView({
   // every visible label toward the camera each frame (a quaternion copy per
   // label; trivial CPU even at thousands of labels).
   useEffect(() => {
-    if (!fgRef.current || !initialized || !settings.alwaysShowLabels) return;
+    if (!fgRef.current || !initialized || !settings.showLabels) return;
     let raf = 0;
     const tick = () => {
       const fg = fgRef.current;
@@ -1528,7 +1427,7 @@ export function GraphView({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [settings.alwaysShowLabels, initialized]);
+  }, [settings.showLabels, initialized]);
 
   // The label sprites are cached (so refresh() doesn't strobe their live trace
   // tint), which means a color-mode flip no longer rebuilds them — re-tint each
@@ -1537,7 +1436,7 @@ export function GraphView({
   // resets to the right color when path mode ends.
   useEffect(() => {
     const fg = fgRef.current;
-    if (!fg || !initialized || !settings.alwaysShowLabels) return;
+    if (!fg || !initialized || !settings.showLabels) return;
     for (const o of fg.graphData().nodes as FgNode[]) {
       const sprite = labelSpritesRef.current.get(o.id);
       if (!sprite) continue;
@@ -1549,7 +1448,7 @@ export function GraphView({
       labelBaseColorRef.current.set(o.id, color);
       if (!pathModeRef.current) setLabelColor(sprite, color);
     }
-  }, [colorMode, initialized, settings.alwaysShowLabels]);
+  }, [colorMode, initialized, settings.showLabels]);
 
   // ── Node colour + path highlighting (no physics re-heat) ─────────────────────
 
@@ -2445,375 +2344,16 @@ export function GraphView({
         <div className="graph-canvas" ref={containerRef} />
 
         {settingsOpen && (
-          <div className="grs-panel">
-            <div className="grs-section">
-              <div className="grs-section-label">Nodes</div>
-              <label className="grs-toggle">
-                <Checkbox
-                  checked={shadingEnabled}
-                  onCheckedChange={(c) => setShadingEnabled(c === true)}
-                />
-                <span>Shading</span>
-                <span className="grs-toggle-hint">
-                  dim nodes outside the highlight set (hover / path waypoints)
-                </span>
-              </label>
-              {shadingEnabled && (
-                <Knob
-                  label="Shaded opacity"
-                  value={settings.shadedOpacity}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  format={(v) => v.toFixed(2)}
-                  onChange={(v) => set("shadedOpacity", v)}
-                />
-              )}
-              <Knob
-                label="Resolution"
-                value={settings.nodeResolution}
-                min={4}
-                max={32}
-                step={2}
-                onChange={(v) => set("nodeResolution", v)}
-              />
-              <Knob
-                label="Base size"
-                value={settings.nodeRelSize}
-                min={1}
-                max={12}
-                step={0.5}
-                format={(v) => v.toFixed(1)}
-                onChange={(v) => set("nodeRelSize", v)}
-              />
-              <Knob
-                label="Opacity"
-                value={settings.nodeOpacity}
-                min={0.1}
-                max={1}
-                step={0.05}
-                format={(v) => v.toFixed(2)}
-                onChange={(v) => set("nodeOpacity", v)}
-              />
-              <label className="grs-toggle">
-                <Checkbox
-                  checked={settings.alwaysShowLabels}
-                  onCheckedChange={(c) =>
-                    set("alwaysShowLabels", c === true)
-                  }
-                />
-                <span>Always show names</span>
-                <span className="grs-toggle-hint">
-                  show node labels above all nodes, not just on hover
-                </span>
-              </label>
-              {settings.alwaysShowLabels && (
-                <Knob
-                  label="Label size"
-                  value={settings.labelSize}
-                  min={0.5}
-                  max={15}
-                  step={0.25}
-                  format={(v) => v.toFixed(1)}
-                  onChange={(v) => set("labelSize", v)}
-                />
-              )}
-              {settings.alwaysShowLabels && (
-                <label className="grs-toggle">
-                  <Checkbox
-                    checked={settings.dynamicLabelSize}
-                    onCheckedChange={(c) =>
-                      set("dynamicLabelSize", c === true)
-                    }
-                  />
-                  <span>Size by link count</span>
-                  <span className="grs-toggle-hint">
-                    scale each label by how many links the node has
-                  </span>
-                </label>
-              )}
-              {settings.alwaysShowLabels && settings.dynamicLabelSize && (
-                <>
-                  <Knob
-                    label="Count influence"
-                    value={settings.labelSizeInfluence}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    format={(v) => v.toFixed(2)}
-                    onChange={(v) => set("labelSizeInfluence", v)}
-                  />
-                  <label className="grs-knob">
-                    <span className="grs-knob-label">Count</span>
-                    <Select
-                      value={settings.labelDegreeMode}
-                      onValueChange={(v) =>
-                        v && set("labelDegreeMode", v as DegreeMode)
-                      }
-                    >
-                      <SelectTrigger
-                        className="graph-metric-select"
-                        aria-label="Count"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="in">In links</SelectItem>
-                        <SelectItem value="out">Out links</SelectItem>
-                        <SelectItem value="both">Both</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </label>
-                </>
-              )}
-            </div>
-
-            <div className="grs-section">
-              <div className="grs-section-label">Links</div>
-              <Knob
-                label="Opacity"
-                value={settings.linkOpacity}
-                min={0.01}
-                max={0.6}
-                step={0.01}
-                format={(v) => v.toFixed(2)}
-                onChange={(v) => set("linkOpacity", v)}
-              />
-              <Knob
-                label="Width"
-                value={settings.linkWidth}
-                min={0.1}
-                max={4}
-                step={0.1}
-                format={(v) => v.toFixed(1)}
-                onChange={(v) => set("linkWidth", v)}
-              />
-              <Knob
-                label="Arrow size"
-                value={settings.arrowLength}
-                min={0}
-                max={10}
-                step={0.5}
-                format={(v) => v.toFixed(1)}
-                onChange={(v) => set("arrowLength", v)}
-              />
-              <Knob
-                label="Curvature"
-                value={settings.linkCurvature}
-                min={0}
-                max={0.8}
-                step={0.05}
-                format={(v) => v.toFixed(2)}
-                onChange={(v) => set("linkCurvature", v)}
-              />
-              <Knob
-                label="Particles"
-                value={settings.particles}
-                min={0}
-                max={8}
-                step={1}
-                onChange={(v) => set("particles", v)}
-              />
-              <Knob
-                label="Particle speed"
-                value={settings.particleSpeed}
-                min={0.001}
-                max={0.02}
-                step={0.001}
-                format={(v) => v.toFixed(3)}
-                onChange={(v) => set("particleSpeed", v)}
-              />
-              <Knob
-                label="Particle size"
-                value={settings.particleWidth}
-                min={0.5}
-                max={6}
-                step={0.5}
-                format={(v) => v.toFixed(1)}
-                onChange={(v) => set("particleWidth", v)}
-              />
-              <label className="grs-toggle">
-                <Checkbox
-                  checked={settings.directionalParticles}
-                  onCheckedChange={(c) =>
-                    set("directionalParticles", c === true)
-                  }
-                />
-                <span>Color by direction</span>
-                <span className="grs-toggle-hint">
-                  green=in red=out (needs seeds + particles)
-                </span>
-              </label>
-            </div>
-
-            <div className="grs-section">
-              <div className="grs-section-label">Path trace</div>
-              <Knob
-                label="Max routes"
-                value={settings.maxPaths}
-                min={1}
-                max={10}
-                step={1}
-                onChange={(v) => set("maxPaths", v)}
-              />
-              <Knob
-                label="Speed"
-                value={settings.traceSpeed}
-                min={0.4}
-                max={5}
-                step={0.1}
-                format={(v) => v.toFixed(1)}
-                onChange={(v) => set("traceSpeed", v)}
-              />
-              <Knob
-                label="Acceleration"
-                value={settings.traceAccel}
-                min={0}
-                max={1}
-                step={0.05}
-                format={(v) => v.toFixed(2)}
-                onChange={(v) => set("traceAccel", v)}
-              />
-              <Knob
-                label="Loop delay"
-                value={settings.traceLoopDelay}
-                min={0}
-                max={5}
-                step={0.1}
-                format={(v) => `${v.toFixed(1)}s`}
-                onChange={(v) => set("traceLoopDelay", v)}
-              />
-              <Knob
-                label="Color lightness"
-                value={settings.traceLightness}
-                min={0.4}
-                max={0.95}
-                step={0.01}
-                format={(v) => v.toFixed(2)}
-                onChange={(v) => set("traceLightness", v)}
-              />
-              <Knob
-                label="Color vividness"
-                value={settings.traceChroma}
-                min={0.02}
-                max={0.37}
-                step={0.01}
-                format={(v) => v.toFixed(2)}
-                onChange={(v) => set("traceChroma", v)}
-              />
-              <div className="grs-knob-row">
-                <Knob
-                  label="Start hue"
-                  value={settings.traceStartHue}
-                  min={0}
-                  max={360}
-                  step={5}
-                  format={(v) => `${v}°`}
-                  onChange={(v) => set("traceStartHue", v)}
-                />
-                <Knob
-                  label="End hue"
-                  value={settings.traceEndHue}
-                  min={0}
-                  max={360}
-                  step={5}
-                  format={(v) => `${v}°`}
-                  onChange={(v) => set("traceEndHue", v)}
-                />
-              </div>
-              <Knob
-                label="Hue spread"
-                value={settings.traceHueSpread}
-                min={0}
-                max={120}
-                step={2}
-                format={(v) => `${v}°`}
-                onChange={(v) => set("traceHueSpread", v)}
-              />
-              <Knob
-                label="Path edges"
-                value={settings.pathLinkBrightness}
-                min={0}
-                max={1}
-                step={0.05}
-                format={(v) => v.toFixed(2)}
-                onChange={(v) => set("pathLinkBrightness", v)}
-              />
-              <label className="grs-toggle">
-                <Checkbox
-                  checked={settings.particleGlow}
-                  onCheckedChange={(c) => set("particleGlow", c === true)}
-                />
-                <span>Particle glow</span>
-                <span className="grs-toggle-hint">
-                  soft halo around the travelling particle (between 2 waypoints)
-                </span>
-              </label>
-            </div>
-
-            <div className="grs-section">
-              <div className="grs-section-label">Physics</div>
-              <Knob
-                label="Repulsion"
-                value={settings.chargeStrength}
-                min={-1200}
-                max={-20}
-                step={20}
-                onChange={(v) => set("chargeStrength", v)}
-              />
-              <Knob
-                label="Link distance"
-                value={settings.linkDistance}
-                min={5}
-                max={400}
-                step={5}
-                onChange={(v) => set("linkDistance", v)}
-              />
-              <Knob
-                label="Alpha decay"
-                value={settings.alphaDecay}
-                min={0.001}
-                max={0.06}
-                step={0.001}
-                format={(v) => v.toFixed(3)}
-                onChange={(v) => set("alphaDecay", v)}
-              />
-              <Knob
-                label="Velocity decay"
-                value={settings.velocityDecay}
-                min={0.1}
-                max={0.99}
-                step={0.01}
-                format={(v) => v.toFixed(2)}
-                onChange={(v) => set("velocityDecay", v)}
-              />
-            </div>
-
-            <div className="grs-section">
-              <div className="grs-section-label">Background</div>
-              <div className="grs-bg-presets">
-                {BG_PRESETS.map((p) => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    className={`grs-bg-swatch${settings.bgColor === p.value ? "active" : ""}`}
-                    style={{ background: p.value }}
-                    title={p.label}
-                    onClick={() => set("bgColor", p.value)}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              className="grs-reset"
-              onClick={() => setSettings(DEFAULT_SETTINGS)}
-            >
-              Reset to defaults
-            </button>
+          <div className="graph-render-pane">
+            <GraphRenderPane
+              mode="links"
+              view="3d"
+              settings={settings}
+              onChange={setSettings}
+              onReset={() => setSettings(DEFAULT_GRAPH_RENDER_SETTINGS)}
+              shadingEnabled={shadingEnabled}
+              onShadingEnabledChange={setShadingEnabled}
+            />
           </div>
         )}
       </div>

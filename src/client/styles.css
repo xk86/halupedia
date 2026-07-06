@@ -3126,120 +3126,21 @@ a:hover {
   color: var(--accent);
 }
 
-/* ── Render settings panel ─────────────────────────────────── */
+/* ── Render settings panel ─────────────────────────────────────
+   The panel body is a shadcn Card produced by GraphRenderPane; this
+   wrapper just sizes/anchors the right-side sidebar container. */
 
-.grs-panel {
+.graph-render-pane {
   flex-shrink: 0;
   width: 340px;
-  /* height is set by the flex-row parent's cross-axis stretch */
   align-self: stretch;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem;
   border-left: 1px solid var(--rule);
   background: var(--parchment-deep);
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-}
-
-.grs-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.grs-section-label {
-  font-family: var(--mono);
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--ink-fade);
-  margin-bottom: 0.15rem;
-  border-bottom: 1px dotted var(--rule-dotted);
-  padding-bottom: 0.15rem;
-}
-
-.grs-knob {
-  display: grid;
-  grid-template-columns: 7rem 1fr 3.5rem;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.75rem;
-}
-
-.grs-knob-label {
-  color: var(--ink-soft);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.grs-knob input[type="range"] {
-  width: 100%;
-  min-width: 80px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.grs-knob-val {
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  color: var(--ink-fade);
-  text-align: right;
-  white-space: nowrap;
-}
-
-/* Two compact knobs side by side (label+val on top, slider below) */
-.grs-knob-row {
-  display: flex;
-  gap: 0.6rem;
-}
-
-.grs-knob-row .grs-knob {
-  flex: 1;
-  min-width: 0;
-  grid-template-columns: 1fr auto;
-  grid-template-areas: "label val" "slider slider";
-}
-
-.grs-knob-row .grs-knob .grs-knob-label {
-  grid-area: label;
-}
-
-.grs-knob-row .grs-knob .grs-knob-val {
-  grid-area: val;
-}
-
-.grs-knob-row .grs-knob input[type="range"] {
-  grid-area: slider;
-}
-
-.grs-bg-presets {
-  display: flex;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-}
-
-.grs-bg-swatch {
-  padding: 0.2rem 0.55rem;
-  border-radius: var(--radius-md);
-  border: 2px solid transparent;
-  cursor: pointer;
-  font-size: 0.7rem;
-  font-family: var(--mono);
-  color: rgba(255, 255, 255, 0.7);
-  transition: border-color 0.1s;
-}
-
-.grs-bg-swatch.active {
-  border-color: var(--accent);
-}
-
-.grs-bg-swatch:hover:not(.active) {
-  border-color: rgba(255, 255, 255, 0.4);
 }
 
 .graph-path-info {
@@ -3262,47 +3163,6 @@ a:hover {
   outline: none;
   border-color: var(--accent);
   color: var(--accent);
-}
-
-.grs-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.72rem;
-  color: var(--ink-soft);
-  cursor: pointer;
-  margin-top: 0.2rem;
-}
-
-.grs-toggle input[type="checkbox"] {
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.grs-toggle-hint {
-  font-size: 0.62rem;
-  color: var(--ink-fade);
-  font-style: italic;
-}
-
-.grs-reset {
-  align-self: flex-start;
-  margin-top: 0.25rem;
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--ink-fade);
-  cursor: pointer;
-}
-
-.grs-reset:hover {
-  border-color: #b22;
-  color: #b22;
 }
 
 /* ── Community / component legend panel ────────────────────────────────── */

@@ -5080,6 +5080,10 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     ensureArticleOntologyFresh(db, slug, rag.vocab);
     try {
+      // Bust the LLM cache so the user-triggered inference always makes a fresh
+      // model call instead of returning a stale/empty cached result.
+      db.prepare(`DELETE FROM ontology_llm_cache WHERE article_slug = ?`).run(slug);
+
       const outcome = await deriveLlmExtraction(db, rag.vocab, full, {
         llm,
         prompts: runtime.prompts,
@@ -5098,8 +5102,27 @@ export async function createApp(options: CreateAppOptions = {}) {
           source: r.source,
           isNew: !existingKeys.has(`${r.predicate}\0${r.object}`),
         }));
+      // When vocabulary-validated relations are empty but the LLM did return
+      // raw relations, surface them as unvalidated suggestions so the user
+      // can still see what the LLM found and manually add facts.
+      let raw: Array<{ predicate: string; label: string; object: string; source: string; isNew: boolean }> = [];
+      if (proposed.filter((p) => p.isNew).length === 0 && outcome.rawParsed) {
+        const parsed = outcome.rawParsed as Record<string, unknown>;
+        const rawRelations = Array.isArray(parsed.relations) ? parsed.relations : [];
+        raw = rawRelations
+          .filter((r: any) => r && typeof r === "object" && r.predicate !== "is_a")
+          .map((r: any) => ({
+            predicate: String(r.predicate ?? ""),
+            label: String(r.predicate ?? "").replace(/_/g, " "),
+            object: String(r.object ?? ""),
+            source: "llm",
+            isNew: !existingKeys.has(`${r.predicate}\0${r.object}`),
+          }))
+          .filter((r: any) => r.predicate && r.object && r.isNew);
+      }
       return c.json({
         proposed,
+        raw,
         reason: outcome.reason,
         called: outcome.called,
         entities: outcome.extraction.entities.length,

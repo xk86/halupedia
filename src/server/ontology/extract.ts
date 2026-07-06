@@ -195,32 +195,42 @@ export function validateLlmExtraction(
   const result = emptyExtraction();
   const root = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const typeByName = new Map<string, string>();
+  const canonByAlias = new Map<string, string>();
   for (const entry of asArray(root.entities)) {
     const e = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
     const name = sanitizeFactText(asText(e.name));
     const type = asText(e.type).toLowerCase();
     if (!name || !vocab.entityTypes.has(type)) continue;
     typeByName.set(name, type);
-    result.entities.push({
-      name,
-      type,
-      aliases: asArray(e.aliases).map((a) => sanitizeFactText(asText(a))).filter(Boolean),
-      description: sanitizeFactText(asText(e.description)) || undefined,
-    });
+    const aliases = asArray(e.aliases).map((a) => sanitizeFactText(asText(a))).filter(Boolean);
+    for (const alias of aliases) canonByAlias.set(alias, name);
+    result.entities.push({ name, type, aliases, description: sanitizeFactText(asText(e.description)) || undefined });
   }
+  const resolveEntity = (raw: string): { name: string; type: string } | null => {
+    const direct = typeByName.get(raw);
+    if (direct) return { name: raw, type: direct };
+    const canon = canonByAlias.get(raw);
+    if (canon) return { name: canon, type: typeByName.get(canon)! };
+    return null;
+  };
   for (const entry of asArray(root.relations)) {
     const r = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
-    // Sanitize subject/object identically to entity names so the type lookups
-    // below still match after cleaning.
     const subject = sanitizeFactText(asText(r.subject));
     const predicate = asText(r.predicate);
     const object = sanitizeFactText(asText(r.object));
     if (!subject || !predicate || !object) continue;
-    const subjectType = typeByName.get(subject);
-    const objectType = typeByName.get(object);
-    if (!subjectType || !objectType) continue; // both must be validated entities
-    if (!relationMatchesVocabulary(vocab, predicate, subjectType, objectType)) continue;
-    result.relations.push({ subject, predicate, object, source: "extracted" });
+    if (!vocab.predicates.has(predicate)) continue;
+    const subjectRes = resolveEntity(subject);
+    if (!subjectRes) continue;
+    const objectRes = resolveEntity(object);
+    if (objectRes) {
+      if (!relationMatchesVocabulary(vocab, predicate, subjectRes.type, objectRes.type)) continue;
+      result.relations.push({ subject: subjectRes.name, predicate, object: objectRes.name, source: "extracted" });
+    } else {
+      const def = vocab.predicates.get(predicate)!;
+      if (def.object !== "*") continue;
+      result.relations.push({ subject: subjectRes.name, predicate, object, source: "extracted" });
+    }
   }
   for (const c of asArray(root.categories)) {
     const clean = asText(c);

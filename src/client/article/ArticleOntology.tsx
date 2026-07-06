@@ -10,13 +10,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { ArticleSearchDropdown, type Suggestion } from "@/ArticleSearchDropdown";
 import { entryTitlePresentation } from "../entryTitle";
@@ -77,6 +70,7 @@ interface ProposedFact {
 
 interface InferencePreview {
   proposed: ProposedFact[];
+  raw?: ProposedFact[];
   reason: string;
   called: boolean;
 }
@@ -280,19 +274,16 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const renderEditRow = (fact: OntologyFact) => (
     <TableRow key={fact.id} className="border-b border-panel-border bg-muted/30 last:border-0">
       <th scope="row" className="w-[1%] px-3 py-1.5 align-top text-xs font-medium whitespace-nowrap text-muted-foreground">
-        <Select
-          value={editDraft.predicate}
-          onValueChange={(v) => setEditDraft((d) => ({ ...d, predicate: v ?? "" }))}
-        >
-          <SelectTrigger size="sm" className="w-36 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {predicates.map((p) => (
-              <SelectItem key={p.name} value={p.name}>{p.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Input
+          list="ontology-predicates"
+          value={predicates.find((p) => p.name === editDraft.predicate)?.label ?? editDraft.predicate}
+          onChange={(e) => {
+            const match = predicates.find((p) => p.label === e.target.value);
+            setEditDraft((d) => ({ ...d, predicate: match ? match.name : e.target.value }));
+          }}
+          placeholder="Relationship…"
+          className="h-7 w-36 text-xs"
+        />
       </th>
       <TableCell className="px-3 py-1.5 align-top text-sm">
         <div className="flex flex-col gap-1.5">
@@ -412,21 +403,16 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           <div className="border-t border-panel-border px-3 py-3">
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Select
-                  value={draft.predicate}
-                  onValueChange={(predicate) => setDraft((d) => ({ ...d, predicate: predicate ?? "" }))}
-                >
-                  <SelectTrigger size="sm" className="w-48">
-                    <SelectValue placeholder="Relationship…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {predicates.map((p) => (
-                      <SelectItem key={p.name} value={p.name}>
-                        {p.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  list="ontology-predicates"
+                  value={predicates.find((p) => p.name === draft.predicate)?.label ?? draft.predicate}
+                  onChange={(e) => {
+                    const match = predicates.find((p) => p.label === e.target.value);
+                    setDraft((d) => ({ ...d, predicate: match ? match.name : e.target.value }));
+                  }}
+                  placeholder="Relationship…"
+                  className="h-8 w-48"
+                />
 
                 <ArticleSearchDropdown
                   query={draft.objectName || draft.query}
@@ -469,49 +455,56 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                 </Button>
                 {preview ? (
                   <span className="text-xs text-muted-foreground">
-                    {preview.proposed.filter((p) => p.isNew).length} new suggestion(s)
-                    {!preview.called ? " (cached)" : ""}
+                    {preview.proposed.filter((p) => p.isNew).length} validated, {preview.raw?.length ?? 0} raw suggestion(s)
                   </span>
                 ) : null}
               </div>
               {error ? <span className="text-xs text-destructive">{error}</span> : null}
             </div>
 
-            {preview && preview.proposed.some((p) => p.isNew) ? (
+            {preview && (preview.proposed.some((p) => p.isNew) || (preview.raw && preview.raw.length > 0)) ? (
               <div className="mt-3 rounded-sm border border-panel-border bg-muted/20 p-2">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-medium text-muted-foreground uppercase">
-                    LLM suggestions
+                    {preview.proposed.some((p) => p.isNew) ? "LLM suggestions" : "LLM observations"}
                   </span>
                   <div className="flex gap-1">
-                    <Button size="xs" disabled={busy} onClick={applyInferred}>
-                      Apply all
-                    </Button>
+                    {preview.proposed.some((p) => p.isNew) ? (
+                      <Button size="xs" disabled={busy} onClick={applyInferred}>
+                        Apply all
+                      </Button>
+                    ) : null}
                     <Button variant="ghost" size="xs" onClick={() => setPreview(null)}>
                       Dismiss
                     </Button>
                   </div>
                 </div>
+                {!preview.proposed.some((p) => p.isNew) && preview.raw && preview.raw.length > 0 ? (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    These don't match the vocabulary — use them as inspiration to add facts manually above.
+                  </p>
+                ) : null}
                 <Table containerClassName="overflow-x-visible">
                   <TableBody>
-                    {preview.proposed
-                      .filter((p) => p.isNew)
-                      .map((p, i) => (
-                        <TableRow key={i} className="border-b border-panel-border last:border-0">
-                          <th
-                            scope="row"
-                            className="w-[1%] px-2 py-1 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
-                          >
-                            {p.label}
-                          </th>
-                          <TableCell className="px-2 py-1 align-baseline text-sm whitespace-normal">
-                            <span className="flex items-baseline gap-2">
-                              <span className="flex-1">{p.object}</span>
-                              <Badge variant="warn" className="text-[10px]">new</Badge>
-                            </span>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                    {(preview.proposed.some((p) => p.isNew)
+                      ? preview.proposed.filter((p) => p.isNew)
+                      : (preview.raw ?? [])
+                    ).map((p, i) => (
+                      <TableRow key={i} className="border-b border-panel-border last:border-0">
+                        <th
+                          scope="row"
+                          className="w-[1%] px-2 py-1 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
+                        >
+                          {p.label}
+                        </th>
+                        <TableCell className="px-2 py-1 align-baseline text-sm whitespace-normal">
+                          <span className="flex items-baseline gap-2">
+                            <span className="flex-1">{p.object}</span>
+                            <Badge variant="warn" className="text-[10px]">new</Badge>
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
@@ -519,6 +512,13 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           </div>
         ) : null}
       </CardContent>
+      {editing ? (
+        <datalist id="ontology-predicates">
+          {predicates.map((p) => (
+            <option key={p.name} value={p.label} />
+          ))}
+        </datalist>
+      ) : null}
     </Card>
   );
 }

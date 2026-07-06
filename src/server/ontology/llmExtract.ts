@@ -71,6 +71,9 @@ export interface LlmExtractionOutcome {
    *  from a corrupt row never skip the attempt). */
   called: boolean;
   reason: LlmExtractionReason;
+  /** The raw parsed JSON from the LLM before vocabulary validation. Only
+   *  populated on a fresh call (not from cache). */
+  rawParsed?: unknown;
 }
 
 /**
@@ -112,6 +115,7 @@ export async function deriveLlmExtraction(
       : "vocabulary_changed";
 
   let extraction = emptyExtraction();
+  let rawParsed: unknown;
   try {
     const prompt = getPrompt(options.prompts, "ontology");
     const title = article.displayTitle || article.title;
@@ -134,12 +138,9 @@ export async function deriveLlmExtraction(
     );
     const parsed = parseJsonLoose(raw);
     if (parsed === null) {
-      // Unrecoverable even after repair (rare): log, keep the empty result, and
-      // let deterministic extraction carry the article on its own.
       options.logger?.warn?.("ontology.llm_extraction_unparseable", { slug: article.slug });
     } else {
-      // validateLlmExtraction tolerates malformed/partial input and never throws,
-      // so a truncated-but-repaired array still yields its complete entries.
+      rawParsed = parsed;
       extraction = validateLlmExtraction(parsed, vocab);
     }
   } catch (err) {
@@ -162,5 +163,5 @@ export async function deriveLlmExtraction(
        updated_at = excluded.updated_at`,
   ).run(article.slug, hash, vocabHash, JSON.stringify(extraction), Date.now());
 
-  return { extraction, called: true, reason };
+  return { extraction, called: true, reason, rawParsed };
 }

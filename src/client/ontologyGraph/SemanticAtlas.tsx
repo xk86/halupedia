@@ -48,7 +48,8 @@ import {
   makeEdgeLabel,
   type NodeLabel,
 } from "../graphLabels";
-import { fadeTowardNeutral, mixOkLch } from "../graphRender/okLch";
+import { resolveGradientLinkColor } from "../graphRender/linkColor";
+import { mixOkLch } from "../graphRender/okLch";
 import {
   layoutSemanticTreeNodes,
   materializeSemanticGraph,
@@ -434,6 +435,16 @@ function OntologyForceGraph({
   // registered once at graph init — sees fresh values as the sliders move.
   const linkColorModeRef = useRef(settings.linkColorMode);
   const linkColorIntensityRef = useRef(settings.linkColorIntensity);
+  // Node color lookup by id, read by the linkColor accessor. We key off this
+  // rather than the library's `link.source`/`link.target` because
+  // 3d-force-graph only resolves those from raw string ids to node object
+  // references once the link-force runs its first tick — on a fresh mount,
+  // the link mesh (and its baked-in material color) is built before that
+  // resolution happens, so reading `link.source.color` falls back to neutral
+  // and (since nothing re-triggers a repaint once resolved) never recovers.
+  // `link.relation.source`/`.target` are always the raw ids, so a ref-held
+  // map sidesteps the timing race entirely.
+  const nodeColorByIdRef = useRef(new Map<string, string>());
   const typeIndex = useMemo(
     () =>
       new Map(
@@ -475,6 +486,9 @@ function OntologyForceGraph({
         target: relation.target,
         relation,
       }));
+    nodeColorByIdRef.current = new Map(
+      forceNodes.map((node) => [node.id, node.color]),
+    );
     return { nodes: forceNodes, links: forceLinks };
   }, [nodes, relations, metric, maxMetric, typeIndex]);
 
@@ -517,26 +531,15 @@ function OntologyForceGraph({
             const neutral =
               link.relation.sourceKind === "inferred" ? "#8a8a9a" : "#d6d6e0";
             if (linkColorModeRef.current !== "gradient") return neutral;
-            // In gradient mode, tint the edge toward the perceptual midpoint
-            // of the two endpoint colors. `linkColor` returns one color per
-            // edge; a two-vertex gradient would need a custom LineSegments,
-            // but at typical zoom the midpoint blend already reads as an
-            // OKLCH bridge between the two node hues.
-            const s = link.source as ForceOntologyNode;
-            const t = link.target as ForceOntologyNode;
-            if (
-              !s ||
-              !t ||
-              typeof s !== "object" ||
-              typeof t !== "object" ||
-              !s.color ||
-              !t.color
-            )
-              return neutral;
-            const blended = mixOkLch(s.color, t.color, 0.5);
-            return fadeTowardNeutral(
-              blended,
+            // `linkColor` returns one color per edge; a two-vertex gradient
+            // would need a custom LineSegments, but at typical zoom the
+            // perceptual (OKLCH) midpoint blend already reads as a hue
+            // bridge between the two node colors.
+            return resolveGradientLinkColor(
+              link.relation.source,
+              link.relation.target,
               neutral,
+              nodeColorByIdRef.current,
               linkColorIntensityRef.current,
             );
           })

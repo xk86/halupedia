@@ -192,6 +192,56 @@ test("curated entity type edits update the article entity and is_a fact", (t) =>
   assert.ok(facts.some((fact) => fact.predicate === "is_a" && fact.object === "person"));
 });
 
+test("updateArticleEntityType absorbs a conflicting entity with the target type", (t) => {
+  const db = makeDb(t);
+  saveArticle(
+    db,
+    {
+      slug: "subject",
+      canonicalSlug: "subject",
+      title: "Subject",
+      markdown: "# Subject\n\nBody.",
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "Body.",
+      generated_at: Date.now(),
+    },
+    [],
+    [],
+    {},
+  );
+  indexArticleOntology(db, {
+    slug: "subject",
+    title: "Subject",
+    infobox: { title: "Subject", subtitle: "Thing", groups: [] },
+    vocab,
+  });
+
+  // Manually insert a conflicting entity with the same name but target type,
+  // simulating a stale duplicate left over from a vocabulary change.
+  prepared(
+    db,
+    `INSERT INTO entities (canonical_name, entity_type, article_slug, description, created_at, updated_at)
+     VALUES (?, ?, NULL, '', ?, ?)`,
+  ).run("Subject", "person", Date.now(), Date.now());
+
+  const conflict = prepared(
+    db,
+    `SELECT id FROM entities WHERE canonical_name = 'Subject' AND entity_type = 'person'`,
+  ).get() as { id: number };
+  assert.ok(conflict, "conflicting entity exists before update");
+
+  assert.equal(updateArticleEntityType(db, "subject", "person"), true);
+  const { entity } = listArticleEntityFacts(db, "subject");
+  assert.equal(entity?.entityType, "person");
+
+  const stale = prepared(
+    db,
+    `SELECT id FROM entities WHERE id = ?`,
+  ).get(conflict.id) as { id: number } | undefined;
+  assert.equal(stale, undefined, "conflicting entity was absorbed");
+});
+
 test("an unrelated word starting with an honorific-like prefix is not misclassified", () => {
   const infobox: InfoboxData = {
     title: "Drought",

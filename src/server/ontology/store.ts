@@ -390,7 +390,11 @@ export function updateArticleEntityType(
     db,
     `SELECT id FROM entities WHERE canonical_name = ? AND entity_type = ? AND id <> ? LIMIT 1`,
   ).get(entity.canonicalName, entityType, entity.id) as { id: number } | undefined;
-  if (conflict) return false;
+  if (conflict) {
+    prepared(db, `UPDATE OR IGNORE entity_relations SET subject_entity_id = ? WHERE subject_entity_id = ?`).run(entity.id, conflict.id);
+    prepared(db, `UPDATE OR IGNORE entity_relations SET object_entity_id = ? WHERE object_entity_id = ?`).run(entity.id, conflict.id);
+    prepared(db, `DELETE FROM entities WHERE id = ?`).run(conflict.id);
+  }
   prepared(db, `UPDATE entities SET entity_type = ?, updated_at = ? WHERE id = ?`).run(
     entityType,
     Date.now(),

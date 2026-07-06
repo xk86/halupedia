@@ -22,6 +22,7 @@ import { validateLlmExtraction } from "./extract";
 import { listArticleEntityFacts } from "./store";
 import { emptyExtraction, type ExtractionResult } from "./types";
 import type { OntologyVocabulary } from "./vocabulary";
+import { replaceOntologySuggestions } from "./suggestions";
 
 export interface OntologyLlmOptions {
   llm: LlmRouter;
@@ -59,11 +60,7 @@ interface CacheRow {
 }
 
 /** Why (or whether) the light model was actually called for this article. */
-export type LlmExtractionReason =
-  | "cache_hit"
-  | "first_extraction"
-  | "content_changed"
-  | "vocabulary_changed";
+export type LlmExtractionReason = "cache_hit" | "first_extraction" | "content_changed" | "vocabulary_changed";
 
 export interface LlmExtractionOutcome {
   extraction: ExtractionResult;
@@ -81,21 +78,18 @@ export interface LlmExtractionOutcome {
  * content + vocabulary hash are unchanged. Returns an empty extraction (never
  * throws) on model or parse failure so deterministic indexing still proceeds.
  */
-export async function deriveLlmExtraction(
-  db: DatabaseSync,
-  vocab: OntologyVocabulary,
-  article: ArticleRecord,
-  options: OntologyLlmOptions,
-): Promise<LlmExtractionOutcome> {
+export async function deriveLlmExtraction(db: DatabaseSync, vocab: OntologyVocabulary, article: ArticleRecord, options: OntologyLlmOptions): Promise<LlmExtractionOutcome> {
   const body = article.markdown || article.plain_text || "";
-  if (!body.trim()) return { extraction: emptyExtraction(), called: false, reason: "cache_hit" };
+  if (!body.trim())
+    return {
+      extraction: emptyExtraction(),
+      called: false,
+      reason: "cache_hit",
+    };
   const hash = contentHash(body);
   const vocabHash = vocab.signature;
 
-  const cached = prepared(
-    db,
-    `SELECT content_hash, vocab_hash, extraction FROM ontology_llm_cache WHERE article_slug = ?`,
-  ).get(article.slug) as CacheRow | undefined;
+  const cached = prepared(db, `SELECT content_hash, vocab_hash, extraction FROM ontology_llm_cache WHERE article_slug = ?`).get(article.slug) as CacheRow | undefined;
   if (cached && cached.content_hash === hash && cached.vocab_hash === vocabHash) {
     try {
       const hit = JSON.parse(cached.extraction) as ExtractionResult;
@@ -108,11 +102,7 @@ export async function deriveLlmExtraction(
 
   // Explain why the (paid) model call is happening — this is the only path that
   // hits the LLM, and only on a genuine content/vocabulary change.
-  const reason = !cached
-    ? "first_extraction"
-    : cached.content_hash !== hash
-      ? "content_changed"
-      : "vocabulary_changed";
+  const reason = !cached ? "first_extraction" : cached.content_hash !== hash ? "content_changed" : "vocabulary_changed";
 
   let extraction = emptyExtraction();
   let rawParsed: unknown;
@@ -138,7 +128,9 @@ export async function deriveLlmExtraction(
     );
     const parsed = parseJsonLoose(raw);
     if (parsed === null) {
-      options.logger?.warn?.("ontology.llm_extraction_unparseable", { slug: article.slug });
+      options.logger?.warn?.("ontology.llm_extraction_unparseable", {
+        slug: article.slug,
+      });
     } else {
       rawParsed = parsed;
       extraction = validateLlmExtraction(parsed, vocab);
@@ -162,6 +154,7 @@ export async function deriveLlmExtraction(
        extraction = excluded.extraction,
        updated_at = excluded.updated_at`,
   ).run(article.slug, hash, vocabHash, JSON.stringify(extraction), Date.now());
+  replaceOntologySuggestions(db, article.slug, rawParsed, extraction);
 
   return { extraction, called: true, reason, rawParsed };
 }

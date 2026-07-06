@@ -58,6 +58,8 @@ export const WorkflowInputSchema = z.object({
   blacklistSlugs: z.array(SlugSchema).optional(),
   /** Caller-explicit reference selection (overrides RAG when present). */
   selectedReferenceSlugs: z.array(SlugSchema).nullable().optional(),
+  /** Pending ontology suggestion ids selected for an append/merge action. */
+  ontologySuggestionIds: z.array(z.number().int().positive()).optional(),
 
   // Rewrite-specific options ─────────────────────────────────────────────────
   /** Plain text the user selected (selection-edit path). */
@@ -91,9 +93,7 @@ export const WorkflowInputSchema = z.object({
 
   // Random-page-specific ─────────────────────────────────────────────────────
   /** Existing articles offered to the model as inspiration for a random pick. */
-  inspiration: z
-    .array(z.object({ slug: z.string(), title: z.string() }))
-    .optional(),
+  inspiration: z.array(z.object({ slug: z.string(), title: z.string() })).optional(),
 });
 export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
 
@@ -107,9 +107,7 @@ export const ReferenceEntrySchema = z.object({
   kind: z.enum(["summary", "chunk"]),
   pinned: z.boolean(),
   score: z.number().optional(),
-  source: z
-    .enum(["body", "user", "prior", "rag", "recursive", "pinned"])
-    .optional(),
+  source: z.enum(["body", "user", "prior", "rag", "recursive", "pinned"]).optional(),
 });
 export type ReferenceEntry = z.infer<typeof ReferenceEntrySchema>;
 
@@ -234,6 +232,32 @@ export const ValidationIssueSchema = z.object({
 });
 export type ValidationIssue = z.infer<typeof ValidationIssueSchema>;
 
+const OntologyExtractionResultSchema = z.object({
+  entities: z.array(
+    z.object({
+      name: z.string(),
+      type: z.string(),
+      articleSlug: z.string().optional(),
+      aliases: z.array(z.string()).optional(),
+      identifiers: z.array(z.object({ scheme: z.string(), value: z.string() })).optional(),
+      description: z.string().optional(),
+    }),
+  ),
+  relations: z.array(
+    z.object({
+      subject: z.string(),
+      predicate: z.string(),
+      object: z.string(),
+      objectSlug: z.string().optional(),
+      objectIsLiteral: z.boolean().optional(),
+      source: z.enum(["infobox", "extracted", "curated", "inferred"]),
+      confidence: z.number().optional(),
+      inferredFrom: z.string().optional(),
+    }),
+  ),
+  categories: z.array(z.string()),
+});
+
 // ─── The state shape itself ──────────────────────────────────────────────────
 
 export const PipelineStateSchema = z.object({
@@ -296,10 +320,7 @@ export const PipelineStateSchema = z.object({
   /** Markdown for the selection range being rewritten (partial-rewrite path). */
   selectedMarkdown: z.string().optional(),
   /** Character range within the full article markdown for the selected text. */
-  selectionRange: z
-    .object({ start: z.number(), end: z.number() })
-    .nullable()
-    .optional(),
+  selectionRange: z.object({ start: z.number(), end: z.number() }).nullable().optional(),
   /** Section id being rewritten (section-rewrite path). */
   sectionId: z.string().optional(),
   /** Rewrite mode label (from rewriteModes config). */
@@ -321,49 +342,38 @@ export const PipelineStateSchema = z.object({
       llmEnabled: z.boolean(),
       llmReason: z.string().optional(),
       called: z.boolean().optional(),
-      extraction: z
-        .object({
-          entities: z.array(
-            z.object({
-              name: z.string(),
-              type: z.string(),
-              articleSlug: z.string().optional(),
-              aliases: z.array(z.string()).optional(),
-              identifiers: z
-                .array(z.object({ scheme: z.string(), value: z.string() }))
-                .optional(),
-              description: z.string().optional(),
-            }),
-          ),
-          relations: z.array(
-            z.object({
-              subject: z.string(),
-              predicate: z.string(),
-              object: z.string(),
-              objectSlug: z.string().optional(),
-              objectIsLiteral: z.boolean().optional(),
-              source: z.enum(["infobox", "extracted", "curated", "inferred"]),
-              confidence: z.number().optional(),
-              inferredFrom: z.string().optional(),
-            }),
-          ),
-          categories: z.array(z.string()),
-        })
+      extraction: OntologyExtractionResultSchema.optional(),
+      llmExtraction: OntologyExtractionResultSchema.optional(),
+      removedInfoboxRelations: z.number().optional(),
+      proposed: z
+        .array(
+          z.object({
+            predicate: z.string(),
+            label: z.string(),
+            object: z.string(),
+            source: z.string(),
+            isNew: z.boolean(),
+          }),
+        )
         .optional(),
-      proposed: z.array(z.object({
-        predicate: z.string(),
-        label: z.string(),
-        object: z.string(),
-        source: z.string(),
-        isNew: z.boolean(),
-      })).optional(),
-      raw: z.array(z.object({
-        predicate: z.string(),
-        label: z.string(),
-        object: z.string(),
-        source: z.string(),
-        isNew: z.boolean(),
-      })).optional(),
+      raw: z
+        .array(
+          z.object({
+            predicate: z.string(),
+            label: z.string(),
+            object: z.string(),
+            source: z.string(),
+            isNew: z.boolean(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+  ontologySuggestionAction: z
+    .object({
+      mode: z.enum(["append", "merge"]),
+      applied: z.number(),
+      removedInfoboxRelations: z.number(),
     })
     .optional(),
 
@@ -382,9 +392,7 @@ export const PipelineStateSchema = z.object({
 
   // Random page ──────────────────────────────────────────────────────────────
   /** Title/slug the model chose for a random page (random.page workflow). */
-  randomPageChoice: z
-    .object({ slug: z.string(), title: z.string() })
-    .optional(),
+  randomPageChoice: z.object({ slug: z.string(), title: z.string() }).optional(),
 
   // Image caption ──────────────────────────────────────────────────────────
   /** LLM-generated caption result for the image.caption workflow. */

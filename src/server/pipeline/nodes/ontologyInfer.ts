@@ -1,20 +1,13 @@
 import { defineNode } from "../runtime/nodeFactory";
 import type { PipelineDeps } from "../deps";
-import { getArticle } from "../../db";
+import { enqueueRagIndexJob, getArticle, prepared } from "../../db";
 import { slugify } from "../../slug";
-import { prepared } from "../../db";
-import {
-  deriveLlmExtraction,
-  ensureArticleOntologyFresh,
-  listArticleEntityFacts,
-} from "../../ontology";
+import { applyOntologySuggestions, deriveLlmExtraction, ensureArticleOntologyFresh, listArticleEntityFacts } from "../../ontology";
 
 export const ontologyInferLlmNode = defineNode({
   name: "ontology.llm.infer",
   kind: "llm",
-  description:
-    "Call the light LLM to extract entities and relations from the article, " +
-    "busting the extraction cache so a fresh model call always happens.",
+  description: "Call the light LLM to extract entities and relations from the article, " + "busting the extraction cache so a fresh model call always happens.",
   reads: ["input"] as const,
   writes: ["ontologyExtraction"] as const,
   async run({ input }, deps: PipelineDeps) {
@@ -49,7 +42,13 @@ export const ontologyInferLlmNode = defineNode({
         isNew: !existingKeys.has(`${r.predicate}\0${r.object}`),
       }));
 
-    let raw: Array<{ predicate: string; label: string; object: string; source: string; isNew: boolean }> = [];
+    let raw: Array<{
+      predicate: string;
+      label: string;
+      object: string;
+      source: string;
+      isNew: boolean;
+    }> = [];
     if (proposed.filter((p) => p.isNew).length === 0 && outcome.rawParsed) {
       const parsed = outcome.rawParsed as Record<string, unknown>;
       const rawRelations = Array.isArray(parsed.relations) ? parsed.relations : [];
@@ -80,3 +79,31 @@ export const ontologyInferLlmNode = defineNode({
     };
   },
 });
+
+function suggestionActionNode(mode: "append" | "merge") {
+  return defineNode({
+    name: `write.${mode}_ontology_suggestions`,
+    kind: "write" as const,
+    description: mode === "merge" ? "Accept pending suggestions and suppress overlapping infobox-derived ontology facts." : "Accept pending suggestions without changing existing ontology facts.",
+    reads: ["input"] as const,
+    writes: ["ontologySuggestionAction"] as const,
+    run({ input }, deps: PipelineDeps) {
+      const slug = slugify(input.slug ?? "");
+      if (!slug) return {};
+      const vocab = deps.rag?.vocab;
+      if (!vocab) return {};
+      ensureArticleOntologyFresh(deps.db, slug, vocab);
+      const result = applyOntologySuggestions(deps.db, slug, mode, input.ontologySuggestionIds);
+      enqueueRagIndexJob(deps.db, {
+        articleSlug: slug,
+        sourceKind: "article_body",
+        sourceId: slug,
+        operation: "upsert",
+      });
+      return { ontologySuggestionAction: { mode, ...result } };
+    },
+  });
+}
+
+export const appendOntologySuggestionsNode = suggestionActionNode("append");
+export const mergeOntologySuggestionsNode = suggestionActionNode("merge");

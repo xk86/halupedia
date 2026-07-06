@@ -35,11 +35,7 @@
  *    Saves the infobox JSON to article_infobox sidecar table.
  *
  * 9. write.extract_ontology
- *    Deterministic infobox extraction (+ cached light-model pass over the body,
- *    if `rag.ontology_llm_extraction` is on) right now — entities/relations/
- *    categories land in SQLite immediately rather than waiting for the async
- *    RAG job drain. The drain still runs later to embed `ontology_fact` docs
- *    into LanceDB, re-deriving the same facts (a cache hit on the LLM side).
+ *    Derives deterministic infobox facts and optional cached model candidates.
  *
  * 10. llm.generate_sidebar_caption  [images model, text-only]
  *    Prompt: image_caption

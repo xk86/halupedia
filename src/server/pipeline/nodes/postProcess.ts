@@ -33,9 +33,9 @@ import {
 import { getMediaById } from "../../mediaDb";
 import {
   deriveLlmExtraction,
+  extractDeterministic,
   indexArticleOntology,
   loadOntologyVocabulary,
-  type ExtractionResult,
 } from "../../ontology";
 import {
   buildReferenceList,
@@ -582,15 +582,14 @@ export const persistInfoboxNode = defineNode({
   },
 });
 
-// ─── WRITE: extract ontology facts ────────────────────────────────────────────
+// ─── WRITE: extract ontology facts and suggestions ────────────────────────────
 
 export const extractOntologyNode = defineNode({
   name: "write.extract_ontology",
   kind: "write",
   description:
-    "Derive entities/relations/categories from the freshly-saved infobox (and, " +
-    "if enabled, a cached light-model pass over the body) right when the article " +
-    "is made — not on the next async RAG drain.",
+    "Persist deterministic infobox facts and, when enabled, cache light-model " +
+    "candidates as pending suggestions.",
   reads: ["input"] as const,
   writes: ["ontologyExtraction"] as const,
   async run({ input }, deps: PipelineDeps) {
@@ -604,8 +603,10 @@ export const extractOntologyNode = defineNode({
     const infobox = getArticleInfobox(deps.db, slug);
     const llmEnabled = deps.runtime.app.rag.ontology_llm_extraction === true;
 
-    let llmExtraction: ExtractionResult | undefined;
+    const deterministic = extractDeterministic({ slug, title, infobox, vocab });
+    let llmExtraction;
     let llmReason: string | undefined;
+    let called: boolean | undefined;
     if (llmEnabled) {
       const outcome = await deriveLlmExtraction(deps.db, vocab, article, {
         llm: deps.llm,
@@ -614,32 +615,29 @@ export const extractOntologyNode = defineNode({
       });
       llmExtraction = outcome.extraction;
       llmReason = outcome.reason;
+      called = outcome.called;
     }
+    indexArticleOntology(deps.db, { slug, title, infobox, vocab });
 
-    const merged = indexArticleOntology(deps.db, {
-      slug,
-      title,
-      infobox,
-      vocab,
-      llmExtraction,
-    });
     deps.logger.info("pipeline.ontology.extracted", {
       slug,
-      entities: merged.entities.length,
-      relations: merged.relations.length,
-      categories: merged.categories.length,
+      entities: deterministic.entities.length,
+      relations: deterministic.relations.length,
+      categories: deterministic.categories.length,
       llm_enabled: llmEnabled,
       llm_reason: llmReason,
     });
 
     return {
       ontologyExtraction: {
-        entities: merged.entities.length,
-        relations: merged.relations.length,
-        categories: merged.categories.length,
+        entities: deterministic.entities.length,
+        relations: deterministic.relations.length,
+        categories: deterministic.categories.length,
         llmEnabled,
         llmReason,
-        extraction: merged,
+        called,
+        extraction: deterministic,
+        llmExtraction,
       },
     };
   },

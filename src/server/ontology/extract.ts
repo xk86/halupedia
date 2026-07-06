@@ -10,12 +10,7 @@
  */
 import type { InfoboxData } from "../db";
 import { parseMarkdownLinks } from "../text/markdownLinkParser";
-import {
-  classifyType,
-  normalizeLabel,
-  relationMatchesVocabulary,
-  type OntologyVocabulary,
-} from "./vocabulary";
+import { classifyType, normalizeLabel, relationMatchesVocabulary, type OntologyVocabulary } from "./vocabulary";
 import { emptyExtraction, type ExtractedEntity, type ExtractionResult } from "./types";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -54,8 +49,7 @@ function resolveLinkedObject(rawValue: string): { name: string; slug: string } |
   const marker = parsed.looseInternalMarkers.find((m) => m.slug);
   if (marker?.slug) {
     // The visible name is the value with the marker removed.
-    const name =
-      (rawValue.slice(0, marker.start) + rawValue.slice(marker.end)).trim() || marker.slug;
+    const name = (rawValue.slice(0, marker.start) + rawValue.slice(marker.end)).trim() || marker.slug;
     return { name: sanitizeFactText(name), slug: marker.slug };
   }
   return null;
@@ -122,7 +116,10 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
       // Typed identifier (ticker/isin/…)?
       const scheme = vocab.identifierLabels.get(lowerLabel) ?? vocab.identifierLabels.get(normLabel);
       if (scheme) {
-        articleEntity.identifiers!.push({ scheme, value: sanitizeFactText(rawValue) });
+        articleEntity.identifiers!.push({
+          scheme,
+          value: sanitizeFactText(rawValue),
+        });
         continue;
       }
 
@@ -131,14 +128,15 @@ export function extractDeterministic(args: DeterministicArgs): ExtractionResult 
       // ("Hypothesis: …"), not a relation to another entity. Collapsing it to
       // `related_to` would both discard the meaningful label and falsely imply a
       // relationship — `related_to` is reserved for the vocabulary's use.
-      const predicate =
-        vocab.labelPredicates.get(lowerLabel) ??
-        vocab.labelPredicates.get(normLabel) ??
-        (vocab.predicates.has(normLabel) ? normLabel : label);
+      const predicate = vocab.labelPredicates.get(lowerLabel) ?? vocab.labelPredicates.get(normLabel) ?? (vocab.predicates.has(normLabel) ? normLabel : label);
 
       const linked = resolveLinkedObject(rawValue);
       if (linked) {
-        result.entities.push({ name: linked.name, type: "thing", articleSlug: linked.slug });
+        result.entities.push({
+          name: linked.name,
+          type: "thing",
+          articleSlug: linked.slug,
+        });
         result.relations.push({
           subject: title,
           predicate,
@@ -188,10 +186,7 @@ function asArray(value: unknown): unknown[] {
  * category tags. Entity types must be in the core set and relation predicates
  * must satisfy their signature.
  */
-export function validateLlmExtraction(
-  raw: unknown,
-  vocab: OntologyVocabulary,
-): ExtractionResult {
+export function validateLlmExtraction(raw: unknown, vocab: OntologyVocabulary): ExtractionResult {
   const result = emptyExtraction();
   const root = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const typeByName = new Map<string, string>();
@@ -202,9 +197,16 @@ export function validateLlmExtraction(
     const type = asText(e.type).toLowerCase();
     if (!name || !vocab.entityTypes.has(type)) continue;
     typeByName.set(name, type);
-    const aliases = asArray(e.aliases).map((a) => sanitizeFactText(asText(a))).filter(Boolean);
+    const aliases = asArray(e.aliases)
+      .map((a) => sanitizeFactText(asText(a)))
+      .filter(Boolean);
     for (const alias of aliases) canonByAlias.set(alias, name);
-    result.entities.push({ name, type, aliases, description: sanitizeFactText(asText(e.description)) || undefined });
+    result.entities.push({
+      name,
+      type,
+      aliases,
+      description: sanitizeFactText(asText(e.description)) || undefined,
+    });
   }
   const resolveEntity = (raw: string): { name: string; type: string } | null => {
     const direct = typeByName.get(raw);
@@ -225,11 +227,21 @@ export function validateLlmExtraction(
     const objectRes = resolveEntity(object);
     if (objectRes) {
       if (!relationMatchesVocabulary(vocab, predicate, subjectRes.type, objectRes.type)) continue;
-      result.relations.push({ subject: subjectRes.name, predicate, object: objectRes.name, source: "extracted" });
+      result.relations.push({
+        subject: subjectRes.name,
+        predicate,
+        object: objectRes.name,
+        source: "extracted",
+      });
     } else {
       const def = vocab.predicates.get(predicate)!;
       if (def.object !== "*") continue;
-      result.relations.push({ subject: subjectRes.name, predicate, object, source: "extracted" });
+      result.relations.push({
+        subject: subjectRes.name,
+        predicate,
+        object,
+        source: "extracted",
+      });
     }
   }
   for (const c of asArray(root.categories)) {
@@ -239,11 +251,23 @@ export function validateLlmExtraction(
   return result;
 }
 
-/** Merge deterministic + LLM extractions (deterministic wins on conflicts). */
-export function mergeExtractions(
-  deterministic: ExtractionResult,
-  llm: ExtractionResult,
-): ExtractionResult {
+function comparableFactText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+export function conveysSameObject(left: string, right: string): boolean {
+  const a = comparableFactText(left);
+  const b = comparableFactText(right);
+  if (!a || !b) return false;
+  return a === b || (Math.min(a.length, b.length) >= 4 && (a.includes(b) || b.includes(a)));
+}
+
+/** Append model-derived facts without removing deterministic facts. */
+export function mergeExtractions(deterministic: ExtractionResult, llm: ExtractionResult): ExtractionResult {
   const entities = [...deterministic.entities];
   const seenEntity = new Set(entities.map((e) => `${e.name}|${e.type}`));
   for (const e of llm.entities) {
@@ -264,4 +288,20 @@ export function mergeExtractions(
   }
   const categories = [...new Set([...deterministic.categories, ...llm.categories])];
   return { entities, relations, categories };
+}
+
+/**
+ * Merge model-derived facts while removing broad infobox facts that convey the
+ * same object value. The sidebar remains unchanged; only ontology rows are
+ * pruned.
+ */
+export function mergeOntologyExtractions(deterministic: ExtractionResult, llm: ExtractionResult): ExtractionResult {
+  const prunedDeterministic = {
+    ...deterministic,
+    relations: deterministic.relations.filter((candidate) => {
+      if (candidate.source !== "infobox" || candidate.predicate === "is_a") return true;
+      return !llm.relations.some((inferred) => comparableFactText(inferred.subject) === comparableFactText(candidate.subject) && conveysSameObject(inferred.object, candidate.object));
+    }),
+  };
+  return mergeExtractions(prunedDeterministic, llm);
 }

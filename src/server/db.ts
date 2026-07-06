@@ -425,6 +425,19 @@ export function openDatabase(databasePath: string): DatabaseSync {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS ontology_suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      predicate TEXT NOT NULL,
+      object TEXT NOT NULL,
+      validated INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      UNIQUE(article_slug, subject, predicate, object)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ontology_suggestions_article
+      ON ontology_suggestions(article_slug, id);
+
     -- Records the vocabulary signature an article's ontology was last extracted
     -- under. When the live vocabulary signature differs (a predicate was added
     -- or removed), the article is stale and is re-extracted lazily on demand —

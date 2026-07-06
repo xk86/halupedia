@@ -20,7 +20,11 @@ import { captionImageWorkflow } from "./workflows/captionImage";
 import { articleImageGenerationWorkflow } from "./workflows/articleImageGeneration";
 import { regenerateSummaryWorkflow } from "./workflows/utilities";
 import { randomPageWorkflow } from "./workflows/randomPage";
-import { ontologyInferWorkflow } from "./workflows/ontologyInfer";
+import {
+  ontologyInferWorkflow,
+  ontologySuggestionsAppendWorkflow,
+  ontologySuggestionsMergeWorkflow,
+} from "./workflows/ontologyInfer";
 
 export const ALL_WORKFLOWS: WorkflowDefinition<PipelineDeps>[] = [
   generateArticleWorkflow,
@@ -35,6 +39,8 @@ export const ALL_WORKFLOWS: WorkflowDefinition<PipelineDeps>[] = [
   regenerateSummaryWorkflow,
   randomPageWorkflow,
   ontologyInferWorkflow,
+  ontologySuggestionsAppendWorkflow,
+  ontologySuggestionsMergeWorkflow,
 ];
 
 export function findWorkflow(

@@ -10,23 +10,10 @@ import { extname, resolve, dirname, basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { loadConfig } from "./config";
-import {
-  createArticleImagePresetFile,
-  deleteArticleImagePresetFile,
-  listArticleImagePresetFiles,
-  listPromptFiles,
-  readArticleImagePresetFile,
-  readPromptFile,
-  writeArticleImagePresetFile,
-  writePromptFile,
-} from "./promptEditor";
-import {
-  listArticleImageAspectRatios,
-  normalizeArticleImageAspectRatioKey,
-  resolveArticleImageAspectRatio,
-} from "./imageAspectRatios";
+import { createArticleImagePresetFile, deleteArticleImagePresetFile, listArticleImagePresetFiles, listPromptFiles, readArticleImagePresetFile, readPromptFile, writeArticleImagePresetFile, writePromptFile } from "./promptEditor";
+import { listArticleImageAspectRatios, normalizeArticleImageAspectRatioKey, resolveArticleImageAspectRatio } from "./imageAspectRatios";
 import {
   deleteArticleBySlug,
   listImageBacklinks,
@@ -101,128 +88,38 @@ import {
   type SidebarOperation,
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
-import {
-  createRagRuntime,
-  registerRagAdminRoutes,
-  toLegacyView,
-  type RagRuntime,
-} from "./rag";
-import {
-  ensureArticleOntologyFresh,
-  isArticleOntologyStale,
-  listArticleEntityFacts,
-  getArticleEntityId,
-  addCuratedFact,
-  deleteCuratedFact,
-  suppressFact,
-  updateFact,
-  getVocabularyReviewStats,
-  sanitizePredicateAddition,
-  sanitizePredicateRemoval,
-  appendPredicates,
-  removePredicates,
-  deriveLlmExtraction,
-  indexArticleOntology,
-  type ArticleOntologyFact,
-  type PredicateAdditionProposal,
-} from "./ontology";
+import { createRagRuntime, registerRagAdminRoutes, toLegacyView, type RagRuntime } from "./rag";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
 import { generateArticleImage } from "./imageGeneration";
 import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
 import { renderInfoboxHtml } from "./articleRender";
-import {
-  findFuzzyTitleMatchesInEditText,
-  findReferencedArticlesInEditText,
-} from "./editReferences";
+import { findFuzzyTitleMatchesInEditText, findReferencedArticlesInEditText } from "./editReferences";
 import { OpenAICompatRouter, fetchHostModels, type LlmRouter } from "./llm";
 import type { ChatConfig, ImageGenerationConfig } from "./types";
 import { addTomlTable, removeTomlTableKey, setTomlTableValue } from "./tomlEdit";
 import { createConsoleLogger, type Logger } from "./logger";
 import { MaintenanceScheduler } from "./maintenance";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
-import {
-  articleSectionMarkdown,
-  buildHaluLink,
-  extractDisplayTitle,
-  extractInternalLinks,
-  extractTitle,
-  fixSlugVisibleText,
-  LINK_RE,
-  listArticleSections,
-  markdownToPlainText,
-  normalizeMarkdown,
-  renderMarkdown,
-  renderInlineMarkdown,
-  replaceArticleSection,
-  sectionSlice,
-  spliceProtectedSections,
-  stripFootnoteArtifacts,
-  stripSelfLinks,
-  stripTopLevelSections,
-  summaryMarkdownFromArticle,
-} from "./markdown";
+import { articleSectionMarkdown, buildHaluLink, extractDisplayTitle, extractInternalLinks, extractTitle, fixSlugVisibleText, LINK_RE, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, renderInlineMarkdown, replaceArticleSection, sectionSlice, spliceProtectedSections, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
 import { getPrompt, getSharedPrompt, renderTemplate } from "./prompts";
 import { formatRagContextForPrompt } from "./retrieval";
-import {
-  isSlugForm,
-  isSlugStyleWikiSegment,
-  legacySlugify,
-  normalizeCanonicalTitle,
-  slugToTitle,
-  slugify,
-  titleToWikiSegment,
-  wikiSegmentToRequestedTitle,
-  wikiSegmentToTitle,
-} from "./slug";
+import { isSlugForm, isSlugStyleWikiSegment, legacySlugify, normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToRequestedTitle, wikiSegmentToTitle } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
 import { normalizeMarkdownLinks } from "./text/linkNormalize";
 import { formatIncomingHintsForPrompt } from "./linkHints";
-import type {
-  ArticleRecord,
-  HomepagePayload,
-  LinkSuggestion,
-  SeeAlsoCandidate,
-} from "./types";
-import {
-  extractRefLinksAsInternalLinks,
-  findExistingArticleLinkReferences,
-  linkReferencesInline,
-  loadPriorReferenceList,
-} from "./referenceList";
-import {
-  loadArticle,
-  articleToResponse,
-  type ArticleResponse,
-  type ReferenceStatus,
-  type ReferenceStatusEntry,
-} from "./article";
+import type { ArticleRecord, HomepagePayload, LinkSuggestion, SeeAlsoCandidate } from "./types";
+import { extractRefLinksAsInternalLinks, findExistingArticleLinkReferences, linkReferencesInline, loadPriorReferenceList } from "./referenceList";
+import { loadArticle, articleToResponse, type ArticleResponse, type ReferenceStatus, type ReferenceStatusEntry } from "./article";
 import { hasCurrentOrNoHomepageNews, isCurrentHomepageNews } from "./todaysNews";
-import {
-  assembleArticleMarkdownForRender,
-  renderArticleDisplayHtml,
-  getCachedArticleHtml,
-  rememberArticleHtml,
-  invalidateArticleHtml,
-} from "./articleRender";
-import {
-  normalizeSelectionText,
-  findSelectionRangeInMarkdown,
-  shouldRefineSelection,
-  escapeRegExp,
-  collectExistingLinkRanges,
-  overlapsExistingLink,
-  findWrapRange,
-  extractSelectionExcerpt,
-} from "./selectionUtils";
+import { assembleArticleMarkdownForRender, renderArticleDisplayHtml, getCachedArticleHtml, rememberArticleHtml, invalidateArticleHtml } from "./articleRender";
+import { normalizeSelectionText, findSelectionRangeInMarkdown, shouldRefineSelection, escapeRegExp, collectExistingLinkRanges, overlapsExistingLink, findWrapRange, extractSelectionExcerpt } from "./selectionUtils";
 export { findSelectionRangeInMarkdown } from "./selectionUtils";
 import { ensureDykHasSourceLink } from "./dyk";
 export { ensureDykHasSourceLink } from "./dyk";
-import {
-  parseArticleFrameOutput,
-  parsePartialArticleFrame,
-} from "./articleFrame";
+import { parseArticleFrameOutput, parsePartialArticleFrame } from "./articleFrame";
 export { parseArticleFrameOutput, parsePartialArticleFrame } from "./articleFrame";
 import { registerPipelineAdminRoutes } from "./pipeline/adminRoutes";
 import { buildPromptRegistry } from "./pipeline/prompts/registry";
@@ -232,50 +129,28 @@ import { generateArticleWorkflow } from "./pipeline/workflows/generateArticle";
 import { refreshArticleWorkflow } from "./pipeline/workflows/refreshArticle";
 import { rewriteArticleWorkflow } from "./pipeline/workflows/rewriteArticle";
 import { postProcessWorkflow } from "./pipeline/workflows/postProcess";
-import {
-  addLinkArticleWorkflow,
-  rawSaveArticleWorkflow,
-} from "./pipeline/workflows/deterministicArticleSave";
+import { addLinkArticleWorkflow, rawSaveArticleWorkflow } from "./pipeline/workflows/deterministicArticleSave";
 import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
 import { regenerateSummaryWorkflow } from "./pipeline/workflows/utilities";
 import { randomPageWorkflow } from "./pipeline/workflows/randomPage";
-import { ontologyInferWorkflow } from "./pipeline/workflows/ontologyInfer";
+import { ontologyInferWorkflow, ontologySuggestionsAppendWorkflow, ontologySuggestionsMergeWorkflow } from "./pipeline/workflows/ontologyInfer";
 import { articleImageGenerationWorkflow } from "./pipeline/workflows/articleImageGeneration";
 import type { LiveLlmUpdate, PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
 
-const RESERVED_PATHS = new Set([
-  "",
-  "search",
-  "all-entries",
-  "admin",
-  "settings",
-  "random",
-  "Random",
-  "graph",
-  "media",
-  "api",
-  "assets",
-]);
+const RESERVED_PATHS = new Set(["", "search", "all-entries", "admin", "settings", "random", "Random", "graph", "media", "api", "assets"]);
 const HOMEPAGE_MAINTENANCE_TASK = "homepage.refresh";
 const DB_BACKUP_TASK = "db.backup";
 const DB_BACKUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const DB_BACKUP_KEEP = 7; // keep last 7 compressed backups
 const HOMEPAGE_PENDING_RETRY_MS = 5_000;
 const HOMEPAGE_REQUEST_TRIGGER_COOLDOWN_MS = 60_000;
-const HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS = [
-  60_000,
-  2 * 60_000,
-  5 * 60_000,
-  10 * 60_000,
-] as const;
+const HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS = [60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000] as const;
 const HOMEPAGE_REFRESH_GRACE_MS = 250;
 
 function homepageRefreshFailureBackoffMs(failures: number): number {
   if (failures <= 0) return 0;
-  return HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS[
-    Math.min(failures - 1, HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS.length - 1)
-  ];
+  return HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS[Math.min(failures - 1, HOMEPAGE_REFRESH_FAILURE_BACKOFF_MS.length - 1)];
 }
 
 function routeSlug(pathname: string) {
@@ -283,8 +158,7 @@ function routeSlug(pathname: string) {
     return slugify(decodeURIComponent(pathname.slice("/wiki/".length)));
   }
   const trimmed = pathname.replace(/^\/+|\/+$/g, "");
-  if (!trimmed || RESERVED_PATHS.has(trimmed) || trimmed.includes("/"))
-    return null;
+  if (!trimmed || RESERVED_PATHS.has(trimmed) || trimmed.includes("/")) return null;
   if (trimmed.includes(".")) return null;
   return slugify(decodeURIComponent(trimmed));
 }
@@ -311,12 +185,7 @@ export interface CreateAppOptions {
   imageGenerationConfig?: Partial<ImageGenerationConfig>;
 }
 
-
-function titleMatchesRequested(
-  title: string,
-  _requestedTitle: string,
-  requestedSlug: string,
-): boolean {
+function titleMatchesRequested(title: string, _requestedTitle: string, requestedSlug: string): boolean {
   return slugify(title) === requestedSlug;
 }
 
@@ -325,15 +194,8 @@ type SubjectValidation = {
   message?: string;
 };
 
-function validateLeadSubject(
-  markdown: string,
-  requestedTitle: string,
-  requestedSlug: string,
-): SubjectValidation {
-  const body = stripTopLevelSections(
-    markdown.replace(/^#\s+.+?$/m, "").trim(),
-    ["References", "See also"],
-  );
+function validateLeadSubject(markdown: string, requestedTitle: string, requestedSlug: string): SubjectValidation {
+  const body = stripTopLevelSections(markdown.replace(/^#\s+.+?$/m, "").trim(), ["References", "See also"]);
   const firstParagraph = body
     .split(/\n{2,}/)
     .map((part) =>
@@ -346,23 +208,13 @@ function validateLeadSubject(
     .find(Boolean);
   if (!firstParagraph) return { status: "pending" };
 
-  const subjectMatch = firstParagraph.match(
-    /^(.{1,120}?)\s+(?:refers?\s+to|is|are|was|were|describes|denotes|constitutes|represents)\b/i,
-  );
+  const subjectMatch = firstParagraph.match(/^(.{1,120}?)\s+(?:refers?\s+to|is|are|was|were|describes|denotes|constitutes|represents)\b/i);
   const subject = subjectMatch?.[1]?.replace(/^the\s+/i, "").trim();
   if (!subject) return { status: "pending" };
-  if (
-    slugify(subject) === requestedSlug ||
-    slugify(subject) === slugify(requestedTitle)
-  )
-    return { status: "valid" };
+  if (slugify(subject) === requestedSlug || slugify(subject) === slugify(requestedTitle)) return { status: "valid" };
 
   const words = subject.split(/\s+/).filter(Boolean);
-  const looksLikeAlternateSubject =
-    words.length >= 2 &&
-    words.length <= 8 &&
-    !/^(?:it|this|that|these|those|there)\b/i.test(subject) &&
-    !/[.!?;:()[\]{}]/.test(subject);
+  const looksLikeAlternateSubject = words.length >= 2 && words.length <= 8 && !/^(?:it|this|that|these|those|there)\b/i.test(subject) && !/[.!?;:()[\]{}]/.test(subject);
   if (!looksLikeAlternateSubject) return { status: "valid" };
 
   return {
@@ -371,11 +223,7 @@ function validateLeadSubject(
   };
 }
 
-function validateArticleSubject(
-  markdown: string,
-  requestedTitle: string,
-  requestedSlug: string,
-): SubjectValidation {
+function validateArticleSubject(markdown: string, requestedTitle: string, requestedSlug: string): SubjectValidation {
   const resolvedTitle = extractTitle(markdown, requestedTitle);
   if (!titleMatchesRequested(resolvedTitle, requestedTitle, requestedSlug)) {
     return {
@@ -386,15 +234,8 @@ function validateArticleSubject(
   return validateLeadSubject(markdown, requestedTitle, requestedSlug);
 }
 
-function articleSubjectMatchesRequested(
-  markdown: string,
-  requestedTitle: string,
-  requestedSlug: string,
-): boolean {
-  return (
-    validateArticleSubject(markdown, requestedTitle, requestedSlug).status !==
-    "invalid"
-  );
+function articleSubjectMatchesRequested(markdown: string, requestedTitle: string, requestedSlug: string): boolean {
+  return validateArticleSubject(markdown, requestedTitle, requestedSlug).status !== "invalid";
 }
 
 type InternalArticleCandidate = {
@@ -409,9 +250,7 @@ function normalizeArticleSnippet(text: string): string {
   return normalized.slice(0, 400).trim();
 }
 
-function dedupeRetrievedSourceArticles(
-  articles: Array<{ slug: string; title: string; content: string }>,
-) {
+function dedupeRetrievedSourceArticles(articles: Array<{ slug: string; title: string; content: string }>) {
   const seen = new Set<string>();
   const unique: Array<{ slug: string; title: string; content: string }> = [];
   for (const article of articles) {
@@ -423,11 +262,7 @@ function dedupeRetrievedSourceArticles(
   return unique;
 }
 
-export function summarizeRetrievedSource(article: {
-  slug: string;
-  title: string;
-  content: string;
-}): string {
+export function summarizeRetrievedSource(article: { slug: string; title: string; content: string }): string {
   return normalizeArticleSnippet(article.content);
 }
 
@@ -435,9 +270,7 @@ function hintsToSearchStrings(hints: IncomingHint[]): string[] {
   return hints.map((h) => h.hiddenHint);
 }
 
-function dedupeArticleCandidates(
-  candidates: InternalArticleCandidate[],
-): InternalArticleCandidate[] {
+function dedupeArticleCandidates(candidates: InternalArticleCandidate[]): InternalArticleCandidate[] {
   const seen = new Set<string>();
   const deduped: InternalArticleCandidate[] = [];
   for (const candidate of candidates) {
@@ -469,21 +302,14 @@ function cachedArticleNeedsRepair(markdown: string): boolean {
   const normalized = normalizeMarkdownLinks(markdown, "article");
   if (normalized.changed) return true;
   if (hasFootnoteArtifacts(markdown)) return true;
-  const bodyMarkdown = stripTopLevelSections(markdown, [
-    "References",
-    "See also",
-  ]);
-  const bodyLinkSlugs = new Set(
-    extractInternalLinks(bodyMarkdown).map((link) => link.targetSlug),
-  );
+  const bodyMarkdown = stripTopLevelSections(markdown, ["References", "See also"]);
+  const bodyLinkSlugs = new Set(extractInternalLinks(bodyMarkdown).map((link) => link.targetSlug));
   const referencesSection = sectionSlice(markdown, "References");
   const seeAlsoSection = sectionSlice(markdown, "See also");
-  if (referencesSection && sectionContainsNonLinkedBullets(referencesSection))
-    return true;
+  if (referencesSection && sectionContainsNonLinkedBullets(referencesSection)) return true;
   if (seeAlsoSection) {
     const seeAlsoLinks = extractInternalLinks(seeAlsoSection);
-    if (seeAlsoLinks.some((link) => bodyLinkSlugs.has(link.targetSlug)))
-      return true;
+    if (seeAlsoLinks.some((link) => bodyLinkSlugs.has(link.targetSlug))) return true;
   }
   return false;
 }
@@ -498,71 +324,30 @@ function rewriteArticleTitleHeading(markdown: string, title: string): string {
 }
 
 /** Heading aliases the model uses for the used-refs section — strip them all. */
-const USED_REFS_HEADING_ALIASES = [
-  "References",
-  "See also",
-  "Used References",
-  "Used Refs",
-  "References Used",
-  "Refs Used",
-  "Reference List",
-  "Sources",
-  "Bibliography",
-];
+const USED_REFS_HEADING_ALIASES = ["References", "See also", "Used References", "Used Refs", "References Used", "Refs Used", "Reference List", "Sources", "Bibliography"];
 
 function sanitizeGeneratedBody(markdown: string): string {
-  return fixSlugVisibleText(
-    stripFootnoteArtifacts(
-      stripTopLevelSections(markdown, USED_REFS_HEADING_ALIASES),
-    ),
-  );
+  return fixSlugVisibleText(stripFootnoteArtifacts(stripTopLevelSections(markdown, USED_REFS_HEADING_ALIASES)));
 }
 
-function shouldPromoteResolvedTitle(
-  requestedSlug: string,
-  resolvedTitle: string,
-): boolean {
+function shouldPromoteResolvedTitle(requestedSlug: string, resolvedTitle: string): boolean {
   const resolvedSlug = slugify(resolvedTitle);
   if (!resolvedSlug || resolvedSlug === requestedSlug) return false;
-  return (
-    resolvedSlug.startsWith(`${requestedSlug}-`) &&
-    /[^\x00-\x7F]/.test(resolvedSlug)
-  );
+  return resolvedSlug.startsWith(`${requestedSlug}-`) && /[^\x00-\x7F]/.test(resolvedSlug);
 }
 
-function deriveArticleIdentity(
-  bodyMarkdown: string,
-  requestedTitle: string,
-  requestedSlug: string,
-) {
+function deriveArticleIdentity(bodyMarkdown: string, requestedTitle: string, requestedSlug: string) {
   const requestedCanonicalTitle = normalizeCanonicalTitle(requestedTitle);
   const rawDisplayTitle = extractDisplayTitle(bodyMarkdown);
-  const resolvedTitle = normalizeCanonicalTitle(
-    extractTitle(bodyMarkdown, requestedTitle),
-  );
-  const canonicalTitle = shouldPromoteResolvedTitle(
-    requestedSlug,
-    resolvedTitle,
-  )
-    ? resolvedTitle
-    : requestedCanonicalTitle;
+  const resolvedTitle = normalizeCanonicalTitle(extractTitle(bodyMarkdown, requestedTitle));
+  const canonicalTitle = shouldPromoteResolvedTitle(requestedSlug, resolvedTitle) ? resolvedTitle : requestedCanonicalTitle;
   const canonicalSlug = slugify(canonicalTitle) || requestedSlug;
-  const rawDisplayPlainTitle = rawDisplayTitle
-    ? normalizeCanonicalTitle(extractTitle(`# ${rawDisplayTitle}`, requestedTitle))
-    : "";
-  const displayTitle =
-    rawDisplayTitle && rawDisplayPlainTitle === requestedCanonicalTitle
-      ? rawDisplayTitle
-      : undefined;
+  const rawDisplayPlainTitle = rawDisplayTitle ? normalizeCanonicalTitle(extractTitle(`# ${rawDisplayTitle}`, requestedTitle)) : "";
+  const displayTitle = rawDisplayTitle && rawDisplayPlainTitle === requestedCanonicalTitle ? rawDisplayTitle : undefined;
   return { canonicalTitle, canonicalSlug, displayTitle };
 }
 
-
-function replaceTopLevelTomlValue(
-  source: string,
-  key: "model" | "thinking",
-  value: string,
-): string {
+function replaceTopLevelTomlValue(source: string, key: "model" | "thinking", value: string): string {
   const line = `${key} = ${value}`;
   const pattern = new RegExp(`^${key}\\s*=.*$`, "m");
   if (pattern.test(source)) {
@@ -571,11 +356,7 @@ function replaceTopLevelTomlValue(
   return `${line}\n${source}`;
 }
 
-function updateRunnablePromptConfig(
-  promptKey: string,
-  model: "heavy" | "light",
-  thinking: boolean,
-) {
+function updateRunnablePromptConfig(promptKey: string, model: "heavy" | "light", thinking: boolean) {
   if (!/^[a-z0-9_]+$/i.test(promptKey)) {
     throw new Error("invalid prompt key");
   }
@@ -619,7 +400,12 @@ function normalizeArticleImagePresetKey(value: string | undefined): string {
 
 function listArticleImagePromptOptions() {
   return [
-    { key: "documentary_photo", label: "documentary_photo", allowText: false, recommendedAspectRatios: [] },
+    {
+      key: "documentary_photo",
+      label: "documentary_photo",
+      allowText: false,
+      recommendedAspectRatios: [],
+    },
     ...listArticleImagePresetFiles().map((preset) => ({
       key: preset.key,
       label: preset.label,
@@ -649,18 +435,9 @@ function readArticleImagePromptSelection(key: string) {
 
 function articleImageTextPolicy(allowText: boolean | undefined): string {
   if (allowText === true) {
-    return [
-      "Text policy:",
-      "- Readable text is allowed only when it is short, legible, natural for the chosen artifact, and directly grounded in the supplied context.",
-      "- Do not invent headlines, slogans, labels, prices, stats, UI strings, captions, fake words, pseudo-text, glyph text, lorem ipsum, or gibberish.",
-      "- When exact text is not needed, use blank areas, icons, shapes, crops, blur, or redaction instead of text-like filler.",
-    ].join("\n");
+    return ["Text policy:", "- Readable text is allowed only when it is short, legible, natural for the chosen artifact, and directly grounded in the supplied context.", "- Do not invent headlines, slogans, labels, prices, stats, UI strings, captions, fake words, pseudo-text, glyph text, lorem ipsum, or gibberish.", "- When exact text is not needed, use blank areas, icons, shapes, crops, blur, or redaction instead of text-like filler."].join("\n");
   }
-  return [
-    "Text policy:",
-    "- Do not render readable text, captions, labels, UI text, headlines, signs, watermarks, fake words, pseudo-text, glyph text, lorem ipsum, or gibberish.",
-    "- Use blank areas, icons, shapes, crops, blur, or redaction instead of textual filler.",
-  ].join("\n");
+  return ["Text policy:", "- Do not render readable text, captions, labels, UI text, headlines, signs, watermarks, fake words, pseudo-text, glyph text, lorem ipsum, or gibberish.", "- Use blank areas, icons, shapes, crops, blur, or redaction instead of textual filler."].join("\n");
 }
 
 function parseMediaGenerationMetadata(value: string | undefined): unknown {
@@ -673,44 +450,25 @@ function parseMediaGenerationMetadata(value: string | undefined): unknown {
   }
 }
 
-function formatRecentEditHistoryForPrompt(
-  revisions: ReturnType<typeof listArticleRevisions>,
-): string {
-  const editableOperations = new Set([
-    "rewrite",
-    "section-rewrite",
-    "selection-edit",
-  ]);
+function formatRecentEditHistoryForPrompt(revisions: ReturnType<typeof listArticleRevisions>): string {
+  const editableOperations = new Set(["rewrite", "section-rewrite", "selection-edit"]);
   const recent = revisions
-    .filter((revision) =>
-      editableOperations.has(revision.operation) &&
-      revision.instructions.trim().length > 0
-    )
+    .filter((revision) => editableOperations.has(revision.operation) && revision.instructions.trim().length > 0)
     .slice(0, 2)
     .reverse();
   return recent
     .map((revision, index) => {
-      const timestamp = Number.isFinite(revision.createdAt)
-        ? new Date(revision.createdAt).toISOString()
-        : String(revision.createdAt);
+      const timestamp = Number.isFinite(revision.createdAt) ? new Date(revision.createdAt).toISOString() : String(revision.createdAt);
       const instructions = revision.instructions.replace(/\s+/g, " ").trim();
       return `${index + 1}. ${timestamp} (${revision.operation}): ${instructions}`;
     })
     .join("\n");
 }
 
-async function generateArticleSummary(
-  llm: LlmRouter,
-  promptConfig: ReturnType<typeof loadConfig>["prompts"],
-  requestedTitle: string,
-  articleMarkdown: string,
-): Promise<string> {
+async function generateArticleSummary(llm: LlmRouter, promptConfig: ReturnType<typeof loadConfig>["prompts"], requestedTitle: string, articleMarkdown: string): Promise<string> {
   const prompt = getPrompt(promptConfig, "article_summary");
   const role = prompt.model ?? "heavy";
-  const currentArticle = stripTopLevelSections(articleMarkdown, [
-    "References",
-    "See also",
-  ]).slice(0, 12000);
+  const currentArticle = stripTopLevelSections(articleMarkdown, ["References", "See also"]).slice(0, 12000);
   let previousSummary = "(none)";
   let summaryFeedback = "(none)";
 
@@ -739,18 +497,14 @@ async function generateArticleSummary(
     if (summary && !summaryLooksLikeLeadCopy(summary, articleMarkdown)) {
       return summary;
     }
-    previousSummary =
-      summary || raw.replace(/\s+/g, " ").trim().slice(0, 360) || "(empty)";
+    previousSummary = summary || raw.replace(/\s+/g, " ").trim().slice(0, 360) || "(empty)";
     summaryFeedback = "too_similar_to_lead";
   }
 
   return summaryMarkdownFromArticle(articleMarkdown);
 }
 
-function sampleRandomInspirationArticles(
-  db: ReturnType<typeof openDatabase>,
-  count: number,
-): Array<{ title: string; slug: string }> {
+function sampleRandomInspirationArticles(db: ReturnType<typeof openDatabase>, count: number): Array<{ title: string; slug: string }> {
   const articles = db
     .prepare(
       `SELECT title, slug FROM articles
@@ -762,10 +516,7 @@ function sampleRandomInspirationArticles(
   return articles;
 }
 
-async function ensureHomepageCache(
-  deps: PipelineDeps,
-  onNode?: (nodeName: string, nodeKind: string) => void,
-): Promise<HomepagePayload> {
+async function ensureHomepageCache(deps: PipelineDeps, onNode?: (nodeName: string, nodeKind: string) => void): Promise<HomepagePayload> {
   const recorder = getTraceRecorder(deps.runtime.app.pipeline.trace);
   const result = await runWorkflow(homepageRefreshWorkflow, {
     input: {
@@ -789,10 +540,7 @@ async function ensureHomepageCache(
   return payload as HomepagePayload;
 }
 
-function buildLinkedPromptSystem(
-  promptConfig: ReturnType<typeof loadConfig>["prompts"],
-  key: string,
-): string {
+function buildLinkedPromptSystem(promptConfig: ReturnType<typeof loadConfig>["prompts"], key: string): string {
   const guide = getSharedPrompt(promptConfig, "linking_guide");
   const prompt = getPrompt(promptConfig, key);
   return `${guide.system.trim()}\n\n${prompt.system.trim()}`;
@@ -810,15 +558,7 @@ function linkableSelectionCandidates(selectedText: string): string[] {
   const normalized = normalizeSelectionText(selectedText);
   if (!normalized) return [];
 
-  const candidates = [
-    normalized,
-    stripSelectionDecorators(normalized),
-    stripSelectionDecorators(normalized.split(/[:.;!?]/u)[0] ?? ""),
-    normalized.split(/[:.;!?]/u)[0] ?? "",
-    normalized.split(/\s[-–—]\s/u)[0] ?? "",
-  ]
-    .map(normalizeSelectionText)
-    .filter(Boolean);
+  const candidates = [normalized, stripSelectionDecorators(normalized), stripSelectionDecorators(normalized.split(/[:.;!?]/u)[0] ?? ""), normalized.split(/[:.;!?]/u)[0] ?? "", normalized.split(/\s[-–—]\s/u)[0] ?? ""].map(normalizeSelectionText).filter(Boolean);
 
   const deduped: string[] = [];
   const seen = new Set<string>();
@@ -831,10 +571,7 @@ function linkableSelectionCandidates(selectedText: string): string[] {
   return deduped;
 }
 
-function findBestWrapRange(
-  markdown: string,
-  selectedText: string,
-): { start: number; end: number; visibleLabel: string } | null {
+function findBestWrapRange(markdown: string, selectedText: string): { start: number; end: number; visibleLabel: string } | null {
   const candidates = linkableSelectionCandidates(selectedText);
   for (const candidate of candidates) {
     if (shouldRefineSelection(candidate)) continue;
@@ -848,26 +585,14 @@ function findBestWrapRange(
   return findWrapRange(markdown, selectedText);
 }
 
-function normalizeSuggestedTargetSlug(
-  suggestedSlug: string,
-  sourceSlug: string,
-  visibleLabel: string,
-): string {
+function normalizeSuggestedTargetSlug(suggestedSlug: string, sourceSlug: string, visibleLabel: string): string {
   const normalized = slugify(suggestedSlug);
   const fallback = slugify(visibleLabel);
   if (!normalized || normalized === sourceSlug) return fallback;
   return normalized;
 }
 
-async function generateLinkSuggestion(
-  llm: LlmRouter,
-  promptConfig: ReturnType<typeof loadConfig>["prompts"],
-  requestedTitle: string,
-  selectedText: string,
-  articleExcerpt: string,
-  ragContext: string,
-  relatedTitles: string[],
-): Promise<LinkSuggestion> {
+async function generateLinkSuggestion(llm: LlmRouter, promptConfig: ReturnType<typeof loadConfig>["prompts"], requestedTitle: string, selectedText: string, articleExcerpt: string, ragContext: string, relatedTitles: string[]): Promise<LinkSuggestion> {
   const prompt = getPrompt(promptConfig, "link_suggestion");
   const role = prompt.model ?? "heavy";
   const raw = await llm.chat(
@@ -879,9 +604,7 @@ async function generateLinkSuggestion(
       selected_text: selectedText,
       article_excerpt: articleExcerpt,
       rag_context: ragContext || "(none)",
-      related_titles: relatedTitles.length
-        ? relatedTitles.map((title) => `- ${title}`).join("\n")
-        : "(none)",
+      related_titles: relatedTitles.length ? relatedTitles.map((title) => `- ${title}`).join("\n") : "(none)",
       link_hints: "",
       parent_comment: "",
     }),
@@ -955,10 +678,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   {
     const { runnable, shared } = listPromptFiles();
     const tomlKeys = new Set<string>();
-    for (const { scope, key } of [
-      ...runnable.map((p) => ({ scope: "runnable" as const, key: p.key })),
-      ...shared.map((p) => ({ scope: "shared" as const, key: p.key })),
-    ]) {
+    for (const { scope, key } of [...runnable.map((p) => ({ scope: "runnable" as const, key: p.key })), ...shared.map((p) => ({ scope: "shared" as const, key: p.key }))]) {
       tomlKeys.add(`${scope}:${key}`);
       const file = readPromptFile(scope, key);
       if (!file) continue;
@@ -982,19 +702,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
   }
 
-  let llm: LlmRouter =
-    options.llmClient ??
-    new OpenAICompatRouter(runtime.llm, logger);
+  let llm: LlmRouter = options.llmClient ?? new OpenAICompatRouter(runtime.llm, logger);
 
   // ---- Canonical LanceDB RAG runtime. Content saves enqueue durable jobs that
   // the background drainer below processes into LanceDB. ----
   // Co-locate the corpus with its database so each database gets its own store
   // (production data/halupedia.sqlite → data/rag.lance; tests get an isolated
   // corpus under their temp dir rather than sharing the real data/rag.lance).
-  const ragPath =
-    options.ragPath ??
-    (runtime.app.rag as { path?: string }).path ??
-    join(dirname(runtime.app.storage.database_path), "rag.lance");
+  const ragPath = options.ragPath ?? (runtime.app.rag as { path?: string }).path ?? join(dirname(runtime.app.storage.database_path), "rag.lance");
   const rag: RagRuntime = await createRagRuntime({
     db,
     llm,
@@ -1019,7 +734,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     // retrieval — refuse to start so it gets rebuilt.
     const meta = await rag.store.readMeta().catch(() => null);
     if (!meta) {
-      logger.warn("rag.startup_no_corpus", { path: ragPath, hint: "run: pnpm run rag:rebuild" });
+      logger.warn("rag.startup_no_corpus", {
+        path: ragPath,
+        hint: "run: pnpm run rag:rebuild",
+      });
     } else if (!meta.buildComplete || meta.textEmbeddingModel !== rag.embedder.model) {
       logger.error("rag.startup_corpus_stale", {
         path: ragPath,
@@ -1028,9 +746,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         config_model: rag.embedder.model,
         hint: "run: pnpm run rag:rebuild",
       });
-      throw new Error(
-        `RAG corpus at ${ragPath} is stale (build_complete=${meta.buildComplete}, corpus model=${meta.textEmbeddingModel} vs configured ${rag.embedder.model}). Run: pnpm run rag:rebuild`,
-      );
+      throw new Error(`RAG corpus at ${ragPath} is stale (build_complete=${meta.buildComplete}, corpus model=${meta.textEmbeddingModel} vs configured ${rag.embedder.model}). Run: pnpm run rag:rebuild`);
     }
     const pending = countPendingRagJobs(db);
     if (pending > 0) {
@@ -1061,13 +777,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   // asset/vite-internal noise so this stays useful for actual page/API hits.
   // High-frequency admin poll endpoints whose successful requests would
   // otherwise flood the log once per second. Errors still log normally.
-  const NOISY_POLL_PATHS = new Set([
-    "/api/admin/generation-queue",
-    "/api/admin/llm",
-    "/api/admin/runs",
-    "/api/admin/pipeline/workflows",
-    "/api/admin/pipeline/runs",
-  ]);
+  const NOISY_POLL_PATHS = new Set(["/api/admin/generation-queue", "/api/admin/llm", "/api/admin/runs", "/api/admin/pipeline/workflows", "/api/admin/pipeline/runs"]);
   app.use("*", async (c, next) => {
     const { method } = c.req;
     const { pathname, search } = new URL(c.req.url);
@@ -1097,9 +807,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
   });
 
-  const distRoot = options.distRoot
-    ? resolve(options.distRoot)
-    : resolve(process.cwd(), "dist");
+  const distRoot = options.distRoot ? resolve(options.distRoot) : resolve(process.cwd(), "dist");
 
   const inFlightGenerations = new Set<Promise<unknown>>();
   interface GenerationQueueEntry {
@@ -1161,15 +869,20 @@ export async function createApp(options: CreateAppOptions = {}) {
     const liveRefs = loadPriorReferenceList(db, slug) ?? [];
     let wire = event as Record<string, unknown>;
     if (wire.type === "infobox" && wire.infobox) {
-      const raw = wire.infobox as { title?: string; subtitle?: string; groups?: Array<{ label: string; rows: Array<{ label: string; value: string }> }> };
+      const raw = wire.infobox as {
+        title?: string;
+        subtitle?: string;
+        groups?: Array<{
+          label: string;
+          rows: Array<{ label: string; value: string }>;
+        }>;
+      };
       wire = {
         ...wire,
         infobox: {
           ...raw,
           title: renderInlineMarkdown(raw.title ?? ""),
-          subtitle: raw.subtitle
-            ? renderInlineMarkdown(linkReferencesInline(raw.subtitle, liveRefs))
-            : undefined,
+          subtitle: raw.subtitle ? renderInlineMarkdown(linkReferencesInline(raw.subtitle, liveRefs)) : undefined,
           groups: (raw.groups ?? []).map((g) => ({
             label: renderInlineMarkdown(g.label),
             rows: g.rows.map((r) => ({
@@ -1180,9 +893,16 @@ export async function createApp(options: CreateAppOptions = {}) {
         },
       };
     } else if (wire.type === "caption" && typeof wire.caption === "string") {
-      wire = { ...wire, caption: renderInlineMarkdown(linkReferencesInline(wire.caption, liveRefs)) };
+      wire = {
+        ...wire,
+        caption: renderInlineMarkdown(linkReferencesInline(wire.caption, liveRefs)),
+      };
     }
-    for (const cb of listeners) { try { cb(wire); } catch {} }
+    for (const cb of listeners) {
+      try {
+        cb(wire);
+      } catch {}
+    }
   }
 
   const maintenance = new MaintenanceScheduler(logger);
@@ -1190,11 +910,19 @@ export async function createApp(options: CreateAppOptions = {}) {
   function trackGeneration<T>(promise: Promise<T>): Promise<T> {
     const id = Math.random().toString(36).slice(2, 8);
     inFlightGenerations.add(promise);
-    logger.debug("generation.tracked", { id, in_flight: inFlightGenerations.size });
-    void promise.finally(() => {
-      inFlightGenerations.delete(promise);
-      logger.debug("generation.settled", { id, in_flight: inFlightGenerations.size });
-    }).catch(() => {});
+    logger.debug("generation.tracked", {
+      id,
+      in_flight: inFlightGenerations.size,
+    });
+    void promise
+      .finally(() => {
+        inFlightGenerations.delete(promise);
+        logger.debug("generation.settled", {
+          id,
+          in_flight: inFlightGenerations.size,
+        });
+      })
+      .catch(() => {});
     return promise;
   }
 
@@ -1234,13 +962,23 @@ export async function createApp(options: CreateAppOptions = {}) {
     slug: string,
     title: string,
     generate: () => Promise<ArticleRecord>,
-  ): { promise: Promise<ArticleRecord>; seq: number; joined: boolean; releaseWaiter: () => void } {
+  ): {
+    promise: Promise<ArticleRecord>;
+    seq: number;
+    joined: boolean;
+    releaseWaiter: () => void;
+  } {
     const seq = ++generationSeq;
     const queueDepth = slugGenerations.size;
     const existing = slugGenerations.get(slug);
     if (existing) {
       existing.waiting += 1;
-      logger.info("page.join", { slug, seq, origin_seq: existing.seq, waiting: existing.waiting });
+      logger.info("page.join", {
+        slug,
+        seq,
+        origin_seq: existing.seq,
+        waiting: existing.waiting,
+      });
       return {
         promise: existing.promise,
         seq,
@@ -1290,9 +1028,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   const LIVE_COT_TAIL_CHARS = 6_000;
   function liveCot(reasoning: string | undefined): string | undefined {
     if (!reasoning) return undefined;
-    return reasoning.length > LIVE_COT_TAIL_CHARS
-      ? `…${reasoning.slice(-LIVE_COT_TAIL_CHARS)}`
-      : reasoning;
+    return reasoning.length > LIVE_COT_TAIL_CHARS ? `…${reasoning.slice(-LIVE_COT_TAIL_CHARS)}` : reasoning;
   }
 
   // Stash the model's streaming reasoning on whichever active entry owns this
@@ -1307,9 +1043,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   const LIVE_LLM_TEXT_TAIL_CHARS = 24_000;
   function liveLlmText(text: string | undefined): string | undefined {
     if (!text) return undefined;
-    return text.length > LIVE_LLM_TEXT_TAIL_CHARS
-      ? `…${text.slice(-LIVE_LLM_TEXT_TAIL_CHARS)}`
-      : text;
+    return text.length > LIVE_LLM_TEXT_TAIL_CHARS ? `…${text.slice(-LIVE_LLM_TEXT_TAIL_CHARS)}` : text;
   }
 
   function recordLiveLlmUpdate(update: LiveLlmUpdate) {
@@ -1383,9 +1117,17 @@ export async function createApp(options: CreateAppOptions = {}) {
     slug: string,
     title: string,
     workflow: string,
-  ): { onNode: (nodeName: string) => void; register: (p: Promise<unknown>) => void } {
+  ): {
+    onNode: (nodeName: string) => void;
+    register: (p: Promise<unknown>) => void;
+  } {
     const op: ActiveOperationEntry = {
-      slug, title, workflow, phase: "starting", startedAt: Date.now(), llmViews: new Map(),
+      slug,
+      title,
+      workflow,
+      phase: "starting",
+      startedAt: Date.now(),
+      llmViews: new Map(),
     };
     activeOperations.set(slug, op);
     const onNode = (nodeName: string) => {
@@ -1394,9 +1136,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       if (gen) gen.phase = nodeName;
     };
     const register = (p: Promise<unknown>) => {
-      void p.finally(() => {
-        if (activeOperations.get(slug) === op) activeOperations.delete(slug);
-      }).catch(() => {});
+      void p
+        .finally(() => {
+          if (activeOperations.get(slug) === op) activeOperations.delete(slug);
+        })
+        .catch(() => {});
     };
     return { onNode, register };
   }
@@ -1422,13 +1166,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     trackGeneration(
       (async () => {
         indexArticleNow(slug);
-        const summaryMarkdown = await generateArticleSummary(
-          llm,
-          runtime.prompts,
-          title,
-          markdown,
-        ).catch(() => summaryMarkdownFromArticle(markdown));
-        updateArticleSummary(db, slug, summaryMarkdown, { updateRevisionGeneratedAt: generatedAt });
+        const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, title, markdown).catch(() => summaryMarkdownFromArticle(markdown));
+        updateArticleSummary(db, slug, summaryMarkdown, {
+          updateRevisionGeneratedAt: generatedAt,
+        });
       })().catch((error) => {
         logger.warn("article.post_save_hook_failed", {
           slug,
@@ -1440,12 +1181,12 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   async function shutdown() {
     await maintenance.shutdown();
-    const draining = new Set<Promise<unknown>>([
-      ...inFlightGenerations,
-      ...[...slugGenerations.values()].map((entry) => entry.promise),
-    ]);
+    const draining = new Set<Promise<unknown>>([...inFlightGenerations, ...[...slugGenerations.values()].map((entry) => entry.promise)]);
     if (draining.size > 0) {
-      logger.info("shutdown.draining", { in_flight: inFlightGenerations.size, queued: slugGenerations.size });
+      logger.info("shutdown.draining", {
+        in_flight: inFlightGenerations.size,
+        queued: slugGenerations.size,
+      });
       const startTime = Date.now();
       await Promise.allSettled([...draining]);
       const elapsed = Date.now() - startTime;
@@ -1499,35 +1240,14 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   await reloadRuntime();
 
-  function canonicalPathForArticle(article: {
-    canonicalSlug: string;
-    title: string;
-  }) {
+  function canonicalPathForArticle(article: { canonicalSlug: string; title: string }) {
     return `/wiki/${titleToWikiSegment(normalizeCanonicalTitle(article.title || slugToTitle(article.canonicalSlug)))}`;
   }
 
-  function repairStoredArticleTitle(article: {
-    slug: string;
-    canonicalSlug: string;
-    title: string;
-    markdown: string;
-    html: string;
-    summaryMarkdown?: string;
-    plain_text: string;
-    generated_at: number;
-  }) {
-    const normalizedTitle = normalizeCanonicalTitle(
-      article.title || slugToTitle(article.canonicalSlug),
-    );
-    const normalizedMarkdown = rewriteArticleTitleHeading(
-      article.markdown,
-      normalizedTitle,
-    );
-    if (
-      normalizedTitle === article.title &&
-      normalizedMarkdown === article.markdown
-    )
-      return article;
+  function repairStoredArticleTitle(article: { slug: string; canonicalSlug: string; title: string; markdown: string; html: string; summaryMarkdown?: string; plain_text: string; generated_at: number }) {
+    const normalizedTitle = normalizeCanonicalTitle(article.title || slugToTitle(article.canonicalSlug));
+    const normalizedMarkdown = rewriteArticleTitleHeading(article.markdown, normalizedTitle);
+    if (normalizedTitle === article.title && normalizedMarkdown === article.markdown) return article;
 
     const links = extractAllBodyLinks(normalizedMarkdown, article.slug);
     const repairedArticle = {
@@ -1538,19 +1258,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       html: rewriteArticleHtml(renderMarkdown(normalizedMarkdown), links),
       generated_at: Date.now(),
     };
-    saveArticle(
-      db,
-      repairedArticle,
-      links,
-      Array.from(
-        new Set([repairedArticle.slug, repairedArticle.canonicalSlug]),
-      ),
-      {
-        operation: "repair",
-        instructions: "Normalize lowercase-first canonical title.",
-        skipRevision: true,
-      },
-    );
+    saveArticle(db, repairedArticle, links, Array.from(new Set([repairedArticle.slug, repairedArticle.canonicalSlug])), {
+      operation: "repair",
+      instructions: "Normalize lowercase-first canonical title.",
+      skipRevision: true,
+    });
     return repairedArticle;
   }
 
@@ -1568,21 +1280,28 @@ export async function createApp(options: CreateAppOptions = {}) {
     requestedSlug: string,
   ) {
     let repaired = repairStoredArticleTitle(article);
-    const titleDerivedSlug = slugify(
-      repaired.title || slugToTitle(repaired.canonicalSlug),
-    );
-    if (
-      requestedSlug &&
-      requestedSlug !== repaired.slug &&
-      titleDerivedSlug === requestedSlug
-    ) {
+    const titleDerivedSlug = slugify(repaired.title || slugToTitle(repaired.canonicalSlug));
+    if (requestedSlug && requestedSlug !== repaired.slug && titleDerivedSlug === requestedSlug) {
       const fromSlug = repaired.slug;
       const renamed = renameArticleSlug(db, repaired.slug, requestedSlug);
       if (renamed) {
         // Old slug's RAG docs are now orphaned; drop them and index the new slug.
-        enqueueRagIndexJob(db, { articleSlug: fromSlug, sourceKind: "article_body", sourceId: fromSlug, operation: "delete" });
-        enqueueRagIndexJob(db, { articleSlug: requestedSlug, sourceKind: "article_body", sourceId: requestedSlug, operation: "upsert" });
-        logger.info("page.slug_repair", { slug: requestedSlug, from: repaired.slug });
+        enqueueRagIndexJob(db, {
+          articleSlug: fromSlug,
+          sourceKind: "article_body",
+          sourceId: fromSlug,
+          operation: "delete",
+        });
+        enqueueRagIndexJob(db, {
+          articleSlug: requestedSlug,
+          sourceKind: "article_body",
+          sourceId: requestedSlug,
+          operation: "upsert",
+        });
+        logger.info("page.slug_repair", {
+          slug: requestedSlug,
+          from: repaired.slug,
+        });
         const fresh = getArticleByLookup(db, requestedSlug);
         if (fresh) repaired = fresh;
       }
@@ -1591,9 +1310,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   function repairCachedArticle(article: ArticleRecord): ArticleRecord {
-    const normalizedTitle = normalizeCanonicalTitle(
-      article.title || slugToTitle(article.canonicalSlug),
-    );
+    const normalizedTitle = normalizeCanonicalTitle(article.title || slugToTitle(article.canonicalSlug));
     const parsed = normalizeMarkdownLinks(article.markdown, "article");
     logger.info("text.db_repair", {
       slug: article.slug,
@@ -1621,24 +1338,15 @@ export async function createApp(options: CreateAppOptions = {}) {
       title: normalizedTitle,
       markdown,
       html: rewriteArticleHtml(renderMarkdown(markdown), links),
-      summaryMarkdown:
-        article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(markdown),
+      summaryMarkdown: article.summaryMarkdown?.trim() || summaryMarkdownFromArticle(markdown),
       plain_text: markdownToPlainText(markdown),
       generated_at: Date.now(),
     };
-    saveArticle(
-      db,
-      repairedArticle,
-      links,
-      Array.from(
-        new Set([repairedArticle.slug, repairedArticle.canonicalSlug]),
-      ),
-      {
-        operation: "repair",
-        instructions: "Repair cached article artifacts.",
-        skipRevision: true,
-      },
-    );
+    saveArticle(db, repairedArticle, links, Array.from(new Set([repairedArticle.slug, repairedArticle.canonicalSlug])), {
+      operation: "repair",
+      instructions: "Repair cached article artifacts.",
+      skipRevision: true,
+    });
     return getArticleByLookup(db, repairedArticle.slug) ?? repairedArticle;
   }
 
@@ -1666,19 +1374,11 @@ export async function createApp(options: CreateAppOptions = {}) {
     return articleToResponse(article, html, combined);
   }
 
-  function buildReferenceStatus(
-    response: ArticleResponse,
-    rawMarkdown: string,
-  ): ReferenceStatus {
-    const listed = new Set(
-      response.metadata.references.map((ref) => slugify(ref.slug)),
-    );
+  function buildReferenceStatus(response: ArticleResponse, rawMarkdown: string): ReferenceStatus {
+    const listed = new Set(response.metadata.references.map((ref) => slugify(ref.slug)));
     // Strip baked-in metadata sections before scanning so old-style articles
     // with embedded References/See also don't produce spurious status flags.
-    const bodyForScan = stripTopLevelSections(response.body, [
-      "References",
-      "See also",
-    ]);
+    const bodyForScan = stripTopLevelSections(response.body, ["References", "See also"]);
     // missing: only explicit ref:slug links in body that aren't in sidecar.
     // Plain halu links to existing articles are NOT counted — they are just
     // internal wiki links, not explicit citations.
@@ -1699,16 +1399,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     // unformatted: halu links to articles that ARE in sidecar — these should
     // be converted to ref: links for proper footnote rendering.
-    const legacyHaluRefs = findExistingArticleLinkReferences(
-      db,
-      bodyForScan,
-      response.slug,
-    );
+    const legacyHaluRefs = findExistingArticleLinkReferences(db, bodyForScan, response.slug);
     return {
       missing,
-      unformatted: legacyHaluRefs
-        .filter((ref) => listed.has(ref.slug))
-        .map((ref) => ({ slug: ref.slug, title: ref.title })),
+      unformatted: legacyHaluRefs.filter((ref) => listed.has(ref.slug)).map((ref) => ({ slug: ref.slug, title: ref.title })),
       // sectionSlice returns "" when not found, never null — use !== ""
       hasReferencesSection: sectionSlice(rawMarkdown, "References") !== "",
     };
@@ -1738,9 +1432,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       ? {
           ...rawInfobox,
           title: renderInlineMarkdown(rawInfobox.title),
-          subtitle: rawInfobox.subtitle
-            ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs))
-            : undefined,
+          subtitle: rawInfobox.subtitle ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs)) : undefined,
           groups: rawInfobox.groups.map((g) => ({
             label: renderInlineMarkdown(g.label),
             rows: g.rows.map((r) => ({
@@ -1754,23 +1446,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     const headlineMedia = headlineMediaRow
       ? {
           mediaId: headlineMediaRow.mediaId,
-          caption: headlineMediaRow.caption
-            ? renderInlineMarkdown(linkReferencesInline(headlineMediaRow.caption, sidebarRefs))
-            : "",
+          caption: headlineMediaRow.caption ? renderInlineMarkdown(linkReferencesInline(headlineMediaRow.caption, sidebarRefs)) : "",
           description: getMediaById(mediaDb, headlineMediaRow.mediaId)?.description ?? "",
         }
       : null;
     return {
       cached: opts.cached,
-      referenceStatus: buildReferenceStatus(
-        response,
-        rawRecord?.markdown ?? response.body,
-      ),
-      redirectedFrom:
-        opts.canonicalPath && opts.requestedPath &&
-        opts.canonicalPath !== opts.requestedPath
-          ? opts.requestedPath
-          : undefined,
+      referenceStatus: buildReferenceStatus(response, rawRecord?.markdown ?? response.body),
+      redirectedFrom: opts.canonicalPath && opts.requestedPath && opts.canonicalPath !== opts.requestedPath ? opts.requestedPath : undefined,
       canonicalPath: opts.canonicalPath,
       article: response,
       infobox,
@@ -1781,25 +1464,17 @@ export async function createApp(options: CreateAppOptions = {}) {
       isProtected: isArticleProtected(db, response.slug),
       protectedSections: listProtectedSections(db, response.slug).map((s) => s.sectionId),
       ...(opts.statusMessage ? { statusMessage: opts.statusMessage } : {}),
-      ...(opts.refreshChanged !== undefined
-        ? { refreshChanged: opts.refreshChanged }
-        : {}),
+      ...(opts.refreshChanged !== undefined ? { refreshChanged: opts.refreshChanged } : {}),
     };
   }
 
-  function rewriteArticleHtml(
-    articleHtml: string,
-    links: Array<{ targetSlug: string }>,
-  ) {
+  function rewriteArticleHtml(articleHtml: string, links: Array<{ targetSlug: string }>) {
     let html = articleHtml;
     for (const link of links) {
       const targetCanonical = getCanonicalSlugForTarget(db, link.targetSlug);
       const currentPath = `/wiki/${titleToWikiSegment(slugToTitle(link.targetSlug))}`;
       const preferredPath = `/wiki/${titleToWikiSegment(slugToTitle(targetCanonical))}`;
-      html = html.replaceAll(
-        `href="${currentPath}"`,
-        `href="${preferredPath}"`,
-      );
+      html = html.replaceAll(`href="${currentPath}"`, `href="${preferredPath}"`);
     }
     return html;
   }
@@ -1818,15 +1493,10 @@ export async function createApp(options: CreateAppOptions = {}) {
    * to ref: links — without this combined extraction, ref-linked articles would
    * silently disappear from the knowledge graph.
    */
-  function extractAllBodyLinks(
-    markdown: string,
-    selfSlug: string,
-  ): import("./types").ParsedInternalLink[] {
+  function extractAllBodyLinks(markdown: string, selfSlug: string): import("./types").ParsedInternalLink[] {
     const haluLinks = extractInternalLinks(markdown);
     const haluSlugs = new Set(haluLinks.map((l) => l.targetSlug));
-    const refLinks = extractRefLinksAsInternalLinks(db, markdown, selfSlug).filter(
-      (l) => !haluSlugs.has(l.targetSlug),
-    );
+    const refLinks = extractRefLinksAsInternalLinks(db, markdown, selfSlug).filter((l) => !haluSlugs.has(l.targetSlug));
     return [...haluLinks, ...refLinks];
   }
 
@@ -1846,12 +1516,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
 
-  async function buildArticle(
-    slug: string,
-    requestedTitle: string,
-    onProgress?: (html: string, markdown: string) => void,
-    onStatus?: (message: string) => void,
-  ) {
+  async function buildArticle(slug: string, requestedTitle: string, onProgress?: (html: string, markdown: string) => void, onStatus?: (message: string) => void) {
     onStatus?.("Writing...");
     // Seed the article's vibe from incoming halu hidden-hints on first
     // generation. Those hints are the wiki's existing canon about this topic
@@ -1862,14 +1527,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!getArticleVibe(db, slug).trim()) {
       const seedHints = listIncomingHints(db, slug);
       if (seedHints.length > 0) {
-        const seed = formatIncomingHintsForPrompt(
-          seedHints,
-          slug,
-          runtime.app.rag.prompt_link_hints_max,
-        ).trim();
+        const seed = formatIncomingHintsForPrompt(seedHints, slug, runtime.app.rag.prompt_link_hints_max).trim();
         if (seed && seed !== "(none yet)") {
           setArticleVibe(db, slug, seed, "hint-seed");
-          logger.info("article.vibe_hint_seed", { slug, hints: seedHints.length });
+          logger.info("article.vibe_hint_seed", {
+            slug,
+            hints: seedHints.length,
+          });
         }
       }
     }
@@ -1937,9 +1601,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   function queueAutoArticleImageAfterPostProcess(articleSlug: string, postProcessPromise: Promise<unknown>) {
-    const autoImageConfigured =
-      runtime.app.images.generation.enabled &&
-      runtime.app.images.generation.auto_generate_for_new_articles;
+    const autoImageConfigured = runtime.app.images.generation.enabled && runtime.app.images.generation.auto_generate_for_new_articles;
     logger.info("article_image.auto_check", {
       slug: articleSlug,
       enabled: runtime.app.images.generation.enabled,
@@ -1952,19 +1614,14 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const imagePromise = postProcessPromise.then(async () => {
       if (getArticleHeadlineMedia(db, articleSlug)) {
-        logger.info("article_image.auto_skipped_existing", { slug: articleSlug });
+        logger.info("article_image.auto_skipped_existing", {
+          slug: articleSlug,
+        });
         return;
       }
       const title = getArticleByLookup(db, articleSlug)?.title ?? articleSlug;
       const imageOp = trackActiveOperation(articleSlug, title, "article.image_generate");
-      const workflowPromise = runArticleImageGenerationWorkflow(
-        articleSlug,
-        false,
-        "auto",
-        "auto",
-        title,
-        imageOp.onNode,
-      );
+      const workflowPromise = runArticleImageGenerationWorkflow(articleSlug, false, "auto", "auto", title, imageOp.onNode);
       imageOp.register(workflowPromise);
       logger.info("article_image.auto_queued", { slug: articleSlug });
       try {
@@ -1980,9 +1637,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   function queueHomepageFeaturedImageIfMissing(featured: { slug: string; title?: string } | null | undefined) {
-    const autoImageConfigured =
-      runtime.app.images.generation.enabled &&
-      runtime.app.images.generation.auto_generate_for_featured_article;
+    const autoImageConfigured = runtime.app.images.generation.enabled && runtime.app.images.generation.auto_generate_for_featured_article;
     const hasHeadlineImage = featured?.slug ? Boolean(getArticleHeadlineMedia(db, featured.slug)) : false;
     const autoCheckFields = {
       slug: featured?.slug ?? "",
@@ -1991,7 +1646,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       backend: runtime.app.images.generation.backend,
       configured: autoImageConfigured,
       has_headline_image: hasHeadlineImage,
-      attempts: featured?.slug ? homepageFeaturedImageAttempts.get(featured.slug) ?? 0 : 0,
+      attempts: featured?.slug ? (homepageFeaturedImageAttempts.get(featured.slug) ?? 0) : 0,
       max_attempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
     };
     if (autoImageConfigured) {
@@ -2025,21 +1680,16 @@ export async function createApp(options: CreateAppOptions = {}) {
     homepageFeaturedImageAttempts.set(featured.slug, previousAttempts + 1);
     const title = article.title ?? featured.title ?? featured.slug;
     const imageOp = trackActiveOperation(featured.slug, title, "article.image_generate");
-    const imagePromise = runArticleImageGenerationWorkflow(
-      featured.slug,
-      false,
-      "auto",
-      "auto",
-      title,
-      imageOp.onNode,
-    );
+    const imagePromise = runArticleImageGenerationWorkflow(featured.slug, false, "auto", "auto", title, imageOp.onNode);
     imageOp.register(imagePromise);
     logger.info("homepage_featured_image.auto_queued", { slug: featured.slug });
     trackGeneration(
       imagePromise
         .then(() => {
           homepageFeaturedImageAttempts.delete(featured.slug);
-          logger.info("homepage_featured_image.auto_done", { slug: featured.slug });
+          logger.info("homepage_featured_image.auto_done", {
+            slug: featured.slug,
+          });
         })
         .catch((err) => {
           logger.warn("homepage_featured_image.auto_failed", {
@@ -2066,7 +1716,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       aspectRatioKey: "landscape",
       configured: imageConfigured,
       has_headline_image: hasHeadlineImage,
-      attempts: news?.slug ? homepageNewsImageAttempts.get(news.slug) ?? 0 : 0,
+      attempts: news?.slug ? (homepageNewsImageAttempts.get(news.slug) ?? 0) : 0,
       max_attempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
     };
     if (imageConfigured) {
@@ -2100,14 +1750,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     homepageNewsImageAttempts.set(news.slug, previousAttempts + 1);
     const title = article.title ?? news.title ?? news.slug;
     const imageOp = trackActiveOperation(news.slug, title, "article.image_generate");
-    const imagePromise = runArticleImageGenerationWorkflow(
-      news.slug,
-      false,
-      "broadcast_news_still",
-      "landscape",
-      title,
-      imageOp.onNode,
-    );
+    const imagePromise = runArticleImageGenerationWorkflow(news.slug, false, "broadcast_news_still", "landscape", title, imageOp.onNode);
     imageOp.register(imagePromise);
     logger.info("homepage_news_image.auto_queued", { slug: news.slug });
     trackGeneration(
@@ -2142,8 +1785,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   let homepageRequestRefreshTriggeredAt = 0;
   let homepageRefreshFailures = 0;
   let homepageRefreshNextAllowedAt = 0;
-  const homepageRefreshBackoffDelay = (now: number) =>
-    Math.max(0, homepageRefreshNextAllowedAt - now);
+  const homepageRefreshBackoffDelay = (now: number) => Math.max(0, homepageRefreshNextAllowedAt - now);
 
   if (!options.skipHomepagePrepare) {
     maintenance.register({
@@ -2155,21 +1797,12 @@ export async function createApp(options: CreateAppOptions = {}) {
         const cached = getHomepageCache(db);
         if (!cached) return 0;
         if (!hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)) return 0;
-        return (
-          cached.generatedAt +
-          HOMEPAGE_TTL_MS -
-          now +
-          HOMEPAGE_REFRESH_GRACE_MS
-        );
+        return cached.generatedAt + HOMEPAGE_TTL_MS - now + HOMEPAGE_REFRESH_GRACE_MS;
       },
       run: async () => {
         const cached = getHomepageCache(db);
         const now = Date.now();
-        const reason = !cached
-          ? "missing"
-          : cached.generatedAt + HOMEPAGE_TTL_MS <= now
-            ? "expired"
-            : "scheduled";
+        const reason = !cached ? "missing" : cached.generatedAt + HOMEPAGE_TTL_MS <= now ? "expired" : "scheduled";
         logger.info("homepage.refresh_start", {
           reason,
           age_ms: cached ? now - cached.generatedAt : 0,
@@ -2193,8 +1826,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           homepageRefreshNextAllowedAt = 0;
         } catch (error) {
           homepageRefreshFailures += 1;
-          homepageRefreshNextAllowedAt =
-            Date.now() + homepageRefreshFailureBackoffMs(homepageRefreshFailures);
+          homepageRefreshNextAllowedAt = Date.now() + homepageRefreshFailureBackoffMs(homepageRefreshFailures);
           logger.error("homepage.refresh_failed", {
             reason,
             failures: homepageRefreshFailures,
@@ -2219,10 +1851,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       return Math.max(HOMEPAGE_PENDING_RETRY_MS, backoffDelay);
     }
 
-    const cooldownDelay =
-      homepageRequestRefreshTriggeredAt > 0
-        ? HOMEPAGE_REQUEST_TRIGGER_COOLDOWN_MS - (now - homepageRequestRefreshTriggeredAt)
-        : 0;
+    const cooldownDelay = homepageRequestRefreshTriggeredAt > 0 ? HOMEPAGE_REQUEST_TRIGGER_COOLDOWN_MS - (now - homepageRequestRefreshTriggeredAt) : 0;
     if (cooldownDelay > 0) {
       logger.info("homepage.refresh_trigger_suppressed", {
         reason,
@@ -2254,11 +1883,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       db.exec(`VACUUM INTO '${rawPath.replace(/'/g, "''")}'`);
 
       // Compress and delete the raw copy.
-      await pipeline(
-        (await import("node:fs")).createReadStream(rawPath),
-        createGzip({ level: 6 }),
-        createWriteStream(gzPath),
-      );
+      await pipeline((await import("node:fs")).createReadStream(rawPath), createGzip({ level: 6 }), createWriteStream(gzPath));
       rmSync(rawPath);
 
       const { size } = await fsStat(gzPath);
@@ -2281,59 +1906,65 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   /** Attach headline media, when present, to homepage article payloads. */
-  function withHomepageImages<T extends {
-    featured: { slug: string } | null;
-    todaysNews?: { slug: string } | null;
-  }>(payload: T): T {
-    const slugs = [
-      payload.featured?.slug,
-      payload.todaysNews?.slug,
-    ].filter((slug): slug is string => Boolean(slug));
+  function withHomepageImages<
+    T extends {
+      featured: { slug: string } | null;
+      todaysNews?: { slug: string } | null;
+    },
+  >(payload: T): T {
+    const slugs = [payload.featured?.slug, payload.todaysNews?.slug].filter((slug): slug is string => Boolean(slug));
     if (slugs.length === 0) return payload;
     const media = getHeadlineMediaForSlugs(db, slugs);
     const featured = payload.featured ? media.get(payload.featured.slug) : undefined;
     const todaysNews = payload.todaysNews ? media.get(payload.todaysNews.slug) : undefined;
     return {
       ...payload,
-      featured: featured && payload.featured
-        ? { ...payload.featured, imageId: featured.mediaId, imageCaption: featured.caption || undefined }
-        : payload.featured,
-      todaysNews: todaysNews && payload.todaysNews
-        ? { ...payload.todaysNews, imageId: todaysNews.mediaId, imageCaption: todaysNews.caption || undefined }
-        : payload.todaysNews,
+      featured:
+        featured && payload.featured
+          ? {
+              ...payload.featured,
+              imageId: featured.mediaId,
+              imageCaption: featured.caption || undefined,
+            }
+          : payload.featured,
+      todaysNews:
+        todaysNews && payload.todaysNews
+          ? {
+              ...payload.todaysNews,
+              imageId: todaysNews.mediaId,
+              imageCaption: todaysNews.caption || undefined,
+            }
+          : payload.todaysNews,
     } as T;
   }
 
   app.get("/api/homepage", (c) => {
     const cached = getHomepageCache(db);
     const now = Date.now();
-    if (
-      cached
-      && cached.generatedAt + HOMEPAGE_TTL_MS > now
-      && hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)
-    ) {
+    if (cached && cached.generatedAt + HOMEPAGE_TTL_MS > now && hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)) {
       queueHomepageFeaturedImageIfMissing(cached.featured);
       queueHomepageNewsImageIfMissing(cached.todaysNews);
-      return c.json(withHomepageImages({
-        ...cached,
-        expiresAt: cached.generatedAt + HOMEPAGE_TTL_MS,
-      }));
+      return c.json(
+        withHomepageImages({
+          ...cached,
+          expiresAt: cached.generatedAt + HOMEPAGE_TTL_MS,
+        }),
+      );
     }
 
-    const pendingRetryMs = triggerHomepageRefreshFromRequest(
-      cached ? "expired_cache_request" : "missing_cache_request",
-      now,
-    );
+    const pendingRetryMs = triggerHomepageRefreshFromRequest(cached ? "expired_cache_request" : "missing_cache_request", now);
     if (cached) {
       queueHomepageFeaturedImageIfMissing(cached.featured);
       if (isCurrentHomepageNews(cached.todaysNews, runtime.app)) {
         queueHomepageNewsImageIfMissing(cached.todaysNews);
       }
-      return c.json(withHomepageImages({
-        ...cached,
-        expiresAt: now + pendingRetryMs,
-        refreshPending: true,
-      }));
+      return c.json(
+        withHomepageImages({
+          ...cached,
+          expiresAt: now + pendingRetryMs,
+          refreshPending: true,
+        }),
+      );
     }
     return c.json({
       featured: null,
@@ -2354,12 +1985,19 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/top-articles", (c) => {
     const limit = Math.min(50, Math.max(1, Number(c.req.query("limit") ?? "10")));
     const articles = listTopArticles(db, limit);
-    const media = getHeadlineMediaForSlugs(db, articles.map((a) => a.slug));
+    const media = getHeadlineMediaForSlugs(
+      db,
+      articles.map((a) => a.slug),
+    );
     return c.json({
       articles: articles.map((a) => {
         const headline = media.get(a.slug);
         return headline
-          ? { ...a, imageId: headline.mediaId, imageCaption: headline.caption || undefined }
+          ? {
+              ...a,
+              imageId: headline.mediaId,
+              imageCaption: headline.caption || undefined,
+            }
           : a;
       }),
     });
@@ -2372,10 +2010,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/random-page", async (c) => {
     try {
       await reloadRuntime();
-      const inspiration = sampleRandomInspirationArticles(
-        db,
-        runtime.app.random_page.inspiration_count,
-      );
+      const inspiration = sampleRandomInspirationArticles(db, runtime.app.random_page.inspiration_count);
       logger.info("random_page.request", {
         "random article inspiration titles": inspiration.map((a) => `${a.title} (${a.slug})`).join(", "),
       });
@@ -2395,7 +2030,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         throw result.error ?? new Error("random page workflow failed");
       }
       const choice = result.state.randomPageChoice;
-      logger.info("random_page.done", { slug: choice.slug, title: choice.title });
+      logger.info("random_page.done", {
+        slug: choice.slug,
+        title: choice.title,
+      });
       const wikiSegment = titleToWikiSegment(slugToTitle(choice.slug));
       return c.json({
         path: `/wiki/${wikiSegment}`,
@@ -2406,18 +2044,13 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger.error("random_page.failed", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return c.json(
-        { error: error instanceof Error ? error.message : String(error) },
-        500,
-      );
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
   });
 
   app.get("/api/page/:slug", async (c) => {
     const requestedSegment = c.req.param("slug");
-    const segmentTitle = normalizeCanonicalTitle(
-      wikiSegmentToRequestedTitle(requestedSegment),
-    );
+    const segmentTitle = normalizeCanonicalTitle(wikiSegmentToRequestedTitle(requestedSegment));
     // The client sends the user's literal typed title (e.g. "Test: The
     // Movie", "Banana 🍌") as a header rather than a URL param — keeps the
     // address bar clean and lets punctuation/emoji that can't survive in the
@@ -2434,19 +2067,14 @@ export async function createApp(options: CreateAppOptions = {}) {
         // malformed encoding — fall through to the other sources
       }
     }
-    const requestedTitle = normalizeCanonicalTitle(
-      decodedRequestedTitle || c.req.query("title") || segmentTitle,
-    );
+    const requestedTitle = normalizeCanonicalTitle(decodedRequestedTitle || c.req.query("title") || segmentTitle);
     const lookupSlug = slugify(segmentTitle);
     const legacyLookupSlug = legacySlugify(segmentTitle);
-    if (!lookupSlug || !requestedTitle)
-      return c.json({ error: "invalid slug" }, 400);
+    if (!lookupSlug || !requestedTitle) return c.json({ error: "invalid slug" }, 400);
     const requestedPath = `/wiki/${requestedSegment}`;
 
     // Check if there's an in-flight edit for this article
-    const hasInFlightEdit =
-      inFlightEdits.has(lookupSlug) ||
-      (legacyLookupSlug !== lookupSlug && inFlightEdits.has(legacyLookupSlug));
+    const hasInFlightEdit = inFlightEdits.has(lookupSlug) || (legacyLookupSlug !== lookupSlug && inFlightEdits.has(legacyLookupSlug));
     if (hasInFlightEdit) {
       logger.info("page.in_flight_edit", { slug: lookupSlug });
     }
@@ -2456,13 +2084,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     // buildArticleResponseFor/buildPageResponse so the wire format stays
     // single-sourced.
     let resolvedLookupSlug = lookupSlug;
-    let record =
-      legacyLookupSlug !== lookupSlug
-        ? getArticleByLookup(db, legacyLookupSlug)
-        : null;
+    let record = legacyLookupSlug !== lookupSlug ? getArticleByLookup(db, legacyLookupSlug) : null;
     if (record) {
       resolvedLookupSlug = legacyLookupSlug;
-      logger.info("page.legacy_slug_hit", { slug: lookupSlug, canonical_slug: record.slug });
+      logger.info("page.legacy_slug_hit", {
+        slug: lookupSlug,
+        canonical_slug: record.slug,
+      });
     }
     if (!record) {
       record = getArticleByLookup(db, lookupSlug);
@@ -2490,7 +2118,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       if (rawSegment !== lookupSlug && isSlugForm(rawSegment)) {
         const exactSlugMatch = getArticleByLookup(db, rawSegment);
         if (exactSlugMatch) {
-          logger.info("page.exact_slug_hit", { segment: rawSegment, slug: exactSlugMatch.slug });
+          logger.info("page.exact_slug_hit", {
+            segment: rawSegment,
+            slug: exactSlugMatch.slug,
+          });
           resolvedLookupSlug = rawSegment;
           record = exactSlugMatch;
         }
@@ -2510,14 +2141,20 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (record) {
       record = repairStoredArticleIdentity(record, resolvedLookupSlug);
       if (cachedArticleNeedsRepair(record.markdown)) {
-        logger.warn("page.cache_repair", { slug: record.slug, in_flight_edit: hasInFlightEdit });
+        logger.warn("page.cache_repair", {
+          slug: record.slug,
+          in_flight_edit: hasInFlightEdit,
+        });
         record = repairCachedArticle(record);
         invalidateArticleHtml(record.slug);
       }
       const response = buildArticleResponseFor(record.slug);
       if (response) {
         const canonicalPath = canonicalPathForArticle(record);
-        logger.info("page.hit", { slug: resolvedLookupSlug, in_flight_edit: hasInFlightEdit });
+        logger.info("page.hit", {
+          slug: resolvedLookupSlug,
+          in_flight_edit: hasInFlightEdit,
+        });
 
         // Auto-sidebar: fire post-process in the background on first view if
         // the article has no infobox yet (e.g. imported or created before
@@ -2588,10 +2225,18 @@ export async function createApp(options: CreateAppOptions = {}) {
           const close = () => {
             if (!streamOpen) return;
             streamOpen = false;
-            try { controller.close(); } catch {}
+            try {
+              controller.close();
+            } catch {}
           };
 
-          send({ type: "start", slug: lookupSlug, cached: false, seq: joinSeq, joined: true });
+          send({
+            type: "start",
+            slug: lookupSlug,
+            cached: false,
+            seq: joinSeq,
+            joined: true,
+          });
 
           listener = (event: unknown) => send(event);
           listeners.add(listener);
@@ -2603,13 +2248,23 @@ export async function createApp(options: CreateAppOptions = {}) {
               logger.info("page.join_done", { slug: lookupSlug, seq: joinSeq });
               const response = buildArticleResponseFor(result.slug);
               if (response) {
-                send({ type: "done", ...buildPageResponse(response, { cached: false, requestedPath, canonicalPath }) });
+                send({
+                  type: "done",
+                  ...buildPageResponse(response, {
+                    cached: false,
+                    requestedPath,
+                    canonicalPath,
+                  }),
+                });
               }
               close();
             })
             .catch((error) => {
               if (listener) listeners.delete(listener);
-              send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+              send({
+                type: "error",
+                message: error instanceof Error ? error.message : String(error),
+              });
               close();
             });
         },
@@ -2692,7 +2347,11 @@ export async function createApp(options: CreateAppOptions = {}) {
           })
           .catch((error) => {
             slugGenerations.get(lookupSlug)?.progressListeners.delete(send);
-            logger.error("page.stream_error", { slug: lookupSlug, seq, error: error instanceof Error ? error.message : String(error) });
+            logger.error("page.stream_error", {
+              slug: lookupSlug,
+              seq,
+              error: error instanceof Error ? error.message : String(error),
+            });
             send({
               type: "error",
               message: error instanceof Error ? error.message : String(error),
@@ -2700,7 +2359,6 @@ export async function createApp(options: CreateAppOptions = {}) {
             close();
             releaseWaiter();
           });
-
       },
       cancel() {
         if (originSend) slugGenerations.get(lookupSlug)?.progressListeners.delete(originSend);
@@ -2730,7 +2388,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
     // The persisted blacklist rides along so the edit panel can show (and
     // edit) blocks made in earlier sessions instead of starting empty.
-    return c.json({ references, blacklist: listArticleBlacklistSlugs(db, article.slug) });
+    return c.json({
+      references,
+      blacklist: listArticleBlacklistSlugs(db, article.slug),
+    });
   });
 
   // ── Article vibe (per-article canonical source) ────────────────────────────
@@ -2771,13 +2432,17 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
     const article = getArticleByLookup(db, lookupSlug);
     const slug = article?.slug ?? lookupSlug;
-    const body = (await c.req.json().catch(() => ({}))) as { revisionId?: number };
-    if (typeof body.revisionId !== "number")
-      return c.json({ error: "missing revisionId" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      revisionId?: number;
+    };
+    if (typeof body.revisionId !== "number") return c.json({ error: "missing revisionId" }, 400);
     const prior = reconstructArticleVibeRevision(db, slug, body.revisionId);
     if (prior === null) return c.json({ error: "revision not found" }, 404);
     setArticleVibe(db, slug, prior, "revert");
-    logger.info("article.vibe_reverted", { slug, revision_id: body.revisionId });
+    logger.info("article.vibe_reverted", {
+      slug,
+      revision_id: body.revisionId,
+    });
     return c.json({
       content: getArticleVibe(db, slug),
       revisions: listArticleVibeRevisions(db, slug),
@@ -2791,18 +2456,18 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.post("/api/article/:slug/create", async (c) => {
     const lookupSlug = slugify(c.req.param("slug"));
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
-    if (getArticleByLookup(db, lookupSlug))
-      return c.json({ error: "article already exists" }, 409);
+    if (getArticleByLookup(db, lookupSlug)) return c.json({ error: "article already exists" }, 409);
     const body = (await c.req.json().catch(() => ({}))) as {
       title?: string;
       vibe?: string;
     };
-    const title = normalizeCanonicalTitle(
-      (body.title ?? "").trim() || wikiSegmentToRequestedTitle(lookupSlug),
-    );
+    const title = normalizeCanonicalTitle((body.title ?? "").trim() || wikiSegmentToRequestedTitle(lookupSlug));
     const vibe = (body.vibe ?? "").slice(0, 20_000);
     if (vibe.trim()) setArticleVibe(db, lookupSlug, vibe, "save");
-    logger.info("article.create_with_vibe", { slug: lookupSlug, has_vibe: !!vibe.trim() });
+    logger.info("article.create_with_vibe", {
+      slug: lookupSlug,
+      has_vibe: !!vibe.trim(),
+    });
     return c.json({
       slug: lookupSlug,
       title,
@@ -2816,7 +2481,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { refSlug?: string; pinned?: boolean };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      refSlug?: string;
+      pinned?: boolean;
+    };
     const refSlug = slugify(body.refSlug ?? "");
     if (!refSlug) return c.json({ error: "missing refSlug" }, 400);
     const pinned = Boolean(body.pinned);
@@ -2833,7 +2501,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       .get(article.slug) as { savedAt: number };
     const updated = current.map((r) => (r.slug === refSlug ? { ...r, pinned } : r));
     saveArticleReferences(db, article.slug, Math.max(Date.now(), latestSavedAt.savedAt + 1), updated);
-    logger.info("references.pin_toggled", { slug: article.slug, ref_slug: refSlug, pinned });
+    logger.info("references.pin_toggled", {
+      slug: article.slug,
+      ref_slug: refSlug,
+      pinned,
+    });
     return c.json({ ok: true });
   });
 
@@ -2913,7 +2585,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
 
-    const body = (await c.req.json().catch(() => ({}))) as { markdown?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      markdown?: string;
+    };
     const rawMarkdown = (body.markdown ?? "").trim();
     if (!rawMarkdown) return c.json({ html: "", diagnostics: [] });
 
@@ -2925,16 +2599,20 @@ export async function createApp(options: CreateAppOptions = {}) {
         checkedSlugs.add(link.slug);
         const exists = getArticleByLookup(db, link.slug);
         if (!exists) {
-          brokenLinks.push({ slug: link.slug, reason: `no article with slug "${link.slug}"` });
+          brokenLinks.push({
+            slug: link.slug,
+            reason: `no article with slug "${link.slug}"`,
+          });
         }
       }
     }
     const html = renderMarkdown(normalized.markdown);
     const diagnostics = [
-      ...normalized.diagnostics
-        .filter((d) => d.severity === "warn" || d.severity === "error")
-        .map((d) => ({ severity: d.severity, message: d.message })),
-      ...brokenLinks.map((b) => ({ severity: "warn" as const, message: `Broken link to "${b.slug}": ${b.reason}` })),
+      ...normalized.diagnostics.filter((d) => d.severity === "warn" || d.severity === "error").map((d) => ({ severity: d.severity, message: d.message })),
+      ...brokenLinks.map((b) => ({
+        severity: "warn" as const,
+        message: `Broken link to "${b.slug}": ${b.reason}`,
+      })),
     ];
     return c.json({ html, diagnostics });
   });
@@ -2963,7 +2641,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       const s = slugify(a.slug);
       if (!s || s === article.slug || seen.has(s)) return;
       seen.add(s);
-      articles.push({ slug: s, title: a.title, summaryMarkdown: a.summaryMarkdown ?? "" });
+      articles.push({
+        slug: s,
+        title: a.title,
+        summaryMarkdown: a.summaryMarkdown ?? "",
+      });
     };
 
     if (body.fuzzyTitles?.trim()) {
@@ -2971,7 +2653,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       for (const a of matched) addArticle({ ...a, summaryMarkdown: a.summaryMarkdown ?? "" });
 
       const fuzzy = findFuzzyTitleMatchesInEditText(
-        db, body.fuzzyTitles, article.slug, 10, matched.map((a) => a.slug),
+        db,
+        body.fuzzyTitles,
+        article.slug,
+        10,
+        matched.map((a) => a.slug),
       );
       for (const a of fuzzy) addArticle({ ...a, summaryMarkdown: a.summaryMarkdown ?? "" });
     }
@@ -2986,7 +2672,11 @@ export async function createApp(options: CreateAppOptions = {}) {
         }),
       );
       for (const src of retrieved.sourceArticles) {
-        addArticle({ slug: src.slug, title: src.title, summaryMarkdown: src.content?.slice(0, 360) ?? "" });
+        addArticle({
+          slug: src.slug,
+          title: src.title,
+          summaryMarkdown: src.content?.slice(0, 360) ?? "",
+        });
       }
     }
 
@@ -3024,8 +2714,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
       return c.json(
         {
-          error:
-            "could not find selectable text to wrap in the article markdown",
+          error: "could not find selectable text to wrap in the article markdown",
         },
         422,
       );
@@ -3033,15 +2722,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     // ── Fast path: visible label resolves to an existing article in the DB ──
     // Try slug-form first, then equivalent-key lookup (handles "The Foo" → "foo").
     const labelSlug = slugify(wrapRange.visibleLabel);
-    const existingArticle = labelSlug
-      ? (getArticleByLookup(db, labelSlug) ?? getArticleByEquivalentLookup(db, labelSlug))
-      : null;
+    const existingArticle = labelSlug ? (getArticleByLookup(db, labelSlug) ?? getArticleByEquivalentLookup(db, labelSlug)) : null;
     if (existingArticle && existingArticle.slug !== article.slug) {
       const refLink = `[${wrapRange.visibleLabel}](ref:${existingArticle.slug})`;
-      const nextMarkdown = stripSelfLinks(
-        article.markdown.slice(0, wrapRange.start) + refLink + article.markdown.slice(wrapRange.end),
-        article.slug,
-      );
+      const nextMarkdown = stripSelfLinks(article.markdown.slice(0, wrapRange.start) + refLink + article.markdown.slice(wrapRange.end), article.slug);
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
       const result = await runWorkflow(addLinkArticleWorkflow, {
         input: {
@@ -3072,7 +2756,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
       const response = buildArticleResponseFor(savedSlug);
       if (!response) return c.json({ error: "failed to hydrate response" }, 500);
-      return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(response) }));
+      return c.json(
+        buildPageResponse(response, {
+          cached: true,
+          canonicalPath: canonicalPathForArticle(response),
+        }),
+      );
     }
 
     // ── Slow path: ask the LLM to suggest a link target ───────────────────────
@@ -3084,15 +2773,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
     let suggestion: LinkSuggestion;
     try {
-      suggestion = await generateLinkSuggestion(
-        llm,
-        runtime.prompts,
-        article.title,
-        wrapRange.visibleLabel,
-        excerpt,
-        formatRagContextForPrompt(retrieved.sourceArticles, 4000),
-        retrieved.relatedTitles,
-      );
+      suggestion = await generateLinkSuggestion(llm, runtime.prompts, article.title, wrapRange.visibleLabel, excerpt, formatRagContextForPrompt(retrieved.sourceArticles, 4000), retrieved.relatedTitles);
       logger.debug("add_link.suggestion_received", {
         slug: article.slug,
         target_slug: suggestion.slug,
@@ -3104,34 +2785,14 @@ export async function createApp(options: CreateAppOptions = {}) {
         slug: article.slug,
         error: errorMsg,
       });
-      return c.json(
-        { error: `link suggestion failed: ${errorMsg}` },
-        500,
-      );
+      return c.json({ error: `link suggestion failed: ${errorMsg}` }, 500);
     }
 
-    const targetSlug = normalizeSuggestedTargetSlug(
-      suggestion.slug,
-      article.slug,
-      wrapRange.visibleLabel,
-    );
-    if (!targetSlug)
-      return c.json(
-        { error: "link suggestion produced an invalid target" },
-        500,
-      );
+    const targetSlug = normalizeSuggestedTargetSlug(suggestion.slug, article.slug, wrapRange.visibleLabel);
+    if (!targetSlug) return c.json({ error: "link suggestion produced an invalid target" }, 500);
 
-    const wrapped = buildHaluLink(
-      wrapRange.visibleLabel,
-      targetSlug,
-      suggestion.description,
-    );
-    const nextMarkdown = stripSelfLinks(
-      article.markdown.slice(0, wrapRange.start) +
-        wrapped +
-        article.markdown.slice(wrapRange.end),
-      article.slug,
-    );
+    const wrapped = buildHaluLink(wrapRange.visibleLabel, targetSlug, suggestion.description);
+    const nextMarkdown = stripSelfLinks(article.markdown.slice(0, wrapRange.start) + wrapped + article.markdown.slice(wrapRange.end), article.slug);
 
     const recorder = getTraceRecorder(runtime.app.pipeline.trace);
     const result = await runWorkflow(addLinkArticleWorkflow, {
@@ -3174,10 +2835,15 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { isProtected?: boolean };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      isProtected?: boolean;
+    };
     const newValue = body.isProtected ?? !isArticleProtected(db, article.slug);
     setArticleProtection(db, article.slug, newValue);
-    logger.info("article.protection_changed", { slug: article.slug, isProtected: newValue });
+    logger.info("article.protection_changed", {
+      slug: article.slug,
+      isProtected: newValue,
+    });
     return c.json({ ok: true, slug: article.slug, isProtected: newValue });
   });
 
@@ -3186,15 +2852,29 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { sectionId?: string; heading?: string; isProtected?: boolean };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sectionId?: string;
+      heading?: string;
+      isProtected?: boolean;
+    };
     const sectionId = body.sectionId ?? "";
     if (!sectionId) return c.json({ error: "missing sectionId" }, 400);
     const heading = body.heading ?? sectionId;
     const newValue = body.isProtected ?? !isArticleSectionProtected(db, article.slug, sectionId);
     setArticleSectionProtection(db, article.slug, sectionId, heading, newValue);
-    logger.info("article.section_protection_changed", { slug: article.slug, sectionId, isProtected: newValue });
+    logger.info("article.section_protection_changed", {
+      slug: article.slug,
+      sectionId,
+      isProtected: newValue,
+    });
     const sections = listProtectedSections(db, article.slug);
-    return c.json({ ok: true, slug: article.slug, sectionId, isProtected: newValue, protectedSections: sections });
+    return c.json({
+      ok: true,
+      slug: article.slug,
+      sectionId,
+      isProtected: newValue,
+      protectedSections: sections,
+    });
   });
 
   app.patch("/api/article/:slug/update-title", async (c) => {
@@ -3211,8 +2891,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const newMarkdown = updated.markdown.replace(/^#\s+.+?$/m, `# ${newTitle}`);
     const links = extractInternalLinks(newMarkdown);
     const newHtml = renderMarkdown(newMarkdown);
-    db.prepare(`UPDATE articles SET markdown = ?, html = ?, plain_text = ?, display_title = '' WHERE slug = ?`)
-      .run(newMarkdown, newHtml, markdownToPlainText(newMarkdown), article.slug);
+    db.prepare(`UPDATE articles SET markdown = ?, html = ?, plain_text = ?, display_title = '' WHERE slug = ?`).run(newMarkdown, newHtml, markdownToPlainText(newMarkdown), article.slug);
     // Save revision
     db.prepare(
       `INSERT INTO article_revisions (article_slug, title, markdown, html, summary_markdown, plain_text, generated_at, created_at, operation, instructions)
@@ -3224,7 +2903,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     logger.info("article.title_updated", { slug: article.slug, newTitle });
     const response = buildArticleResponseFor(article.slug);
     if (!response) return c.json({ error: "failed to hydrate response" }, 500);
-    return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(updated) }));
+    return c.json(
+      buildPageResponse(response, {
+        cached: true,
+        canonicalPath: canonicalPathForArticle(updated),
+      }),
+    );
   });
 
   app.post("/api/article/:slug/rewrite", async (c) => {
@@ -3257,16 +2941,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     // instruction applies only to this request and is recorded in its revision.
     const vibe = getArticleVibe(db, article.slug).trim();
     const hasVibe = vibe.length > 0;
-    const quickEditInstruction = (body.instructions ?? "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 1000);
+    const quickEditInstruction = (body.instructions ?? "").replace(/\s+/g, " ").trim().slice(0, 1000);
     const hasQuickEditInstruction = quickEditInstruction.length > 0;
-    if (!hasVibe && !hasQuickEditInstruction && !hasReferenceEditFields(body))
-      return c.json(
-        { error: "Set an article vibe or provide a quick edit instruction." },
-        400,
-      );
+    if (!hasVibe && !hasQuickEditInstruction && !hasReferenceEditFields(body)) return c.json({ error: "Set an article vibe or provide a quick edit instruction." }, 400);
     const instructions = quickEditInstruction || "rewrite-to-vibe";
 
     // Refs-only edit: the user changed the reference selection (add/remove/
@@ -3275,10 +2952,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!hasVibe && !hasQuickEditInstruction) {
       const refs = applyReferenceOnlyEdit(db, article.slug, body, runtime.app.rag, logger);
       invalidateArticleHtml(article.slug);
-      logger.info("article.reference_only_edit", { slug: article.slug, refs: refs.length });
+      logger.info("article.reference_only_edit", {
+        slug: article.slug,
+        refs: refs.length,
+      });
       const response = buildArticleResponseFor(article.slug);
       if (!response) return c.json({ error: "failed to hydrate response" }, 500);
-      return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(article) }));
+      return c.json(
+        buildPageResponse(response, {
+          cached: true,
+          canonicalPath: canonicalPathForArticle(article),
+        }),
+      );
     }
 
     // ── Protection check ──────────────────────────────────────────────────────
@@ -3294,7 +2979,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger.info("article.rewrite_blocked_protection", { slug: article.slug });
       const response = buildArticleResponseFor(article.slug);
       if (!response) return c.json({ error: "failed to hydrate response" }, 500);
-      return c.json(buildPageResponse(response, { cached: true, canonicalPath: canonicalPathForArticle(article) }));
+      return c.json(
+        buildPageResponse(response, {
+          cached: true,
+          canonicalPath: canonicalPathForArticle(article),
+        }),
+      );
     }
 
     const selectedText = (body.selectedText ?? "").trim();
@@ -3303,55 +2993,34 @@ export async function createApp(options: CreateAppOptions = {}) {
       // Use the position-mapped finder so formatted selections (bold, links, etc.)
       // are located correctly even when the plain-text does not appear verbatim.
       selectionRange = findSelectionRangeInMarkdown(article.markdown, selectedText);
-      if (!selectionRange)
-        return c.json({ error: "selected text not found in article" }, 422);
+      if (!selectionRange) return c.json({ error: "selected text not found in article" }, 422);
     }
 
     const sectionId = (body.sectionId ?? "").trim();
     // Send the actual markdown slice (not the client plain text) so the LLM
     // sees proper markdown syntax and can return well-formed replacement markdown.
-    const articleBodyOnly = stripTopLevelSections(article.markdown, [
-      "References",
-      "See also",
-    ]);
-    const selectedSection = selectionRange
-      ? article.markdown.slice(selectionRange.start, selectionRange.end)
-      : sectionId
-        ? articleSectionMarkdown(article.markdown, sectionId)
-        : articleBodyOnly;
+    const articleBodyOnly = stripTopLevelSections(article.markdown, ["References", "See also"]);
+    const selectedSection = selectionRange ? article.markdown.slice(selectionRange.start, selectionRange.end) : sectionId ? articleSectionMarkdown(article.markdown, sectionId) : articleBodyOnly;
 
     const ragEnabled = body.ragEnabled === true;
-    const ragQuery = (body.ragQuery ?? "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 500);
+    const ragQuery = (body.ragQuery ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
     // Explicit reference slugs from the new UI — survive pruning for this build.
-    const explicitSlugs = (body.referenceSlugs ?? [])
-      .map((s) => slugify(s))
-      .filter(Boolean);
+    const explicitSlugs = (body.referenceSlugs ?? []).map((s) => slugify(s)).filter(Boolean);
     // Which of those refs the user has pinned — pinned refs don't count toward cap.
-    const pinnedSlugsSet = new Set(
-      (body.pinnedSlugs ?? []).map((s) => slugify(s)).filter(Boolean),
-    );
+    const pinnedSlugsSet = new Set((body.pinnedSlugs ?? []).map((s) => slugify(s)).filter(Boolean));
     // Slugs the user removed — excluded even if RAG would otherwise pick them.
-    const blacklistSlugs = (body.blacklistSlugs ?? [])
-      .map((s) => slugify(s))
-      .filter(Boolean);
+    const blacklistSlugs = (body.blacklistSlugs ?? []).map((s) => slugify(s)).filter(Boolean);
     const partialEdit = Boolean(selectionRange || sectionId);
     const priorReferenceList = loadPriorReferenceList(db, article.slug) ?? [];
     const priorReferenceSlugs = priorReferenceList.map((ref) => ref.slug);
     const priorReferenceSlugSet = new Set(priorReferenceSlugs);
     const newExplicitSlugs = explicitSlugs.filter((slug) => !priorReferenceSlugSet.has(slug));
-    const effectiveExplicitSlugs = partialEdit
-      ? Array.from(new Set([...priorReferenceSlugs, ...newExplicitSlugs]))
-      : explicitSlugs;
+    const effectiveExplicitSlugs = partialEdit ? Array.from(new Set([...priorReferenceSlugs, ...newExplicitSlugs])) : explicitSlugs;
     // Blocked refs apply in all edit modes (partial edits previously dropped
     // them) and persist: stored blocks survive future edits/refreshes until
     // the user re-adds the reference.
     persistBlacklistForEdit(db, article.slug, body);
-    const effectiveBlacklistSlugs = Array.from(
-      new Set([...blacklistSlugs, ...listArticleBlacklistSlugs(db, article.slug)]),
-    );
+    const effectiveBlacklistSlugs = Array.from(new Set([...blacklistSlugs, ...listArticleBlacklistSlugs(db, article.slug)]));
 
     const rewriteReason = selectionRange ? "selection_edit" : sectionId ? "section_edit" : "full_rewrite";
     logger.debug("rewrite.starting", {
@@ -3365,9 +3034,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       instructions_length: instructions.length,
     });
 
-    const wantsStream =
-      c.req.query("stream") === "1" ||
-      (c.req.header("accept") ?? "").includes("application/x-ndjson");
+    const wantsStream = c.req.query("stream") === "1" || (c.req.header("accept") ?? "").includes("application/x-ndjson");
 
     const recorder = getTraceRecorder(runtime.app.pipeline.trace);
     const rewriteInput = {
@@ -3447,29 +3114,44 @@ export async function createApp(options: CreateAppOptions = {}) {
         start(controller) {
           const send = (payload: unknown) => {
             if (!rewriteStreamOpen) return;
-            try { controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`)); }
-            catch { rewriteStreamOpen = false; }
+            try {
+              controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+            } catch {
+              rewriteStreamOpen = false;
+            }
           };
           const close = () => {
             if (!rewriteStreamOpen) return;
             rewriteStreamOpen = false;
-            try { controller.close(); } catch {}
+            try {
+              controller.close();
+            } catch {}
           };
           send({ type: "start", slug: article.slug, cached: false });
           trackGeneration(
-            runRewrite(send).then((payload) => {
-              send({ type: "done", ...payload });
-              close();
-            }).catch((error) => {
-              send({ type: "error", message: error instanceof Error ? error.message : String(error) });
-              close();
-            }),
+            runRewrite(send)
+              .then((payload) => {
+                send({ type: "done", ...payload });
+                close();
+              })
+              .catch((error) => {
+                send({
+                  type: "error",
+                  message: error instanceof Error ? error.message : String(error),
+                });
+                close();
+              }),
           );
         },
-        cancel() { rewriteStreamOpen = false; },
+        cancel() {
+          rewriteStreamOpen = false;
+        },
       });
       return new Response(stream, {
-        headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" },
+        headers: {
+          "content-type": "application/x-ndjson; charset=utf-8",
+          "cache-control": "no-store",
+        },
       });
     }
 
@@ -3485,13 +3167,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
     const article = getArticleByLookup(db, lookupSlug);
     if (!article) return c.json({ error: "article not found" }, 404);
-    const wantsStream =
-      c.req.query("stream") === "1" ||
-      /\bapplication\/x-ndjson\b/i.test(c.req.header("accept") ?? "");
+    const wantsStream = c.req.query("stream") === "1" || /\bapplication\/x-ndjson\b/i.test(c.req.header("accept") ?? "");
 
-    const runRefresh = async (
-      send?: (event: Record<string, unknown>) => void,
-    ) => {
+    const runRefresh = async (send?: (event: Record<string, unknown>) => void) => {
       send?.({ type: "status", message: "Retrieving context..." });
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
 
@@ -3523,7 +3201,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       const persistedAt = result.state.persistedAt;
       const updatedRecord = getArticleByLookup(db, updatedSlug);
       const refreshChanged = !!updatedRecord && updatedRecord.markdown !== article.markdown;
-      logger.info("page.refresh", { slug: updatedSlug, changed: refreshChanged });
+      logger.info("page.refresh", {
+        slug: updatedSlug,
+        changed: refreshChanged,
+      });
       invalidateArticleHtml(updatedSlug);
 
       const ppRefreshOp = trackActiveOperation(updatedSlug, article.title, "article.post_process");
@@ -3565,7 +3246,11 @@ export async function createApp(options: CreateAppOptions = {}) {
           const safeClose = () => {
             if (!streamOpen) return;
             streamOpen = false;
-            try { controller.close(); } catch { /* client already disconnected */ }
+            try {
+              controller.close();
+            } catch {
+              /* client already disconnected */
+            }
           };
           const refresh = (async () => {
             const payload = await runRefresh(send);
@@ -3595,10 +3280,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     try {
       return c.json(await runRefresh());
     } catch (error) {
-      return c.json(
-        { error: error instanceof Error ? error.message : String(error) },
-        500,
-      );
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
   });
 
@@ -3621,8 +3303,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const current = getArticleByLookup(db, lookupSlug);
     if (!current) return c.json({ error: "article not found" }, 404);
     const revision = getArticleRevision(db, revisionId);
-    if (!revision || revision.articleSlug !== current.slug)
-      return c.json({ error: "revision not found" }, 404);
+    if (!revision || revision.articleSlug !== current.slug) return c.json({ error: "revision not found" }, 404);
 
     const nextArticle = {
       ...current,
@@ -3634,32 +3315,18 @@ export async function createApp(options: CreateAppOptions = {}) {
       generated_at: Date.now(),
     };
     const links = extractAllBodyLinks(nextArticle.markdown, nextArticle.slug);
-    nextArticle.html = rewriteArticleHtml(
-      renderMarkdown(nextArticle.markdown),
-      links,
-    );
-    saveArticle(
-      db,
-      nextArticle,
-      links,
-      Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])),
-      {
-        operation: "revert",
-        instructions: `Reverted to revision ${revision.id}.`,
-        revertedFromRevisionId: revision.id,
-      },
-    );
+    nextArticle.html = rewriteArticleHtml(renderMarkdown(nextArticle.markdown), links);
+    saveArticle(db, nextArticle, links, Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])), {
+      operation: "revert",
+      instructions: `Reverted to revision ${revision.id}.`,
+      revertedFromRevisionId: revision.id,
+    });
     if (revision.headlineMediaId) {
       upsertArticleHeadlineMedia(db, nextArticle.slug, revision.headlineMediaId, revision.headlineMediaCaption ?? "");
     } else {
       removeArticleMedia(db, nextArticle.slug, 1);
     }
-    updateLatestArticleRevisionMediaSnapshot(
-      db,
-      nextArticle.slug,
-      revision.headlineMediaId,
-      revision.headlineMediaCaption,
-    );
+    updateLatestArticleRevisionMediaSnapshot(db, nextArticle.slug, revision.headlineMediaId, revision.headlineMediaCaption);
     afterArticleSaved(nextArticle.slug, nextArticle.title, nextArticle.markdown, nextArticle.generated_at);
     invalidateArticleHtml(nextArticle.slug);
     const response = buildArticleResponseFor(nextArticle.slug);
@@ -3675,10 +3342,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/index", (c) => {
     const offset = Math.max(parseInt(c.req.query("cursor") ?? "0", 10) || 0, 0);
     const all = c.req.query("all") === "1";
-    const limit = Math.min(
-      Math.max(parseInt(c.req.query("limit") ?? (all ? "10000" : "200"), 10) || 200, 1),
-      all ? 10000 : 500,
-    );
+    const limit = Math.min(Math.max(parseInt(c.req.query("limit") ?? (all ? "10000" : "200"), 10) || 200, 1), all ? 10000 : 500);
     const cached = indexResponseCache.get(`idx:${offset}:${limit}:${all ? 1 : 0}`, () => {
       const page = listArticles(db, offset, limit);
       return JSON.stringify({
@@ -3697,13 +3361,22 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   });
 
-  registerPipelineAdminRoutes(app, () => runtime.app.pipeline.trace, () => buildPipelineDeps());
-  registerRagAdminRoutes(app, () => rag, () => runtime.app.rag.min_score, {
-    db,
-    getLlm: () => llm,
-    getPrompts: () => runtime.prompts,
-    logger,
-  });
+  registerPipelineAdminRoutes(
+    app,
+    () => runtime.app.pipeline.trace,
+    () => buildPipelineDeps(),
+  );
+  registerRagAdminRoutes(
+    app,
+    () => rag,
+    () => runtime.app.rag.min_score,
+    {
+      db,
+      getLlm: () => llm,
+      getPrompts: () => runtime.prompts,
+      logger,
+    },
+  );
 
   app.get("/api/admin/overview", (c) => {
     const modelConfigs = {
@@ -3722,16 +3395,16 @@ export async function createApp(options: CreateAppOptions = {}) {
       databasePath: runtime.app.storage.database_path,
       promptConfigPath: "config/prompts",
       modelConfigs,
-        imageGeneration: {
-          enabled: runtime.app.images.generation.enabled,
-          autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
-          autoPresetMultipass: runtime.app.images.generation.auto_preset_multipass,
-          homepageAutoImageMaxAttempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
-          backend: runtime.app.images.generation.backend,
-          openaiModel: runtime.app.images.generation.openai.model,
-          ollamaModel: runtime.app.images.generation.ollama.model,
-          ollamaBaseUrl: runtime.app.images.generation.ollama.base_url,
-          autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
+      imageGeneration: {
+        enabled: runtime.app.images.generation.enabled,
+        autoGenerateForNewArticles: runtime.app.images.generation.auto_generate_for_new_articles,
+        autoPresetMultipass: runtime.app.images.generation.auto_preset_multipass,
+        homepageAutoImageMaxAttempts: runtime.app.images.generation.homepage_auto_image_max_attempts,
+        backend: runtime.app.images.generation.backend,
+        openaiModel: runtime.app.images.generation.openai.model,
+        ollamaModel: runtime.app.images.generation.ollama.model,
+        ollamaBaseUrl: runtime.app.images.generation.ollama.base_url,
+        autoGenerateForFeaturedArticle: runtime.app.images.generation.auto_generate_for_featured_article,
       },
       promptModelAssociations: Object.keys(runtime.prompts.prompts)
         .sort()
@@ -3769,7 +3442,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   app.post("/api/admin/prompt-model", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as {
+    const body = (await c.req.json().catch(() => ({}))) as {
       key?: string;
       model?: string;
       thinking?: unknown;
@@ -3794,10 +3467,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         thinking: prompt.thinking,
       });
     } catch (error) {
-      return c.json(
-        { error: error instanceof Error ? error.message : String(error) },
-        500,
-      );
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
   });
 
@@ -3821,21 +3491,13 @@ export async function createApp(options: CreateAppOptions = {}) {
   const editAppToml = (mutate: (src: string) => string) => {
     const path = resolve(process.cwd(), "config", "app.toml");
     const examplePath = resolve(process.cwd(), "config", "app.toml.example");
-    const src = existsSync(path)
-      ? readFileSync(path, "utf8")
-      : existsSync(examplePath)
-        ? readFileSync(examplePath, "utf8")
-        : "";
+    const src = existsSync(path) ? readFileSync(path, "utf8") : existsSync(examplePath) ? readFileSync(examplePath, "utf8") : "";
     writeFileSync(path, mutate(src));
   };
   const editOntologyToml = (mutate: (src: string) => string) => {
     const path = resolve(process.cwd(), "config", "ontology.toml");
     const examplePath = resolve(process.cwd(), "config", "ontology.toml.example");
-    const src = existsSync(path)
-      ? readFileSync(path, "utf8")
-      : existsSync(examplePath)
-        ? readFileSync(examplePath, "utf8")
-        : "";
+    const src = existsSync(path) ? readFileSync(path, "utf8") : existsSync(examplePath) ? readFileSync(examplePath, "utf8") : "";
     writeFileSync(path, mutate(src));
   };
 
@@ -3849,9 +3511,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
     const vocab = rag.vocab;
     const seenNames = new Set<string>();
-    const additions = (Array.isArray(body.additions) ? body.additions : [])
-      .map((a) => sanitizePredicateAddition(a, vocab, seenNames))
-      .filter((a): a is PredicateAdditionProposal => a !== null);
+    const additions = (Array.isArray(body.additions) ? body.additions : []).map((a) => sanitizePredicateAddition(a, vocab, seenNames)).filter((a): a is PredicateAdditionProposal => a !== null);
     const removalNames = new Set<string>();
     const removals = (Array.isArray(body.removals) ? body.removals : [])
       .filter((n): n is string => typeof n === "string")
@@ -3901,10 +3561,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       ...Object.fromEntries(OPTIONAL_OLLAMA_PARAMETER_KEYS.map((key) => [key, cfg[key] ?? null])),
     });
     const roles = {
-      heavy: { ...roleEntry(runtime.llm.chat), candidates: liveRouter()?.candidatesFor("heavy") ?? [] },
-      light: { ...roleEntry(runtime.llm.light), candidates: liveRouter()?.candidatesFor("light") ?? [] },
+      heavy: {
+        ...roleEntry(runtime.llm.chat),
+        candidates: liveRouter()?.candidatesFor("heavy") ?? [],
+      },
+      light: {
+        ...roleEntry(runtime.llm.light),
+        candidates: liveRouter()?.candidatesFor("light") ?? [],
+      },
       images: runtime.llm.images
-        ? { ...roleEntry(runtime.llm.images), candidates: liveRouter()?.candidatesFor("images") ?? [] }
+        ? {
+            ...roleEntry(runtime.llm.images),
+            candidates: liveRouter()?.candidatesFor("images") ?? [],
+          }
         : null,
       embeddings: {
         hosts: runtime.llm.embeddings.hosts,
@@ -3979,8 +3648,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           if (typeof body[key] === "number") next = setTomlTableValue(next, table, key, body[key] as number);
           else if (body[key] === null) next = removeTomlTableKey(next, table, key);
         }
-        if (role === "embeddings" && typeof body.enabled === "boolean")
-          next = setTomlTableValue(next, table, "enabled", body.enabled);
+        if (role === "embeddings" && typeof body.enabled === "boolean") next = setTomlTableValue(next, table, "enabled", body.enabled);
         return next;
       });
       await reloadRuntime();
@@ -4007,8 +3675,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         let next = src;
         if (typeof body.base_url === "string") next = setTomlTableValue(next, table, "base_url", body.base_url);
         // Only write the key when the UI sends a real (non-masked) value.
-        if (typeof body.api_key === "string" && body.api_key !== MASKED_API_KEY && body.api_key.length > 0)
-          next = setTomlTableValue(next, table, "api_key", body.api_key);
+        if (typeof body.api_key === "string" && body.api_key !== MASKED_API_KEY && body.api_key.length > 0) next = setTomlTableValue(next, table, "api_key", body.api_key);
         if (typeof body.max_in_flight === "number") next = setTomlTableValue(next, table, "max_in_flight", body.max_in_flight);
         if (typeof body.pref === "number") next = setTomlTableValue(next, table, "pref", body.pref);
         if (Array.isArray(body.blacklist)) next = setTomlTableValue(next, table, "blacklist", body.blacklist.map(String));
@@ -4041,9 +3708,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           api_key: typeof body.api_key === "string" && body.api_key.length > 0 ? body.api_key : "local",
           max_in_flight: typeof body.max_in_flight === "number" ? body.max_in_flight : 4,
           pref: typeof body.pref === "number" ? body.pref : 100,
-          ...(Array.isArray(body.blacklist) && body.blacklist.length
-            ? { blacklist: body.blacklist.map(String) }
-            : {}),
+          ...(Array.isArray(body.blacklist) && body.blacklist.length ? { blacklist: body.blacklist.map(String) } : {}),
         }),
       );
       await reloadRuntime();
@@ -4087,36 +3752,16 @@ export async function createApp(options: CreateAppOptions = {}) {
           next = setTomlTableValue(next, "images.generation", "enabled", body.enabled);
         }
         if (typeof body.autoGenerateForNewArticles === "boolean") {
-          next = setTomlTableValue(
-            next,
-            "images.generation",
-            "auto_generate_for_new_articles",
-            body.autoGenerateForNewArticles,
-          );
+          next = setTomlTableValue(next, "images.generation", "auto_generate_for_new_articles", body.autoGenerateForNewArticles);
         }
         if (typeof body.autoGenerateForFeaturedArticle === "boolean") {
-          next = setTomlTableValue(
-            next,
-            "images.generation",
-            "auto_generate_for_featured_article",
-            body.autoGenerateForFeaturedArticle,
-          );
+          next = setTomlTableValue(next, "images.generation", "auto_generate_for_featured_article", body.autoGenerateForFeaturedArticle);
         }
         if (typeof body.homepageAutoImageMaxAttempts === "number") {
-          next = setTomlTableValue(
-            next,
-            "images.generation",
-            "homepage_auto_image_max_attempts",
-            Math.max(0, Math.floor(body.homepageAutoImageMaxAttempts)),
-          );
+          next = setTomlTableValue(next, "images.generation", "homepage_auto_image_max_attempts", Math.max(0, Math.floor(body.homepageAutoImageMaxAttempts)));
         }
         if (typeof body.autoPresetMultipass === "boolean") {
-          next = setTomlTableValue(
-            next,
-            "images.generation",
-            "auto_preset_multipass",
-            body.autoPresetMultipass,
-          );
+          next = setTomlTableValue(next, "images.generation", "auto_preset_multipass", body.autoPresetMultipass);
         }
         if (body.backend === "openai" || body.backend === "ollama") {
           next = setTomlTableValue(next, "images.generation", "backend", body.backend);
@@ -4125,11 +3770,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           if (typeof body.openai.baseUrl === "string") {
             next = setTomlTableValue(next, "images.generation.openai", "base_url", body.openai.baseUrl);
           }
-          if (
-            typeof body.openai.apiKey === "string" &&
-            body.openai.apiKey.length > 0 &&
-            body.openai.apiKey !== MASKED_API_KEY
-          ) {
+          if (typeof body.openai.apiKey === "string" && body.openai.apiKey.length > 0 && body.openai.apiKey !== MASKED_API_KEY) {
             next = setTomlTableValue(next, "images.generation.openai", "api_key", body.openai.apiKey);
           }
           if (typeof body.openai.model === "string") {
@@ -4142,20 +3783,10 @@ export async function createApp(options: CreateAppOptions = {}) {
             next = setTomlTableValue(next, "images.generation.openai", "quality", body.openai.quality);
           }
           if (typeof body.openai.outputFormat === "string") {
-            next = setTomlTableValue(
-              next,
-              "images.generation.openai",
-              "output_format",
-              body.openai.outputFormat,
-            );
+            next = setTomlTableValue(next, "images.generation.openai", "output_format", body.openai.outputFormat);
           }
           if (typeof body.openai.outputCompression === "number") {
-            next = setTomlTableValue(
-              next,
-              "images.generation.openai",
-              "output_compression",
-              body.openai.outputCompression,
-            );
+            next = setTomlTableValue(next, "images.generation.openai", "output_compression", body.openai.outputCompression);
           }
           if (typeof body.openai.timeoutMs === "number") {
             next = setTomlTableValue(next, "images.generation.openai", "timeout_ms", body.openai.timeoutMs);
@@ -4218,7 +3849,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!slug) return c.json({ error: "missing slug" }, 400);
     const deleted = deleteArticleBySlug(db, slug);
     if (deleted) {
-      enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "delete" });
+      enqueueRagIndexJob(db, {
+        articleSlug: slug,
+        sourceKind: "article_body",
+        sourceId: slug,
+        operation: "delete",
+      });
     }
     return c.json({ ok: deleted, slug });
   });
@@ -4232,7 +3868,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       await reloadRuntime();
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
       const result = await runWorkflow(regenerateSummaryWorkflow, {
-        input: { requestId: randomUUID(), workflow: "regenerate.summary", slug: lookupSlug },
+        input: {
+          requestId: randomUUID(),
+          workflow: "regenerate.summary",
+          slug: lookupSlug,
+        },
         deps: buildPipelineDeps(),
         recorder,
         logger,
@@ -4251,10 +3891,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         article: updated,
       });
     } catch (error) {
-      return c.json(
-        { error: error instanceof Error ? error.message : String(error) },
-        500,
-      );
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
     }
   });
 
@@ -4275,7 +3912,10 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   app.post("/api/admin/slug-aliases", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { aliasSlug?: string; articleSlug?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      aliasSlug?: string;
+      articleSlug?: string;
+    };
     const aliasSlug = slugify(body.aliasSlug ?? "");
     const articleSlug = slugify(body.articleSlug ?? "");
     if (!aliasSlug || !articleSlug) return c.json({ error: "missing aliasSlug or articleSlug" }, 400);
@@ -4323,13 +3963,31 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (displaced) {
       archiveArticle(db, displaced, `displaced by canonical redirect → ${canonicalSlug}`);
       deleteArticleBySlug(db, displaced.slug);
-      enqueueRagIndexJob(db, { articleSlug: displaced.slug, sourceKind: "article_body", sourceId: displaced.slug, operation: "delete" });
-      logger.info("admin.article_archived", { slug: displaced.slug, reason: "canonical_redirect", canonicalSlug });
+      enqueueRagIndexJob(db, {
+        articleSlug: displaced.slug,
+        sourceKind: "article_body",
+        sourceId: displaced.slug,
+        operation: "delete",
+      });
+      logger.info("admin.article_archived", {
+        slug: displaced.slug,
+        reason: "canonical_redirect",
+        canonicalSlug,
+      });
     }
 
     addSlugAlias(db, sourceSlug, canonicalSlug);
-    logger.info("admin.redirect_added", { sourceSlug, canonicalSlug, displaced: displaced?.slug ?? null });
-    return c.json({ ok: true, sourceSlug, canonicalSlug, archived: displaced ? displaced.slug : null });
+    logger.info("admin.redirect_added", {
+      sourceSlug,
+      canonicalSlug,
+      displaced: displaced?.slug ?? null,
+    });
+    return c.json({
+      ok: true,
+      sourceSlug,
+      canonicalSlug,
+      archived: displaced ? displaced.slug : null,
+    });
   });
 
   // ── Database backup download ──────────────────────────────────────────────
@@ -4364,7 +4022,9 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.post("/api/admin/archived/:slug/restore", async (c) => {
     const slug = c.req.param("slug");
-    const body = (await c.req.json().catch(() => ({}))) as { confirm?: boolean };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      confirm?: boolean;
+    };
     const archived = getArchivedArticle(db, slug);
     if (!archived) return c.json({ error: "archived article not found" }, 404);
 
@@ -4406,7 +4066,9 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   app.get("/api/admin/article-image-aspect-ratios", (c) => {
-    return c.json({ aspectRatios: listArticleImageAspectRatios(runtime.app.images.generation) });
+    return c.json({
+      aspectRatios: listArticleImageAspectRatios(runtime.app.images.generation),
+    });
   });
 
   app.get("/api/admin/article-image-prompts/:key", (c) => {
@@ -4424,7 +4086,10 @@ export async function createApp(options: CreateAppOptions = {}) {
   });
 
   app.post("/api/admin/article-image-prompts", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { name?: unknown; copyFrom?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: unknown;
+      copyFrom?: unknown;
+    };
     if (typeof body.name !== "string") {
       return c.json({ error: "name is required" }, 400);
     }
@@ -4435,9 +4100,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
 
-    const copyFrom = typeof body.copyFrom === "string" && body.copyFrom.trim()
-      ? body.copyFrom.trim()
-      : "documentary_photo";
+    const copyFrom = typeof body.copyFrom === "string" && body.copyFrom.trim() ? body.copyFrom.trim() : "documentary_photo";
     let source: ReturnType<typeof readArticleImagePromptSelection>;
     try {
       source = readArticleImagePromptSelection(copyFrom);
@@ -4473,7 +4136,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (key === "documentary_photo") {
       return c.json({ error: "documentary_photo preset is edited through article_image" }, 400);
     }
-    const body = await c.req.json().catch(() => ({})) as { system?: unknown; user?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      system?: unknown;
+      user?: unknown;
+    };
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
     }
@@ -4481,7 +4147,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (err) return c.json(err, /not found/i.test(err.error) ? 404 : 400);
     await reloadRuntime();
     const prompt = readArticleImagePresetFile(key);
-    return c.json({ ok: true, prompt: prompt ? { ...prompt, system: body.system, user: body.user } : null });
+    return c.json({
+      ok: true,
+      prompt: prompt ? { ...prompt, system: body.system, user: body.user } : null,
+    });
   });
 
   app.delete("/api/admin/article-image-prompts/:key", async (c) => {
@@ -4519,7 +4188,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       return c.json({ error: "scope must be runnable or shared" }, 400);
     }
     const key = c.req.param("key");
-    const body = await c.req.json().catch(() => ({})) as { system?: unknown; user?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      system?: unknown;
+      user?: unknown;
+    };
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
     }
@@ -4533,7 +4205,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     setPromptCurrent(db, scope, key, body.system, body.user);
     await reloadRuntime();
     const meta = readPromptFile(scope, key);
-    return c.json({ ok: true, prompt: meta ? { ...meta, system: body.system, user: body.user } : null });
+    return c.json({
+      ok: true,
+      prompt: meta ? { ...meta, system: body.system, user: body.user } : null,
+    });
   });
 
   app.get("/api/admin/prompt/:scope/:key/revisions", (c) => {
@@ -4578,7 +4253,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     setPromptCurrent(db, scope, key, target.system, target.user);
     await reloadRuntime();
     const meta = readPromptFile(scope, key);
-    return c.json({ ok: true, prompt: meta ? { ...meta, system: target.system, user: target.user } : null });
+    return c.json({
+      ok: true,
+      prompt: meta ? { ...meta, system: target.system, user: target.user } : null,
+    });
   });
 
   app.post("/api/disambiguation", async (c) => {
@@ -4588,28 +4266,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
     const title = (body.title ?? "").replace(/\s+/g, " ").trim();
     if (!title) return c.json({ error: "missing title" }, 400);
-    const entries = (body.entries ?? []).filter(
-      (e) => e.title?.trim() && e.description?.trim(),
-    );
-    if (entries.length < 2)
-      return c.json({ error: "at least 2 entries required" }, 400);
+    const entries = (body.entries ?? []).filter((e) => e.title?.trim() && e.description?.trim());
+    if (entries.length < 2) return c.json({ error: "at least 2 entries required" }, 400);
 
     const normalizedTitle = normalizeCanonicalTitle(title);
     const slug = slugify(normalizedTitle);
     if (!slug) return c.json({ error: "invalid title" }, 400);
 
-    const lines = [
-      `# ${normalizedTitle} (disambiguation)`,
-      "",
-      `**${normalizedTitle}** may refer to:`,
-      "",
-    ];
+    const lines = [`# ${normalizedTitle} (disambiguation)`, "", `**${normalizedTitle}** may refer to:`, ""];
     for (const entry of entries) {
       const entrySlug = slugify(entry.title.trim());
       const hint = entry.description.trim();
-      lines.push(
-        `- ${buildHaluLink(entry.title.trim(), entrySlug, hint)} — ${hint.replace(/"/g, "'")}`,
-      );
+      lines.push(`- ${buildHaluLink(entry.title.trim(), entrySlug, hint)} — ${hint.replace(/"/g, "'")}`);
     }
     const markdown = lines.join("\n");
     const links = extractAllBodyLinks(markdown, slug);
@@ -4644,8 +4312,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const lookupSlug = slugify(c.req.param("slug"));
     if (!lookupSlug) return c.json({ error: "invalid slug" }, 400);
     const article = getArticleByLookup(db, lookupSlug);
-    if (!article || !article.isDisambiguation)
-      return c.json({ error: "not a disambiguation page" }, 404);
+    if (!article || !article.isDisambiguation) return c.json({ error: "not a disambiguation page" }, 404);
     const response = buildArticleResponseFor(article.slug);
     if (!response) return c.json({ error: "failed to hydrate response" }, 500);
     return c.json(
@@ -4697,13 +4364,8 @@ export async function createApp(options: CreateAppOptions = {}) {
         if (!results.some((r) => r.slug === canonical)) {
           results.unshift({
             slug: canonical,
-            title:
-              direct.title === direct.slug
-                ? slugToTitle(direct.slug)
-                : direct.title,
-            summary:
-              direct.summaryMarkdown?.trim() ||
-              summaryMarkdownFromArticle(direct.markdown),
+            title: direct.title === direct.slug ? slugToTitle(direct.slug) : direct.title,
+            summary: direct.summaryMarkdown?.trim() || summaryMarkdownFromArticle(direct.markdown),
             exists: true,
           });
         }
@@ -4711,13 +4373,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     const resultSlugs = results.map((r) => r.slug);
-    const random = offset === 0
-      ? getRandomSuggestions(db, 5, resultSlugs).map((r) => ({
-          slug: r.slug,
-          title: r.title,
-          summary: r.summaryMarkdown?.trim() || summaryMarkdownFromArticle(r.markdown),
-        }))
-      : [];
+    const random =
+      offset === 0
+        ? getRandomSuggestions(db, 5, resultSlugs).map((r) => ({
+            slug: r.slug,
+            title: r.title,
+            summary: r.summaryMarkdown?.trim() || summaryMarkdownFromArticle(r.markdown),
+          }))
+        : [];
 
     return c.json({
       query: q,
@@ -4760,7 +4423,9 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.patch("/api/media/:id/description", async (c) => {
     const id = decodeURIComponent(c.req.param("id"));
-    const body = await c.req.json().catch(() => ({})) as { description?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      description?: string;
+    };
     const description = typeof body.description === "string" ? body.description.trim() : null;
     if (description === null) return c.json({ error: "description required" }, 400);
     const record = getMediaById(mediaDb, id);
@@ -4783,7 +4448,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     const limitParam = c.req.query("limit");
     const offset = Math.max(parseInt(c.req.query("cursor") ?? "0", 10) || 0, 0);
     const page = limitParam
-      ? { limit: Math.min(Math.max(parseInt(limitParam, 10) || 200, 1), 500), offset }
+      ? {
+          limit: Math.min(Math.max(parseInt(limitParam, 10) || 200, 1), 500),
+          offset,
+        }
       : undefined;
     const buildBody = () => {
       const { items, total } = listMedia(mediaDb, q || undefined, page);
@@ -4819,7 +4487,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     const record = getMediaById(mediaDb, id);
     if (!record) return c.json({ error: "not found" }, 404);
 
-    const body = await c.req.json().catch(() => ({})) as { instructions?: string; articleSlug?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      instructions?: string;
+      articleSlug?: string;
+    };
     const instructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
     const articleSlug = typeof body.articleSlug === "string" ? slugify(body.articleSlug) : "";
 
@@ -4872,9 +4543,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       ? {
           ...rawInfobox,
           title: renderInlineMarkdown(rawInfobox.title),
-          subtitle: rawInfobox.subtitle
-            ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs))
-            : undefined,
+          subtitle: rawInfobox.subtitle ? renderInlineMarkdown(linkReferencesInline(rawInfobox.subtitle, sidebarRefs)) : undefined,
           groups: rawInfobox.groups.map((g) => ({
             label: renderInlineMarkdown(g.label),
             rows: g.rows.map((r) => ({
@@ -4885,9 +4554,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         }
       : null;
     const headlineMediaRow = getArticleHeadlineMedia(db, slug);
-    const caption = headlineMediaRow?.caption
-      ? renderInlineMarkdown(linkReferencesInline(headlineMediaRow.caption, sidebarRefs))
-      : "";
+    const caption = headlineMediaRow?.caption ? renderInlineMarkdown(linkReferencesInline(headlineMediaRow.caption, sidebarRefs)) : "";
     return { infobox, caption };
   }
 
@@ -4906,20 +4573,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       decoded = segment;
     }
     decoded = decoded.replace(/^\/+|\/+$/g, "");
-    const segmentTitle = normalizeCanonicalTitle(
-      wikiSegmentToRequestedTitle(decoded),
-    );
+    const segmentTitle = normalizeCanonicalTitle(wikiSegmentToRequestedTitle(decoded));
     const lookupSlug = slugify(segmentTitle);
     const legacyLookup = legacySlugify(segmentTitle);
-    return (
-      getArticleByLookup(db, lookupSlug) ??
-      (legacyLookup !== lookupSlug
-        ? getArticleByLookup(db, legacyLookup)
-        : null) ??
-      getArticleByTitle(db, segmentTitle) ??
-      (isSlugForm(decoded) ? getArticleByLookup(db, decoded) : null) ??
-      getArticleByEquivalentLookup(db, lookupSlug)
-    );
+    return getArticleByLookup(db, lookupSlug) ?? (legacyLookup !== lookupSlug ? getArticleByLookup(db, legacyLookup) : null) ?? getArticleByTitle(db, segmentTitle) ?? (isSlugForm(decoded) ? getArticleByLookup(db, decoded) : null) ?? getArticleByEquivalentLookup(db, lookupSlug);
   }
 
   // Assemble an article's ontology facts for the viewer/editor. Brings the
@@ -4930,7 +4587,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   // if it's being referenced") without blocking this response.
   function buildArticleOntologyPayload(slug: string) {
     if (ensureArticleOntologyFresh(db, slug, rag.vocab)) {
-      enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+      enqueueRagIndexJob(db, {
+        articleSlug: slug,
+        sourceKind: "article_body",
+        sourceId: slug,
+        operation: "upsert",
+      });
     }
     const { entity, facts, identifiers, categories } = listArticleEntityFacts(db, slug);
     const seenObject = new Set<string>();
@@ -4960,6 +4622,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       })),
       identifiers,
       categories,
+      suggestions: listOntologySuggestions(db, slug).map((suggestion) => ({
+        ...suggestion,
+        label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
+      })),
     };
   }
 
@@ -4967,7 +4633,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/ontology/vocabulary", (c) => {
     const predicates = [...rag.vocab.predicates.values()]
       .filter((p) => p.arity === "binary" && p.name !== "is_a")
-      .map((p) => ({ name: p.name, label: p.label, subject: p.subject, object: p.object }));
+      .map((p) => ({
+        name: p.name,
+        label: p.label,
+        subject: p.subject,
+        object: p.object,
+      }));
     return c.json({ predicates, entityTypes: [...rag.vocab.entityTypes] });
   });
 
@@ -5013,8 +4684,19 @@ export async function createApp(options: CreateAppOptions = {}) {
       if (!objectLiteral) return c.json({ error: "object required" }, 400);
     }
 
-    addCuratedFact(db, { subjectId, predicate, objectEntityId, objectLiteral, provenanceSlug: slug });
-    enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    addCuratedFact(db, {
+      subjectId,
+      predicate,
+      objectEntityId,
+      objectLiteral,
+      provenanceSlug: slug,
+    });
+    enqueueRagIndexJob(db, {
+      articleSlug: slug,
+      sourceKind: "article_body",
+      sourceId: slug,
+      operation: "upsert",
+    });
     return c.json(buildArticleOntologyPayload(slug));
   });
 
@@ -5029,7 +4711,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!Number.isInteger(id)) return c.json({ error: "invalid id" }, 400);
     const removed = deleteCuratedFact(db, slug, id) || suppressFact(db, slug, id);
     if (!removed) return c.json({ error: "fact not found" }, 404);
-    enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    enqueueRagIndexJob(db, {
+      articleSlug: slug,
+      sourceKind: "article_body",
+      sourceId: slug,
+      operation: "upsert",
+    });
     return c.json(buildArticleOntologyPayload(slug));
   });
 
@@ -5047,7 +4734,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       objectSlug?: string;
       objectLiteral?: string;
     };
-    const updates: { predicate?: string; objectEntityId?: number | null; objectLiteral?: string | null } = {};
+    const updates: {
+      predicate?: string;
+      objectEntityId?: number | null;
+      objectLiteral?: string | null;
+    } = {};
     if (typeof body.predicate === "string" && body.predicate.trim()) {
       if (!rag.vocab.predicates.has(body.predicate.trim())) return c.json({ error: "unknown predicate" }, 400);
       updates.predicate = body.predicate.trim();
@@ -5066,12 +4757,16 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const newId = updateFact(db, slug, id, updates);
     if (newId === null) return c.json({ error: "fact not found" }, 404);
-    enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    enqueueRagIndexJob(db, {
+      articleSlug: slug,
+      sourceKind: "article_body",
+      sourceId: slug,
+      operation: "upsert",
+    });
     return c.json(buildArticleOntologyPayload(slug));
   });
 
-  // POST /api/article/:slug/ontology/infer — trigger on-demand LLM extraction
-  // and return a preview of proposed facts without persisting them.
+  // POST /api/article/:slug/ontology/infer — refresh persisted suggestions.
   app.post("/api/article/:slug/ontology/infer", async (c) => {
     const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
@@ -5088,49 +4783,53 @@ export async function createApp(options: CreateAppOptions = {}) {
 
       if (result.status === "error") throw result.error ?? new Error("ontology inference failed");
 
-      const extraction = (result.state as any).ontologyExtraction;
-      if (!extraction) return c.json({ error: "no extraction result" }, 500);
-
-      return c.json({
-        proposed: extraction.proposed ?? [],
-        raw: extraction.raw ?? [],
-        reason: extraction.llmReason ?? "unknown",
-        called: extraction.called ?? false,
-        entities: extraction.entities ?? 0,
-        categories: extraction.extraction?.categories ?? [],
-      });
+      return c.json(buildArticleOntologyPayload(slug));
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "LLM error" }, 500);
     }
   });
 
-  // POST /api/article/:slug/ontology/apply-inferred — apply the cached LLM
-  // extraction to the article's ontology. Re-reads from the LLM cache so the
-  // client doesn't need to pass the extraction payload.
-  app.post("/api/article/:slug/ontology/apply-inferred", async (c) => {
-    const article = resolveArticleFromSegment(c.req.param("slug"));
+  async function runOntologySuggestionAction(c: Context, mode: "append" | "merge") {
+    const segment = c.req.param("slug");
+    if (!segment) return c.json({ error: "not found" }, 404);
+    const article = resolveArticleFromSegment(segment);
     if (!article) return c.json({ error: "not found" }, 404);
     const slug = article.slug;
-    const full = getArticle(db, slug);
-    if (!full) return c.json({ error: "article not found" }, 404);
-
-    ensureArticleOntologyFresh(db, slug, rag.vocab);
-    const outcome = await deriveLlmExtraction(db, rag.vocab, full, {
-      llm,
-      prompts: runtime.prompts,
+    const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+    const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is number => Number.isInteger(id) && id > 0) : undefined;
+    const workflow = mode === "merge" ? ontologySuggestionsMergeWorkflow : ontologySuggestionsAppendWorkflow;
+    const result = await runWorkflow(workflow, {
+      input: {
+        requestId: randomUUID(),
+        workflow: workflow.name,
+        slug,
+        ontologySuggestionIds: ids,
+      },
+      deps: buildPipelineDeps(),
+      recorder: getTraceRecorder(runtime.app.pipeline.trace),
       logger,
     });
-    const title = full.displayTitle || full.title;
-    const infobox = getArticleInfobox(db, slug);
-    indexArticleOntology(db, {
-      slug,
-      title,
-      infobox,
-      vocab: rag.vocab,
-      llmExtraction: outcome.extraction,
-    });
-    enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    if (result.status === "error") {
+      return c.json({ error: result.error?.message ?? "ontology suggestion action failed" }, 500);
+    }
     return c.json(buildArticleOntologyPayload(slug));
+  }
+
+  app.post("/api/article/:slug/ontology/suggestions/append", (c) => runOntologySuggestionAction(c, "append"));
+  app.post("/api/article/:slug/ontology/suggestions/merge", (c) => runOntologySuggestionAction(c, "merge"));
+  app.delete("/api/article/:slug/ontology/suggestions/:id", (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id) || id <= 0) return c.json({ error: "invalid suggestion id" }, 400);
+    deleteOntologySuggestions(db, article.slug, [id]);
+    return c.json(buildArticleOntologyPayload(article.slug));
+  });
+  app.delete("/api/article/:slug/ontology/suggestions", (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    deleteOntologySuggestions(db, article.slug);
+    return c.json(buildArticleOntologyPayload(article.slug));
   });
 
   // GET /api/article/:slug/infobox — raw (unrendered) infobox data for the editor.
@@ -5152,7 +4851,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!article) return c.json({ error: "not found" }, 404);
     const slug = article.slug;
 
-    const body = await c.req.json().catch(() => ({})) as { infobox?: InfoboxData; caption?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      infobox?: InfoboxData;
+      caption?: string;
+    };
     if (!body.infobox || typeof body.infobox !== "object") return c.json({ error: "infobox required" }, 400);
     const { title, groups } = body.infobox;
     if (!title || !Array.isArray(groups)) return c.json({ error: "invalid infobox shape" }, 400);
@@ -5167,7 +4869,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     notifySidecar(slug, { type: "infobox", infobox: body.infobox });
     if (typeof body.caption === "string") {
       const headlineMedia = getArticleHeadlineMedia(db, slug);
-      if (headlineMedia) notifySidecar(slug, { type: "caption", caption: body.caption.trim(), mediaId: headlineMedia.mediaId });
+      if (headlineMedia)
+        notifySidecar(slug, {
+          type: "caption",
+          caption: body.caption.trim(),
+          mediaId: headlineMedia.mediaId,
+        });
     }
 
     return c.json({ ok: true, ...payload });
@@ -5179,7 +4886,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!article) return c.json({ error: "not found" }, 404);
     const slug = article.slug;
 
-    const body = await c.req.json().catch(() => ({})) as { instructions?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      instructions?: string;
+    };
     const instructions = typeof body.instructions === "string" ? body.instructions.trim() : "";
 
     const prompt = getPrompt(runtime.prompts, "infobox");
@@ -5234,7 +4943,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!article) return c.json({ error: "not found" }, 404);
     const slug = article.slug;
 
-    const body = await c.req.json().catch(() => ({})) as { revisionId?: number };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      revisionId?: number;
+    };
     if (typeof body.revisionId !== "number") return c.json({ error: "revisionId required" }, 400);
     const rev = getSidebarRevision(db, body.revisionId);
     if (!rev || rev.articleSlug !== slug) return c.json({ error: "revision not found" }, 404);
@@ -5259,7 +4970,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (rawInfobox) notifySidecar(slug, { type: "infobox", infobox: rawInfobox });
     if (rev.caption) {
       const headlineMedia = getArticleHeadlineMedia(db, slug);
-      if (headlineMedia) notifySidecar(slug, { type: "caption", caption: rev.caption, mediaId: headlineMedia.mediaId });
+      if (headlineMedia)
+        notifySidecar(slug, {
+          type: "caption",
+          caption: rev.caption,
+          mediaId: headlineMedia.mediaId,
+        });
     }
 
     return c.json({ ok: true, ...payload });
@@ -5272,9 +4988,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     // Key the listener channel on the canonical slug so it matches what
     // notifySidecar pushes to — a naive slugify of a hyphenated-title URL would
     // register a dash-mangled channel that never receives updates.
-    const slug =
-      resolveArticleFromSegment(c.req.param("slug"))?.slug ||
-      slugify(decodeURIComponent(c.req.param("slug")));
+    const slug = resolveArticleFromSegment(c.req.param("slug"))?.slug || slugify(decodeURIComponent(c.req.param("slug")));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
     const enc = new TextEncoder();
     let open = true;
@@ -5282,7 +4996,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       start(controller) {
         const send = (payload: unknown) => {
           if (!open) return;
-          try { controller.enqueue(enc.encode(`${JSON.stringify(payload)}\n`)); } catch { open = false; }
+          try {
+            controller.enqueue(enc.encode(`${JSON.stringify(payload)}\n`));
+          } catch {
+            open = false;
+          }
         };
         const cb = (e: unknown) => send(e);
         if (!articleListeners.has(slug)) articleListeners.set(slug, new Set());
@@ -5293,7 +5011,9 @@ export async function createApp(options: CreateAppOptions = {}) {
           open = false;
           articleListeners.get(slug)?.delete(cb);
           if (articleListeners.get(slug)?.size === 0) articleListeners.delete(slug);
-          try { controller.close(); } catch {}
+          try {
+            controller.close();
+          } catch {}
         };
       },
       cancel() {
@@ -5330,12 +5050,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!article) return;
     const headlineMedia = getArticleHeadlineMedia(db, article.slug);
     listArticleRevisions(db, article.slug);
-    updateLatestArticleRevisionMediaSnapshot(
-      db,
-      article.slug,
-      headlineMedia?.mediaId ?? null,
-      headlineMedia?.caption ?? null,
-    );
+    updateLatestArticleRevisionMediaSnapshot(db, article.slug, headlineMedia?.mediaId ?? null, headlineMedia?.caption ?? null);
   }
 
   function recordImageSnapshot(articleSlug: string, operation: string, instructions: string) {
@@ -5343,14 +5058,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   }
 
   /** Shared helper: attach a just-ingested image, fire caption pipeline async. */
-  function attachAndCaption(
-    articleSlug: string,
-    mediaId: string,
-    isNew: boolean,
-    width: number,
-    height: number,
-    operation = "image-attach",
-  ) {
+  function attachAndCaption(articleSlug: string, mediaId: string, isNew: boolean, width: number, height: number, operation = "image-attach") {
     // ── Strip any existing inline media images from the article body ──────────
     // Articles should never have headline images inline; they live in the sidebar.
     const article = getArticleByLookup(db, articleSlug);
@@ -5368,7 +5076,13 @@ export async function createApp(options: CreateAppOptions = {}) {
         const links = extractInternalLinks(cleaned);
         saveArticle(
           db,
-          { ...article, markdown: cleaned, html: renderMarkdown(cleaned), plain_text: markdownToPlainText(cleaned), generated_at: Date.now() },
+          {
+            ...article,
+            markdown: cleaned,
+            html: renderMarkdown(cleaned),
+            plain_text: markdownToPlainText(cleaned),
+            generated_at: Date.now(),
+          },
           links,
           [],
           { operation: "strip-inline-media" },
@@ -5378,13 +5092,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     upsertArticleHeadlineMedia(db, articleSlug, mediaId, "");
-    recordImageSnapshot(
-      articleSlug,
-      operation,
-      previousHeadline
-        ? `Changed headline image from ${previousHeadline.mediaId} to ${mediaId}.`
-        : `Attached headline image ${mediaId}.`,
-    );
+    recordImageSnapshot(articleSlug, operation, previousHeadline ? `Changed headline image from ${previousHeadline.mediaId} to ${mediaId}.` : `Attached headline image ${mediaId}.`);
     invalidateArticleHtml(articleSlug);
 
     // ── Hash-check: skip pipeline if same image is already captioned ──────────
@@ -5392,7 +5100,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       updateArticleMediaCaption(db, articleSlug, 1, previousHeadline.caption, "generated", {
         updateArticleRevision: true,
       });
-      logger.info("image.caption_skipped_same_hash", { slug: articleSlug, mediaId, sha256: newRecord.sha256 });
+      logger.info("image.caption_skipped_same_hash", {
+        slug: articleSlug,
+        mediaId,
+        sha256: newRecord.sha256,
+      });
       return { mediaId, isNew, width, height };
     }
 
@@ -5414,7 +5126,10 @@ export async function createApp(options: CreateAppOptions = {}) {
           if (result.status === "ok") {
             const currentHeadline = getArticleHeadlineMedia(db, articleSlug);
             if (currentHeadline?.mediaId !== mediaId) {
-              logger.info("image.caption_stale_attachment", { slug: articleSlug, mediaId });
+              logger.info("image.caption_stale_attachment", {
+                slug: articleSlug,
+                mediaId,
+              });
               return;
             }
             invalidateArticleHtml(articleSlug);
@@ -5423,7 +5138,10 @@ export async function createApp(options: CreateAppOptions = {}) {
             // image was attached while generation was still streaming, the
             // generation's own post-process pass will pick the image up.
             if (!getArticleByLookup(db, articleSlug)) {
-              logger.info("image.post_process_deferred_no_article", { slug: articleSlug, mediaId });
+              logger.info("image.post_process_deferred_no_article", {
+                slug: articleSlug,
+                mediaId,
+              });
               return;
             }
             trackGeneration(
@@ -5437,9 +5155,14 @@ export async function createApp(options: CreateAppOptions = {}) {
                 deps: buildPipelineDeps(),
                 recorder: getTraceRecorder(runtime.app.pipeline.trace),
                 logger,
-              }).then(() => {
-                logger.info("image.post_process_done", { slug: articleSlug, mediaId });
-              }).catch(() => {}),
+              })
+                .then(() => {
+                  logger.info("image.post_process_done", {
+                    slug: articleSlug,
+                    mediaId,
+                  });
+                })
+                .catch(() => {}),
             );
           } else {
             logger.warn("image.caption_workflow_failed", {
@@ -5455,12 +5178,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     return { mediaId, isNew, width, height };
   }
 
-  async function generateAndAttachArticleImage(
-    articleSlug: string,
-    _replace = false,
-    presetKey = "documentary_photo",
-    aspectRatioKey = "landscape",
-  ) {
+  async function generateAndAttachArticleImage(articleSlug: string, _replace = false, presetKey = "documentary_photo", aspectRatioKey = "landscape") {
     const generationConfig = runtime.app.images.generation;
     if (!generationConfig.enabled) {
       throw new Error("image generation is disabled");
@@ -5472,35 +5190,24 @@ export async function createApp(options: CreateAppOptions = {}) {
       throw new Error("article not found");
     }
     const infobox = getArticleInfobox(db, article.slug);
-    const sidebarContext = infobox
-      ? [
-          infobox.title,
-          infobox.subtitle ?? "",
-          ...infobox.groups.flatMap((group) => [
-            group.label,
-            ...group.rows.flatMap((row) => [row.label, row.value]),
-          ]),
-        ]
-          .filter(Boolean)
-          .join("\n")
-          .slice(0, 2000)
-      : "";
+    const sidebarContext = infobox ? [infobox.title, infobox.subtitle ?? "", ...infobox.groups.flatMap((group) => [group.label, ...group.rows.flatMap((row) => [row.label, row.value])])].filter(Boolean).join("\n").slice(0, 2000) : "";
     const articleBody = stripTopLevelSections(article.markdown, ["References", "See also"]);
-    const imagePromptConfig = imagePreset.key === "documentary_photo"
-      ? runtime.prompts
-      : {
-          ...runtime.prompts,
-          prompts: {
-            ...runtime.prompts.prompts,
-            article_image: {
-              system: imagePreset.system,
-              user: imagePreset.user,
-              model: imagePreset.model,
-              thinking: imagePreset.thinking,
-              json: imagePreset.json,
+    const imagePromptConfig =
+      imagePreset.key === "documentary_photo"
+        ? runtime.prompts
+        : {
+            ...runtime.prompts,
+            prompts: {
+              ...runtime.prompts.prompts,
+              article_image: {
+                system: imagePreset.system,
+                user: imagePreset.user,
+                model: imagePreset.model,
+                thinking: imagePreset.thinking,
+                json: imagePreset.json,
+              },
             },
-          },
-        };
+          };
     const rendered = buildPromptRegistry(imagePromptConfig).render("article_image", {
       requested_title: article.title,
       summary: article.summaryMarkdown || summaryMarkdownFromArticle(article.markdown),
@@ -5509,11 +5216,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       related_context: formatImageRelatedContext(article.slug),
     });
     const generated = await generateArticleImage({
-      prompt: [
-        rendered.system.trim(),
-        rendered.user.trim(),
-        articleImageTextPolicy(imagePreset.allowText),
-      ].filter(Boolean).join("\n\n"),
+      prompt: [rendered.system.trim(), rendered.user.trim(), articleImageTextPolicy(imagePreset.allowText)].filter(Boolean).join("\n\n"),
       config: generationConfig,
       logger,
       size: aspectRatio.size,
@@ -5524,18 +5227,22 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
       sourceLabel: `${generated.backend}:${generated.model}`,
     });
-    updateMediaGenerationMetadata(mediaDb, result.mediaId, JSON.stringify({
-      kind: "article-image",
-      presetKey: imagePreset.key,
-      presetLabel: imagePreset.label,
-      aspectRatioKey: aspectRatio.key,
-      aspectRatioLabel: aspectRatio.label,
-      size: aspectRatio.size,
-      backend: generated.backend,
-      model: generated.model,
-      revisedPrompt: generated.revisedPrompt,
-      generatedAt: Date.now(),
-    }));
+    updateMediaGenerationMetadata(
+      mediaDb,
+      result.mediaId,
+      JSON.stringify({
+        kind: "article-image",
+        presetKey: imagePreset.key,
+        presetLabel: imagePreset.label,
+        aspectRatioKey: aspectRatio.key,
+        aspectRatioLabel: aspectRatio.label,
+        size: aspectRatio.size,
+        backend: generated.backend,
+        model: generated.model,
+        revisedPrompt: generated.revisedPrompt,
+        generatedAt: Date.now(),
+      }),
+    );
     const attached = attachAndCaption(article.slug, result.mediaId, result.isNew, result.width, result.height, "image-generate");
     const response = buildArticleResponseFor(article.slug);
     if (response) {
@@ -5560,14 +5267,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
 
-  async function runArticleImageGenerationWorkflow(
-    articleSlug: string,
-    replace: boolean,
-    presetKey: string,
-    aspectRatioKey: string,
-    requestedTitle: string,
-    onNode?: (nodeName: string, nodeKind: string) => void,
-  ) {
+  async function runArticleImageGenerationWorkflow(articleSlug: string, replace: boolean, presetKey: string, aspectRatioKey: string, requestedTitle: string, onNode?: (nodeName: string, nodeKind: string) => void) {
     const result = await runWorkflow(articleImageGenerationWorkflow, {
       input: {
         requestId: randomUUID(),
@@ -5609,36 +5309,18 @@ export async function createApp(options: CreateAppOptions = {}) {
          LIMIT 12`,
       )
       .all(articleSlug) as unknown as Array<{
-        slug: string;
-        title: string;
-        visibleLabel: string;
-        hiddenHint: string;
-        summaryMarkdown: string;
-      }>;
+      slug: string;
+      title: string;
+      visibleLabel: string;
+      hiddenHint: string;
+      summaryMarkdown: string;
+    }>;
     const lines: string[] = [];
     for (const row of outgoing) {
-      lines.push(
-        [
-          `Outgoing link: ${row.title} (${row.slug})`,
-          row.visibleLabel ? `label: ${row.visibleLabel}` : "",
-          row.hiddenHint ? `hint: ${row.hiddenHint}` : "",
-          row.summaryMarkdown ? `summary: ${row.summaryMarkdown}` : "",
-        ]
-          .filter(Boolean)
-          .join(" | "),
-      );
+      lines.push([`Outgoing link: ${row.title} (${row.slug})`, row.visibleLabel ? `label: ${row.visibleLabel}` : "", row.hiddenHint ? `hint: ${row.hiddenHint}` : "", row.summaryMarkdown ? `summary: ${row.summaryMarkdown}` : ""].filter(Boolean).join(" | "));
     }
     for (const row of backlinks) {
-      lines.push(
-        [
-          `Backlink: ${row.title} (${row.slug})`,
-          row.visibleLabel ? `label: ${row.visibleLabel}` : "",
-          row.hiddenHint ? `hint: ${row.hiddenHint}` : "",
-          row.summaryMarkdown ? `summary: ${row.summaryMarkdown}` : "",
-        ]
-          .filter(Boolean)
-          .join(" | "),
-      );
+      lines.push([`Backlink: ${row.title} (${row.slug})`, row.visibleLabel ? `label: ${row.visibleLabel}` : "", row.hiddenHint ? `hint: ${row.hiddenHint}` : "", row.summaryMarkdown ? `summary: ${row.summaryMarkdown}` : ""].filter(Boolean).join(" | "));
     }
     return lines.join("\n").slice(0, 5000);
   }
@@ -5646,7 +5328,10 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.post("/api/article/:slug/image", async (c) => {
     const slug = slugify(decodeURIComponent(c.req.param("slug")));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const body = await c.req.json().catch(() => ({})) as { url?: string; mediaId?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      url?: string;
+      mediaId?: string;
+    };
 
     // Attach an existing media record by ID (search-existing flow)
     if (typeof body.mediaId === "string" && body.mediaId.trim()) {
@@ -5663,7 +5348,11 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!url) return c.json({ error: "url or mediaId required" }, 400);
     let result: Awaited<ReturnType<typeof ingestImageFromUrl>>;
     try {
-      result = await ingestImageFromUrl(url, { mediaDb, config: runtime.app.images, logger });
+      result = await ingestImageFromUrl(url, {
+        mediaDb,
+        config: runtime.app.images,
+        logger,
+      });
     } catch (err: any) {
       return c.json({ error: err?.message || "Image ingestion failed" }, 400);
     }
@@ -5679,7 +5368,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!runtime.app.images.generation.enabled) {
       return c.json({ error: "image generation is disabled" }, 400);
     }
-    const body = await c.req.json().catch(() => ({})) as {
+    const body = (await c.req.json().catch(() => ({}))) as {
       replace?: boolean;
       promptKey?: string;
       presetKey?: string;
@@ -5688,9 +5377,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     let presetKey: string;
     let aspectRatioKey: string;
     try {
-      presetKey = normalizeArticleImagePresetKey(
-        typeof body.presetKey === "string" ? body.presetKey : body.promptKey,
-      );
+      presetKey = normalizeArticleImagePresetKey(typeof body.presetKey === "string" ? body.presetKey : body.promptKey);
       aspectRatioKey = normalizeArticleImageAspectRatioKey(body.aspectRatioKey);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
@@ -5698,14 +5385,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     try {
       const article = getArticleByLookup(db, slug);
       const imageOp = trackActiveOperation(slug, article?.title ?? slug, "article.image_generate");
-      const imagePromise = runArticleImageGenerationWorkflow(
-        slug,
-        body.replace === true,
-        presetKey,
-        aspectRatioKey,
-        article?.title ?? slug,
-        imageOp.onNode,
-      );
+      const imagePromise = runArticleImageGenerationWorkflow(slug, body.replace === true, presetKey, aspectRatioKey, article?.title ?? slug, imageOp.onNode);
       imageOp.register(imagePromise);
       const generated = await trackGeneration(imagePromise);
       const response = buildArticleResponseFor(slug);
@@ -5734,11 +5414,20 @@ export async function createApp(options: CreateAppOptions = {}) {
       bytes = Buffer.from(await c.req.arrayBuffer());
       mime = contentType.split(";")[0].trim();
     } else {
-      return c.json({ error: "send multipart/form-data with an 'image' field, or raw bytes with an image/* content-type" }, 400);
+      return c.json(
+        {
+          error: "send multipart/form-data with an 'image' field, or raw bytes with an image/* content-type",
+        },
+        400,
+      );
     }
     let result: Awaited<ReturnType<typeof ingestImageFromBuffer>>;
     try {
-      result = await ingestImageFromBuffer(bytes, mime, { mediaDb, config: runtime.app.images, logger });
+      result = await ingestImageFromBuffer(bytes, mime, {
+        mediaDb,
+        config: runtime.app.images,
+        logger,
+      });
     } catch (err: any) {
       return c.json({ error: err?.message || "Image processing failed" }, 400);
     }
@@ -5766,7 +5455,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.patch("/api/article/:slug/image/caption", async (c) => {
     const slug = slugify(decodeURIComponent(c.req.param("slug")));
     if (!slug) return c.json({ error: "invalid slug" }, 400);
-    const body = await c.req.json().catch(() => ({})) as { caption?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { caption?: string };
     const caption = typeof body.caption === "string" ? body.caption : null;
     if (caption === null) return c.json({ error: "caption required" }, 400);
     preserveCurrentImageSnapshot(slug);
@@ -5790,9 +5479,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const bareSlug = routeSlug(path);
     if (path.startsWith("/wiki/")) {
       const requestedSegment = path.slice("/wiki/".length);
-      const canonicalPath = `/wiki/${titleToWikiSegment(
-        wikiSegmentToRequestedTitle(requestedSegment),
-      )}`;
+      const canonicalPath = `/wiki/${titleToWikiSegment(wikiSegmentToRequestedTitle(requestedSegment))}`;
       if (isSlugStyleWikiSegment(requestedSegment) && canonicalPath !== path) {
         logger.info("page.redirect", { slug: bareSlug, from: path });
         return c.redirect(canonicalPath, 302);
@@ -5803,19 +5490,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       return c.redirect(`/wiki/${bareSlug}`, 302);
     }
 
-    if (
-      path === "/" ||
-      path === "/Random" ||
-      path === "/random" ||
-      path === "/search" ||
-      path === "/all-entries" ||
-      path === "/admin" ||
-      path === "/settings" ||
-      path === "/graph" ||
-      path === "/media" ||
-      path.startsWith("/media/") ||
-      routeSlug(path)
-    ) {
+    if (path === "/" || path === "/Random" || path === "/random" || path === "/search" || path === "/all-entries" || path === "/admin" || path === "/settings" || path === "/graph" || path === "/media" || path.startsWith("/media/") || routeSlug(path)) {
       try {
         return c.html(await readFile(resolve(distRoot, "index.html"), "utf8"));
       } catch {
@@ -5832,12 +5507,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       const file = await readFile(filePath);
       return new Response(file, {
         headers: {
-          "content-type":
-            ext === ".js"
-              ? "application/javascript; charset=utf-8"
-              : ext === ".css"
-                ? "text/css; charset=utf-8"
-                : "application/octet-stream",
+          "content-type": ext === ".js" ? "application/javascript; charset=utf-8" : ext === ".css" ? "text/css; charset=utf-8" : "application/octet-stream",
         },
       });
     } catch {
@@ -5910,9 +5580,7 @@ async function bootstrap() {
   process.on("SIGTERM", gracefulShutdown);
 }
 
-const isEntrypoint = process.argv[1]
-  ? import.meta.url === pathToFileURL(process.argv[1]).href
-  : false;
+const isEntrypoint = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
 
 if (isEntrypoint) {
   bootstrap().catch((error) => {

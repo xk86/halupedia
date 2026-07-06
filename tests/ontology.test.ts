@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, prepared, saveArticle, setArticleInfobox, type InfoboxData } from "../src/server/db";
-import { buildOntologyFactDocuments, deleteArticleOntology, ensureArticleOntologyFresh, getArticleOntologySignature, isArticleOntologyStale, addCuratedFact, applyOntologySuggestions, deleteCuratedFact, getArticleEntityId, updateArticleEntityType, deriveLlmExtraction, emptyExtraction, extractDeterministic, inferRelations, indexArticleOntology, listArticleEntityFacts, loadOntologyVocabulary, mergeExtractions, mergeOntologyExtractions, listOntologySuggestions, resolveArticleSlugByName, validateLlmExtraction } from "../src/server/ontology";
+import { buildOntologyFactDocuments, buildOntologyGraphPayload, deleteArticleOntology, ensureArticleOntologyFresh, getArticleOntologySignature, isArticleOntologyStale, addCuratedFact, applyOntologySuggestions, deleteCuratedFact, getArticleEntityId, updateArticleEntityType, deriveLlmExtraction, emptyExtraction, extractDeterministic, inferRelations, indexArticleOntology, listArticleEntityFacts, loadOntologyVocabulary, mergeExtractions, mergeOntologyExtractions, listOntologySuggestions, resolveArticleSlugByName, validateLlmExtraction } from "../src/server/ontology";
 import { sanitizeFactText } from "../src/server/ontology/extract";
 import type { ArticleRecord, PromptConfig } from "../src/server/types";
 import type { LlmRouter } from "../src/server/llm";
@@ -213,6 +213,86 @@ function makeDb(t: { after: (fn: () => void) => void }) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return openDatabase(join(root, "test.db"));
 }
+
+test("ontology graph payload map-reduces facts into semantic metrics and coverage", (t) => {
+  const db = makeDb(t);
+  saveArticle(
+    db,
+    {
+      slug: "acme-labs",
+      canonicalSlug: "acme-labs",
+      title: "Acme Labs",
+      markdown: "# Acme Labs\n\nBody.",
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "Body.",
+      generated_at: Date.now(),
+    },
+    [],
+    [],
+    {},
+  );
+  saveArticle(
+    db,
+    {
+      slug: "ada-person",
+      canonicalSlug: "ada-person",
+      title: "Ada Person",
+      markdown: "# Ada Person\n\nBody.",
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "Body.",
+      generated_at: Date.now(),
+    },
+    [],
+    [],
+    {},
+  );
+  const now = Date.now();
+  prepared(
+    db,
+    `INSERT INTO entities (id, canonical_name, entity_type, article_slug, description, created_at, updated_at)
+     VALUES (1, 'Acme Labs', 'organization', 'acme-labs', 'test organization', ?, ?),
+            (2, 'Ada Person', 'person', 'ada-person', 'test founder', ?, ?),
+            (3, 'Loose Literal', 'thing', NULL, '', ?, ?)`,
+  ).run(now, now, now, now, now, now);
+  prepared(
+    db,
+    `INSERT INTO entity_relations
+       (subject_entity_id, predicate, object_entity_id, object_literal, provenance_slug, provenance_revision_id, source, confidence, pinned, inferred_from, created_at)
+     VALUES
+       (1, 'founded_by', 2, NULL, 'acme-labs', NULL, 'extracted', 0.61, 0, NULL, ?),
+       (1, 'founded_by', 2, NULL, 'acme-labs', NULL, 'curated', 1, 1, NULL, ?),
+       (1, 'headquartered_in', NULL, 'Nowhere', 'acme-labs', NULL, 'infobox', 0.82, 0, NULL, ?)`,
+  ).run(now, now, now);
+  prepared(
+    db,
+    `INSERT INTO article_ontology_state (article_slug, signature, updated_at)
+     VALUES ('acme-labs', ?, ?)`,
+  ).run(vocab.signature, now);
+
+  const payload = buildOntologyGraphPayload(db, vocab);
+
+  assert.equal(payload.version, 1);
+  assert.ok(payload.analysis.stages.includes("reduce:dedupe-facts"));
+  assert.ok(payload.analysis.metrics.includes("pagerank"));
+  assert.equal(payload.coverage.articleCount, 2);
+  assert.equal(payload.coverage.entityCount, 3);
+  assert.equal(payload.coverage.articleEntityCount, 2);
+  assert.equal(payload.coverage.articlesWithoutEntityCount, 0);
+  assert.equal(payload.coverage.relationCount, 2, "duplicate entity relation is reduced to the curated row");
+  assert.equal(payload.coverage.entityEdgeCount, 1);
+  assert.equal(payload.coverage.literalFactCount, 1);
+  assert.equal(payload.coverage.lowConfidenceRelationCount, 0, "curated duplicate wins over low-confidence extracted row");
+  assert.equal(payload.coverage.staleArticleCount, 1, "articles without a matching ontology signature are stale");
+
+  const founded = payload.relations.find((relation) => relation.predicate === "founded_by");
+  assert.equal(founded?.sourceKind, "curated");
+  assert.equal(founded?.pinned, true);
+  assert.equal(payload.predicates.find((predicate) => predicate.name === "founded_by")?.relationCount, 1);
+  assert.equal(payload.entityTypes.find((type) => type.type === "organization")?.literalFactCount, 1);
+  assert.ok(payload.nodes.find((node) => node.label === "Acme Labs")?.metrics.pagerank !== undefined);
+});
 
 test("deterministic extraction maps infobox rows to typed facts + identifiers", () => {
   const res = extractDeterministic({

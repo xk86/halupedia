@@ -35,7 +35,9 @@ import {
 import { toWikiSegment } from "./wikiPath";
 import { type Suggestion } from "./articleSuggest";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
+import { SemanticAtlas } from "./ontologyGraph/SemanticAtlas";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -124,6 +126,7 @@ interface FgNode {
 }
 
 type ColorMode = "community" | "component";
+type GraphMode = "links" | "ontology";
 
 type FilterMode = "top" | "search";
 type NeighborhoodMode = "refs" | "backlinks" | "both";
@@ -930,6 +933,7 @@ export function GraphView({
 }: {
   onNavigate: (slug: string) => void;
 }) {
+  const [graphMode, setGraphMode] = useState<GraphMode>("ontology");
   const [rawData, setRawData] = useState<GraphData | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>(
@@ -2136,10 +2140,40 @@ export function GraphView({
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
+  if (graphMode === "ontology") {
+    return (
+      <div className="graph-view">
+        <div className="flex items-center gap-2 border-b border-border bg-background p-3">
+          <Button size="sm" onClick={() => setGraphMode("ontology")}>
+            Ontology atlas
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setGraphMode("links")}
+          >
+            Link graph
+          </Button>
+        </div>
+        <SemanticAtlas onNavigate={onNavigate} />
+      </div>
+    );
+  }
+
   return (
     <div className="graph-view">
       {/* ── Top control bar ── */}
       <div className="graph-controls">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setGraphMode("ontology")}
+        >
+          Ontology atlas
+        </Button>
+        <Button size="sm" onClick={() => setGraphMode("links")}>
+          Link graph
+        </Button>
         <div className="graph-filter-tabs">
           <button
             className={filterMode === "top" ? "active" : ""}

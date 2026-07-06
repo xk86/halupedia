@@ -89,7 +89,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { createRagRuntime, registerRagAdminRoutes, toLegacyView, type RagRuntime } from "./rag";
-import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, normalizeLabel, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -4647,6 +4647,11 @@ export async function createApp(options: CreateAppOptions = {}) {
         object: p.object,
       }));
     return c.json({ predicates, entityTypes: [...rag.vocab.entityTypes] });
+  });
+
+  // GET /api/ontology/graph — corpus-wide semantic graph projection.
+  app.get("/api/ontology/graph", (c) => {
+    return c.json(buildOntologyGraphPayload(db, rag.vocab));
   });
 
   // GET /api/article/:slug/ontology — facts for the article (lazy-refreshed).

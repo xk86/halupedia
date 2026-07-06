@@ -155,6 +155,19 @@ export function makeNodeLabel(
   return group;
 }
 
+/** Same SDF label as {@link makeNodeLabel} but non-interactive — edge labels
+ *  ride along their link and shouldn't be draggable or clickable. */
+export function makeEdgeLabel(
+  textContent: string,
+  color: string,
+  worldHeight: number = 4,
+): NodeLabel {
+  const label = makeNodeLabel(textContent, color, worldHeight);
+  const noRaycast = () => {};
+  label.raycast = noRaycast;
+  return label;
+}
+
 const _labelInverse = new THREE.Matrix4();
 const _labelLocalRay = new THREE.Ray();
 const _labelHitPoint = new THREE.Vector3();

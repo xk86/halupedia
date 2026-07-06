@@ -42,7 +42,13 @@ import {
   observeForceGraphSize,
   type ForceGraphInstance,
 } from "../forceGraph3d";
-import { disposeLabels, faceCamera, type NodeLabel } from "../graphLabels";
+import {
+  disposeLabels,
+  faceCamera,
+  makeEdgeLabel,
+  type NodeLabel,
+} from "../graphLabels";
+import { fadeTowardNeutral, mixOkLch } from "../graphRender/okLch";
 import {
   layoutSemanticTreeNodes,
   materializeSemanticGraph,
@@ -313,11 +319,16 @@ function OntologyForceGraph({
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphInstance | null>(null);
   const labelsRef = useRef(new Map<string, NodeLabel>());
+  const edgeLabelsRef = useRef(new Map<string, NodeLabel>());
   const [initialized, setInitialized] = useState(false);
   const selectedNodeRef = useRef(selectedNodeId);
   const selectedRelationRef = useRef(selectedRelationId);
   const onSelectNodeRef = useRef(onSelectNode);
   const onSelectRelationRef = useRef(onSelectRelation);
+  // Read the color mode + intensity from a ref so the linkColor accessor —
+  // registered once at graph init — sees fresh values as the sliders move.
+  const linkColorModeRef = useRef(settings.linkColorMode);
+  const linkColorIntensityRef = useRef(settings.linkColorIntensity);
   const typeIndex = useMemo(
     () =>
       new Map(
@@ -395,13 +406,35 @@ function OntologyForceGraph({
           .nodeColor((node: ForceOntologyNode) =>
             selectedNodeRef.current === node.id ? "#ffffff" : node.color,
           )
-          .linkColor((link: ForceOntologyLink) =>
-            selectedRelationRef.current === link.relation.id
-              ? "#ffffff"
-              : link.relation.sourceKind === "inferred"
-                ? "#8a8a9a"
-                : "#d6d6e0",
-          )
+          .linkColor((link: ForceOntologyLink) => {
+            if (selectedRelationRef.current === link.relation.id)
+              return "#ffffff";
+            const neutral =
+              link.relation.sourceKind === "inferred" ? "#8a8a9a" : "#d6d6e0";
+            if (linkColorModeRef.current !== "gradient") return neutral;
+            // In gradient mode, tint the edge toward the perceptual midpoint
+            // of the two endpoint colors. `linkColor` returns one color per
+            // edge; a two-vertex gradient would need a custom LineSegments,
+            // but at typical zoom the midpoint blend already reads as an
+            // OKLCH bridge between the two node hues.
+            const s = link.source as ForceOntologyNode;
+            const t = link.target as ForceOntologyNode;
+            if (
+              !s ||
+              !t ||
+              typeof s !== "object" ||
+              typeof t !== "object" ||
+              !s.color ||
+              !t.color
+            )
+              return neutral;
+            const blended = mixOkLch(s.color, t.color, 0.5);
+            return fadeTowardNeutral(
+              blended,
+              neutral,
+              linkColorIntensityRef.current,
+            );
+          })
           .linkCurvature((link: ForceOntologyLink) =>
             link.relation.sourceKind === "inferred" ? 0.12 : draw.linkCurvature,
           )
@@ -424,6 +457,7 @@ function OntologyForceGraph({
       destroyed = true;
       stopResize();
       disposeLabels(labelsRef.current);
+      disposeLabels(edgeLabelsRef.current);
       destroyForceGraph3D(graphRef.current);
       graphRef.current = null;
     };
@@ -459,6 +493,12 @@ function OntologyForceGraph({
           : draw.linkWidth,
       )
       .linkDirectionalArrowLength(draw.arrowLength);
+    // Publish the current color settings so linkColor (registered once at
+    // graph init) reads the latest values, then poke the renderer so the
+    // cached per-link color is invalidated in the same frame.
+    linkColorModeRef.current = settings.linkColorMode;
+    linkColorIntensityRef.current = settings.linkColorIntensity;
+    graph.refresh?.();
     disposeLabels(labelsRef.current);
     if (settings.showLabels) {
       graph
@@ -478,6 +518,47 @@ function OntologyForceGraph({
     } else {
       graph.nodeThreeObjectExtend(false).nodeThreeObject(null);
     }
+    // Edge predicate labels. Reuses the SDF label pipeline (no per-label
+    // canvas texture — a single glyph atlas serves every edge) and rides at
+    // the midpoint of each link via linkPositionUpdate.
+    disposeLabels(edgeLabelsRef.current);
+    if (settings.showLinkLabels) {
+      const worldHeight = Math.max(1, 4 * settings.linkLabelSize);
+      graph
+        .linkThreeObjectExtend(true)
+        .linkThreeObject((link: ForceOntologyLink) => {
+          const cached = edgeLabelsRef.current.get(link.relation.id);
+          if (cached) return cached;
+          const label = makeEdgeLabel(
+            link.relation.predicate,
+            "#ffffff",
+            worldHeight,
+          );
+          edgeLabelsRef.current.set(link.relation.id, label);
+          return label;
+        })
+        .linkPositionUpdate(
+          (
+            obj: NodeLabel,
+            {
+              start,
+              end,
+            }: {
+              start: { x: number; y: number; z: number };
+              end: { x: number; y: number; z: number };
+            },
+          ) => {
+            obj.position.set(
+              (start.x + end.x) / 2,
+              (start.y + end.y) / 2,
+              (start.z + end.z) / 2,
+            );
+            return true;
+          },
+        );
+    } else {
+      graph.linkThreeObjectExtend(false).linkThreeObject(null);
+    }
     graph.d3Force("charge")?.strength(draw.chargeStrength);
     graph.d3Force("link")?.distance(draw.linkDistance);
     graph.d3ReheatSimulation();
@@ -487,6 +568,7 @@ function OntologyForceGraph({
     const graph = graphRef.current;
     if (!graph || !initialized) return;
     disposeLabels(labelsRef.current);
+    disposeLabels(edgeLabelsRef.current);
     graph.graphData({
       nodes: forceData.nodes.map((node) => ({ ...node })),
       links: forceData.links.map((link) => ({ ...link })),
@@ -494,16 +576,22 @@ function OntologyForceGraph({
   }, [forceData, initialized]);
 
   useEffect(() => {
-    if (!initialized || !settings.showLabels) return;
+    if (!initialized) return;
+    if (!settings.showLabels && !settings.showLinkLabels) return;
     let frame = 0;
     const faceLabels = () => {
       const camera = graphRef.current?.camera?.();
-      if (camera) faceCamera(labelsRef.current.values(), camera);
+      if (camera) {
+        if (settings.showLabels)
+          faceCamera(labelsRef.current.values(), camera);
+        if (settings.showLinkLabels)
+          faceCamera(edgeLabelsRef.current.values(), camera);
+      }
       frame = requestAnimationFrame(faceLabels);
     };
     frame = requestAnimationFrame(faceLabels);
     return () => cancelAnimationFrame(frame);
-  }, [initialized, settings.showLabels]);
+  }, [initialized, settings.showLabels, settings.showLinkLabels]);
 
   if (nodes.length === 0) {
     return (

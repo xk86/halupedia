@@ -23,6 +23,7 @@ import {
   ArticleSearchDropdown,
   type Suggestion,
 } from "@/ArticleSearchDropdown";
+import { OntologySuggestionsTable } from "@/ontology/OntologySuggestionsTable";
 import { entryTitlePresentation } from "../entryTitle";
 
 interface OntologyFact {
@@ -747,77 +748,13 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
               </CardAction>
             </CardHeader>
             <CardContent className="px-0">
-              <Table>
-                <TableBody>
-                  {data.suggestions.map((suggestion) => (
-                    <TableRow
-                      key={suggestion.id}
-                      className="border-b border-panel-border last:border-0 max-[560px]:block"
-                    >
-                      <th
-                        scope="row"
-                        className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground max-[560px]:block max-[560px]:w-full max-[560px]:pb-0 max-[560px]:whitespace-normal"
-                      >
-                        {suggestion.label}
-                      </th>
-                      <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal max-[560px]:block max-[560px]:w-full">
-                        <span className="flex min-w-0 flex-wrap items-baseline gap-2">
-                          <span className="min-w-0 flex-1 break-words">
-                            {suggestion.objectHtml ? (
-                              <RenderedInlineMarkdown
-                                html={suggestion.objectHtml}
-                              />
-                            ) : (
-                              suggestion.object
-                            )}
-                          </span>
-                          <Badge
-                            variant={
-                              suggestion.validated ? "secondary" : "warn"
-                            }
-                            className="text-[10px]"
-                          >
-                            {suggestion.validated ? "validated" : "raw"}
-                          </Badge>
-                          <span className="flex shrink-0 flex-wrap items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={`Add ${suggestion.label}`}
-                              disabled={busy}
-                              onClick={() =>
-                                applySuggestions("append", [suggestion.id])
-                              }
-                            >
-                              <ListPlusIcon />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={`Merge ${suggestion.label}`}
-                              disabled={busy}
-                              onClick={() =>
-                                applySuggestions("merge", [suggestion.id])
-                              }
-                            >
-                              <GitMergeIcon />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={`Dismiss ${suggestion.label}`}
-                              disabled={busy}
-                              onClick={() => dismissSuggestions(suggestion.id)}
-                            >
-                              <XIcon />
-                            </Button>
-                          </span>
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <OntologySuggestionsTable
+                suggestions={data.suggestions}
+                busy={busy}
+                onAppend={(id) => applySuggestions("append", [id])}
+                onMerge={(id) => applySuggestions("merge", [id])}
+                onDismiss={(id) => dismissSuggestions(id)}
+              />
             </CardContent>
           </Card>
         ) : null}

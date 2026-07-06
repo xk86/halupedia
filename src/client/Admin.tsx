@@ -16,6 +16,7 @@ import { EntrySurgeryPane } from "./admin/panes/EntrySurgeryPane";
 import { SlugAliasPane } from "./admin/panes/SlugAliasPane";
 import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
 import { RagTesterPane } from "./admin/panes/RagTesterPane";
+import { OntologySuggestionsPane } from "./admin/panes/OntologySuggestionsPane";
 import { OntologyVocabularyPane } from "./admin/panes/OntologyVocabularyPane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -570,6 +571,11 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
             id: "rag-tester",
             span: "full",
             content: <RagTesterPane />,
+          },
+          {
+            id: "ontology-suggestions",
+            span: "full",
+            content: <OntologySuggestionsPane onNavigate={onNavigate} />,
           },
           {
             id: "ontology-vocabulary",

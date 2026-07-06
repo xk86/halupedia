@@ -4951,7 +4951,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         object: f.object,
         objectSlug: f.objectSlug,
         source: f.source,
-        editable: f.source === "curated",
+        confidence: f.confidence,
       })),
       identifiers,
       categories,

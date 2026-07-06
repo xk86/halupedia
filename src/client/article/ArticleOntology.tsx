@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -9,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { ArticleSearchDropdown, type Suggestion } from "@/ArticleSearchDropdown";
 import { entryTitlePresentation } from "../entryTitle";
 
@@ -20,7 +28,7 @@ interface OntologyFact {
   object: string;
   objectSlug: string | null;
   source: string;
-  editable: boolean;
+  confidence: number;
 }
 
 interface OntologyPayload {
@@ -42,20 +50,15 @@ interface ArticleOntologyProps {
   onNavigate: (titleSegment: string, explicitTitle?: string) => void;
 }
 
-const headingClasses =
-  "mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase";
-
-/** Empty draft for the "add a fact" form. */
 const emptyDraft = { predicate: "", objectSlug: "", objectName: "", literal: "", query: "" };
 
-/**
- * The typed-ontology facts panel shown at the foot of an article. It lists the
- * article entity's relations (linking objects that are themselves articles) and,
- * behind an edit toggle, lets a curator add hand-authored facts or remove ones
- * they added. The server brings the article up to the live vocabulary lazily,
- * so simply viewing this panel re-extracts an article that no longer fits the
- * current ontology.
- */
+const sourceBadgeVariant: Record<string, "outline" | "secondary" | "default"> = {
+  extracted: "outline",
+  infobox: "outline",
+  inferred: "secondary",
+  curated: "default",
+};
+
 export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const [data, setData] = useState<OntologyPayload | null>(null);
   const [predicates, setPredicates] = useState<Predicate[]>([]);
@@ -74,8 +77,6 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
       .then((r) => (r.ok ? r.json() : null))
       .then((payload: Partial<OntologyPayload> | null) => {
         if (cancelled) return;
-        // Coerce a partial/malformed payload (an unmocked endpoint in tests, a
-        // future API change) into a safe shape rather than crashing on render.
         setData(
           payload
             ? {
@@ -95,7 +96,6 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     };
   }, [slug]);
 
-  // Load the predicate vocabulary lazily, the first time the user edits.
   useEffect(() => {
     if (!editing || predicates.length > 0) return;
     fetch("/api/ontology/vocabulary")
@@ -152,7 +152,6 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   );
 
   if (!data) return null;
-  // `is_a` is conveyed by the type chip; don't repeat it as a row.
   const facts = data.facts.filter((f) => f.predicate !== "is_a");
   if (facts.length === 0 && !editing && !data.entityType) return null;
 
@@ -162,6 +161,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     return (
       <a
         href={title.wikiPath}
+        className="text-accent underline decoration-accent/30 underline-offset-2 transition-colors hover:decoration-accent/80"
         onClick={(event) => {
           event.preventDefault();
           onNavigate(title.wikiSegment, title.plainTitle);
@@ -172,92 +172,123 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   };
 
   return (
-    <section className="mt-8 max-w-[87dvw]" aria-label="Ontology facts">
-      <Separator className="mb-3" />
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h4 className={headingClasses + " mb-0"}>
+    <Card size="sm" className="mt-8 max-w-[87dvw] gap-0 rounded-sm py-0" aria-label="Ontology facts">
+      <CardHeader className="gap-0 rounded-none border-b border-panel-border bg-accent-wash-strong px-3 py-1.5">
+        <CardTitle className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           Facts
           {data.entityType ? (
-            <span className="ml-2 font-normal normal-case">({data.entityType})</span>
+            <Badge variant="outline" className="ml-2 font-normal normal-case">
+              {data.entityType}
+            </Badge>
           ) : null}
-        </h4>
-        <Button variant="ghost" size="xs" onClick={() => setEditing((v) => !v)}>
-          {editing ? "Done" : "Edit"}
-        </Button>
-      </div>
+        </CardTitle>
+        <CardAction>
+          <Button variant="ghost" size="xs" onClick={() => setEditing((v) => !v)}>
+            {editing ? "Done" : "Edit"}
+          </Button>
+        </CardAction>
+      </CardHeader>
 
-      <ul className="m-0 flex list-none flex-col gap-y-1 p-0">
-        {facts.map((fact) => (
-          <li key={fact.id} className="flex items-baseline gap-2 text-sm">
-            <span className="text-muted-foreground">{fact.label}</span>
-            <span className="flex-1">{renderObject(fact)}</span>
-            {editing && fact.editable ? (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Remove fact"
-                disabled={busy}
-                onClick={() => removeFact(fact.id)}
-              >
-                ×
-              </Button>
-            ) : null}
-          </li>
-        ))}
-      </ul>
+      <CardContent className="px-0">
+        <Table containerClassName="overflow-x-visible">
+          <TableBody>
+            {facts.map((fact) => (
+              <TableRow key={fact.id} className="border-b border-panel-border last:border-0">
+                <th
+                  scope="row"
+                  className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
+                >
+                  {fact.label}
+                </th>
+                <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal">
+                  <span className="flex items-baseline gap-2">
+                    <span className="flex-1">{renderObject(fact)}</span>
+                    {editing ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        <Badge
+                          variant={sourceBadgeVariant[fact.source] ?? "outline"}
+                          className="text-[10px]"
+                        >
+                          {fact.source}
+                          {fact.source === "inferred" && fact.confidence < 1
+                            ? ` ${Math.round(fact.confidence * 100)}%`
+                            : null}
+                        </Badge>
+                        {fact.source === "curated" ? (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Remove fact"
+                            disabled={busy}
+                            onClick={() => removeFact(fact.id)}
+                          >
+                            ×
+                          </Button>
+                        ) : null}
+                      </span>
+                    ) : null}
+                  </span>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
 
-      {editing ? (
-        <div className="mt-3 flex flex-col gap-2 rounded-sm border border-panel-border p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={draft.predicate}
-              onValueChange={(predicate) => setDraft((d) => ({ ...d, predicate: predicate ?? "" }))}
-            >
-              <SelectTrigger size="sm" className="w-48">
-                <SelectValue placeholder="Relationship…" />
-              </SelectTrigger>
-              <SelectContent>
-                {predicates.map((p) => (
-                  <SelectItem key={p.name} value={p.name}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {editing ? (
+          <div className="border-t border-panel-border px-3 py-3">
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={draft.predicate}
+                  onValueChange={(predicate) => setDraft((d) => ({ ...d, predicate: predicate ?? "" }))}
+                >
+                  <SelectTrigger size="sm" className="w-48">
+                    <SelectValue placeholder="Relationship…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {predicates.map((p) => (
+                      <SelectItem key={p.name} value={p.name}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-            <ArticleSearchDropdown
-              query={draft.objectName || draft.query}
-              onQueryChange={(query) =>
-                setDraft((d) => ({ ...d, query, objectSlug: "", objectName: "" }))
-              }
-              onPick={(s: Suggestion) =>
-                setDraft((d) => ({ ...d, objectSlug: s.slug, objectName: s.title, query: s.title, literal: "" }))
-              }
-              placeholder="Link an article…"
-              wrapClassName="min-w-52 flex-1"
-            />
+                <ArticleSearchDropdown
+                  query={draft.objectName || draft.query}
+                  onQueryChange={(query) =>
+                    setDraft((d) => ({ ...d, query, objectSlug: "", objectName: "" }))
+                  }
+                  onPick={(s: Suggestion) =>
+                    setDraft((d) => ({ ...d, objectSlug: s.slug, objectName: s.title, query: s.title, literal: "" }))
+                  }
+                  placeholder="Link an article…"
+                  wrapClassName="min-w-52 flex-1"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">or a plain value</span>
+                <Input
+                  value={draft.literal}
+                  disabled={!!draft.objectSlug}
+                  onChange={(e) => setDraft((d) => ({ ...d, literal: e.target.value }))}
+                  placeholder="e.g. 1998"
+                  className="h-8 w-40"
+                />
+                <Button
+                  size="sm"
+                  disabled={busy || !draft.predicate || (!draft.objectSlug && !draft.literal.trim())}
+                  onClick={addFact}
+                >
+                  Add fact
+                </Button>
+              </div>
+              {error ? <span className="text-xs text-destructive">{error}</span> : null}
+            </div>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted-foreground">or a plain value</span>
-            <Input
-              value={draft.literal}
-              disabled={!!draft.objectSlug}
-              onChange={(e) => setDraft((d) => ({ ...d, literal: e.target.value }))}
-              placeholder="e.g. 1998"
-              className="h-8 w-40"
-            />
-            <Button
-              size="sm"
-              disabled={busy || !draft.predicate || (!draft.objectSlug && !draft.literal.trim())}
-              onClick={addFact}
-            >
-              Add fact
-            </Button>
-          </div>
-          {error ? <span className="text-xs text-destructive">{error}</span> : null}
-        </div>
-      ) : null}
-    </section>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, prepared, saveArticle, setArticleInfobox, type InfoboxData } from "../src/server/db";
-import { buildOntologyFactDocuments, deleteArticleOntology, ensureArticleOntologyFresh, getArticleOntologySignature, isArticleOntologyStale, addCuratedFact, applyOntologySuggestions, deleteCuratedFact, getArticleEntityId, deriveLlmExtraction, emptyExtraction, extractDeterministic, inferRelations, indexArticleOntology, listArticleEntityFacts, loadOntologyVocabulary, mergeExtractions, mergeOntologyExtractions, listOntologySuggestions, resolveArticleSlugByName, validateLlmExtraction } from "../src/server/ontology";
+import { buildOntologyFactDocuments, deleteArticleOntology, ensureArticleOntologyFresh, getArticleOntologySignature, isArticleOntologyStale, addCuratedFact, applyOntologySuggestions, deleteCuratedFact, getArticleEntityId, updateArticleEntityType, deriveLlmExtraction, emptyExtraction, extractDeterministic, inferRelations, indexArticleOntology, listArticleEntityFacts, loadOntologyVocabulary, mergeExtractions, mergeOntologyExtractions, listOntologySuggestions, resolveArticleSlugByName, validateLlmExtraction } from "../src/server/ontology";
 import { sanitizeFactText } from "../src/server/ontology/extract";
 import type { ArticleRecord, PromptConfig } from "../src/server/types";
 import type { LlmRouter } from "../src/server/llm";
@@ -159,6 +159,37 @@ test("a personal honorific still classifies as person with no infobox at all", (
   });
   const article = res.entities.find((e) => e.articleSlug === "dr-okafor");
   assert.equal(article?.type, "person");
+});
+
+test("curated entity type edits update the article entity and is_a fact", (t) => {
+  const db = makeDb(t);
+  saveArticle(
+    db,
+    {
+      slug: "subject",
+      canonicalSlug: "subject",
+      title: "Subject",
+      markdown: "# Subject\n\nBody.",
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "Body.",
+      generated_at: Date.now(),
+    },
+    [],
+    [],
+    {},
+  );
+  indexArticleOntology(db, {
+    slug: "subject",
+    title: "Subject",
+    infobox: { title: "Subject", subtitle: "Thing", groups: [] },
+    vocab,
+  });
+
+  assert.equal(updateArticleEntityType(db, "subject", "person"), true);
+  const { entity, facts } = listArticleEntityFacts(db, "subject");
+  assert.equal(entity?.entityType, "person");
+  assert.ok(facts.some((fact) => fact.predicate === "is_a" && fact.object === "person"));
 });
 
 test("an unrelated word starting with an honorific-like prefix is not misclassified", () => {

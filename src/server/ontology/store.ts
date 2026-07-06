@@ -376,6 +376,35 @@ export function getArticleEntityId(db: DatabaseSync, slug: string): number | nul
   return row?.id ?? null;
 }
 
+export function updateArticleEntityType(
+  db: DatabaseSync,
+  slug: string,
+  entityType: string,
+): boolean {
+  const entity = prepared(
+    db,
+    `SELECT id, canonical_name AS canonicalName FROM entities WHERE article_slug = ? LIMIT 1`,
+  ).get(slug) as { id: number; canonicalName: string } | undefined;
+  if (!entity) return false;
+  const conflict = prepared(
+    db,
+    `SELECT id FROM entities WHERE canonical_name = ? AND entity_type = ? AND id <> ? LIMIT 1`,
+  ).get(entity.canonicalName, entityType, entity.id) as { id: number } | undefined;
+  if (conflict) return false;
+  prepared(db, `UPDATE entities SET entity_type = ?, updated_at = ? WHERE id = ?`).run(
+    entityType,
+    Date.now(),
+    entity.id,
+  );
+  prepared(
+    db,
+    `UPDATE entity_relations
+     SET object_literal = ?
+     WHERE subject_entity_id = ? AND predicate = 'is_a' AND object_entity_id IS NULL`,
+  ).run(entityType, entity.id);
+  return true;
+}
+
 export interface CuratedFactInput {
   subjectId: number;
   predicate: string;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { GitMergeIcon, ListPlusIcon, XIcon } from "lucide-react";
+import { GitMergeIcon, ListPlusIcon, TagIcon, XIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,14 @@ interface OntologySuggestion {
   validated: boolean;
 }
 
+function normalizePredicateKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 function normalizeOntologyPayload(
   payload: Partial<OntologyPayload> | null,
 ): OntologyPayload | null {
@@ -96,6 +104,8 @@ function normalizeOntologyPayload(
 export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const [data, setData] = useState<OntologyPayload | null>(null);
   const [predicates, setPredicates] = useState<Predicate[]>([]);
+  const [entityTypes, setEntityTypes] = useState<string[]>([]);
+  const [entityTypeDraft, setEntityTypeDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const [editingFactId, setEditingFactId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft>(emptyDraft);
@@ -111,6 +121,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     setEditingFactId(null);
     setDraft(emptyDraft);
     setEditDraft(emptyDraft);
+    setEntityTypeDraft("");
     setError(null);
     setInferring(false);
     fetch(`/api/article/${encodeURIComponent(slug)}/ontology`)
@@ -128,19 +139,31 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   }, [slug]);
 
   useEffect(() => {
-    if (!editing || predicates.length > 0) return;
+    if (!editing || (predicates.length > 0 && entityTypes.length > 0)) return;
     fetch("/api/ontology/vocabulary")
       .then((r) => (r.ok ? r.json() : null))
-      .then((v: { predicates: Predicate[] } | null) => {
+      .then((v: { predicates?: Predicate[]; entityTypes?: string[] } | null) => {
         if (v?.predicates) setPredicates(v.predicates);
+        if (v?.entityTypes) setEntityTypes(v.entityTypes);
       })
       .catch(() => undefined);
-  }, [editing, predicates.length]);
+  }, [editing, predicates.length, entityTypes.length]);
 
   const apiBase = `/api/article/${encodeURIComponent(slug)}/ontology`;
+  const predicateKey = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      const match = predicates.find(
+        (p) => p.name === trimmed || p.label === trimmed,
+      );
+      return match ? match.name : normalizePredicateKey(trimmed);
+    },
+    [predicates],
+  );
 
   const addFact = useCallback(async () => {
-    if (!draft.predicate || busy) return;
+    const predicate = predicateKey(draft.predicate);
+    if (!predicate || busy) return;
     const objectSlug = draft.objectSlug.trim();
     const objectLiteral = draft.literal.trim();
     if (!objectSlug && !objectLiteral) return;
@@ -152,8 +175,8 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           objectSlug
-            ? { predicate: draft.predicate, objectSlug }
-            : { predicate: draft.predicate, objectLiteral },
+            ? { predicate, objectSlug }
+            : { predicate, objectLiteral },
         ),
       });
       if (!res.ok) {
@@ -170,7 +193,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     } finally {
       setBusy(false);
     }
-  }, [draft, busy, apiBase]);
+  }, [draft, busy, apiBase, predicateKey]);
 
   const removeFact = useCallback(
     async (id: number) => {
@@ -198,11 +221,12 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
       if (busy) return;
       const objectSlug = editDraft.objectSlug.trim();
       const objectLiteral = editDraft.literal.trim();
-      if (!editDraft.predicate || (!objectSlug && !objectLiteral)) return;
+      const predicate = predicateKey(editDraft.predicate);
+      if (!predicate || (!objectSlug && !objectLiteral)) return;
       setBusy(true);
       setError(null);
       try {
-        const body: Record<string, string> = { predicate: editDraft.predicate };
+        const body: Record<string, string> = { predicate };
         if (objectSlug) body.objectSlug = objectSlug;
         else body.objectLiteral = objectLiteral;
         const res = await fetch(`${apiBase}/facts/${id}`, {
@@ -226,8 +250,34 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         setBusy(false);
       }
     },
-    [busy, editDraft, apiBase],
+    [busy, editDraft, apiBase, predicateKey],
   );
+
+  const saveEntityType = useCallback(async () => {
+    const entityType = entityTypeDraft.trim();
+    if (!entityType || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/entity`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entityType }),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(b.error ?? "Could not update type");
+        return;
+      }
+      const next = normalizeOntologyPayload(
+        (await res.json()) as Partial<OntologyPayload>,
+      );
+      setData(next);
+      setEntityTypeDraft(next?.entityType ?? "");
+    } finally {
+      setBusy(false);
+    }
+  }, [apiBase, busy, entityTypeDraft]);
 
   const startEdit = (fact: OntologyFact) => {
     setEditingFactId(fact.id);
@@ -446,7 +496,11 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
             variant="ghost"
             size="xs"
             onClick={() => {
-              setEditing((v) => !v);
+              setEditing((v) => {
+                const next = !v;
+                if (next) setEntityTypeDraft(data.entityType ?? "");
+                return next;
+              });
               setEditingFactId(null);
             }}
           >
@@ -519,6 +573,31 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         {editing ? (
           <div className="border-t border-panel-border px-3 py-3">
             <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  thing type
+                </span>
+                <Input
+                  list="ontology-entity-types"
+                  value={entityTypeDraft}
+                  onChange={(event) => setEntityTypeDraft(event.target.value)}
+                  placeholder="person"
+                  className="h-8 w-40"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    busy ||
+                    !entityTypeDraft.trim() ||
+                    entityTypeDraft.trim() === (data.entityType ?? "")
+                  }
+                  onClick={saveEntityType}
+                >
+                  <TagIcon data-icon="inline-start" />
+                  Set type
+                </Button>
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   list="ontology-predicates"
@@ -710,11 +789,18 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         ) : null}
       </CardContent>
       {editing ? (
-        <datalist id="ontology-predicates">
-          {predicates.map((p) => (
-            <option key={p.name} value={p.label} />
-          ))}
-        </datalist>
+        <>
+          <datalist id="ontology-predicates">
+            {predicates.map((p) => (
+              <option key={p.name} value={p.label} />
+            ))}
+          </datalist>
+          <datalist id="ontology-entity-types">
+            {entityTypes.map((type) => (
+              <option key={type} value={type} />
+            ))}
+          </datalist>
+        </>
       ) : null}
     </Card>
   );

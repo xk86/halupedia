@@ -89,7 +89,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { createRagRuntime, registerRagAdminRoutes, toLegacyView, type RagRuntime } from "./rag";
-import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, normalizeLabel, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -4629,6 +4629,13 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
 
+  function normalizeSubmittedPredicate(value: unknown): string {
+    if (typeof value !== "string") return "";
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    return rag.vocab.predicates.has(trimmed) ? trimmed : normalizeLabel(trimmed);
+  }
+
   // GET /api/ontology/vocabulary — predicates + entity types for the fact editor.
   app.get("/api/ontology/vocabulary", (c) => {
     const predicates = [...rag.vocab.predicates.values()]
@@ -4649,6 +4656,28 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json(buildArticleOntologyPayload(article.slug));
   });
 
+  app.patch("/api/article/:slug/ontology/entity", async (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
+    const body = (await c.req.json().catch(() => ({}))) as { entityType?: string };
+    const entityType = typeof body.entityType === "string" ? body.entityType.trim() : "";
+    if (!entityType || !rag.vocab.entityTypes.has(entityType)) {
+      return c.json({ error: "unknown entity type" }, 400);
+    }
+    ensureArticleOntologyFresh(db, slug, rag.vocab);
+    if (!updateArticleEntityType(db, slug, entityType)) {
+      return c.json({ error: "article has no ontology entity" }, 409);
+    }
+    enqueueRagIndexJob(db, {
+      articleSlug: slug,
+      sourceKind: "article_body",
+      sourceId: slug,
+      operation: "upsert",
+    });
+    return c.json(buildArticleOntologyPayload(slug));
+  });
+
   // POST /api/article/:slug/ontology/facts — add a hand-curated fact. The object
   // is either a link to another article (objectSlug) or a plain literal value.
   app.post("/api/article/:slug/ontology/facts", async (c) => {
@@ -4661,8 +4690,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       objectSlug?: string;
       objectLiteral?: string;
     };
-    const predicate = typeof body.predicate === "string" ? body.predicate.trim() : "";
-    if (!rag.vocab.predicates.has(predicate)) return c.json({ error: "unknown predicate" }, 400);
+    const predicate = normalizeSubmittedPredicate(body.predicate);
+    if (!predicate) return c.json({ error: "predicate required" }, 400);
 
     // Ensure the subject article has an entity to attach the fact to.
     ensureArticleOntologyFresh(db, slug, rag.vocab);
@@ -4740,8 +4769,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       objectLiteral?: string | null;
     } = {};
     if (typeof body.predicate === "string" && body.predicate.trim()) {
-      if (!rag.vocab.predicates.has(body.predicate.trim())) return c.json({ error: "unknown predicate" }, 400);
-      updates.predicate = body.predicate.trim();
+      updates.predicate = normalizeSubmittedPredicate(body.predicate);
+      if (!updates.predicate) return c.json({ error: "predicate required" }, 400);
     }
     const objectSlug = typeof body.objectSlug === "string" ? body.objectSlug.trim() : "";
     if (objectSlug) {

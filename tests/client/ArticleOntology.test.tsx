@@ -75,4 +75,66 @@ describe("ArticleOntology suggestions", () => {
     expect(await screen.findByText("structural change")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/article/subject/ontology");
   });
+
+  it("sends custom predicates as normalized keys", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ontology/vocabulary") {
+        return new Response(JSON.stringify({ predicates: [], entityTypes: ["thing", "person"] }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ ...payload, facts: [{ id: 1, predicate: "caused_by", label: "caused by", object: "chlorophyll", objectSlug: null, source: "curated", confidence: 1 }], suggestions: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify(payload), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ArticleOntology slug="subject" onNavigate={() => undefined} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    await userEvent.type(screen.getByPlaceholderText("Relationship…"), "Caused by");
+    await userEvent.type(screen.getByPlaceholderText("e.g. 1998"), "chlorophyll");
+    await userEvent.click(screen.getByRole("button", { name: "Add fact" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/article/subject/ontology/facts",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ predicate: "caused_by", objectLiteral: "chlorophyll" }),
+        }),
+      );
+    });
+  });
+
+  it("can change the article entity type", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/ontology/vocabulary") {
+        return new Response(JSON.stringify({ predicates: [], entityTypes: ["thing", "person"] }), { status: 200 });
+      }
+      if (init?.method === "PATCH") {
+        return new Response(JSON.stringify({ ...payload, entityType: "person" }), { status: 200 });
+      }
+      return new Response(JSON.stringify(payload), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ArticleOntology slug="subject" onNavigate={() => undefined} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const typeInput = screen.getByPlaceholderText("person");
+    await userEvent.clear(typeInput);
+    await userEvent.type(typeInput, "person");
+    await userEvent.click(screen.getByRole("button", { name: "Set type" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/article/subject/ontology/entity",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ entityType: "person" }),
+        }),
+      );
+    });
+    expect(await screen.findByText("person")).toBeInTheDocument();
+  });
 });

@@ -19,7 +19,7 @@ import type { OntologyVocabulary } from "./vocabulary";
 export * from "./types";
 export * from "./vocabulary";
 export { extractDeterministic, validateLlmExtraction, mergeExtractions, mergeOntologyExtractions } from "./extract";
-export { reconcileArticleOntology, listArticleEntityFacts, deleteArticleOntology, findEntityId, upsertEntity, resolveArticleSlugByName, getArticleOntologySignature, setArticleOntologySignature, getArticleEntityId, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, relationKey, type ArticleOntologyFact, type CuratedFactInput, type FactUpdateInput } from "./store";
+export { reconcileArticleOntology, listArticleEntityFacts, deleteArticleOntology, findEntityId, upsertEntity, resolveArticleSlugByName, getArticleOntologySignature, setArticleOntologySignature, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, relationKey, type ArticleOntologyFact, type CuratedFactInput, type FactUpdateInput } from "./store";
 export { buildOntologyFactDocuments } from "./documents";
 export { deriveLlmExtraction, type OntologyLlmOptions, type LlmExtractionOutcome, type LlmExtractionReason } from "./llmExtract";
 export { inferRelations } from "./infer";

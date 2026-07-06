@@ -49,12 +49,13 @@ import {
   projectSemanticGraph,
   type SemanticGraphFilters,
 } from "./model";
+import { GraphRenderPane } from "../graphRender/GraphRenderPane";
 import {
-  loadOntologyRenderSettings,
-  OntologyRenderPane,
-  saveOntologyRenderSettings,
-  type OntologyRenderSettings,
-} from "./renderSettings";
+  DEFAULT_GRAPH_RENDER_SETTINGS,
+  loadGraphRenderSettings,
+  saveGraphRenderSettings,
+  type GraphRenderSettings,
+} from "../graphRender/settings";
 import type {
   OntologyGraphNode,
   OntologyGraphPayload,
@@ -150,12 +151,14 @@ function SemanticTreeCanvas({
   selectedRelationId: string | null;
   onSelectNode: (node: OntologyGraphNode) => void;
   onSelectRelation: (relation: OntologyGraphRelation) => void;
-  settings: OntologyRenderSettings;
+  settings: GraphRenderSettings;
 }) {
   const positioned = useMemo(
     () => layoutSemanticTreeNodes(nodes, relations, metric, maxMetric),
     [nodes, relations, metric, maxMetric],
   );
+  const nodeScale =
+    settings.nodeRelSize / DEFAULT_GRAPH_RENDER_SETTINGS.nodeRelSize;
   const spreadNodes = positioned.map((node) => ({
     ...node,
     x: 480 + (node.x - 480) * settings.treeSpread,
@@ -229,7 +232,7 @@ function SemanticTreeCanvas({
           })}
           {spreadNodes.map((node) => {
             const selected = node.id === selectedNodeId;
-            const radius = node.radius * settings.nodeScale;
+            const radius = node.radius * nodeScale;
             return (
               <g
                 key={node.id}
@@ -253,10 +256,10 @@ function SemanticTreeCanvas({
                 {settings.showLabels ? (
                   <text
                     x={node.x}
-                    y={node.y + radius + 14 * settings.labelScale}
+                    y={node.y + radius + 14 * settings.labelSize}
                     textAnchor="middle"
                     fill="var(--foreground)"
-                    fontSize={11 * settings.labelScale}
+                    fontSize={11 * settings.labelSize}
                   >
                     {node.label.length > 22
                       ? `${node.label.slice(0, 21)}…`
@@ -305,7 +308,7 @@ function OntologyForceGraph({
   selectedRelationId: string | null;
   onSelectNode: (node: OntologyGraphNode) => void;
   onSelectRelation: (relation: OntologyGraphRelation) => void;
-  settings: OntologyRenderSettings;
+  settings: GraphRenderSettings;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphInstance | null>(null);
@@ -431,15 +434,19 @@ function OntologyForceGraph({
     if (!graph || !initialized) return;
     const draw = {
       ...DEFAULT_FORCE_GRAPH_DRAW_SETTINGS,
-      nodeRelSize:
-        DEFAULT_FORCE_GRAPH_DRAW_SETTINGS.nodeRelSize * settings.nodeScale,
+      nodeResolution: settings.nodeResolution,
+      nodeRelSize: settings.nodeRelSize,
       nodeOpacity: settings.nodeOpacity,
       linkOpacity: settings.linkOpacity,
       linkWidth: settings.linkWidth,
       arrowLength: settings.arrowLength,
+      linkCurvature: settings.linkCurvature,
       chargeStrength: settings.chargeStrength,
       linkDistance: settings.linkDistance,
-      labelSize: settings.labelScale,
+      labelSize: settings.labelSize,
+      dynamicLabelSize: settings.dynamicLabelSize,
+      labelSizeInfluence: settings.labelSizeInfluence,
+      labelDegreeMode: settings.labelDegreeMode,
     };
     graph
       .nodeResolution(draw.nodeResolution)
@@ -628,8 +635,8 @@ export function SemanticAtlas({
     null,
   );
   const [renderOpen, setRenderOpen] = useState(false);
-  const [renderSettings, setRenderSettings] = useState<OntologyRenderSettings>(
-    loadOntologyRenderSettings,
+  const [renderSettings, setRenderSettings] = useState<GraphRenderSettings>(
+    loadGraphRenderSettings,
   );
   const [filters, setFilters] = useState<SemanticGraphFilters>({
     lens: "relations",
@@ -666,7 +673,7 @@ export function SemanticAtlas({
   }, []);
 
   useEffect(() => {
-    saveOntologyRenderSettings(renderSettings);
+    saveGraphRenderSettings(renderSettings);
   }, [renderSettings]);
 
   const projection = useMemo(
@@ -1080,7 +1087,8 @@ export function SemanticAtlas({
         </div>
         <div className="flex flex-col gap-4">
           {renderOpen ? (
-            <OntologyRenderPane
+            <GraphRenderPane
+              mode="ontology"
               view={view}
               settings={renderSettings}
               onChange={setRenderSettings}

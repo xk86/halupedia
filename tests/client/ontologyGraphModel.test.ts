@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { layoutSemanticNodes, projectSemanticGraph } from "../../src/client/ontologyGraph/model";
+import {
+  layoutSemanticNodes,
+  layoutSemanticTreeNodes,
+  projectSemanticGraph,
+} from "../../src/client/ontologyGraph/model";
 import type { OntologyGraphPayload } from "../../src/client/ontologyGraph/types";
 
 const payload: OntologyGraphPayload = {
@@ -145,6 +149,47 @@ describe("ontology graph projection", () => {
     expect(projection.literalRelations).toEqual([]);
   });
 
+  test("keeps filtered relation endpoints ahead of unrelated literal-fact nodes", () => {
+    const literalHeavyNode = {
+      ...payload.nodes[0],
+      id: "3",
+      entityId: 3,
+      label: "Literal Heavy",
+      articleSlug: "literal-heavy",
+      metrics: {
+        ...payload.nodes[0].metrics,
+        pagerank: 1,
+        literalFactCount: 20,
+      },
+    };
+    const projection = projectSemanticGraph(
+      {
+        ...payload,
+        nodes: payload.nodes.concat(literalHeavyNode),
+        relations: payload.relations.concat({
+          ...payload.relations[1],
+          id: "12",
+          relationId: 12,
+          source: "3",
+        }),
+      },
+      {
+        lens: "relations",
+        query: "",
+        predicate: "founded_by",
+        entityType: "all",
+        sourceKind: "curated",
+        metric: "pagerank",
+        limit: 2,
+        showLiteralFacts: true,
+      },
+    );
+
+    expect(projection.nodes.map((node) => node.id).sort()).toEqual(["1", "2"]);
+    expect(projection.relations.map((relation) => relation.id)).toEqual(["10"]);
+    expect(projection.literalRelations).toEqual([]);
+  });
+
   test("layout is deterministic and radius follows the chosen metric", () => {
     const positioned = layoutSemanticNodes(payload.nodes, "pagerank", 0.8);
 
@@ -153,5 +198,26 @@ describe("ontology graph projection", () => {
     expect(positioned.find((node) => node.id === "1")!.radius).toBeGreaterThan(
       positioned.find((node) => node.id === "2")!.radius,
     );
+  });
+
+  test("tree layout produces deterministic levels for a directed forest", () => {
+    const positioned = layoutSemanticTreeNodes(
+      payload.nodes,
+      payload.relations.filter((relation) => relation.target !== null),
+      "pagerank",
+      0.8,
+    );
+    const root = positioned.find((node) => node.id === "1")!;
+    const child = positioned.find((node) => node.id === "2")!;
+
+    expect(root.depth).toBe(0);
+    expect(child.depth).toBe(1);
+    expect(child.y).toBeGreaterThan(root.y);
+    expect(layoutSemanticTreeNodes(
+      payload.nodes,
+      payload.relations.filter((relation) => relation.target !== null),
+      "pagerank",
+      0.8,
+    )).toEqual(positioned);
   });
 });

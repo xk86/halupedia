@@ -45,15 +45,48 @@ export function projectSemanticGraph(
     if (relation.target) relationNodeIds.add(relation.target);
   }
 
-  const visibleNodes = payload.nodes
+  const eligibleNodes = payload.nodes
     .filter((node) => {
       if (filters.entityType !== "all" && node.entityType !== filters.entityType) return false;
       if (query && !searchableText(node).includes(query)) return false;
       if (filters.lens === "coverage") return true;
-      return relationNodeIds.has(node.id) || node.metrics.literalFactCount > 0;
+      return relationNodeIds.has(node.id);
     })
-    .sort((a, b) => (b.metrics[filters.metric] ?? 0) - (a.metrics[filters.metric] ?? 0) || a.label.localeCompare(b.label))
-    .slice(0, filters.limit);
+    .sort((a, b) => (b.metrics[filters.metric] ?? 0) - (a.metrics[filters.metric] ?? 0) || a.label.localeCompare(b.label));
+  const eligibleIds = new Set(eligibleNodes.map((node) => node.id));
+  const selectedIds = new Set<string>();
+
+  if (filters.lens !== "coverage") {
+    const nodeById = new Map(eligibleNodes.map((node) => [node.id, node]));
+    const entityRelations = relationCandidates
+      .filter(
+        (relation) =>
+          relation.target !== null &&
+          eligibleIds.has(relation.source) &&
+          eligibleIds.has(relation.target),
+      )
+      .sort((a, b) => {
+        const aMetric = Math.max(
+          nodeById.get(a.source)?.metrics[filters.metric] ?? 0,
+          nodeById.get(a.target!)?.metrics[filters.metric] ?? 0,
+        );
+        const bMetric = Math.max(
+          nodeById.get(b.source)?.metrics[filters.metric] ?? 0,
+          nodeById.get(b.target!)?.metrics[filters.metric] ?? 0,
+        );
+        return bMetric - aMetric || a.id.localeCompare(b.id);
+      });
+    for (const relation of entityRelations) {
+      const additions = [relation.source, relation.target!].filter((id) => !selectedIds.has(id));
+      if (selectedIds.size + additions.length > filters.limit) continue;
+      additions.forEach((id) => selectedIds.add(id));
+    }
+  }
+  for (const node of eligibleNodes) {
+    if (selectedIds.size >= filters.limit) break;
+    selectedIds.add(node.id);
+  }
+  const visibleNodes = eligibleNodes.filter((node) => selectedIds.has(node.id));
 
   const visibleIds = new Set(visibleNodes.map((node) => node.id));
   const relations = relationCandidates.filter(
@@ -78,6 +111,74 @@ export interface PositionedNode extends OntologyGraphNode {
   x: number;
   y: number;
   radius: number;
+}
+
+export interface TreePositionedNode extends PositionedNode {
+  depth: number;
+}
+
+export function layoutSemanticTreeNodes(
+  nodes: OntologyGraphNode[],
+  relations: OntologyGraphRelation[],
+  metric: SemanticMetric,
+  maxMetric: number,
+): TreePositionedNode[] {
+  if (nodes.length === 0) return [];
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map(nodes.map((node) => [node.id, 0]));
+  for (const relation of relations) {
+    if (!relation.target || !nodeById.has(relation.source) || !nodeById.has(relation.target)) continue;
+    outgoing.set(relation.source, [...(outgoing.get(relation.source) ?? []), relation.target]);
+    incoming.set(relation.target, (incoming.get(relation.target) ?? 0) + 1);
+  }
+  const byRank = (a: OntologyGraphNode, b: OntologyGraphNode) =>
+    (b.metrics[metric] ?? 0) - (a.metrics[metric] ?? 0) || a.label.localeCompare(b.label);
+  const roots = nodes.filter((node) => (incoming.get(node.id) ?? 0) === 0).sort(byRank);
+  const remaining = nodes.filter((node) => !roots.includes(node)).sort(byRank);
+  const depthById = new Map<string, number>();
+  const visit = (rootId: string) => {
+    if (depthById.has(rootId)) return;
+    depthById.set(rootId, 0);
+    const queue = [rootId];
+    while (queue.length > 0) {
+      const source = queue.shift()!;
+      const nextDepth = (depthById.get(source) ?? 0) + 1;
+      const targets = [...new Set(outgoing.get(source) ?? [])].sort((a, b) =>
+        byRank(nodeById.get(a)!, nodeById.get(b)!),
+      );
+      for (const target of targets) {
+        if (depthById.has(target)) continue;
+        depthById.set(target, nextDepth);
+        queue.push(target);
+      }
+    }
+  };
+  roots.forEach((node) => visit(node.id));
+  remaining.forEach((node) => visit(node.id));
+
+  const levels = new Map<number, OntologyGraphNode[]>();
+  for (const node of nodes) {
+    const depth = depthById.get(node.id) ?? 0;
+    levels.set(depth, [...(levels.get(depth) ?? []), node]);
+  }
+  const width = 960;
+  const height = 560;
+  const maxDepth = Math.max(0, ...levels.keys());
+  return [...levels.entries()]
+    .sort(([a], [b]) => a - b)
+    .flatMap(([depth, level]) =>
+      level.sort(byRank).map((node, index) => {
+        const metricNorm = (node.metrics[metric] ?? 0) / maxMetric;
+        return {
+          ...node,
+          depth,
+          x: ((index + 1) * width) / (level.length + 1),
+          y: 54 + (depth * (height - 108)) / Math.max(1, maxDepth),
+          radius: 5 + Math.sqrt(metricNorm) * 18,
+        };
+      }),
+    );
 }
 
 export function layoutSemanticNodes(

@@ -10,6 +10,7 @@ export interface ForceGraphDrawSettings {
   arrowLength: number;
   linkCurvature: number;
   chargeStrength: number;
+  centerStrength: number;
   linkDistance: number;
   alphaDecay: number;
   velocityDecay: number;
@@ -29,6 +30,7 @@ export const DEFAULT_FORCE_GRAPH_DRAW_SETTINGS: ForceGraphDrawSettings = {
   arrowLength: 3.5,
   linkCurvature: 0,
   chargeStrength: -180,
+  centerStrength: 1,
   linkDistance: 60,
   alphaDecay: 0.0228,
   velocityDecay: 0.4,
@@ -136,6 +138,18 @@ export function observeForceGraphSize(
   const observer = new ResizeObserver(resize);
   observer.observe(element);
   return () => observer.disconnect();
+}
+
+export function applyForceGraphPhysicsSettings(
+  graph: ForceGraphInstance,
+  settings: Pick<
+    ForceGraphDrawSettings,
+    "chargeStrength" | "centerStrength" | "linkDistance"
+  >,
+): void {
+  graph.d3Force("charge")?.strength(settings.chargeStrength);
+  graph.d3Force("center")?.strength?.(settings.centerStrength);
+  graph.d3Force("link")?.distance(settings.linkDistance);
 }
 
 export function makeForceGraphNodeLabel(

@@ -36,6 +36,7 @@ export interface GraphRenderSettings {
   directionalParticles: boolean;
   // ── Physics ──────────────────────────────────────────────────────────────
   chargeStrength: number;
+  centerStrength: number;
   linkDistance: number;
   alphaDecay: number;
   velocityDecay: number;
@@ -141,6 +142,7 @@ export function loadGraphRenderSettings(): GraphRenderSettings {
       "linkWidth",
       "arrowLength",
       "chargeStrength",
+      "centerStrength",
       "linkDistance",
       "treeSpread",
     ] as const) {
@@ -176,6 +178,7 @@ export function loadGraphRenderSettings(): GraphRenderSettings {
       "particleWidth",
       "directionalParticles",
       "chargeStrength",
+      "centerStrength",
       "linkDistance",
       "alphaDecay",
       "velocityDecay",

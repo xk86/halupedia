@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
+  applyForceGraphPhysicsSettings,
   createForceGraph3D,
   DEFAULT_FORCE_GRAPH_DRAW_SETTINGS,
   destroyForceGraph3D,
@@ -595,6 +596,7 @@ function OntologyForceGraph({
       arrowLength: settings.arrowLength,
       linkCurvature: settings.linkCurvature,
       chargeStrength: settings.chargeStrength,
+      centerStrength: settings.centerStrength,
       linkDistance: settings.linkDistance,
       alphaDecay: settings.alphaDecay,
       velocityDecay: settings.velocityDecay,
@@ -696,8 +698,7 @@ function OntologyForceGraph({
         .linkThreeObject(null)
         .linkPositionUpdate(null);
     }
-    graph.d3Force("charge")?.strength(draw.chargeStrength);
-    graph.d3Force("link")?.distance(draw.linkDistance);
+    applyForceGraphPhysicsSettings(graph, draw);
     graph.d3ReheatSimulation();
   }, [initialized, settings]);
 

@@ -30,6 +30,7 @@ import {
   type NodeLabel,
 } from "./graphLabels";
 import {
+  applyForceGraphPhysicsSettings,
   createForceGraph3D,
   DEFAULT_FORCE_GRAPH_DRAW_SETTINGS,
   destroyForceGraph3D,
@@ -1404,11 +1405,7 @@ export function GraphView({
       fg.nodeThreeObjectExtend(false).nodeThreeObject(null);
     }
 
-    const charge = fg.d3Force("charge");
-    if (charge) charge.strength(settings.chargeStrength);
-
-    const link = fg.d3Force("link");
-    if (link) link.distance(settings.linkDistance);
+    applyForceGraphPhysicsSettings(fg, settings);
 
     fg.d3ReheatSimulation();
   }, [settings, initialized]);

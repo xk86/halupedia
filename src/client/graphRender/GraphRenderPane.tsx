@@ -468,6 +468,16 @@ export function GraphRenderPane({
               onChange={(v) => set("chargeStrength", v)}
             />
             <Row
+              id="grr-center-strength"
+              label="Gravity"
+              value={settings.centerStrength}
+              min={0}
+              max={3}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(v) => set("centerStrength", v)}
+            />
+            <Row
               id="grr-link-distance"
               label="Link distance"
               value={settings.linkDistance}

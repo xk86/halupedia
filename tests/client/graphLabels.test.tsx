@@ -59,6 +59,21 @@ describe("graphLabels (SDF node labels)", () => {
     expect(parts(withDegrees).title.fontSize).toBeLessThan(parts(plain).title.fontSize);
   });
 
+  it("prefixes the sub-line with a kind tag when given (article/orphan/literal)", () => {
+    const withKind = makeNodeLabel("Thing", "#ffffff", 8, {
+      in: 1,
+      out: 2,
+      kind: "Literal fact",
+    });
+    expect(parts(withKind).sub?.text).toContain("Literal fact");
+    expect(parts(withKind).sub?.text).toContain("1 in");
+    expect(parts(withKind).sub?.text).toContain("2 out");
+
+    // No kind given — sub-line is just the degree counts, same as before.
+    const withoutKind = makeNodeLabel("Thing", "#ffffff", 8, { in: 1, out: 2 });
+    expect(withoutKind.userData.label.sub?.text).not.toContain("kind");
+  });
+
   it("tints the title directly and the sub-line dimmed; backdrop stays black", () => {
     const label = makeNodeLabel("Tinted", "#ff0000", 6, { in: 1, out: 1 });
     setLabelColor(label, "#00ff00");

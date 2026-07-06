@@ -1,8 +1,14 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SemanticAtlas } from "../../src/client/ontologyGraph/SemanticAtlas";
-import type { OntologyGraphPayload } from "../../src/client/ontologyGraph/types";
+import {
+  nodeKindLabel,
+  SemanticAtlas,
+} from "../../src/client/ontologyGraph/SemanticAtlas";
+import type {
+  OntologyGraphNode,
+  OntologyGraphPayload,
+} from "../../src/client/ontologyGraph/types";
 
 const metrics = {
   pagerank: 0.5,
@@ -250,5 +256,31 @@ describe("SemanticAtlas", () => {
     )!;
     expect(Number(nodeLabel.getAttribute("font-size"))).toBeLessThanOrEqual(22);
     localStorage.removeItem("halupedia:graph-render:v1");
+  });
+});
+
+describe("nodeKindLabel", () => {
+  const base: OntologyGraphNode = payload.nodes[0];
+
+  it("tags article-backed entities", () => {
+    expect(nodeKindLabel({ ...base, articleSlug: "some-article" })).toBe(
+      "Article",
+    );
+  });
+
+  it("tags entities without an article as orphans", () => {
+    expect(nodeKindLabel({ ...base, articleSlug: null })).toBe(
+      "Orphan entity",
+    );
+  });
+
+  it("tags literal-value nodes regardless of articleSlug", () => {
+    expect(
+      nodeKindLabel({
+        ...base,
+        entityType: "literal value",
+        articleSlug: null,
+      }),
+    ).toBe("Literal fact");
   });
 });

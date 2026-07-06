@@ -43,6 +43,9 @@ export interface ForceGraphLabelNode {
   title: string;
   visibleInDegree: number;
   visibleOutDegree: number;
+  /** Optional short kind tag (e.g. "Article", "Literal fact") shown
+   *  alongside the in/out degree sub-line. Link-graph nodes don't set this. */
+  kind?: string;
 }
 
 export interface ForceGraphInstance {
@@ -163,6 +166,7 @@ export function makeForceGraphNodeLabel(
   const label = makeNodeLabel(node.title, color, worldHeight, {
     in: node.visibleInDegree,
     out: node.visibleOutDegree,
+    kind: node.kind,
   });
   label.position.set(0, nodeRadius + labelWorldHeight(label) / 2 + 1, 0);
   return label;

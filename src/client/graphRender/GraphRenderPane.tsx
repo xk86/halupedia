@@ -477,30 +477,26 @@ export function GraphRenderPane({
               format={(n) => n.toFixed(0)}
               onChange={(v) => set("linkDistance", v)}
             />
-            {isLinks ? (
-              <>
-                <Row
-                  id="grr-alpha-decay"
-                  label="Alpha decay"
-                  value={settings.alphaDecay}
-                  min={0.001}
-                  max={0.06}
-                  step={0.001}
-                  format={(n) => n.toFixed(3)}
-                  onChange={(v) => set("alphaDecay", v)}
-                />
-                <Row
-                  id="grr-velocity-decay"
-                  label="Velocity decay"
-                  value={settings.velocityDecay}
-                  min={0.1}
-                  max={0.99}
-                  step={0.01}
-                  format={(n) => n.toFixed(2)}
-                  onChange={(v) => set("velocityDecay", v)}
-                />
-              </>
-            ) : null}
+            <Row
+              id="grr-alpha-decay"
+              label="Alpha decay"
+              value={settings.alphaDecay}
+              min={0.001}
+              max={0.06}
+              step={0.001}
+              format={(n) => n.toFixed(3)}
+              onChange={(v) => set("alphaDecay", v)}
+            />
+            <Row
+              id="grr-velocity-decay"
+              label="Velocity decay"
+              value={settings.velocityDecay}
+              min={0.1}
+              max={0.99}
+              step={0.01}
+              format={(n) => n.toFixed(2)}
+              onChange={(v) => set("velocityDecay", v)}
+            />
           </Section>
         ) : null}
 

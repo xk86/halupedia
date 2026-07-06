@@ -130,6 +130,15 @@ function nodeColor(
   ];
 }
 
+/** Short kind tag shown alongside node labels — distinguishes an
+ *  article-backed entity from an orphan entity (in the ontology graph but not
+ *  yet an article) from a literal fact value (materializeSemanticGraph's
+ *  synthetic literal-value nodes, which never link to an article). */
+export function nodeKindLabel(node: OntologyGraphNode): string {
+  if (node.entityType === "literal value") return "Literal fact";
+  return node.articleSlug ? "Article" : "Orphan entity";
+}
+
 function factTone(
   relation: OntologyGraphRelation,
 ): "default" | "secondary" | "outline" | "warn" {
@@ -393,6 +402,7 @@ interface ForceOntologyNode extends OntologyGraphNode {
   nodeValue: number;
   visibleInDegree: number;
   visibleOutDegree: number;
+  kind: string;
 }
 
 interface ForceOntologyLink {
@@ -474,6 +484,7 @@ function OntologyForceGraph({
         nodeValue: 1 + ((node.metrics[metric] ?? 0) / maxMetric) * 6,
         visibleInDegree: nodeDegrees.incoming,
         visibleOutDegree: nodeDegrees.outgoing,
+        kind: nodeKindLabel(node),
       };
     });
     const forceLinks: ForceOntologyLink[] = relations
@@ -585,6 +596,8 @@ function OntologyForceGraph({
       linkCurvature: settings.linkCurvature,
       chargeStrength: settings.chargeStrength,
       linkDistance: settings.linkDistance,
+      alphaDecay: settings.alphaDecay,
+      velocityDecay: settings.velocityDecay,
       labelSize: settings.labelSize,
       dynamicLabelSize: settings.dynamicLabelSize,
       labelSizeInfluence: settings.labelSizeInfluence,
@@ -600,7 +613,9 @@ function OntologyForceGraph({
           ? draw.linkWidth * 2.5
           : draw.linkWidth,
       )
-      .linkDirectionalArrowLength(draw.arrowLength);
+      .linkDirectionalArrowLength(draw.arrowLength)
+      .d3AlphaDecay(draw.alphaDecay)
+      .d3VelocityDecay(draw.velocityDecay);
     // Publish the current color settings so linkColor (registered once at
     // graph init) reads the latest values, then poke the renderer so the
     // cached per-link color is invalidated in the same frame.
@@ -1155,6 +1170,11 @@ export function SemanticAtlas({
         }
       >
         <div className="flex flex-col gap-4">
+          {/* Sticky so the canvas stays on screen while the Coverage/Facts/
+              Analysis cards and predicate/type table below it scroll into
+              view, and while the Render pane's own scroll runs independently
+              in the right column. */}
+          <div className="sticky top-4 z-10">
           {view === "3d" ? (
             <OntologyForceGraph
               nodes={renderGraph.nodes}
@@ -1192,6 +1212,7 @@ export function SemanticAtlas({
               settings={renderSettings}
             />
           )}
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card size="sm">
               <CardHeader>
@@ -1305,7 +1326,7 @@ export function SemanticAtlas({
             </Card>
           )}
         </div>
-        <div className="flex flex-col gap-4">
+        <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col gap-4 overflow-y-auto">
           {renderOpen ? (
             <GraphRenderPane
               mode="ontology"

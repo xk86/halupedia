@@ -92,9 +92,13 @@ export function makeNodeLabel(
   textContent: string,
   color: string,
   worldHeight: number = 6,
-  degrees?: { in: number; out: number },
+  degrees?: { in: number; out: number; kind?: string },
 ): NodeLabel {
-  const subText = degrees ? `↓ ${degrees.in} in   ↑ ${degrees.out} out` : null;
+  const subText = degrees
+    ? [degrees.kind, `↓ ${degrees.in} in   ↑ ${degrees.out} out`]
+        .filter(Boolean)
+        .join("   ")
+    : null;
   // Match the old canvas layout proportions: the title occupied ~72% of the
   // label height alone, ~45% when a degree sub-line is present.
   const titleSize = worldHeight * (subText ? 0.45 : 0.72);

@@ -44,12 +44,17 @@ import { SemanticAtlas } from "./ontologyGraph/SemanticAtlas";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { OntologyGraphView } from "./ontologyGraph/types";
 
 interface RawNode {
   slug: string;
@@ -81,6 +86,30 @@ interface FgNode {
 
 type ColorMode = "community" | "component";
 type GraphMode = "links" | "ontology";
+
+function GraphModeSwitch({
+  value,
+  onValueChange,
+}: {
+  value: GraphMode;
+  onValueChange: (value: GraphMode) => void;
+}) {
+  return (
+    <ToggleGroup
+      value={[value]}
+      onValueChange={(next) => {
+        if (next[0]) onValueChange(next[0] as GraphMode);
+      }}
+      variant="outline"
+      size="sm"
+      spacing={0}
+      aria-label="Graph dataset"
+    >
+      <ToggleGroupItem value="ontology">Ontology atlas</ToggleGroupItem>
+      <ToggleGroupItem value="links">Link graph</ToggleGroupItem>
+    </ToggleGroup>
+  );
+}
 
 type FilterMode = "top" | "search";
 type NeighborhoodMode = "refs" | "backlinks" | "both";
@@ -836,6 +865,8 @@ function Knob({
 const PREFS_KEY = "halupedia-graph-prefs";
 
 interface SavedPrefs {
+  graphMode: GraphMode;
+  ontologyView: OntologyGraphView;
   settings: RenderSettings;
   showHalu: boolean;
   topN: number;
@@ -872,7 +903,12 @@ export function GraphView({
 }: {
   onNavigate: (slug: string) => void;
 }) {
-  const [graphMode, setGraphMode] = useState<GraphMode>("ontology");
+  const [graphMode, setGraphMode] = useState<GraphMode>(
+    () => loadPrefs().graphMode ?? "links",
+  );
+  const [ontologyView, setOntologyView] = useState<OntologyGraphView>(
+    () => loadPrefs().ontologyView ?? "3d",
+  );
   const [rawData, setRawData] = useState<GraphData | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>(
@@ -1000,6 +1036,8 @@ export function GraphView({
   // Persist preferences whenever any user-controlled value changes (seeds are transient, not saved)
   useEffect(() => {
     savePrefs({
+      graphMode,
+      ontologyView,
       settings,
       showHalu,
       topN,
@@ -1012,6 +1050,8 @@ export function GraphView({
       pathDir,
     });
   }, [
+    graphMode,
+    ontologyView,
     settings,
     showHalu,
     topN,
@@ -2047,18 +2087,15 @@ export function GraphView({
     return (
       <div className="graph-view">
         <div className="flex items-center gap-2 border-b border-border bg-background p-3">
-          <Button size="sm" onClick={() => setGraphMode("ontology")}>
-            Ontology atlas
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setGraphMode("links")}
-          >
-            Link graph
-          </Button>
+          <GraphModeSwitch value={graphMode} onValueChange={setGraphMode} />
         </div>
-        <SemanticAtlas onNavigate={onNavigate} />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <SemanticAtlas
+            onNavigate={onNavigate}
+            view={ontologyView}
+            onViewChange={setOntologyView}
+          />
+        </div>
       </div>
     );
   }
@@ -2067,16 +2104,7 @@ export function GraphView({
     <div className="graph-view">
       {/* ── Top control bar ── */}
       <div className="graph-controls">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setGraphMode("ontology")}
-        >
-          Ontology atlas
-        </Button>
-        <Button size="sm" onClick={() => setGraphMode("links")}>
-          Link graph
-        </Button>
+        <GraphModeSwitch value={graphMode} onValueChange={setGraphMode} />
         <div className="graph-filter-tabs">
           <button
             className={filterMode === "top" ? "active" : ""}

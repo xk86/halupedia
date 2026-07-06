@@ -1,9 +1,5 @@
 import { DragControls } from "three/examples/jsm/controls/DragControls.js";
-import {
-  labelWorldHeight,
-  makeNodeLabel,
-  type NodeLabel,
-} from "./graphLabels";
+import { labelWorldHeight, makeNodeLabel, type NodeLabel } from "./graphLabels";
 
 export interface ForceGraphDrawSettings {
   nodeResolution: number;
@@ -99,12 +95,19 @@ export async function createForceGraph3D(
   element: HTMLElement,
 ): Promise<ForceGraphInstance> {
   const { default: ForceGraph3D } = await import("3d-force-graph");
-  const graph = (ForceGraph3D as any)({ controlType: "orbit" })( // eslint-disable-line @typescript-eslint/no-explicit-any
-    element,
-  ) as ForceGraphInstance;
-  // The force engine can receive settings updates before data arrives. Seed
-  // the layout so its first animation tick always has a valid graph.
+  // Configure graph data before mounting. Mounting starts the animation loop
+  // synchronously, so setting graphData after `(element)` leaves one frame
+  // where three-forcegraph can mark its engine running without a layout.
+  const graph = (ForceGraph3D as any)({
+    // eslint-disable-line @typescript-eslint/no-explicit-any
+    controlType: "orbit",
+  }) as ForceGraphInstance & ((element: HTMLElement) => void);
   graph.graphData({ nodes: [], links: [] });
+  // three-forcegraph digests its initial props on a deferred timer. Let that
+  // inner digest create the force layout before the outer renderer starts its
+  // synchronous first animation frame.
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 10));
+  graph(element);
   return graph;
 }
 

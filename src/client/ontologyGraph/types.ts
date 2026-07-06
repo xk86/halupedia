@@ -1,4 +1,6 @@
-export type OntologyGraphSource = "curated" | "extracted" | "infobox" | "inferred";
+export type OntologyGraphSource =
+  "curated" | "extracted" | "infobox" | "inferred";
+export type OntologyGraphView = "3d" | "tree";
 
 export interface OntologyGraphNode {
   id: string;

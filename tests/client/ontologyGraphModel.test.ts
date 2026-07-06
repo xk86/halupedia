@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   layoutSemanticNodes,
   layoutSemanticTreeNodes,
+  materializeSemanticGraph,
   projectSemanticGraph,
 } from "../../src/client/ontologyGraph/model";
 import type { OntologyGraphPayload } from "../../src/client/ontologyGraph/types";
@@ -129,7 +130,9 @@ describe("ontology graph projection", () => {
 
     expect(projection.nodes.map((node) => node.id)).toEqual(["1", "2"]);
     expect(projection.relations.map((relation) => relation.id)).toEqual(["10"]);
-    expect(projection.literalRelations.map((relation) => relation.id)).toEqual(["11"]);
+    expect(projection.literalRelations.map((relation) => relation.id)).toEqual([
+      "11",
+    ]);
   });
 
   test("honors predicate and query filters", () => {
@@ -190,6 +193,31 @@ describe("ontology graph projection", () => {
     expect(projection.literalRelations).toEqual([]);
   });
 
+  test("materializes literal facts as bounded graph leaves", () => {
+    const projection = projectSemanticGraph(payload, {
+      lens: "relations",
+      query: "",
+      predicate: "headquartered_in",
+      entityType: "all",
+      sourceKind: "infobox",
+      metric: "pagerank",
+      limit: 10,
+      showLiteralFacts: true,
+    });
+    const rendered = materializeSemanticGraph(projection, 2);
+
+    expect(rendered.nodes.map((node) => node.id)).toEqual(["1", "literal:11"]);
+    expect(rendered.relations).toEqual([
+      expect.objectContaining({ id: "11", target: "literal:11" }),
+    ]);
+    expect(rendered.nodes[1]).toEqual(
+      expect.objectContaining({
+        label: "Nowhere",
+        entityType: "literal value",
+      }),
+    );
+  });
+
   test("layout is deterministic and radius follows the chosen metric", () => {
     const positioned = layoutSemanticNodes(payload.nodes, "pagerank", 0.8);
 
@@ -213,11 +241,13 @@ describe("ontology graph projection", () => {
     expect(root.depth).toBe(0);
     expect(child.depth).toBe(1);
     expect(child.y).toBeGreaterThan(root.y);
-    expect(layoutSemanticTreeNodes(
-      payload.nodes,
-      payload.relations.filter((relation) => relation.target !== null),
-      "pagerank",
-      0.8,
-    )).toEqual(positioned);
+    expect(
+      layoutSemanticTreeNodes(
+        payload.nodes,
+        payload.relations.filter((relation) => relation.target !== null),
+        "pagerank",
+        0.8,
+      ),
+    ).toEqual(positioned);
   });
 });

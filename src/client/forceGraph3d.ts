@@ -1,4 +1,5 @@
 import { DragControls } from "three/examples/jsm/controls/DragControls.js";
+import { forceManyBody } from "d3-force-3d";
 import { labelWorldHeight, makeNodeLabel, type NodeLabel } from "./graphLabels";
 
 export interface ForceGraphDrawSettings {
@@ -56,6 +57,16 @@ export interface ForceGraphInstance {
   [key: string]: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
+interface ForceGraphPhysicsNode {
+  componentId?: number;
+  x: number;
+  y: number;
+  z?: number;
+  vx: number;
+  vy: number;
+  vz?: number;
+}
+
 let dragControlsPatched = false;
 
 function patchDragControls(): void {
@@ -96,6 +107,55 @@ function patchDragControls(): void {
 
 patchDragControls();
 
+function createComponentChargeForce(initialStrength: number) {
+  let currentStrength = initialStrength;
+  let currentNodes: ForceGraphPhysicsNode[] = [];
+  let currentRandom: (() => number) | undefined;
+  let currentDimensions = 2;
+  let componentForces: Array<(alpha: number) => void> = [];
+
+  const rebuild = () => {
+    const groups = new Map<number, ForceGraphPhysicsNode[]>();
+    for (const node of currentNodes) {
+      const key = node.componentId ?? -1;
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(node);
+      else groups.set(key, [node]);
+    }
+    componentForces = [];
+    for (const nodes of groups.values()) {
+      if (nodes.length < 2) continue;
+      const force = forceManyBody().strength(currentStrength);
+      force.initialize(nodes, currentRandom ?? Math.random, currentDimensions);
+      componentForces.push(force);
+    }
+  };
+
+  const force = (alpha: number) => {
+    for (const componentForce of componentForces) componentForce(alpha);
+  };
+
+  force.initialize = (
+    nodes: ForceGraphPhysicsNode[],
+    random?: () => number,
+    dimensions?: number,
+  ) => {
+    currentNodes = nodes;
+    currentRandom = random;
+    currentDimensions = dimensions ?? 2;
+    rebuild();
+  };
+
+  force.strength = (next?: number) => {
+    if (next === undefined) return currentStrength;
+    currentStrength = next;
+    rebuild();
+    return force;
+  };
+
+  return force;
+}
+
 export async function createForceGraph3D(
   element: HTMLElement,
 ): Promise<ForceGraphInstance> {
@@ -107,6 +167,9 @@ export async function createForceGraph3D(
     // eslint-disable-line @typescript-eslint/no-explicit-any
     controlType: "orbit",
   }) as ForceGraphInstance & ((element: HTMLElement) => void);
+  graph.d3Force("charge", createComponentChargeForce(
+    DEFAULT_FORCE_GRAPH_DRAW_SETTINGS.chargeStrength,
+  ));
   graph.graphData({ nodes: [], links: [] });
   // three-forcegraph digests its initial props on a deferred timer. Let that
   // inner digest create the force layout before the outer renderer starts its

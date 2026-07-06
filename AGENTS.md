@@ -1,6 +1,6 @@
 # AGENTS
 
-This file is for future Codex and Claude sessions working in this fork of Halupedia. Treat it as the local operating manual for the project as it exists here, not as a generic upstream summary.
+This file is for future coding agents, such as Codex or Claude, sessions working in this fork of Halupedia. Treat it as the local operating manual for the project as it exists here, not as a generic upstream summary.
 
 Never commit examples copied from local databases, debug logs, traces, or generated articles. Local content may contain private, noisy, or deliberately odd material that must not become public test data, docs, or prompt guidance.
 
@@ -121,3 +121,10 @@ Before finishing work when code changes were made:
 - Test: `npm test`
 
 Default expectation for future Codex work in this repo: make the smallest coherent change, keep it modular, expose prompt text through TOML, and leave behind tests that prove the behavior.
+
+- make modular commits based on what you've done per-feature
+- adapt existing functions/libraries for standard functions
+- for frontend code: 
+  - use shadcn/ui baseui derived components before writing your own
+  - don't write custom css‑use class selectors for theme compatibility
+  - prefer information dense displays with graphical+numerical/textual representations of information

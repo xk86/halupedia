@@ -147,22 +147,24 @@ export async function deriveLlmExtraction(db: DatabaseSync, vocab: OntologyVocab
     resolvedRole = prompt.model === "heavy" ? "heavy" : "light";
     thinking = prompt.thinking;
     jsonMode = prompt.json;
-    const userPrompt = renderTemplate(prompt.user, {
+    const templateVars = {
       requested_title: title,
       entity_types: [...vocab.entityTypes].join(", "),
       predicates: describePredicates(vocab),
       existing_facts: describeExistingFacts(db, article.slug),
       article_body: body.slice(0, 12000),
-    });
-    promptText = `### System\n${prompt.system}\n\n### User\n${userPrompt}`;
-    promptChars = prompt.system.length + userPrompt.length;
+    };
+    const systemPrompt = renderTemplate(prompt.system, templateVars);
+    const userPrompt = renderTemplate(prompt.user, templateVars);
+    promptText = `### System\n${systemPrompt}\n\n### User\n${userPrompt}`;
+    promptChars = systemPrompt.length + userPrompt.length;
     metadata = options.llm.metadataFor?.(resolvedRole);
     options.logger?.info?.("ontology.llm_extract", {
       slug: article.slug,
       model: resolvedRole,
       reason,
     });
-    const raw = await options.llm.chat(resolvedRole, prompt.system, userPrompt, {
+    const raw = await options.llm.chat(resolvedRole, systemPrompt, userPrompt, {
       thinking,
       jsonMode,
     });

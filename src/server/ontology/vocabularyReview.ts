@@ -211,14 +211,15 @@ export async function runOntologyVocabularyReview(
 ): Promise<{ stats: VocabularyReviewStats; proposals: VocabularyReviewProposals }> {
   const stats = getVocabularyReviewStats(db, vocab);
   const prompt = getPrompt(options.prompts, "ontology_vocabulary_review");
+  const templateVars = {
+    entity_types: [...vocab.entityTypes].join(", "),
+    existing_predicates: describeExistingPredicates(stats.predicates),
+    unmapped_labels: describeUnmappedLabels(stats.unmappedLabels),
+  };
   const raw = await options.llm.chat(
     prompt.model === "heavy" ? "heavy" : "light",
-    prompt.system,
-    renderTemplate(prompt.user, {
-      entity_types: [...vocab.entityTypes].join(", "),
-      existing_predicates: describeExistingPredicates(stats.predicates),
-      unmapped_labels: describeUnmappedLabels(stats.unmappedLabels),
-    }),
+    renderTemplate(prompt.system, templateVars),
+    renderTemplate(prompt.user, templateVars),
     { thinking: prompt.thinking, jsonMode: prompt.json },
   );
   const parsed = parseJsonLoose(raw);

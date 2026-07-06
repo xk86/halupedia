@@ -51,4 +51,28 @@ describe("ArticleOntology suggestions", () => {
       );
     });
   });
+
+  it("does not blank when inference returns the legacy preview shape", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return new Response(
+            JSON.stringify({ proposed: [], raw: [], called: true }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify(payload), { status: 200 });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ArticleOntology slug="subject" onNavigate={() => undefined} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Suggest facts" }),
+    );
+
+    expect(await screen.findByText("structural change")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/article/subject/ontology");
+  });
 });

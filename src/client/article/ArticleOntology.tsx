@@ -80,6 +80,19 @@ interface OntologySuggestion {
   validated: boolean;
 }
 
+function normalizeOntologyPayload(
+  payload: Partial<OntologyPayload> | null,
+): OntologyPayload | null {
+  if (!payload) return null;
+  return {
+    entityType: payload.entityType ?? null,
+    facts: Array.isArray(payload.facts) ? payload.facts : [],
+    identifiers: Array.isArray(payload.identifiers) ? payload.identifiers : [],
+    categories: Array.isArray(payload.categories) ? payload.categories : [],
+    suggestions: Array.isArray(payload.suggestions) ? payload.suggestions : [],
+  };
+}
+
 export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const [data, setData] = useState<OntologyPayload | null>(null);
   const [predicates, setPredicates] = useState<Predicate[]>([]);
@@ -104,23 +117,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
       .then((r) => (r.ok ? r.json() : null))
       .then((payload: Partial<OntologyPayload> | null) => {
         if (cancelled) return;
-        setData(
-          payload
-            ? {
-                entityType: payload.entityType ?? null,
-                facts: Array.isArray(payload.facts) ? payload.facts : [],
-                identifiers: Array.isArray(payload.identifiers)
-                  ? payload.identifiers
-                  : [],
-                categories: Array.isArray(payload.categories)
-                  ? payload.categories
-                  : [],
-                suggestions: Array.isArray(payload.suggestions)
-                  ? payload.suggestions
-                  : [],
-              }
-            : null,
-        );
+        setData(normalizeOntologyPayload(payload));
       })
       .catch(() => {
         if (!cancelled) setData(null);
@@ -164,7 +161,11 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         setError(body.error ?? "Could not add fact");
         return;
       }
-      setData((await res.json()) as OntologyPayload);
+      setData(
+        normalizeOntologyPayload(
+          (await res.json()) as Partial<OntologyPayload>,
+        ),
+      );
       setDraft(emptyDraft);
     } finally {
       setBusy(false);
@@ -178,7 +179,13 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
       setError(null);
       try {
         const res = await fetch(`${apiBase}/facts/${id}`, { method: "DELETE" });
-        if (res.ok) setData((await res.json()) as OntologyPayload);
+        if (res.ok) {
+          setData(
+            normalizeOntologyPayload(
+              (await res.json()) as Partial<OntologyPayload>,
+            ),
+          );
+        }
       } finally {
         setBusy(false);
       }
@@ -208,7 +215,11 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           setError(b.error ?? "Could not update fact");
           return;
         }
-        setData((await res.json()) as OntologyPayload);
+        setData(
+          normalizeOntologyPayload(
+            (await res.json()) as Partial<OntologyPayload>,
+          ),
+        );
         setEditingFactId(null);
         setEditDraft(emptyDraft);
       } finally {
@@ -240,7 +251,16 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         setError(b.error ?? "Inference failed");
         return;
       }
-      setData((await res.json()) as OntologyPayload);
+      const refreshed = await fetch(apiBase);
+      if (!refreshed.ok) {
+        setError("Suggestions finished, but the ontology could not be reloaded");
+        return;
+      }
+      setData(
+        normalizeOntologyPayload(
+          (await refreshed.json()) as Partial<OntologyPayload>,
+        ),
+      );
     } catch {
       setError("Inference request failed");
     } finally {
@@ -260,7 +280,11 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           body: JSON.stringify(ids ? { ids } : {}),
         });
         if (res.ok) {
-          setData((await res.json()) as OntologyPayload);
+          setData(
+            normalizeOntologyPayload(
+              (await res.json()) as Partial<OntologyPayload>,
+            ),
+          );
         }
       } finally {
         setBusy(false);
@@ -278,7 +302,13 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           ? `${apiBase}/suggestions/${id}`
           : `${apiBase}/suggestions`;
         const res = await fetch(url, { method: "DELETE" });
-        if (res.ok) setData((await res.json()) as OntologyPayload);
+        if (res.ok) {
+          setData(
+            normalizeOntologyPayload(
+              (await res.json()) as Partial<OntologyPayload>,
+            ),
+          );
+        }
       } finally {
         setBusy(false);
       }

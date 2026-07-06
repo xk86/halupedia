@@ -239,6 +239,7 @@ import {
 import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
 import { regenerateSummaryWorkflow } from "./pipeline/workflows/utilities";
 import { randomPageWorkflow } from "./pipeline/workflows/randomPage";
+import { ontologyInferWorkflow } from "./pipeline/workflows/ontologyInfer";
 import { articleImageGenerationWorkflow } from "./pipeline/workflows/articleImageGeneration";
 import type { LiveLlmUpdate, PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
@@ -5075,58 +5076,28 @@ export async function createApp(options: CreateAppOptions = {}) {
     const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
     const slug = article.slug;
-    const full = getArticle(db, slug);
-    if (!full) return c.json({ error: "article not found" }, 404);
 
-    ensureArticleOntologyFresh(db, slug, rag.vocab);
     try {
-      // Bust the LLM cache so the user-triggered inference always makes a fresh
-      // model call instead of returning a stale/empty cached result.
-      db.prepare(`DELETE FROM ontology_llm_cache WHERE article_slug = ?`).run(slug);
-
-      const outcome = await deriveLlmExtraction(db, rag.vocab, full, {
-        llm,
-        prompts: runtime.prompts,
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const result = await runWorkflow(ontologyInferWorkflow, {
+        input: { requestId: randomUUID(), workflow: "ontology.infer", slug },
+        deps: buildPipelineDeps(),
+        recorder,
         logger,
       });
-      const { facts: existing } = listArticleEntityFacts(db, slug);
-      const existingKeys = new Set(
-        existing.map((f) => `${f.predicate}\0${f.object}`),
-      );
-      const proposed = outcome.extraction.relations
-        .filter((r) => r.predicate !== "is_a")
-        .map((r) => ({
-          predicate: r.predicate,
-          label: rag.vocab.predicates.get(r.predicate)?.label ?? r.predicate.replace(/_/g, " "),
-          object: r.object,
-          source: r.source,
-          isNew: !existingKeys.has(`${r.predicate}\0${r.object}`),
-        }));
-      // When vocabulary-validated relations are empty but the LLM did return
-      // raw relations, surface them as unvalidated suggestions so the user
-      // can still see what the LLM found and manually add facts.
-      let raw: Array<{ predicate: string; label: string; object: string; source: string; isNew: boolean }> = [];
-      if (proposed.filter((p) => p.isNew).length === 0 && outcome.rawParsed) {
-        const parsed = outcome.rawParsed as Record<string, unknown>;
-        const rawRelations = Array.isArray(parsed.relations) ? parsed.relations : [];
-        raw = rawRelations
-          .filter((r: any) => r && typeof r === "object" && r.predicate !== "is_a")
-          .map((r: any) => ({
-            predicate: String(r.predicate ?? ""),
-            label: String(r.predicate ?? "").replace(/_/g, " "),
-            object: String(r.object ?? ""),
-            source: "llm",
-            isNew: !existingKeys.has(`${r.predicate}\0${r.object}`),
-          }))
-          .filter((r: any) => r.predicate && r.object && r.isNew);
-      }
+
+      if (result.status === "error") throw result.error ?? new Error("ontology inference failed");
+
+      const extraction = (result.state as any).ontologyExtraction;
+      if (!extraction) return c.json({ error: "no extraction result" }, 500);
+
       return c.json({
-        proposed,
-        raw,
-        reason: outcome.reason,
-        called: outcome.called,
-        entities: outcome.extraction.entities.length,
-        categories: outcome.extraction.categories,
+        proposed: extraction.proposed ?? [],
+        raw: extraction.raw ?? [],
+        reason: extraction.llmReason ?? "unknown",
+        called: extraction.called ?? false,
+        entities: extraction.entities ?? 0,
+        categories: extraction.extraction?.categories ?? [],
       });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "LLM error" }, 500);

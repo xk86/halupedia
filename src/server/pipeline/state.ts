@@ -320,6 +320,7 @@ export const PipelineStateSchema = z.object({
       categories: z.number(),
       llmEnabled: z.boolean(),
       llmReason: z.string().optional(),
+      called: z.boolean().optional(),
       extraction: z
         .object({
           entities: z.array(
@@ -349,6 +350,20 @@ export const PipelineStateSchema = z.object({
           categories: z.array(z.string()),
         })
         .optional(),
+      proposed: z.array(z.object({
+        predicate: z.string(),
+        label: z.string(),
+        object: z.string(),
+        source: z.string(),
+        isNew: z.boolean(),
+      })).optional(),
+      raw: z.array(z.object({
+        predicate: z.string(),
+        label: z.string(),
+        object: z.string(),
+        source: z.string(),
+        isNew: z.boolean(),
+      })).optional(),
     })
     .optional(),
 

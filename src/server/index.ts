@@ -123,8 +123,9 @@ import { parseArticleFrameOutput, parsePartialArticleFrame } from "./articleFram
 export { parseArticleFrameOutput, parsePartialArticleFrame } from "./articleFrame";
 import { registerPipelineAdminRoutes } from "./pipeline/adminRoutes";
 import { buildPromptRegistry } from "./pipeline/prompts/registry";
-import { runWorkflow } from "./pipeline/runtime/graph";
+import { queueWorkflow } from "./pipeline/runtime/graph";
 import { getTraceRecorder } from "./pipeline/runtime/trace";
+import { getLiveRunRegistry } from "./pipeline/runtime/liveRegistry";
 import { generateArticleWorkflow } from "./pipeline/workflows/generateArticle";
 import { refreshArticleWorkflow } from "./pipeline/workflows/refreshArticle";
 import { rewriteArticleWorkflow } from "./pipeline/workflows/rewriteArticle";
@@ -516,9 +517,9 @@ function sampleRandomInspirationArticles(db: ReturnType<typeof openDatabase>, co
   return articles;
 }
 
-async function ensureHomepageCache(deps: PipelineDeps, onNode?: (nodeName: string, nodeKind: string) => void): Promise<HomepagePayload> {
+async function ensureHomepageCache(deps: PipelineDeps): Promise<HomepagePayload> {
   const recorder = getTraceRecorder(deps.runtime.app.pipeline.trace);
-  const result = await runWorkflow(homepageRefreshWorkflow, {
+  const result = await queueWorkflow(homepageRefreshWorkflow, {
     input: {
       requestId: randomUUID(),
       workflow: "homepage.refresh",
@@ -528,7 +529,7 @@ async function ensureHomepageCache(deps: PipelineDeps, onNode?: (nodeName: strin
     deps,
     recorder,
     logger: deps.logger,
-    onNode,
+    origin: "maintenance",
   });
   if (result.status !== "ok") {
     throw result.error ?? new Error("homepage refresh workflow failed");
@@ -832,22 +833,14 @@ export async function createApp(options: CreateAppOptions = {}) {
   let activeArticleGenerations = 0;
   const articleGenerationWaiters: Array<() => void> = [];
   // Tracks any active non-generate workflow (refresh, rewrite, post_process) per slug.
-  interface ActiveOperationEntry {
-    slug: string;
-    title: string;
-    workflow: string;
-    phase: string;
-    startedAt: number;
-    /** Live model chain-of-thought, accumulated as the LLM streams it. */
-    reasoning?: string;
-    llmViews: Map<string, LiveLlmView>;
-  }
   interface LiveLlmView {
     node: string;
     reasoning?: string;
     response?: string;
   }
-  const activeOperations = new Map<string, ActiveOperationEntry>();
+  // Process-wide live index of every queued/running workflow, populated
+  // automatically by `queueWorkflow` — see pipeline/runtime/liveRegistry.ts.
+  const liveRunRegistry = getLiveRunRegistry();
   let generationSeq = 0;
   const inFlightEdits = new Set<string>(); // Track slugs with in-flight edits to prevent stale overwrites
 
@@ -904,6 +897,23 @@ export async function createApp(options: CreateAppOptions = {}) {
       } catch {}
     }
   }
+
+  // Push every workflow's queued/running/phase/done transitions onto that
+  // slug's live NDJSON stream — this is what lets an article page show "in
+  // process" state for *any* workflow (ontology inference, rewrite, refresh,
+  // post-process, image generation, ...) without each route wiring its own
+  // sidecar push.
+  liveRunRegistry.onChange(({ kind, entry }) => {
+    if (!entry.slug) return;
+    notifySidecar(entry.slug, {
+      type: "workflow",
+      runId: entry.runId,
+      workflow: entry.workflow,
+      phase: entry.phase,
+      state: entry.state,
+      done: kind === "done",
+    });
+  });
 
   const maintenance = new MaintenanceScheduler(logger);
 
@@ -1036,8 +1046,6 @@ export async function createApp(options: CreateAppOptions = {}) {
   function recordLiveReasoning(slug: string, accumulated: string) {
     const gen = slugGenerations.get(slug);
     if (gen) gen.reasoning = accumulated;
-    const op = activeOperations.get(slug);
-    if (op) op.reasoning = accumulated;
   }
 
   const LIVE_LLM_TEXT_TAIL_CHARS = 24_000;
@@ -1058,46 +1066,63 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
     const generation = slugGenerations.get(update.slug);
     if (generation) write(generation.llmViews);
-    const operation = activeOperations.get(update.slug);
-    if (operation) write(operation.llmViews);
   }
 
   function generationQueuePayload() {
     const now = Date.now();
     const generating = [...slugGenerations.values()]
       .sort((a, b) => (a.startedAt ?? a.queuedAt) - (b.startedAt ?? b.queuedAt))
+      .map((entry) => {
+        // slugGenerations tracks HTTP client join/dedup, not the workflow run
+        // itself — look the runId up in the registry so the client can fetch
+        // this run's live node trace (/api/admin/pipeline/runs/:runId) while
+        // it's still executing.
+        const registryEntry = liveRunRegistry
+          .getBySlug(entry.slug)
+          .find((r) => r.workflow === "article.generate");
+        return {
+          slug: entry.slug,
+          title: entry.title,
+          seq: entry.seq,
+          runId: registryEntry?.runId,
+          queuedAt: entry.queuedAt,
+          startedAt: entry.startedAt,
+          queuedMs: Math.max(0, (entry.startedAt ?? now) - entry.queuedAt),
+          activeMs: entry.startedAt ? Math.max(0, now - entry.startedAt) : 0,
+          waiting: entry.waiting,
+          workflow: entry.workflow,
+          phase: entry.phase,
+          state: entry.state,
+          reasoning: liveCot(entry.reasoning),
+          views: [...entry.llmViews.values()],
+        };
+      });
+    // Every non-generate workflow (rewrite, refresh, post-process, image
+    // generation, ontology inference, homepage refresh, maintenance, ...) is
+    // registered automatically by `queueWorkflow` — nothing here has to
+    // remember to opt in. `article.generate` runs are excluded because
+    // they're already covered above via `slugGenerations` (which also
+    // tracks HTTP client join/dedup, not just workflow phase).
+    const updating = liveRunRegistry
+      .snapshot()
+      .filter((entry) => !(entry.slug && slugGenerations.has(entry.slug)))
       .map((entry) => ({
-        slug: entry.slug,
-        title: entry.title,
-        seq: entry.seq,
+        slug: entry.slug ?? "",
+        title: entry.title ?? entry.slug ?? entry.workflow,
+        seq: -1,
+        runId: entry.runId,
         queuedAt: entry.queuedAt,
         startedAt: entry.startedAt,
-        queuedMs: Math.max(0, (entry.startedAt ?? now) - entry.queuedAt),
-        activeMs: entry.startedAt ? Math.max(0, now - entry.startedAt) : 0,
-        waiting: entry.waiting,
+        queuedMs: entry.queuedMs,
+        activeMs: entry.activeMs,
+        waiting: 0,
         workflow: entry.workflow,
         phase: entry.phase,
         state: entry.state,
         reasoning: liveCot(entry.reasoning),
-        views: [...entry.llmViews.values()],
-      }));
-    const updating = [...activeOperations.values()]
-      .filter((op) => !slugGenerations.has(op.slug))
-      .sort((a, b) => a.startedAt - b.startedAt)
-      .map((op) => ({
-        slug: op.slug,
-        title: op.title,
-        seq: -1,
-        queuedAt: op.startedAt,
-        startedAt: op.startedAt,
-        queuedMs: 0,
-        activeMs: Math.max(0, Date.now() - op.startedAt),
-        waiting: 0,
-        workflow: op.workflow,
-        phase: op.phase,
-        state: "processing",
-        reasoning: liveCot(op.reasoning),
-        views: [...op.llmViews.values()],
+        views: entry.views,
+        parentRunId: entry.parentRunId,
+        origin: entry.origin,
       }));
     return {
       maxInFlight: articleGenerationLimit(),
@@ -1105,44 +1130,6 @@ export async function createApp(options: CreateAppOptions = {}) {
       queued: articleGenerationWaiters.length,
       items: [...generating, ...updating],
     };
-  }
-
-  /**
-   * Register a non-generate workflow in the active-operations map so it
-   * shows up in the generation queue. Returns an onNode callback to pass
-   * to runWorkflow, and a register() function to attach the real promise
-   * for cleanup once it is available.
-   */
-  function trackActiveOperation(
-    slug: string,
-    title: string,
-    workflow: string,
-  ): {
-    onNode: (nodeName: string) => void;
-    register: (p: Promise<unknown>) => void;
-  } {
-    const op: ActiveOperationEntry = {
-      slug,
-      title,
-      workflow,
-      phase: "starting",
-      startedAt: Date.now(),
-      llmViews: new Map(),
-    };
-    activeOperations.set(slug, op);
-    const onNode = (nodeName: string) => {
-      if (activeOperations.get(slug) === op) op.phase = nodeName;
-      const gen = slugGenerations.get(slug);
-      if (gen) gen.phase = nodeName;
-    };
-    const register = (p: Promise<unknown>) => {
-      void p
-        .finally(() => {
-          if (activeOperations.get(slug) === op) activeOperations.delete(slug);
-        })
-        .catch(() => {});
-    };
-    return { onNode, register };
   }
 
   /**
@@ -1539,7 +1526,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     const recorder = getTraceRecorder(runtime.app.pipeline.trace);
     const genEntry = slugGenerations.get(slug);
-    const result = await runWorkflow(generateArticleWorkflow, {
+    const result = await queueWorkflow(generateArticleWorkflow, {
       input: {
         requestId: randomUUID(),
         workflow: "article.generate",
@@ -1552,6 +1539,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       }),
       recorder,
       logger,
+      origin: "http",
       onNode: (nodeName) => {
         if (genEntry) {
           genEntry.phase = nodeName;
@@ -1578,8 +1566,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     indexArticleNow(canonicalSlug);
 
     // Post-process async: link repair, see-also, summary, RAG indexing.
-    const ppOp = trackActiveOperation(canonicalSlug, requestedTitle, "article.post_process");
-    const ppPromise = runWorkflow(postProcessWorkflow, {
+    const ppPromise = queueWorkflow(postProcessWorkflow, {
       input: {
         requestId: randomUUID(),
         workflow: "article.post_process",
@@ -1591,9 +1578,9 @@ export async function createApp(options: CreateAppOptions = {}) {
       }),
       recorder,
       logger,
-      onNode: ppOp.onNode,
+      origin: "post_process_auto",
+      parentRunId: result.runId,
     }).catch(() => {});
-    ppOp.register(ppPromise);
     trackGeneration(ppPromise);
     queueAutoArticleImageAfterPostProcess(canonicalSlug, ppPromise);
 
@@ -1620,9 +1607,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         return;
       }
       const title = getArticleByLookup(db, articleSlug)?.title ?? articleSlug;
-      const imageOp = trackActiveOperation(articleSlug, title, "article.image_generate");
-      const workflowPromise = runArticleImageGenerationWorkflow(articleSlug, false, "auto", "auto", title, imageOp.onNode);
-      imageOp.register(workflowPromise);
+      const workflowPromise = runArticleImageGenerationWorkflow(articleSlug, false, "auto", "auto", title, "post_process_auto");
       logger.info("article_image.auto_queued", { slug: articleSlug });
       try {
         await workflowPromise;
@@ -1679,9 +1664,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     homepageFeaturedImageQueued.add(featured.slug);
     homepageFeaturedImageAttempts.set(featured.slug, previousAttempts + 1);
     const title = article.title ?? featured.title ?? featured.slug;
-    const imageOp = trackActiveOperation(featured.slug, title, "article.image_generate");
-    const imagePromise = runArticleImageGenerationWorkflow(featured.slug, false, "auto", "auto", title, imageOp.onNode);
-    imageOp.register(imagePromise);
+    const imagePromise = runArticleImageGenerationWorkflow(featured.slug, false, "auto", "auto", title, "homepage_auto");
     logger.info("homepage_featured_image.auto_queued", { slug: featured.slug });
     trackGeneration(
       imagePromise
@@ -1749,9 +1732,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     homepageNewsImageQueued.add(news.slug);
     homepageNewsImageAttempts.set(news.slug, previousAttempts + 1);
     const title = article.title ?? news.title ?? news.slug;
-    const imageOp = trackActiveOperation(news.slug, title, "article.image_generate");
-    const imagePromise = runArticleImageGenerationWorkflow(news.slug, false, "broadcast_news_still", "landscape", title, imageOp.onNode);
-    imageOp.register(imagePromise);
+    const imagePromise = runArticleImageGenerationWorkflow(news.slug, false, "broadcast_news_still", "landscape", title, "homepage_auto");
     logger.info("homepage_news_image.auto_queued", { slug: news.slug });
     trackGeneration(
       imagePromise
@@ -1810,10 +1791,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         });
         try {
           await reloadRuntime();
-          const homepageOp = trackActiveOperation("homepage", "Homepage", "homepage.refresh");
-          const homepagePromise = ensureHomepageCache(buildPipelineDeps(), homepageOp.onNode);
-          homepageOp.register(homepagePromise);
-          const payload = await homepagePromise;
+          const payload = await ensureHomepageCache(buildPipelineDeps());
           queueHomepageFeaturedImageIfMissing(payload.featured);
           queueHomepageNewsImageIfMissing(payload.todaysNews);
           logger.info("homepage.refresh_done", {
@@ -2015,7 +1993,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         "random article inspiration titles": inspiration.map((a) => `${a.title} (${a.slug})`).join(", "),
       });
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-      const result = await runWorkflow(randomPageWorkflow, {
+      const result = await queueWorkflow(randomPageWorkflow, {
         input: {
           requestId: randomUUID(),
           workflow: "random.page",
@@ -2025,6 +2003,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         deps: buildPipelineDeps(),
         recorder,
         logger,
+        origin: "http",
       });
       if (result.status !== "ok" || !result.state.randomPageChoice) {
         throw result.error ?? new Error("random page workflow failed");
@@ -2159,11 +2138,11 @@ export async function createApp(options: CreateAppOptions = {}) {
         // Auto-sidebar: fire post-process in the background on first view if
         // the article has no infobox yet (e.g. imported or created before
         // post-process ran). Tracked so it only fires once per server session.
-        if (!getArticleInfobox(db, record.slug) && !autoPostProcessed.has(record.slug) && !activeOperations.has(record.slug)) {
+        if (!getArticleInfobox(db, record.slug) && !autoPostProcessed.has(record.slug) && liveRunRegistry.getBySlug(record.slug).length === 0) {
           autoPostProcessed.add(record.slug);
           logger.info("page.auto_post_process", { slug: record.slug });
           trackGeneration(
-            runWorkflow(postProcessWorkflow, {
+            queueWorkflow(postProcessWorkflow, {
               input: {
                 requestId: randomUUID(),
                 workflow: "article.post_process",
@@ -2173,6 +2152,7 @@ export async function createApp(options: CreateAppOptions = {}) {
               deps: buildPipelineDeps(),
               recorder: getTraceRecorder(runtime.app.pipeline.trace),
               logger,
+              origin: "post_process_auto",
             }).catch(() => {}),
           );
         }
@@ -2545,7 +2525,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     try {
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-      const result = await runWorkflow(rawSaveArticleWorkflow, {
+      const result = await queueWorkflow(rawSaveArticleWorkflow, {
         input: {
           requestId: randomUUID(),
           workflow: "article.raw_save",
@@ -2559,6 +2539,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         deps: buildPipelineDeps(),
         recorder,
         logger,
+        origin: "http",
       });
       if (result.status === "error") {
         throw result.error ?? new Error("raw save workflow failed");
@@ -2727,7 +2708,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       const refLink = `[${wrapRange.visibleLabel}](ref:${existingArticle.slug})`;
       const nextMarkdown = stripSelfLinks(article.markdown.slice(0, wrapRange.start) + refLink + article.markdown.slice(wrapRange.end), article.slug);
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-      const result = await runWorkflow(addLinkArticleWorkflow, {
+      const result = await queueWorkflow(addLinkArticleWorkflow, {
         input: {
           requestId: randomUUID(),
           workflow: "article.add_link",
@@ -2740,6 +2721,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         deps: buildPipelineDeps(),
         recorder,
         logger,
+        origin: "http",
       });
       if (result.status === "error") {
         throw result.error ?? new Error("add-link workflow failed");
@@ -2795,7 +2777,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const nextMarkdown = stripSelfLinks(article.markdown.slice(0, wrapRange.start) + wrapped + article.markdown.slice(wrapRange.end), article.slug);
 
     const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-    const result = await runWorkflow(addLinkArticleWorkflow, {
+    const result = await queueWorkflow(addLinkArticleWorkflow, {
       input: {
         requestId: randomUUID(),
         workflow: "article.add_link",
@@ -2807,6 +2789,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       deps: buildPipelineDeps(),
       recorder,
       logger,
+      origin: "http",
     });
     if (result.status === "error") {
       throw result.error ?? new Error("add-link workflow failed");
@@ -3061,8 +3044,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         const onProgress = (html: string, markdown: string) => {
           send?.({ type: "progress", html, markdown });
         };
-        const rewriteOp = trackActiveOperation(article.slug, article.title, "article.rewrite");
-        const result = await runWorkflow(rewriteArticleWorkflow, {
+        const result = await queueWorkflow(rewriteArticleWorkflow, {
           input: rewriteInput,
           deps: buildPipelineDeps({
             onProgress,
@@ -3070,16 +3052,14 @@ export async function createApp(options: CreateAppOptions = {}) {
           }),
           recorder,
           logger,
-          onNode: rewriteOp.onNode,
+          origin: "http",
         });
-        rewriteOp.register(Promise.resolve());
         if (result.status === "error") throw result.error ?? new Error("rewrite failed");
 
         const updatedSlug = result.state.canonicalSlug ?? article.slug;
         invalidateArticleHtml(updatedSlug);
 
-        const ppRewriteOp = trackActiveOperation(updatedSlug, article.title, "article.post_process");
-        const ppRewritePromise = runWorkflow(postProcessWorkflow, {
+        const ppRewritePromise = queueWorkflow(postProcessWorkflow, {
           input: {
             requestId: randomUUID(),
             workflow: "article.post_process",
@@ -3090,9 +3070,9 @@ export async function createApp(options: CreateAppOptions = {}) {
           deps: buildPipelineDeps(),
           recorder,
           logger,
-          onNode: ppRewriteOp.onNode,
+          origin: "post_process_auto",
+          parentRunId: result.runId,
         }).catch(() => {});
-        ppRewriteOp.register(ppRewritePromise);
         trackGeneration(ppRewritePromise);
 
         const updatedRecord = getArticleByLookup(db, updatedSlug);
@@ -3177,8 +3157,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         send?.({ type: "progress", html, markdown });
       };
 
-      const refreshOp = trackActiveOperation(article.slug, article.title, "article.refresh");
-      const result = await runWorkflow(refreshArticleWorkflow, {
+      const result = await queueWorkflow(refreshArticleWorkflow, {
         input: {
           requestId: randomUUID(),
           workflow: "article.refresh",
@@ -3192,9 +3171,8 @@ export async function createApp(options: CreateAppOptions = {}) {
         }),
         recorder,
         logger,
-        onNode: refreshOp.onNode,
+        origin: "http",
       });
-      refreshOp.register(Promise.resolve());
       if (result.status === "error") throw result.error ?? new Error("refresh failed");
 
       const updatedSlug = result.state.canonicalSlug ?? article.slug;
@@ -3207,8 +3185,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
       invalidateArticleHtml(updatedSlug);
 
-      const ppRefreshOp = trackActiveOperation(updatedSlug, article.title, "article.post_process");
-      const ppRefreshPromise = runWorkflow(postProcessWorkflow, {
+      const ppRefreshPromise = queueWorkflow(postProcessWorkflow, {
         input: {
           requestId: randomUUID(),
           workflow: "article.post_process",
@@ -3218,9 +3195,9 @@ export async function createApp(options: CreateAppOptions = {}) {
         deps: buildPipelineDeps(),
         recorder,
         logger,
-        onNode: ppRefreshOp.onNode,
+        origin: "post_process_auto",
+        parentRunId: result.runId,
       }).catch(() => {});
-      ppRefreshOp.register(ppRefreshPromise);
       trackGeneration(ppRefreshPromise);
 
       const response = buildArticleResponseFor(updatedSlug);
@@ -3867,7 +3844,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     try {
       await reloadRuntime();
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-      const result = await runWorkflow(regenerateSummaryWorkflow, {
+      const result = await queueWorkflow(regenerateSummaryWorkflow, {
         input: {
           requestId: randomUUID(),
           workflow: "regenerate.summary",
@@ -3876,6 +3853,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         deps: buildPipelineDeps(),
         recorder,
         logger,
+        origin: "http",
       });
 
       if (result.status === "error") throw result.error ?? new Error("regenerate-summary failed");
@@ -4495,7 +4473,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const articleSlug = typeof body.articleSlug === "string" ? slugify(body.articleSlug) : "";
 
     const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-    const result = await runWorkflow(captionImageWorkflow, {
+    const result = await queueWorkflow(captionImageWorkflow, {
       input: {
         requestId: randomUUID(),
         workflow: "image.caption",
@@ -4507,6 +4485,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       deps: buildPipelineDeps(),
       recorder,
       logger,
+      origin: "http",
     });
 
     if (result.status !== "ok") {
@@ -4810,11 +4789,12 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     try {
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
-      const result = await runWorkflow(ontologyInferWorkflow, {
+      const result = await queueWorkflow(ontologyInferWorkflow, {
         input: { requestId: randomUUID(), workflow: "ontology.infer", slug },
         deps: buildPipelineDeps(),
         recorder,
         logger,
+        origin: "http",
       });
 
       if (result.status === "error") throw result.error ?? new Error("ontology inference failed");
@@ -4834,7 +4814,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
     const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is number => Number.isInteger(id) && id > 0) : undefined;
     const workflow = mode === "merge" ? ontologySuggestionsMergeWorkflow : ontologySuggestionsAppendWorkflow;
-    const result = await runWorkflow(workflow, {
+    const result = await queueWorkflow(workflow, {
       input: {
         requestId: randomUUID(),
         workflow: workflow.name,
@@ -4844,6 +4824,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       deps: buildPipelineDeps(),
       recorder: getTraceRecorder(runtime.app.pipeline.trace),
       logger,
+      origin: "http",
     });
     if (result.status === "error") {
       return c.json({ error: result.error?.message ?? "ontology suggestion action failed" }, 500);
@@ -5146,7 +5127,7 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     // ── Fire caption + post-process pipeline ──────────────────────────────────
     trackGeneration(
-      runWorkflow(captionImageWorkflow, {
+      queueWorkflow(captionImageWorkflow, {
         input: {
           requestId: randomUUID(),
           workflow: "image.caption",
@@ -5157,6 +5138,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         deps: buildPipelineDeps(),
         recorder: getTraceRecorder(runtime.app.pipeline.trace),
         logger,
+        origin: "image_caption_auto",
       })
         .then((result) => {
           if (result.status === "ok") {
@@ -5181,7 +5163,7 @@ export async function createApp(options: CreateAppOptions = {}) {
               return;
             }
             trackGeneration(
-              runWorkflow(postProcessWorkflow, {
+              queueWorkflow(postProcessWorkflow, {
                 input: {
                   requestId: randomUUID(),
                   workflow: "article.post_process",
@@ -5191,6 +5173,8 @@ export async function createApp(options: CreateAppOptions = {}) {
                 deps: buildPipelineDeps(),
                 recorder: getTraceRecorder(runtime.app.pipeline.trace),
                 logger,
+                origin: "post_process_auto",
+                parentRunId: result.runId,
               })
                 .then(() => {
                   logger.info("image.post_process_done", {
@@ -5303,8 +5287,8 @@ export async function createApp(options: CreateAppOptions = {}) {
     };
   }
 
-  async function runArticleImageGenerationWorkflow(articleSlug: string, replace: boolean, presetKey: string, aspectRatioKey: string, requestedTitle: string, onNode?: (nodeName: string, nodeKind: string) => void) {
-    const result = await runWorkflow(articleImageGenerationWorkflow, {
+  async function runArticleImageGenerationWorkflow(articleSlug: string, replace: boolean, presetKey: string, aspectRatioKey: string, requestedTitle: string, origin: string, parentRunId?: string) {
+    const result = await queueWorkflow(articleImageGenerationWorkflow, {
       input: {
         requestId: randomUUID(),
         workflow: "article.image_generate",
@@ -5317,7 +5301,8 @@ export async function createApp(options: CreateAppOptions = {}) {
       deps: buildPipelineDeps(),
       recorder: getTraceRecorder(runtime.app.pipeline.trace),
       logger,
-      onNode,
+      origin,
+      parentRunId,
     });
     if (result.status === "error") {
       throw result.error ?? new Error("article image generation failed");
@@ -5420,9 +5405,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     try {
       const article = getArticleByLookup(db, slug);
-      const imageOp = trackActiveOperation(slug, article?.title ?? slug, "article.image_generate");
-      const imagePromise = runArticleImageGenerationWorkflow(slug, body.replace === true, presetKey, aspectRatioKey, article?.title ?? slug, imageOp.onNode);
-      imageOp.register(imagePromise);
+      const imagePromise = runArticleImageGenerationWorkflow(slug, body.replace === true, presetKey, aspectRatioKey, article?.title ?? slug, "http");
       const generated = await trackGeneration(imagePromise);
       const response = buildArticleResponseFor(slug);
       if (!response) return c.json({ error: "article not found" }, 404);

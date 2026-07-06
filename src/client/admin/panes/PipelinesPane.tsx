@@ -113,6 +113,9 @@ interface PipelineRunSummary {
   error_message: string | null;
   warning_count?: number;
   warning_messages?: string[];
+  queued_at?: number | null;
+  parent_run_id?: string | null;
+  origin?: string | null;
 }
 
 interface NodeSpan {
@@ -223,8 +226,10 @@ interface RagExactCapture {
 interface ActiveRun {
   slug: string;
   title: string;
+  runId?: string;
   workflow?: string;
   phase?: string;
+  state?: "queued" | "processing" | "llm";
   startedAt: number;
   reasoning?: string;
   views?: LiveLlmView[];
@@ -259,9 +264,18 @@ export function PipelinesPane({
   const [loadingRun, setLoadingRun] = useState<string | null>(null);
   const [page, setPage] = useState(0);
 
+  // The pinned "active" bucket (1s poll, from the live registry) and the
+  // paginated trace list (5s poll, from pipeline_runs) can both carry the
+  // same in-flight run once pending/running rows are recorded — drop it from
+  // the trace list so it only shows once, in the faster-updating live row.
+  const activeRunIds = new Set(
+    activeRuns.map((a) => a.runId).filter((id): id is string => !!id),
+  );
+  const dedupedRuns = runs.filter((r) => !activeRunIds.has(r.run_id));
+
   // In-progress articles lead the list; completed runs follow. Together they
   // paginate 10 at a time.
-  const totalRows = activeRuns.length + runs.length;
+  const totalRows = activeRuns.length + dedupedRuns.length;
   const pageCount = Math.max(1, Math.ceil(totalRows / RUNS_PER_PAGE));
   // Clamp the page if the list shrinks (e.g. a run finishes and drops off).
   useEffect(() => {
@@ -271,12 +285,38 @@ export function PipelinesPane({
     kind: "active" as const,
     item: a,
   }));
-  const runRows = runs.map((r) => ({ kind: "run" as const, item: r }));
+  const runRows = dedupedRuns.map((r) => ({ kind: "run" as const, item: r }));
   const allRows = [...activeRows, ...runRows];
   const pageRows = allRows.slice(
     page * RUNS_PER_PAGE,
     page * RUNS_PER_PAGE + RUNS_PER_PAGE,
   );
+
+  // Live node trace for whichever in-progress run is expanded — refetched on
+  // every `activeRuns` update (the parent already polls that ~1x/sec) so the
+  // per-node breakdown fills in as the workflow executes, no page reload
+  // needed. Stops updating once the run completes and drops off `activeRuns`
+  // (the last fetched snapshot stays visible until the row is collapsed).
+  useEffect(() => {
+    if (!expandedActiveRun) return;
+    const active = activeRuns.find(
+      (a) => `${a.slug}:${a.startedAt}` === expandedActiveRun,
+    );
+    if (!active?.runId) return;
+    const runId = active.runId;
+    let cancelled = false;
+    fetch(`/api/admin/pipeline/runs/${encodeURIComponent(runId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { nodes?: NodeSpan[] } | null) => {
+        if (!cancelled && data?.nodes) {
+          setRunNodes((prev) => ({ ...prev, [runId]: data.nodes! }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedActiveRun, activeRuns]);
 
   function navigateTo(e: MouseEvent, segment: string) {
     e.preventDefault();
@@ -431,7 +471,46 @@ export function PipelinesPane({
                             colSpan={6}
                             className="p-2 whitespace-normal"
                           >
-                            <LiveLlmViews views={views} />
+                            <div className="flex flex-col gap-2">
+                              {active.runId && runNodes[active.runId] ? (
+                                <NodeBreakdown
+                                  nodes={runNodes[active.runId]}
+                                  totalMs={Math.max(
+                                    1,
+                                    Date.now() - active.startedAt,
+                                  )}
+                                  runStartedAt={active.startedAt}
+                                />
+                              ) : active.runId ? (
+                                <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <LoaderCircle
+                                    data-icon="inline-start"
+                                    className="animate-spin"
+                                  />
+                                  Loading live node trace…
+                                </span>
+                              ) : null}
+                              <div
+                                className={cn(
+                                  "flex items-center gap-2 rounded-md border px-2 py-1.5 font-mono text-xs",
+                                  activeStageClass(active.state),
+                                )}
+                              >
+                                <LoaderCircle
+                                  aria-hidden
+                                  className="size-3.5 shrink-0 animate-spin"
+                                />
+                                <span className="font-semibold">
+                                  {formatActivePhase(active.phase)}
+                                </span>
+                                <span className="text-muted-foreground">
+                                  — currently running
+                                </span>
+                              </div>
+                              {views.length ? (
+                                <LiveLlmViews views={views} />
+                              ) : null}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ) : null}
@@ -447,6 +526,10 @@ export function PipelinesPane({
                   run.status === "ok" && warningCount > 0
                     ? "partial"
                     : run.status;
+                const isLive = displayStatus === "pending" || displayStatus === "running";
+                const liveElapsedMs = isLive
+                  ? Math.max(0, Date.now() - (run.started_at || run.queued_at || Date.now()))
+                  : run.duration_ms;
                 return (
                   <Fragment key={run.run_id}>
                     <TableRow
@@ -485,13 +568,24 @@ export function PipelinesPane({
                           />
                           <span className="truncate">{run.workflow}</span>
                         </Button>
+                        {run.origin || run.parent_run_id ? (
+                          <span className="mt-0.5 block truncate text-[0.65rem] font-normal text-muted-foreground">
+                            {run.origin ? run.origin : null}
+                            {run.origin && run.parent_run_id ? " · " : null}
+                            {run.parent_run_id ? (
+                              <span title={run.parent_run_id}>
+                                spawned by {run.parent_run_id.slice(0, 8)}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : null}
                         <span
                           className="mt-0.5 hidden truncate text-[0.65rem] font-normal text-muted-foreground max-[700px]:block"
                           data-testid="run-mobile-metadata"
                         >
                           {fmtTimestamp(run.started_at)} · {run.nodes_executed}{" "}
                           {run.nodes_executed === 1 ? "node" : "nodes"} ·{" "}
-                          {run.duration_ms} ms
+                          {isLive ? `${liveElapsedMs} ms (${displayStatus})` : `${run.duration_ms} ms`}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -511,17 +605,28 @@ export function PipelinesPane({
                           variant={
                             displayStatus === "error"
                               ? "destructive"
-                              : "secondary"
+                              : displayStatus === "running"
+                                ? "default"
+                                : displayStatus === "pending"
+                                  ? "outline"
+                                  : "secondary"
                           }
                           className={cn(
+                            "gap-1",
                             displayStatus === "partial" &&
-                              "gap-1 border border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100",
+                              "border border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100",
                           )}
                         >
                           {displayStatus === "partial" ? (
                             <AlertTriangle
                               data-icon="inline-start"
                               className="size-3"
+                            />
+                          ) : null}
+                          {displayStatus === "running" ? (
+                            <LoaderCircle
+                              data-icon="inline-start"
+                              className="size-3 animate-spin"
                             />
                           ) : null}
                           {displayStatus}
@@ -531,7 +636,7 @@ export function PipelinesPane({
                         {run.nodes_executed}
                       </TableCell>
                       <TableCell className="text-right max-[700px]:hidden">
-                        {run.duration_ms} ms
+                        {isLive ? `${liveElapsedMs} ms` : `${run.duration_ms} ms`}
                       </TableCell>
                     </TableRow>
                     {open ? (
@@ -717,6 +822,20 @@ function WorkflowNodeStep({
 function formatActivePhase(phase?: string): string {
   if (!phase || phase === "starting") return "Starting";
   return phase.replace(/^[^.]+\./, "").replaceAll("_", " ");
+}
+
+/** Color-codes the "currently running" indicator by stage — orange while a
+ *  model call is in flight (the slow, unpredictable part), blue for regular
+ *  node processing, muted while still waiting on a concurrency gate. */
+function activeStageClass(state?: "queued" | "processing" | "llm"): string {
+  switch (state) {
+    case "llm":
+      return "border-orange-300 bg-orange-50 text-orange-900 dark:border-orange-700 dark:bg-orange-950/40 dark:text-orange-100";
+    case "queued":
+      return "border-border bg-muted/40 text-muted-foreground";
+    default:
+      return "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100";
+  }
 }
 
 function fmtK(n: number): string {

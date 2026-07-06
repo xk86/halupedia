@@ -38,6 +38,7 @@ import {
   type LlmCallTrace,
   type TraceRecorder,
 } from "./trace";
+import { getLiveRunRegistry } from "./liveRegistry";
 
 // Wall-clock time (Date.now) can jump backward under NTP/clock corrections,
 // which produced negative node and run durations in pipeline traces. Measure
@@ -78,6 +79,17 @@ export interface WorkflowRunOptions<Deps> {
   logger?: Logger;
   /** Called at the start of each node with the node name and kind. */
   onNode?: (nodeName: string, nodeKind: string) => void;
+  /** Pre-assigned run id — set by `queueWorkflow` so the terminal trace row
+   *  lands on the same `pipeline_runs` row as its `pending`/`running` writes.
+   *  Callers using `runWorkflow` directly (tests, the admin run-button) leave
+   *  this unset and get a fresh id. */
+  runId?: string;
+  /** When set the run was known-about (queued) before it started executing;
+   *  threaded through to the terminal trace row for callers that skip
+   *  `queueWorkflow`'s pending-row bookkeeping. */
+  queuedAt?: number;
+  parentRunId?: string;
+  origin?: string;
 }
 
 export interface WorkflowRunResult {
@@ -100,7 +112,7 @@ export async function runWorkflow<Deps>(
   workflow: WorkflowDefinition<Deps>,
   options: WorkflowRunOptions<Deps>,
 ): Promise<WorkflowRunResult> {
-  const runId = newRunId();
+  const runId = options.runId ?? newRunId();
   const startedAt = Date.now();
   const startedAtMono = monoNow();
   const requestId = options.input.requestId;
@@ -401,6 +413,9 @@ export async function runWorkflow<Deps>(
       error: error
         ? { message: error.message, stack: error.stack }
         : undefined,
+      queuedAt: options.queuedAt,
+      parentRunId: options.parentRunId,
+      origin: options.origin,
     });
     options.logger?.info("pipeline.run.done", {
       workflow: workflow.name,
@@ -419,6 +434,100 @@ export async function runWorkflow<Deps>(
     status,
     error,
   };
+}
+
+export interface QueueWorkflowOptions<Deps> extends WorkflowRunOptions<Deps> {
+  /**
+   * Optional async gate — e.g. a concurrency-limit slot. `queueWorkflow`
+   * awaits this *after* recording the pending trace row, so a workflow that
+   * is stuck behind `max_in_flight` is visible in the traces view as
+   * `pending` for exactly as long as it actually waits. Resolves to a
+   * release() callback invoked once the run settles.
+   */
+  gate?: () => Promise<() => void>;
+}
+
+/**
+ * The single entry point every route should use to run a workflow.
+ *
+ * Unlike `runWorkflow`, this records the run's existence *before* it starts
+ * executing — a `pending` trace row appears the instant the caller decides
+ * the workflow will run, transitions to `running` once any gate clears, and
+ * registers a live entry in the process-wide `LiveRunRegistry` for the whole
+ * lifetime of the run. Both are torn down automatically when the run
+ * settles.
+ *
+ * This is intentionally the *only* supported way to reach `runWorkflow`:
+ * every route that calls `queueWorkflow` is automatically visible on the
+ * admin dashboard and in the traces view — there is no separate map to
+ * remember to populate, and no way to run a workflow invisibly.
+ */
+export async function queueWorkflow<Deps>(
+  workflow: WorkflowDefinition<Deps>,
+  options: QueueWorkflowOptions<Deps>,
+): Promise<WorkflowRunResult> {
+  const registry = getLiveRunRegistry();
+  const runId = options.runId ?? newRunId();
+  const queuedAt = Date.now();
+  const slug = options.input.slug;
+  const title = options.input.requestedTitle;
+
+  registry.beginRun({
+    runId,
+    workflow: workflow.name,
+    slug,
+    title,
+    parentRunId: options.parentRunId,
+    origin: options.origin,
+    queuedAt,
+  });
+  options.recorder.recordRunPending({
+    workflow: workflow.name,
+    runId,
+    requestId: options.input.requestId,
+    slug,
+    queuedAt,
+    parentRunId: options.parentRunId,
+    origin: options.origin,
+  });
+
+  let release: (() => void) | undefined;
+  try {
+    if (options.gate) release = await options.gate();
+    registry.markStarted(runId);
+    options.recorder.recordRunStarted(runId, Date.now());
+
+    const composedOnNode = (nodeName: string, nodeKind: string) => {
+      registry.setPhase(runId, nodeName);
+      options.onNode?.(nodeName, nodeKind);
+    };
+
+    // Splice a registry-feeding onLlmUpdate in front of whatever the caller
+    // already supplied (e.g. per-slug live CoT views), without assuming
+    // anything else about the shape of Deps.
+    const depsRecord = options.deps as Record<string, unknown>;
+    const previousOnLlmUpdate = depsRecord.onLlmUpdate as
+      | ((update: { node: string; reasoning?: string; response?: string }) => void)
+      | undefined;
+    const composedDeps = {
+      ...depsRecord,
+      onLlmUpdate: (update: { node: string; reasoning?: string; response?: string }) => {
+        registry.recordLlmUpdate(runId, update);
+        previousOnLlmUpdate?.(update);
+      },
+    } as Deps;
+
+    return await runWorkflow(workflow, {
+      ...options,
+      deps: composedDeps,
+      runId,
+      queuedAt,
+      onNode: composedOnNode,
+    });
+  } finally {
+    release?.();
+    registry.done(runId);
+  }
 }
 
 /** Prompt, reasoning, output, and metadata captured for one LLM invocation. */

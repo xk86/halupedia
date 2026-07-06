@@ -98,6 +98,11 @@ export interface LlmCallTrace {
   ttftMs?: number;
 }
 
+/** Full lifecycle of a `pipeline_runs` row. `pending`/`running` exist so a
+ *  workflow that has been queued (or gated behind a concurrency limiter) is
+ *  visible in the traces view *before* it produces any node output. */
+export type PipelineRunStatus = "pending" | "running" | "ok" | "error";
+
 export interface RunTraceFields {
   workflow: string;
   runId: string;
@@ -108,10 +113,39 @@ export interface RunTraceFields {
   status: "ok" | "error";
   nodesExecuted: number;
   error?: { message: string; stack?: string };
+  /** When the run was first known-about (queued), if different from startedAt. */
+  queuedAt?: number;
+  /** The run that caused this one to be scheduled, e.g. post-process spawned
+   *  after article.generate — lets the traces view show "spawned by <parent>". */
+  parentRunId?: string;
+  /** Free-text label for what decided to run this workflow, e.g. "http",
+   *  "post_process_auto", "image_auto", "maintenance". */
+  origin?: string;
+}
+
+/** Fields known the moment a workflow is declared/queued, before it starts
+ *  executing (i.e. before any node has run, possibly before a concurrency
+ *  gate has even been acquired). */
+export interface PendingRunFields {
+  workflow: string;
+  runId: string;
+  requestId: string;
+  slug?: string;
+  queuedAt: number;
+  parentRunId?: string;
+  origin?: string;
 }
 
 export interface TraceRecorder {
   level: PipelineTraceLevel;
+  /** Insert a `pending` row the instant a workflow is queued — before any
+   *  gate/concurrency wait and before execution starts. */
+  recordRunPending(fields: PendingRunFields): void;
+  /** Transition a pending row to `running` once its gate clears and node
+   *  execution actually begins. */
+  recordRunStarted(runId: string, startedAt: number): void;
+  /** Terminal transition to `ok`/`error` (UPSERT — also usable standalone by
+   *  callers that never called recordRunPending). */
   recordRun(fields: RunTraceFields): void;
   recordNode(fields: NodeTraceFields): void;
   /** Released back to the recorder pool — no-op for SQLite recorder today. */
@@ -173,6 +207,8 @@ export function newRunId(): string {
 
 class NoopRecorder implements TraceRecorder {
   readonly level: PipelineTraceLevel = "off";
+  recordRunPending(): void {}
+  recordRunStarted(): void {}
   recordRun(): void {}
   recordNode(): void {}
   close(): void {}
@@ -183,6 +219,8 @@ class NoopRecorder implements TraceRecorder {
 class SqliteTraceRecorder implements TraceRecorder {
   readonly level: PipelineTraceLevel;
   private readonly db: DatabaseSync;
+  private readonly insertRunPending: ReturnType<DatabaseSync["prepare"]>;
+  private readonly updateRunStarted: ReturnType<DatabaseSync["prepare"]>;
   private readonly insertRun: ReturnType<DatabaseSync["prepare"]>;
   private readonly insertNode: ReturnType<DatabaseSync["prepare"]>;
 
@@ -193,11 +231,45 @@ class SqliteTraceRecorder implements TraceRecorder {
     this.db = new DatabaseSync(absPath);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
     this.db.exec(SCHEMA_SQL);
+    // Migrate existing DBs that predate the queue-aware columns.
+    for (const col of [`queued_at INTEGER`, `parent_run_id TEXT`, `origin TEXT`]) {
+      try {
+        this.db.exec(`ALTER TABLE pipeline_runs ADD COLUMN ${col}`);
+      } catch { /* column already exists */ }
+    }
+    // Only safe to create *after* the ALTER above — on a pre-existing DB the
+    // column doesn't exist until this point, and CREATE INDEX on a missing
+    // column is a hard SQL error (unlike ADD COLUMN, which errors are caught).
+    this.db.exec(
+      `CREATE INDEX IF NOT EXISTS pipeline_runs_parent_idx ON pipeline_runs (parent_run_id)`,
+    );
+    this.insertRunPending = this.db.prepare(
+      `INSERT INTO pipeline_runs
+         (run_id, request_id, workflow, slug, started_at, duration_ms,
+          status, nodes_executed, queued_at, parent_run_id, origin)
+       VALUES (?,?,?,?,?,0,'pending',0,?,?,?)
+       ON CONFLICT(run_id) DO NOTHING`,
+    );
+    this.updateRunStarted = this.db.prepare(
+      `UPDATE pipeline_runs SET status = 'running', started_at = ?
+       WHERE run_id = ? AND status = 'pending'`,
+    );
     this.insertRun = this.db.prepare(
       `INSERT INTO pipeline_runs
          (run_id, request_id, workflow, slug, started_at, duration_ms,
-          status, nodes_executed, error_message, error_stack)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          status, nodes_executed, error_message, error_stack,
+          queued_at, parent_run_id, origin)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(run_id) DO UPDATE SET
+         request_id = excluded.request_id,
+         workflow = excluded.workflow,
+         slug = excluded.slug,
+         started_at = excluded.started_at,
+         duration_ms = excluded.duration_ms,
+         status = excluded.status,
+         nodes_executed = excluded.nodes_executed,
+         error_message = excluded.error_message,
+         error_stack = excluded.error_stack`,
     );
     // Migrate existing DBs that predate later columns. Each ALTER is wrapped
     // independently so a DB missing only some of them still gets the rest.
@@ -239,6 +311,46 @@ class SqliteTraceRecorder implements TraceRecorder {
           llm_image_count, llm_ttft_ms, llm_calls_json, rag_json)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
+    // Boot-time cleanup: any row still `pending`/`running` from a previous
+    // process cannot possibly still be executing (the in-memory
+    // LiveRunRegistry that would track it doesn't survive a restart) —
+    // leaving it stuck would make the traces view show a phantom "running"
+    // workflow forever.
+    try {
+      this.db.exec(
+        `UPDATE pipeline_runs SET status = 'error', error_message = 'process restart'
+         WHERE status IN ('pending', 'running')`,
+      );
+    } catch {
+      // Tracing failures must never break startup. Swallow.
+    }
+  }
+
+  recordRunPending(fields: PendingRunFields): void {
+    if (this.level === "off") return;
+    try {
+      this.insertRunPending.run(
+        fields.runId,
+        fields.requestId,
+        fields.workflow,
+        fields.slug ?? null,
+        fields.queuedAt,
+        fields.queuedAt,
+        fields.parentRunId ?? null,
+        fields.origin ?? null,
+      );
+    } catch {
+      // Tracing failures must never break a workflow. Swallow.
+    }
+  }
+
+  recordRunStarted(runId: string, startedAt: number): void {
+    if (this.level === "off") return;
+    try {
+      this.updateRunStarted.run(startedAt, runId);
+    } catch {
+      // Tracing failures must never break a workflow. Swallow.
+    }
   }
 
   recordRun(fields: RunTraceFields): void {
@@ -255,6 +367,9 @@ class SqliteTraceRecorder implements TraceRecorder {
         fields.nodesExecuted,
         fields.error?.message ?? null,
         fields.error?.stack ?? null,
+        fields.queuedAt ?? fields.startedAt,
+        fields.parentRunId ?? null,
+        fields.origin ?? null,
       );
     } catch {
       // Tracing failures must never break a workflow. Swallow.
@@ -375,7 +490,10 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
   status          TEXT NOT NULL,
   nodes_executed  INTEGER NOT NULL,
   error_message   TEXT,
-  error_stack     TEXT
+  error_stack     TEXT,
+  queued_at       INTEGER,
+  parent_run_id   TEXT,
+  origin          TEXT
 );
 CREATE INDEX IF NOT EXISTS pipeline_runs_workflow_idx
   ON pipeline_runs (workflow, started_at);

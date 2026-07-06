@@ -58,6 +58,7 @@ interface GenerationQueueItem {
   slug: string;
   title: string;
   seq: number;
+  runId?: string;
   queuedAt: number;
   startedAt?: number;
   queuedMs?: number;
@@ -147,8 +148,10 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
         .map((item) => ({
           slug: item.slug,
           title: item.title,
+          runId: item.runId,
           workflow: item.workflow,
           phase: item.phase,
+          state: item.state,
           startedAt: item.startedAt!,
           reasoning: item.reasoning,
           views: item.views,

@@ -42,7 +42,7 @@ import {
   describeWorkflowAsDot,
   workflowSummary,
 } from "./runtime/introspect";
-import { runWorkflow } from "./runtime/graph";
+import { queueWorkflow } from "./runtime/graph";
 import { getTraceRecorder } from "./runtime/trace";
 import type { WorkflowInput } from "./state";
 
@@ -81,6 +81,10 @@ export function registerPipelineAdminRoutes(
 
   app.get("/api/admin/pipeline/runs", (c) => {
     const cfg = getTraceConfig();
+    // Ensure the writer connection (and its schema migrations) has run at
+    // least once before opening our own read-only connection — this is a
+    // separate sqlite handle and won't see columns the writer hasn't added yet.
+    getTraceRecorder(cfg);
     const conn = openTraceDbReadOnly(cfg);
     if (!conn) return c.json({ runs: [], traceEnabled: false });
 
@@ -100,7 +104,7 @@ export function registerPipelineAdminRoutes(
     }
     const sql =
       `SELECT run_id, request_id, workflow, slug, started_at, duration_ms,
-              status, nodes_executed, error_message
+              status, nodes_executed, error_message, queued_at, parent_run_id, origin
          FROM pipeline_runs ${where.length ? "WHERE " + where.join(" AND ") : ""}
          ORDER BY started_at DESC LIMIT ?`;
     params.push(limit);
@@ -114,6 +118,9 @@ export function registerPipelineAdminRoutes(
       status: string;
       nodes_executed: number;
       error_message: string | null;
+      queued_at: number | null;
+      parent_run_id: string | null;
+      origin: string | null;
     }>;
     const warningsByRun = listRunWarnings(
       conn,
@@ -135,6 +142,7 @@ export function registerPipelineAdminRoutes(
 
   app.get("/api/admin/pipeline/runs/:runId", (c) => {
     const cfg = getTraceConfig();
+    getTraceRecorder(cfg);
     const conn = openTraceDbReadOnly(cfg);
     if (!conn) return c.json({ error: "tracing disabled" }, 404);
     const runId = c.req.param("runId");
@@ -195,11 +203,12 @@ export function registerPipelineAdminRoutes(
     const cfg = getTraceConfig();
     const recorder = getTraceRecorder(cfg);
     const deps = getDeps();
-    const result = await runWorkflow(wf, {
+    const result = await queueWorkflow(wf, {
       input,
       deps,
       recorder,
       logger: deps.logger,
+      origin: "admin_run_button",
     });
     const conn = openTraceDbReadOnly(cfg);
     const traceRun = conn

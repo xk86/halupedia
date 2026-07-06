@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { GitMergeIcon, ListPlusIcon, TagIcon, XIcon } from "lucide-react";
+import {
+  GitMergeIcon,
+  ListPlusIcon,
+  PencilIcon,
+  TagIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +30,7 @@ interface OntologyFact {
   predicate: string;
   label: string;
   object: string;
+  objectHtml?: string;
   objectSlug: string | null;
   source: string;
   confidence: number;
@@ -77,7 +85,17 @@ interface OntologySuggestion {
   predicate: string;
   label: string;
   object: string;
+  objectHtml?: string;
   validated: boolean;
+}
+
+function RenderedInlineMarkdown({ html }: { html: string }) {
+  return (
+    <span
+      className="break-words"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
 
 function normalizePredicateKey(value: string): string {
@@ -371,12 +389,18 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   if (facts.length === 0 && !editing && !data.entityType) return null;
 
   const renderObject = (fact: OntologyFact) => {
-    if (!fact.objectSlug) return <span>{fact.object}</span>;
+    if (!fact.objectSlug) {
+      return fact.objectHtml ? (
+        <RenderedInlineMarkdown html={fact.objectHtml} />
+      ) : (
+        <span className="break-words">{fact.object}</span>
+      );
+    }
     const title = entryTitlePresentation(fact.object);
     return (
       <a
         href={title.wikiPath}
-        className="text-accent underline decoration-accent/30 underline-offset-2 transition-colors hover:decoration-accent/80"
+        className="break-words text-accent underline decoration-accent/30 underline-offset-2 transition-colors hover:decoration-accent/80"
         onClick={(event) => {
           event.preventDefault();
           onNavigate(title.wikiSegment, title.plainTitle);
@@ -389,11 +413,11 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const renderEditRow = (fact: OntologyFact) => (
     <TableRow
       key={fact.id}
-      className="border-b border-panel-border bg-muted/30 last:border-0"
+      className="border-b border-panel-border bg-muted/30 last:border-0 max-[560px]:block"
     >
       <th
         scope="row"
-        className="w-[1%] px-3 py-1.5 align-top text-xs font-medium whitespace-nowrap text-muted-foreground"
+        className="w-[1%] px-3 py-1.5 align-top text-xs font-medium whitespace-nowrap text-muted-foreground max-[560px]:block max-[560px]:w-full max-[560px]:pb-0 max-[560px]:whitespace-normal"
       >
         <Input
           list="ontology-predicates"
@@ -412,7 +436,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           className="h-7 w-36 text-xs"
         />
       </th>
-      <TableCell className="px-3 py-1.5 align-top text-sm">
+      <TableCell className="px-3 py-1.5 align-top text-sm max-[560px]:block max-[560px]:w-full">
         <div className="flex flex-col gap-1.5">
           <ArticleSearchDropdown
             query={editDraft.objectName || editDraft.query}
@@ -436,7 +460,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
             placeholder="Link an article…"
             wrapClassName="w-full"
           />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">or</span>
             <Input
               value={editDraft.literal}
@@ -479,10 +503,10 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   return (
     <Card
       size="sm"
-      className="mt-8 max-w-[87dvw] gap-0 rounded-sm py-0"
+      className="article prose-halu mt-8 w-full max-w-full gap-0 rounded-sm py-0"
       aria-label="Ontology facts"
     >
-      <CardHeader className="gap-0 rounded-none border-b border-panel-border bg-accent-wash-strong px-3 py-1.5">
+      <CardHeader className="gap-2 rounded-none border-b border-panel-border bg-accent-wash-strong px-3 py-1.5 max-[560px]:grid-cols-1">
         <CardTitle className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           Facts
           {data.entityType ? (
@@ -491,7 +515,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
             </Badge>
           ) : null}
         </CardTitle>
-        <CardAction>
+        <CardAction className="max-[560px]:col-start-1 max-[560px]:row-start-2 max-[560px]:justify-self-start">
           <Button
             variant="ghost"
             size="xs"
@@ -509,8 +533,8 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         </CardAction>
       </CardHeader>
 
-      <CardContent className="px-0">
-        <Table containerClassName="overflow-x-visible">
+      <CardContent className="px-0 max-[680px]:max-h-[70dvh] max-[680px]:overflow-y-auto">
+        <Table>
           <TableBody>
             {facts.map((fact) =>
               editingFactId === fact.id ? (
@@ -518,19 +542,21 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
               ) : (
                 <TableRow
                   key={fact.id}
-                  className="border-b border-panel-border last:border-0"
+                  className="border-b border-panel-border last:border-0 max-[560px]:block"
                 >
                   <th
                     scope="row"
-                    className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
+                    className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground max-[560px]:block max-[560px]:w-full max-[560px]:pb-0 max-[560px]:whitespace-normal"
                   >
                     {fact.label}
                   </th>
-                  <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal">
-                    <span className="flex items-baseline gap-2">
-                      <span className="flex-1">{renderObject(fact)}</span>
+                  <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal max-[560px]:block max-[560px]:w-full">
+                    <span className="flex min-w-0 flex-wrap items-baseline gap-2">
+                      <span className="min-w-0 flex-1 break-words">
+                        {renderObject(fact)}
+                      </span>
                       {editing ? (
-                        <span className="flex shrink-0 items-center gap-1">
+                        <span className="flex shrink-0 flex-wrap items-center gap-1">
                           <Badge
                             variant={
                               sourceBadgeVariant[fact.source] ?? "outline"
@@ -549,7 +575,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                             disabled={busy}
                             onClick={() => startEdit(fact)}
                           >
-                            ✎
+                            <PencilIcon />
                           </Button>
                           <Button
                             variant="ghost"
@@ -558,7 +584,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                             disabled={busy}
                             onClick={() => removeFact(fact.id)}
                           >
-                            ×
+                            <Trash2Icon />
                           </Button>
                         </span>
                       ) : null}
@@ -582,7 +608,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                   value={entityTypeDraft}
                   onChange={(event) => setEntityTypeDraft(event.target.value)}
                   placeholder="person"
-                  className="h-8 w-40"
+                  className="h-8 w-40 max-w-full"
                 />
                 <Button
                   variant="outline"
@@ -615,7 +641,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                     }));
                   }}
                   placeholder="Relationship…"
-                  className="h-8 w-48"
+                  className="h-8 w-48 max-w-full"
                 />
 
                 <ArticleSearchDropdown
@@ -653,7 +679,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                     setDraft((d) => ({ ...d, literal: e.target.value }))
                   }
                   placeholder="e.g. 1998"
-                  className="h-8 w-40"
+                  className="h-8 w-40 max-w-full"
                 />
                 <Button
                   size="sm"
@@ -689,9 +715,9 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
 
         {data.suggestions.length > 0 ? (
           <Card size="sm" className="m-2 gap-0 py-0">
-            <CardHeader>
+            <CardHeader className="gap-2 max-[560px]:grid-cols-1">
               <CardTitle>Ontology suggestions</CardTitle>
-              <CardAction className="flex items-center gap-1">
+              <CardAction className="flex flex-wrap items-center gap-1 max-[560px]:col-start-1 max-[560px]:row-start-2 max-[560px]:justify-self-start">
                 <Button
                   size="xs"
                   disabled={busy}
@@ -721,22 +747,30 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
               </CardAction>
             </CardHeader>
             <CardContent className="px-0">
-              <Table containerClassName="overflow-x-visible">
+              <Table>
                 <TableBody>
                   {data.suggestions.map((suggestion) => (
                     <TableRow
                       key={suggestion.id}
-                      className="border-b border-panel-border last:border-0"
+                      className="border-b border-panel-border last:border-0 max-[560px]:block"
                     >
                       <th
                         scope="row"
-                        className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
+                        className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground max-[560px]:block max-[560px]:w-full max-[560px]:pb-0 max-[560px]:whitespace-normal"
                       >
                         {suggestion.label}
                       </th>
-                      <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal">
-                        <span className="flex items-baseline gap-2">
-                          <span className="flex-1">{suggestion.object}</span>
+                      <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal max-[560px]:block max-[560px]:w-full">
+                        <span className="flex min-w-0 flex-wrap items-baseline gap-2">
+                          <span className="min-w-0 flex-1 break-words">
+                            {suggestion.objectHtml ? (
+                              <RenderedInlineMarkdown
+                                html={suggestion.objectHtml}
+                              />
+                            ) : (
+                              suggestion.object
+                            )}
+                          </span>
                           <Badge
                             variant={
                               suggestion.validated ? "secondary" : "warn"
@@ -745,7 +779,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                           >
                             {suggestion.validated ? "validated" : "raw"}
                           </Badge>
-                          <span className="flex shrink-0 items-center gap-1">
+                          <span className="flex shrink-0 flex-wrap items-center gap-1">
                             <Button
                               variant="ghost"
                               size="icon-xs"

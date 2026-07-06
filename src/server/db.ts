@@ -434,6 +434,16 @@ export function openDatabase(databasePath: string): DatabaseSync {
       signature TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    -- Tracks ontology relations a curator has explicitly dismissed.  The
+    -- reconciler skips re-inserting a relation whose identity key appears here,
+    -- so the suppression survives deterministic/LLM re-extraction.
+    CREATE TABLE IF NOT EXISTS suppressed_relations (
+      article_slug TEXT NOT NULL,
+      relation_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (article_slug, relation_key)
+    );
   `);
   // Provable-inference basis for inferred ontology relations (source='inferred').
   if (!hasColumn(db, "entity_relations", "inferred_from")) {

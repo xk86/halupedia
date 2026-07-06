@@ -50,7 +50,15 @@ interface ArticleOntologyProps {
   onNavigate: (titleSegment: string, explicitTitle?: string) => void;
 }
 
-const emptyDraft = { predicate: "", objectSlug: "", objectName: "", literal: "", query: "" };
+interface EditDraft {
+  predicate: string;
+  objectSlug: string;
+  objectName: string;
+  literal: string;
+  query: string;
+}
+
+const emptyDraft: EditDraft = { predicate: "", objectSlug: "", objectName: "", literal: "", query: "" };
 
 const sourceBadgeVariant: Record<string, "outline" | "secondary" | "default"> = {
   extracted: "outline",
@@ -63,6 +71,8 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const [data, setData] = useState<OntologyPayload | null>(null);
   const [predicates, setPredicates] = useState<Predicate[]>([]);
   const [editing, setEditing] = useState(false);
+  const [editingFactId, setEditingFactId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft>(emptyDraft);
   const [draft, setDraft] = useState(emptyDraft);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +81,9 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     let cancelled = false;
     setData(null);
     setEditing(false);
+    setEditingFactId(null);
     setDraft(emptyDraft);
+    setEditDraft(emptyDraft);
     setError(null);
     fetch(`/api/article/${encodeURIComponent(slug)}/ontology`)
       .then((r) => (r.ok ? r.json() : null))
@@ -106,6 +118,8 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
       .catch(() => undefined);
   }, [editing, predicates.length]);
 
+  const apiBase = `/api/article/${encodeURIComponent(slug)}/ontology`;
+
   const addFact = useCallback(async () => {
     if (!draft.predicate || busy) return;
     const objectSlug = draft.objectSlug.trim();
@@ -114,7 +128,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/article/${encodeURIComponent(slug)}/ontology/facts`, {
+      const res = await fetch(`${apiBase}/facts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
@@ -131,7 +145,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     } finally {
       setBusy(false);
     }
-  }, [draft, busy, slug]);
+  }, [draft, busy, apiBase]);
 
   const removeFact = useCallback(
     async (id: number) => {
@@ -139,17 +153,57 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
       setBusy(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/article/${encodeURIComponent(slug)}/ontology/facts/${id}`,
-          { method: "DELETE" },
-        );
+        const res = await fetch(`${apiBase}/facts/${id}`, { method: "DELETE" });
         if (res.ok) setData((await res.json()) as OntologyPayload);
       } finally {
         setBusy(false);
       }
     },
-    [busy, slug],
+    [busy, apiBase],
   );
+
+  const saveFact = useCallback(
+    async (id: number) => {
+      if (busy) return;
+      const objectSlug = editDraft.objectSlug.trim();
+      const objectLiteral = editDraft.literal.trim();
+      if (!editDraft.predicate || (!objectSlug && !objectLiteral)) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const body: Record<string, string> = { predicate: editDraft.predicate };
+        if (objectSlug) body.objectSlug = objectSlug;
+        else body.objectLiteral = objectLiteral;
+        const res = await fetch(`${apiBase}/facts/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const b = (await res.json().catch(() => ({}))) as { error?: string };
+          setError(b.error ?? "Could not update fact");
+          return;
+        }
+        setData((await res.json()) as OntologyPayload);
+        setEditingFactId(null);
+        setEditDraft(emptyDraft);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, editDraft, apiBase],
+  );
+
+  const startEdit = (fact: OntologyFact) => {
+    setEditingFactId(fact.id);
+    setEditDraft({
+      predicate: fact.predicate,
+      objectSlug: fact.objectSlug ?? "",
+      objectName: fact.objectSlug ? fact.object : "",
+      literal: fact.objectSlug ? "" : fact.object,
+      query: fact.objectSlug ? fact.object : "",
+    });
+  };
 
   if (!data) return null;
   const facts = data.facts.filter((f) => f.predicate !== "is_a");
@@ -171,6 +225,65 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     );
   };
 
+  const renderEditRow = (fact: OntologyFact) => (
+    <TableRow key={fact.id} className="border-b border-panel-border bg-muted/30 last:border-0">
+      <th scope="row" className="w-[1%] px-3 py-1.5 align-top text-xs font-medium whitespace-nowrap text-muted-foreground">
+        <Select
+          value={editDraft.predicate}
+          onValueChange={(v) => setEditDraft((d) => ({ ...d, predicate: v ?? "" }))}
+        >
+          <SelectTrigger size="sm" className="w-36 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {predicates.map((p) => (
+              <SelectItem key={p.name} value={p.name}>{p.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </th>
+      <TableCell className="px-3 py-1.5 align-top text-sm">
+        <div className="flex flex-col gap-1.5">
+          <ArticleSearchDropdown
+            query={editDraft.objectName || editDraft.query}
+            onQueryChange={(q) => setEditDraft((d) => ({ ...d, query: q, objectSlug: "", objectName: "" }))}
+            onPick={(s: Suggestion) =>
+              setEditDraft((d) => ({ ...d, objectSlug: s.slug, objectName: s.title, query: s.title, literal: "" }))
+            }
+            placeholder="Link an article…"
+            wrapClassName="w-full"
+          />
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">or</span>
+            <Input
+              value={editDraft.literal}
+              disabled={!!editDraft.objectSlug}
+              onChange={(e) => setEditDraft((d) => ({ ...d, literal: e.target.value }))}
+              placeholder="plain value"
+              className="h-7 flex-1 text-xs"
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              size="xs"
+              disabled={busy || !editDraft.predicate || (!editDraft.objectSlug && !editDraft.literal.trim())}
+              onClick={() => saveFact(fact.id)}
+            >
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => { setEditingFactId(null); setEditDraft(emptyDraft); }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+
   return (
     <Card size="sm" className="mt-8 max-w-[87dvw] gap-0 rounded-sm py-0" aria-label="Ontology facts">
       <CardHeader className="gap-0 rounded-none border-b border-panel-border bg-accent-wash-strong px-3 py-1.5">
@@ -183,7 +296,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           ) : null}
         </CardTitle>
         <CardAction>
-          <Button variant="ghost" size="xs" onClick={() => setEditing((v) => !v)}>
+          <Button variant="ghost" size="xs" onClick={() => { setEditing((v) => !v); setEditingFactId(null); }}>
             {editing ? "Done" : "Edit"}
           </Button>
         </CardAction>
@@ -192,29 +305,38 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
       <CardContent className="px-0">
         <Table containerClassName="overflow-x-visible">
           <TableBody>
-            {facts.map((fact) => (
-              <TableRow key={fact.id} className="border-b border-panel-border last:border-0">
-                <th
-                  scope="row"
-                  className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
-                >
-                  {fact.label}
-                </th>
-                <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal">
-                  <span className="flex items-baseline gap-2">
-                    <span className="flex-1">{renderObject(fact)}</span>
-                    {editing ? (
-                      <span className="flex shrink-0 items-center gap-1">
-                        <Badge
-                          variant={sourceBadgeVariant[fact.source] ?? "outline"}
-                          className="text-[10px]"
-                        >
-                          {fact.source}
-                          {fact.source === "inferred" && fact.confidence < 1
-                            ? ` ${Math.round(fact.confidence * 100)}%`
-                            : null}
-                        </Badge>
-                        {fact.source === "curated" ? (
+            {facts.map((fact) =>
+              editingFactId === fact.id ? renderEditRow(fact) : (
+                <TableRow key={fact.id} className="border-b border-panel-border last:border-0">
+                  <th
+                    scope="row"
+                    className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
+                  >
+                    {fact.label}
+                  </th>
+                  <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal">
+                    <span className="flex items-baseline gap-2">
+                      <span className="flex-1">{renderObject(fact)}</span>
+                      {editing ? (
+                        <span className="flex shrink-0 items-center gap-1">
+                          <Badge
+                            variant={sourceBadgeVariant[fact.source] ?? "outline"}
+                            className="text-[10px]"
+                          >
+                            {fact.source}
+                            {fact.source === "inferred" && fact.confidence < 1
+                              ? ` ${Math.round(fact.confidence * 100)}%`
+                              : null}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Edit fact"
+                            disabled={busy}
+                            onClick={() => startEdit(fact)}
+                          >
+                            ✎
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon-xs"
@@ -224,13 +346,13 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                           >
                             ×
                           </Button>
-                        ) : null}
-                      </span>
-                    ) : null}
-                  </span>
-                </TableCell>
-              </TableRow>
-            ))}
+                        </span>
+                      ) : null}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ),
+            )}
           </TableBody>
         </Table>
 

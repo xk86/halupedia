@@ -153,7 +153,7 @@ export function setArticleCategories(
 }
 
 /** Identity of a relation independent of its id/source/confidence. */
-function relationKey(
+export function relationKey(
   subjectId: number,
   predicate: string,
   objectEntityId: number | null,
@@ -257,9 +257,16 @@ export function reconcileArticleOntology(
     }
   }
 
+  // Load suppressions so we skip re-inserting facts the user explicitly dismissed.
+  const suppressed = new Set(
+    (prepared(db, `SELECT relation_key FROM suppressed_relations WHERE article_slug = ?`)
+      .all(slug) as Array<{ relation_key: string }>).map((r) => r.relation_key),
+  );
+
   // Insert new desired rows; refresh source/confidence on kept replaceable rows.
   const now = Date.now();
   for (const [key, d] of desired) {
+    if (suppressed.has(key)) continue;
     const row = existingByKey.get(key);
     if (!row) {
       prepared(
@@ -423,11 +430,93 @@ export function deleteCuratedFact(db: DatabaseSync, slug: string, relationId: nu
   return Number(res.changes) > 0;
 }
 
+/**
+ * Suppress a non-curated fact so it is hidden and not re-created on reindex.
+ * For curated facts, use `deleteCuratedFact` (actual delete) instead.
+ * Returns whether the suppression was applied.
+ */
+export function suppressFact(db: DatabaseSync, slug: string, relationId: number): boolean {
+  const row = prepared(
+    db,
+    `SELECT r.subject_entity_id, r.predicate, r.object_entity_id, r.object_literal
+     FROM entity_relations r
+     JOIN entities e ON e.id = r.subject_entity_id
+     WHERE r.id = ? AND e.article_slug = ?`,
+  ).get(relationId, slug) as { subject_entity_id: number; predicate: string; object_entity_id: number | null; object_literal: string | null } | undefined;
+  if (!row) return false;
+  const key = relationKey(row.subject_entity_id, row.predicate, row.object_entity_id, row.object_literal);
+  prepared(
+    db,
+    `INSERT OR IGNORE INTO suppressed_relations (article_slug, relation_key, created_at) VALUES (?, ?, ?)`,
+  ).run(slug, key, Date.now());
+  prepared(db, `DELETE FROM entity_relations WHERE id = ?`).run(relationId);
+  return true;
+}
+
+export interface FactUpdateInput {
+  predicate?: string;
+  objectEntityId?: number | null;
+  objectLiteral?: string | null;
+}
+
+/**
+ * Edit a fact. Curated facts are updated in place. Non-curated facts are
+ * promoted to curated: the original row is deleted (and suppressed so it
+ * isn't regenerated) and a new curated row is inserted with the edited values.
+ */
+export function updateFact(
+  db: DatabaseSync,
+  slug: string,
+  relationId: number,
+  updates: FactUpdateInput,
+): number | null {
+  const row = prepared(
+    db,
+    `SELECT r.id, r.subject_entity_id, r.predicate, r.object_entity_id,
+            r.object_literal, r.source, r.provenance_slug
+     FROM entity_relations r
+     JOIN entities e ON e.id = r.subject_entity_id
+     WHERE r.id = ? AND e.article_slug = ?`,
+  ).get(relationId, slug) as {
+    id: number; subject_entity_id: number; predicate: string;
+    object_entity_id: number | null; object_literal: string | null;
+    source: string; provenance_slug: string;
+  } | undefined;
+  if (!row) return null;
+
+  const newPredicate = updates.predicate ?? row.predicate;
+  const newObjectEntityId = updates.objectEntityId !== undefined ? updates.objectEntityId : row.object_entity_id;
+  const newObjectLiteral = updates.objectLiteral !== undefined ? updates.objectLiteral : row.object_literal;
+
+  if (row.source === "curated") {
+    prepared(
+      db,
+      `UPDATE entity_relations SET predicate = ?, object_entity_id = ?, object_literal = ? WHERE id = ?`,
+    ).run(newPredicate, newObjectEntityId, newObjectLiteral, row.id);
+    return row.id;
+  }
+
+  // Non-curated: suppress the original identity and replace with a curated row.
+  const oldKey = relationKey(row.subject_entity_id, row.predicate, row.object_entity_id, row.object_literal);
+  prepared(
+    db,
+    `INSERT OR IGNORE INTO suppressed_relations (article_slug, relation_key, created_at) VALUES (?, ?, ?)`,
+  ).run(slug, oldKey, Date.now());
+  prepared(db, `DELETE FROM entity_relations WHERE id = ?`).run(row.id);
+
+  return addCuratedFact(db, {
+    subjectId: row.subject_entity_id,
+    predicate: newPredicate,
+    objectEntityId: newObjectEntityId,
+    objectLiteral: newObjectEntityId === null ? (newObjectLiteral ?? "") : null,
+    provenanceSlug: slug,
+  });
+}
+
 /** Remove all ontology rows owned by / provenanced to an article (on delete). */
 export function deleteArticleOntology(db: DatabaseSync, slug: string): void {
   prepared(db, `DELETE FROM entity_relations WHERE provenance_slug = ?`).run(slug);
   prepared(db, `DELETE FROM article_categories WHERE article_slug = ?`).run(slug);
-  // Detach the owned entity from the article but keep the entity row (it may be
-  // referenced as an object elsewhere); null the ownership.
+  prepared(db, `DELETE FROM suppressed_relations WHERE article_slug = ?`).run(slug);
   prepared(db, `UPDATE entities SET article_slug = NULL WHERE article_slug = ?`).run(slug);
 }

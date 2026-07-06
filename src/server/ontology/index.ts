@@ -39,8 +39,12 @@ export {
   getArticleEntityId,
   addCuratedFact,
   deleteCuratedFact,
+  suppressFact,
+  updateFact,
+  relationKey,
   type ArticleOntologyFact,
   type CuratedFactInput,
+  type FactUpdateInput,
 } from "./store";
 export { buildOntologyFactDocuments } from "./documents";
 export {

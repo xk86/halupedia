@@ -114,6 +114,8 @@ import {
   getArticleEntityId,
   addCuratedFact,
   deleteCuratedFact,
+  suppressFact,
+  updateFact,
   getVocabularyReviewStats,
   sanitizePredicateAddition,
   sanitizePredicateRemoval,
@@ -5013,15 +5015,54 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json(buildArticleOntologyPayload(slug));
   });
 
-  // DELETE /api/article/:slug/ontology/facts/:id — remove a curated fact.
+  // DELETE /api/article/:slug/ontology/facts/:id — remove a fact (any source).
+  // Curated facts are deleted outright; non-curated facts are suppressed so
+  // they survive re-extraction without reappearing.
   app.delete("/api/article/:slug/ontology/facts/:id", (c) => {
     const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
     const slug = article.slug;
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id)) return c.json({ error: "invalid id" }, 400);
-    const removed = deleteCuratedFact(db, slug, id);
-    if (!removed) return c.json({ error: "not a removable curated fact" }, 404);
+    const removed = deleteCuratedFact(db, slug, id) || suppressFact(db, slug, id);
+    if (!removed) return c.json({ error: "fact not found" }, 404);
+    enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    return c.json(buildArticleOntologyPayload(slug));
+  });
+
+  // PATCH /api/article/:slug/ontology/facts/:id — edit a fact. Curated facts
+  // are updated in place; non-curated facts are promoted to curated on edit.
+  app.patch("/api/article/:slug/ontology/facts/:id", async (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) return c.json({ error: "invalid id" }, 400);
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      predicate?: string;
+      objectSlug?: string;
+      objectLiteral?: string;
+    };
+    const updates: { predicate?: string; objectEntityId?: number | null; objectLiteral?: string | null } = {};
+    if (typeof body.predicate === "string" && body.predicate.trim()) {
+      if (!rag.vocab.predicates.has(body.predicate.trim())) return c.json({ error: "unknown predicate" }, 400);
+      updates.predicate = body.predicate.trim();
+    }
+    const objectSlug = typeof body.objectSlug === "string" ? body.objectSlug.trim() : "";
+    if (objectSlug) {
+      const target = resolveArticleFromSegment(objectSlug);
+      if (!target) return c.json({ error: "linked article not found" }, 400);
+      ensureArticleOntologyFresh(db, target.slug, rag.vocab);
+      updates.objectEntityId = getArticleEntityId(db, target.slug);
+      updates.objectLiteral = updates.objectEntityId === null ? target.title : null;
+    } else if (typeof body.objectLiteral === "string" && body.objectLiteral.trim()) {
+      updates.objectEntityId = null;
+      updates.objectLiteral = body.objectLiteral.trim();
+    }
+
+    const newId = updateFact(db, slug, id, updates);
+    if (newId === null) return c.json({ error: "fact not found" }, 404);
     enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
     return c.json(buildArticleOntologyPayload(slug));
   });

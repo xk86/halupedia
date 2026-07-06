@@ -157,6 +157,56 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     };
   }, [slug]);
 
+  // The background reindex drainer can extract new ontology suggestions for
+  // this article at any time (independent of anything the user clicks), with
+  // no other signal that it happened — without this, new suggestions only
+  // ever showed up after a manual page reload. Subscribe to the article's
+  // live sidecar stream and swap in the fresh payload when one arrives.
+  useEffect(() => {
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/article/${encodeURIComponent(slug)}/live`,
+          { signal: ac.signal },
+        );
+        if (!res.ok || !res.body) return;
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done || ac.signal.aborted) break;
+          buf += dec.decode(value, { stream: true });
+          let nl = buf.indexOf("\n");
+          while (nl >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            nl = buf.indexOf("\n");
+            if (!line) continue;
+            try {
+              const event = JSON.parse(line) as {
+                type?: string;
+                ontology?: Partial<OntologyPayload>;
+              };
+              if (event.type === "ontology" && event.ontology) {
+                setData(normalizeOntologyPayload(event.ontology));
+              }
+            } catch {}
+          }
+        }
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          // Best-effort — the periodic re-fetch on next navigation still
+          // catches up if this stream drops.
+        }
+      }
+    })();
+    return () => {
+      ac.abort();
+    };
+  }, [slug]);
+
   useEffect(() => {
     if (!editing || (predicates.length > 0 && entityTypes.length > 0)) return;
     fetch("/api/ontology/vocabulary")

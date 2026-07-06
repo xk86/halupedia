@@ -16,6 +16,7 @@ import {
   createOntologyDocumentProvider,
   loadOntologyVocabulary,
   reloadOntologyVocabularyInto,
+  type OntologyExtractionCallInfo,
   type OntologyVocabulary,
 } from "../ontology";
 import { createTextEmbedder, type TextEmbedder } from "./embeddings";
@@ -43,6 +44,14 @@ export interface RagRuntimeOptions {
   ontologyLlmExtraction?: boolean;
   /** Prompt config, required when `ontologyLlmExtraction` is enabled. */
   prompts?: PromptConfig;
+  /**
+   * Fired after the background drainer's ontology LLM pass actually calls the
+   * model for a slug (not on cache hits). Lets the caller push a live update
+   * to any open article page and/or record the run for admin visibility —
+   * this reindex-triggered extraction doesn't go through the traced pipeline
+   * workflow system since it isn't invoked via a request.
+   */
+  onOntologyExtracted?: (slug: string, info: OntologyExtractionCallInfo) => void;
 }
 
 export interface RagRuntime {
@@ -73,7 +82,7 @@ export async function createRagRuntime(opts: RagRuntimeOptions): Promise<RagRunt
     opts.db,
     vocab,
     opts.ontologyLlmExtraction && opts.prompts
-      ? { llm: opts.llm, prompts: opts.prompts, logger: opts.logger }
+      ? { llm: opts.llm, prompts: opts.prompts, logger: opts.logger, onExtracted: opts.onOntologyExtracted }
       : undefined,
   );
 

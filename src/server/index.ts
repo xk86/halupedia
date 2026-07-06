@@ -726,6 +726,63 @@ export async function createApp(options: CreateAppOptions = {}) {
       }
       return map;
     },
+    // The background reindex drainer runs ontology LLM extraction outside any
+    // HTTP request, so nothing else pushes its result anywhere: without this,
+    // new suggestions only ever show up after a manual page reload, and the
+    // run itself never appears in the admin traces view. Record a completed
+    // trace row (the call has already finished by the time this fires, so
+    // there's no pending/running phase to show) and push a live update to any
+    // open article page for this slug.
+    onOntologyExtracted: (slug, info) => {
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const runId = randomUUID();
+      const startedAt = Date.now() - info.durationMs;
+      recorder.recordRun({
+        workflow: "ontology.auto_extract",
+        runId,
+        requestId: randomUUID(),
+        slug,
+        startedAt,
+        durationMs: info.durationMs,
+        status: info.error ? "error" : "ok",
+        nodesExecuted: 1,
+        error: info.error ? { message: info.error.message, stack: info.error.stack } : undefined,
+        origin: "rag_drain_auto",
+      });
+      // A node row (not just the run row) so this shows the same prompt/
+      // response/token analytics on expand as every other traced LLM call —
+      // without it the trace view has a title and a duration but nothing to
+      // actually inspect.
+      recorder.recordNode({
+        workflow: "ontology.auto_extract",
+        runId,
+        nodeName: "llm.ontology_extract",
+        nodeKind: "llm",
+        startedAt,
+        durationMs: info.durationMs,
+        status: info.error ? "error" : "ok",
+        reads: [],
+        writes: [],
+        error: info.error ? { message: info.error.message, stack: info.error.stack } : undefined,
+        promptChars: info.promptChars,
+        promptText: info.promptText,
+        responseText: info.responseText,
+        llmRole: info.metadata?.requestedRole,
+        llmResolvedRole: info.metadata?.resolvedRole,
+        llmConfigKey: info.metadata?.configKey,
+        llmModel: info.metadata?.model,
+        llmBaseUrl: info.metadata?.baseUrl,
+        llmHost: info.metadata?.host,
+        llmTemperature: info.metadata?.temperature,
+        llmMaxTokens: info.metadata?.maxTokens,
+        llmTopK: info.metadata?.topK,
+        llmTopP: info.metadata?.topP,
+        llmMinP: info.metadata?.minP,
+        llmThinking: info.thinking,
+        llmJsonMode: info.jsonMode,
+      });
+      notifySidecar(slug, { type: "ontology", ontology: buildArticleOntologyPayload(slug) });
+    },
   });
   {
     // A missing corpus is tolerated (fresh/empty wiki, tests) — the drainer

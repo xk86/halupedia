@@ -21,7 +21,7 @@ export * from "./vocabulary";
 export { extractDeterministic, validateLlmExtraction, mergeExtractions, mergeOntologyExtractions } from "./extract";
 export { reconcileArticleOntology, listArticleEntityFacts, deleteArticleOntology, findEntityId, upsertEntity, resolveArticleSlugByName, getArticleOntologySignature, setArticleOntologySignature, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, relationKey, type ArticleOntologyFact, type CuratedFactInput, type FactUpdateInput } from "./store";
 export { buildOntologyFactDocuments } from "./documents";
-export { deriveLlmExtraction, type OntologyLlmOptions, type LlmExtractionOutcome, type LlmExtractionReason } from "./llmExtract";
+export { deriveLlmExtraction, type OntologyLlmOptions, type LlmExtractionOutcome, type LlmExtractionReason, type OntologyExtractionCallInfo } from "./llmExtract";
 export { inferRelations } from "./infer";
 export { getPredicateUsageStats, getUnmappedLabelStats, getVocabularyReviewStats, runOntologyVocabularyReview, sanitizePredicateAddition, sanitizePredicateRemoval, type PredicateUsage, type UnmappedLabelUsage, type VocabularyReviewStats, type PredicateAdditionProposal, type PredicateRemovalProposal, type VocabularyReviewProposals, type OntologyVocabularyReviewOptions } from "./vocabularyReview";
 export { appendPredicates, removePredicates } from "./vocabularyToml";

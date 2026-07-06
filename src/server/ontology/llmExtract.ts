@@ -11,7 +11,7 @@
  * when the article body or the vocabulary actually changes.
  */
 import type { DatabaseSync } from "node:sqlite";
-import type { ArticleRecord } from "../types";
+import type { ArticleRecord, LlmInvocationMetadata } from "../types";
 import type { PromptConfig } from "../types";
 import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
@@ -28,6 +28,32 @@ export interface OntologyLlmOptions {
   llm: LlmRouter;
   prompts: PromptConfig;
   logger?: Logger;
+  /**
+   * Fired after a fresh extraction (cache miss) writes new suggestions for a
+   * slug. This path runs on the background reindex drainer, not through an
+   * HTTP request, so there is no requester to hand the result back to —
+   * any article page open for this slug needs to be told to refetch its
+   * ontology data (otherwise new suggestions only appear after a manual
+   * reload), and this run needs to be recorded somewhere or it's invisible
+   * to the admin pipeline/traces view even though it made a real model call.
+   */
+  onExtracted?: (slug: string, info: OntologyExtractionCallInfo) => void;
+}
+
+/** Everything the admin trace view needs to render this call the same way it
+ *  renders any other traced LLM node (prompt/response text, token counts
+ *  derived from these at read time, and the resolved model/host). */
+export interface OntologyExtractionCallInfo {
+  reason: LlmExtractionReason;
+  durationMs: number;
+  error?: Error;
+  /** Absent when the call threw before a prompt was built. */
+  promptText?: string;
+  responseText?: string;
+  promptChars?: number;
+  metadata?: LlmInvocationMetadata;
+  thinking?: boolean;
+  jsonMode?: boolean;
 }
 
 /** Human-readable "predicate: subject -> object" lines for binary predicates. */
@@ -103,29 +129,44 @@ export async function deriveLlmExtraction(db: DatabaseSync, vocab: OntologyVocab
   // Explain why the (paid) model call is happening — this is the only path that
   // hits the LLM, and only on a genuine content/vocabulary change.
   const reason = !cached ? "first_extraction" : cached.content_hash !== hash ? "content_changed" : "vocabulary_changed";
+  const startedAt = Date.now();
 
   let extraction = emptyExtraction();
   let rawParsed: unknown;
+  let extractError: Error | undefined;
+  let promptText: string | undefined;
+  let responseText: string | undefined;
+  let promptChars: number | undefined;
+  let metadata: LlmInvocationMetadata | undefined;
+  let resolvedRole: "heavy" | "light" | undefined;
+  let thinking: boolean | undefined;
+  let jsonMode: boolean | undefined;
   try {
     const prompt = getPrompt(options.prompts, "ontology");
     const title = article.displayTitle || article.title;
+    resolvedRole = prompt.model === "heavy" ? "heavy" : "light";
+    thinking = prompt.thinking;
+    jsonMode = prompt.json;
+    const userPrompt = renderTemplate(prompt.user, {
+      requested_title: title,
+      entity_types: [...vocab.entityTypes].join(", "),
+      predicates: describePredicates(vocab),
+      existing_facts: describeExistingFacts(db, article.slug),
+      article_body: body.slice(0, 12000),
+    });
+    promptText = `### System\n${prompt.system}\n\n### User\n${userPrompt}`;
+    promptChars = prompt.system.length + userPrompt.length;
+    metadata = options.llm.metadataFor?.(resolvedRole);
     options.logger?.info?.("ontology.llm_extract", {
       slug: article.slug,
-      model: prompt.model === "heavy" ? "heavy" : "light",
+      model: resolvedRole,
       reason,
     });
-    const raw = await options.llm.chat(
-      prompt.model === "heavy" ? "heavy" : "light",
-      prompt.system,
-      renderTemplate(prompt.user, {
-        requested_title: title,
-        entity_types: [...vocab.entityTypes].join(", "),
-        predicates: describePredicates(vocab),
-        existing_facts: describeExistingFacts(db, article.slug),
-        article_body: body.slice(0, 12000),
-      }),
-      { thinking: prompt.thinking, jsonMode: prompt.json },
-    );
+    const raw = await options.llm.chat(resolvedRole, prompt.system, userPrompt, {
+      thinking,
+      jsonMode,
+    });
+    responseText = raw;
     const parsed = parseJsonLoose(raw);
     if (parsed === null) {
       options.logger?.warn?.("ontology.llm_extraction_unparseable", {
@@ -136,9 +177,11 @@ export async function deriveLlmExtraction(db: DatabaseSync, vocab: OntologyVocab
       extraction = validateLlmExtraction(parsed, vocab);
     }
   } catch (err) {
+    extractError = err instanceof Error ? err : new Error(String(err));
+    responseText = (err as { partialContent?: string }).partialContent ?? responseText;
     options.logger?.warn?.("ontology.llm_extraction_failed", {
       slug: article.slug,
-      error: err instanceof Error ? err.message : String(err),
+      error: extractError.message,
     });
     // Cache the (empty) result too, so a persistently failing/uncovered article
     // doesn't re-hit the model on every drain until its content changes.
@@ -155,6 +198,17 @@ export async function deriveLlmExtraction(db: DatabaseSync, vocab: OntologyVocab
        updated_at = excluded.updated_at`,
   ).run(article.slug, hash, vocabHash, JSON.stringify(extraction), Date.now());
   replaceOntologySuggestions(db, article.slug, rawParsed, extraction);
+  options.onExtracted?.(article.slug, {
+    reason,
+    durationMs: Date.now() - startedAt,
+    error: extractError,
+    promptText,
+    responseText,
+    promptChars,
+    metadata,
+    thinking,
+    jsonMode,
+  });
 
   return { extraction, called: true, reason, rawParsed };
 }

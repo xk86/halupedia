@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { GitMergeIcon, ListPlusIcon, XIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,10 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { ArticleSearchDropdown, type Suggestion } from "@/ArticleSearchDropdown";
+import {
+  ArticleSearchDropdown,
+  type Suggestion,
+} from "@/ArticleSearchDropdown";
 import { entryTitlePresentation } from "../entryTitle";
 
 interface OntologyFact {
@@ -29,6 +33,7 @@ interface OntologyPayload {
   facts: OntologyFact[];
   identifiers: Array<{ scheme: string; value: string }>;
   categories: string[];
+  suggestions: OntologySuggestion[];
 }
 
 interface Predicate {
@@ -51,28 +56,28 @@ interface EditDraft {
   query: string;
 }
 
-const emptyDraft: EditDraft = { predicate: "", objectSlug: "", objectName: "", literal: "", query: "" };
-
-const sourceBadgeVariant: Record<string, "outline" | "secondary" | "default"> = {
-  extracted: "outline",
-  infobox: "outline",
-  inferred: "secondary",
-  curated: "default",
+const emptyDraft: EditDraft = {
+  predicate: "",
+  objectSlug: "",
+  objectName: "",
+  literal: "",
+  query: "",
 };
 
-interface ProposedFact {
+const sourceBadgeVariant: Record<string, "outline" | "secondary" | "default"> =
+  {
+    extracted: "outline",
+    infobox: "outline",
+    inferred: "secondary",
+    curated: "default",
+  };
+
+interface OntologySuggestion {
+  id: number;
   predicate: string;
   label: string;
   object: string;
-  source: string;
-  isNew: boolean;
-}
-
-interface InferencePreview {
-  proposed: ProposedFact[];
-  raw?: ProposedFact[];
-  reason: string;
-  called: boolean;
+  validated: boolean;
 }
 
 export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
@@ -85,7 +90,6 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inferring, setInferring] = useState(false);
-  const [preview, setPreview] = useState<InferencePreview | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +99,6 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     setDraft(emptyDraft);
     setEditDraft(emptyDraft);
     setError(null);
-    setPreview(null);
     setInferring(false);
     fetch(`/api/article/${encodeURIComponent(slug)}/ontology`)
       .then((r) => (r.ok ? r.json() : null))
@@ -106,8 +109,15 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
             ? {
                 entityType: payload.entityType ?? null,
                 facts: Array.isArray(payload.facts) ? payload.facts : [],
-                identifiers: Array.isArray(payload.identifiers) ? payload.identifiers : [],
-                categories: Array.isArray(payload.categories) ? payload.categories : [],
+                identifiers: Array.isArray(payload.identifiers)
+                  ? payload.identifiers
+                  : [],
+                categories: Array.isArray(payload.categories)
+                  ? payload.categories
+                  : [],
+                suggestions: Array.isArray(payload.suggestions)
+                  ? payload.suggestions
+                  : [],
               }
             : null,
         );
@@ -144,7 +154,9 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          objectSlug ? { predicate: draft.predicate, objectSlug } : { predicate: draft.predicate, objectLiteral },
+          objectSlug
+            ? { predicate: draft.predicate, objectSlug }
+            : { predicate: draft.predicate, objectLiteral },
         ),
       });
       if (!res.ok) {
@@ -228,7 +240,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         setError(b.error ?? "Inference failed");
         return;
       }
-      setPreview((await res.json()) as InferencePreview);
+      setData((await res.json()) as OntologyPayload);
     } catch {
       setError("Inference request failed");
     } finally {
@@ -236,20 +248,43 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     }
   }, [inferring, apiBase]);
 
-  const applyInferred = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`${apiBase}/apply-inferred`, { method: "POST" });
-      if (res.ok) {
-        setData((await res.json()) as OntologyPayload);
-        setPreview(null);
+  const applySuggestions = useCallback(
+    async (mode: "append" | "merge", ids?: number[]) => {
+      if (busy) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(`${apiBase}/suggestions/${mode}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(ids ? { ids } : {}),
+        });
+        if (res.ok) {
+          setData((await res.json()) as OntologyPayload);
+        }
+      } finally {
+        setBusy(false);
       }
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, apiBase]);
+    },
+    [busy, apiBase],
+  );
+
+  const dismissSuggestions = useCallback(
+    async (id?: number) => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        const url = id
+          ? `${apiBase}/suggestions/${id}`
+          : `${apiBase}/suggestions`;
+        const res = await fetch(url, { method: "DELETE" });
+        if (res.ok) setData((await res.json()) as OntologyPayload);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, apiBase],
+  );
 
   if (!data) return null;
   const facts = data.facts.filter((f) => f.predicate !== "is_a");
@@ -272,14 +307,26 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   };
 
   const renderEditRow = (fact: OntologyFact) => (
-    <TableRow key={fact.id} className="border-b border-panel-border bg-muted/30 last:border-0">
-      <th scope="row" className="w-[1%] px-3 py-1.5 align-top text-xs font-medium whitespace-nowrap text-muted-foreground">
+    <TableRow
+      key={fact.id}
+      className="border-b border-panel-border bg-muted/30 last:border-0"
+    >
+      <th
+        scope="row"
+        className="w-[1%] px-3 py-1.5 align-top text-xs font-medium whitespace-nowrap text-muted-foreground"
+      >
         <Input
           list="ontology-predicates"
-          value={predicates.find((p) => p.name === editDraft.predicate)?.label ?? editDraft.predicate}
+          value={
+            predicates.find((p) => p.name === editDraft.predicate)?.label ??
+            editDraft.predicate
+          }
           onChange={(e) => {
             const match = predicates.find((p) => p.label === e.target.value);
-            setEditDraft((d) => ({ ...d, predicate: match ? match.name : e.target.value }));
+            setEditDraft((d) => ({
+              ...d,
+              predicate: match ? match.name : e.target.value,
+            }));
           }}
           placeholder="Relationship…"
           className="h-7 w-36 text-xs"
@@ -289,9 +336,22 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         <div className="flex flex-col gap-1.5">
           <ArticleSearchDropdown
             query={editDraft.objectName || editDraft.query}
-            onQueryChange={(q) => setEditDraft((d) => ({ ...d, query: q, objectSlug: "", objectName: "" }))}
+            onQueryChange={(q) =>
+              setEditDraft((d) => ({
+                ...d,
+                query: q,
+                objectSlug: "",
+                objectName: "",
+              }))
+            }
             onPick={(s: Suggestion) =>
-              setEditDraft((d) => ({ ...d, objectSlug: s.slug, objectName: s.title, query: s.title, literal: "" }))
+              setEditDraft((d) => ({
+                ...d,
+                objectSlug: s.slug,
+                objectName: s.title,
+                query: s.title,
+                literal: "",
+              }))
             }
             placeholder="Link an article…"
             wrapClassName="w-full"
@@ -301,7 +361,9 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
             <Input
               value={editDraft.literal}
               disabled={!!editDraft.objectSlug}
-              onChange={(e) => setEditDraft((d) => ({ ...d, literal: e.target.value }))}
+              onChange={(e) =>
+                setEditDraft((d) => ({ ...d, literal: e.target.value }))
+              }
               placeholder="plain value"
               className="h-7 flex-1 text-xs"
             />
@@ -309,7 +371,11 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           <div className="flex items-center gap-1">
             <Button
               size="xs"
-              disabled={busy || !editDraft.predicate || (!editDraft.objectSlug && !editDraft.literal.trim())}
+              disabled={
+                busy ||
+                !editDraft.predicate ||
+                (!editDraft.objectSlug && !editDraft.literal.trim())
+              }
               onClick={() => saveFact(fact.id)}
             >
               Save
@@ -317,7 +383,10 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => { setEditingFactId(null); setEditDraft(emptyDraft); }}
+              onClick={() => {
+                setEditingFactId(null);
+                setEditDraft(emptyDraft);
+              }}
             >
               Cancel
             </Button>
@@ -328,7 +397,11 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   );
 
   return (
-    <Card size="sm" className="mt-8 max-w-[87dvw] gap-0 rounded-sm py-0" aria-label="Ontology facts">
+    <Card
+      size="sm"
+      className="mt-8 max-w-[87dvw] gap-0 rounded-sm py-0"
+      aria-label="Ontology facts"
+    >
       <CardHeader className="gap-0 rounded-none border-b border-panel-border bg-accent-wash-strong px-3 py-1.5">
         <CardTitle className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           Facts
@@ -339,7 +412,14 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           ) : null}
         </CardTitle>
         <CardAction>
-          <Button variant="ghost" size="xs" onClick={() => { setEditing((v) => !v); setEditingFactId(null); }}>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              setEditing((v) => !v);
+              setEditingFactId(null);
+            }}
+          >
             {editing ? "Done" : "Edit"}
           </Button>
         </CardAction>
@@ -349,8 +429,13 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
         <Table containerClassName="overflow-x-visible">
           <TableBody>
             {facts.map((fact) =>
-              editingFactId === fact.id ? renderEditRow(fact) : (
-                <TableRow key={fact.id} className="border-b border-panel-border last:border-0">
+              editingFactId === fact.id ? (
+                renderEditRow(fact)
+              ) : (
+                <TableRow
+                  key={fact.id}
+                  className="border-b border-panel-border last:border-0"
+                >
                   <th
                     scope="row"
                     className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
@@ -363,7 +448,9 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                       {editing ? (
                         <span className="flex shrink-0 items-center gap-1">
                           <Badge
-                            variant={sourceBadgeVariant[fact.source] ?? "outline"}
+                            variant={
+                              sourceBadgeVariant[fact.source] ?? "outline"
+                            }
                             className="text-[10px]"
                           >
                             {fact.source}
@@ -405,10 +492,18 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
               <div className="flex flex-wrap items-center gap-2">
                 <Input
                   list="ontology-predicates"
-                  value={predicates.find((p) => p.name === draft.predicate)?.label ?? draft.predicate}
+                  value={
+                    predicates.find((p) => p.name === draft.predicate)?.label ??
+                    draft.predicate
+                  }
                   onChange={(e) => {
-                    const match = predicates.find((p) => p.label === e.target.value);
-                    setDraft((d) => ({ ...d, predicate: match ? match.name : e.target.value }));
+                    const match = predicates.find(
+                      (p) => p.label === e.target.value,
+                    );
+                    setDraft((d) => ({
+                      ...d,
+                      predicate: match ? match.name : e.target.value,
+                    }));
                   }}
                   placeholder="Relationship…"
                   className="h-8 w-48"
@@ -417,10 +512,21 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                 <ArticleSearchDropdown
                   query={draft.objectName || draft.query}
                   onQueryChange={(query) =>
-                    setDraft((d) => ({ ...d, query, objectSlug: "", objectName: "" }))
+                    setDraft((d) => ({
+                      ...d,
+                      query,
+                      objectSlug: "",
+                      objectName: "",
+                    }))
                   }
                   onPick={(s: Suggestion) =>
-                    setDraft((d) => ({ ...d, objectSlug: s.slug, objectName: s.title, query: s.title, literal: "" }))
+                    setDraft((d) => ({
+                      ...d,
+                      objectSlug: s.slug,
+                      objectName: s.title,
+                      query: s.title,
+                      literal: "",
+                    }))
                   }
                   placeholder="Link an article…"
                   wrapClassName="min-w-52 flex-1"
@@ -428,17 +534,25 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-muted-foreground">or a plain value</span>
+                <span className="text-xs text-muted-foreground">
+                  or a plain value
+                </span>
                 <Input
                   value={draft.literal}
                   disabled={!!draft.objectSlug}
-                  onChange={(e) => setDraft((d) => ({ ...d, literal: e.target.value }))}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, literal: e.target.value }))
+                  }
                   placeholder="e.g. 1998"
                   className="h-8 w-40"
                 />
                 <Button
                   size="sm"
-                  disabled={busy || !draft.predicate || (!draft.objectSlug && !draft.literal.trim())}
+                  disabled={
+                    busy ||
+                    !draft.predicate ||
+                    (!draft.objectSlug && !draft.literal.trim())
+                  }
                   onClick={addFact}
                 >
                   Add fact
@@ -453,63 +567,116 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                 >
                   {inferring ? "Suggesting…" : "Suggest facts"}
                 </Button>
-                {preview ? (
-                  <span className="text-xs text-muted-foreground">
-                    {preview.proposed.filter((p) => p.isNew).length} validated, {preview.raw?.length ?? 0} raw suggestion(s)
-                  </span>
-                ) : null}
+                <span className="text-xs text-muted-foreground">
+                  {data.suggestions.length} pending
+                </span>
               </div>
-              {error ? <span className="text-xs text-destructive">{error}</span> : null}
+              {error ? (
+                <span className="text-xs text-destructive">{error}</span>
+              ) : null}
             </div>
-
-            {preview && (preview.proposed.some((p) => p.isNew) || (preview.raw && preview.raw.length > 0)) ? (
-              <div className="mt-3 rounded-sm border border-panel-border bg-muted/20 p-2">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-medium text-muted-foreground uppercase">
-                    {preview.proposed.some((p) => p.isNew) ? "LLM suggestions" : "LLM observations"}
-                  </span>
-                  <div className="flex gap-1">
-                    {preview.proposed.some((p) => p.isNew) ? (
-                      <Button size="xs" disabled={busy} onClick={applyInferred}>
-                        Apply all
-                      </Button>
-                    ) : null}
-                    <Button variant="ghost" size="xs" onClick={() => setPreview(null)}>
-                      Dismiss
-                    </Button>
-                  </div>
-                </div>
-                {!preview.proposed.some((p) => p.isNew) && preview.raw && preview.raw.length > 0 ? (
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    These don't match the vocabulary — use them as inspiration to add facts manually above.
-                  </p>
-                ) : null}
-                <Table containerClassName="overflow-x-visible">
-                  <TableBody>
-                    {(preview.proposed.some((p) => p.isNew)
-                      ? preview.proposed.filter((p) => p.isNew)
-                      : (preview.raw ?? [])
-                    ).map((p, i) => (
-                      <TableRow key={i} className="border-b border-panel-border last:border-0">
-                        <th
-                          scope="row"
-                          className="w-[1%] px-2 py-1 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
-                        >
-                          {p.label}
-                        </th>
-                        <TableCell className="px-2 py-1 align-baseline text-sm whitespace-normal">
-                          <span className="flex items-baseline gap-2">
-                            <span className="flex-1">{p.object}</span>
-                            <Badge variant="warn" className="text-[10px]">new</Badge>
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : null}
           </div>
+        ) : null}
+
+        {data.suggestions.length > 0 ? (
+          <Card size="sm" className="m-2 gap-0 py-0">
+            <CardHeader>
+              <CardTitle>Ontology suggestions</CardTitle>
+              <CardAction className="flex items-center gap-1">
+                <Button
+                  size="xs"
+                  disabled={busy}
+                  onClick={() => applySuggestions("append")}
+                >
+                  <ListPlusIcon data-icon="inline-start" />
+                  Add all
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  disabled={busy}
+                  onClick={() => applySuggestions("merge")}
+                >
+                  <GitMergeIcon data-icon="inline-start" />
+                  Merge all
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Dismiss all suggestions"
+                  disabled={busy}
+                  onClick={() => dismissSuggestions()}
+                >
+                  <XIcon />
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="px-0">
+              <Table containerClassName="overflow-x-visible">
+                <TableBody>
+                  {data.suggestions.map((suggestion) => (
+                    <TableRow
+                      key={suggestion.id}
+                      className="border-b border-panel-border last:border-0"
+                    >
+                      <th
+                        scope="row"
+                        className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
+                      >
+                        {suggestion.label}
+                      </th>
+                      <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal">
+                        <span className="flex items-baseline gap-2">
+                          <span className="flex-1">{suggestion.object}</span>
+                          <Badge
+                            variant={
+                              suggestion.validated ? "secondary" : "warn"
+                            }
+                            className="text-[10px]"
+                          >
+                            {suggestion.validated ? "validated" : "raw"}
+                          </Badge>
+                          <span className="flex shrink-0 items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label={`Add ${suggestion.label}`}
+                              disabled={busy}
+                              onClick={() =>
+                                applySuggestions("append", [suggestion.id])
+                              }
+                            >
+                              <ListPlusIcon />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label={`Merge ${suggestion.label}`}
+                              disabled={busy}
+                              onClick={() =>
+                                applySuggestions("merge", [suggestion.id])
+                              }
+                            >
+                              <GitMergeIcon />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label={`Dismiss ${suggestion.label}`}
+                              disabled={busy}
+                              onClick={() => dismissSuggestions(suggestion.id)}
+                            >
+                              <XIcon />
+                            </Button>
+                          </span>
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         ) : null}
       </CardContent>
       {editing ? (

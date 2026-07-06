@@ -696,7 +696,7 @@ function WorkflowNodeStep({
       </div>
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 pb-2">
         <Badge variant={variant}>{node.kind}</Badge>
-        <span className="min-w-0 flex-1 break-words text-xs">
+        <span className="min-w-0 flex-1 text-xs break-words">
           <span className="font-mono font-medium break-all">{node.name}</span>
           <span className="text-muted-foreground">
             {" "}
@@ -1113,6 +1113,8 @@ interface OntologyTraceDetail {
   llmEnabled: boolean;
   llmReason?: string;
   extraction?: OntologyExtractionTrace;
+  actionMode?: "append" | "merge";
+  removedInfoboxRelations?: number;
 }
 
 const LLM_REASON_LABEL: Record<string, string> = {
@@ -1125,9 +1127,29 @@ const LLM_REASON_LABEL: Record<string, string> = {
 /** Extraction summary written by write.extract_ontology (patch, falling back
  *  to diff so it's visible at the default "normal" trace level). */
 function getOntologyTraceDetail(node: NodeSpan): OntologyTraceDetail | null {
-  if (node.node_name !== "write.extract_ontology") return null;
   const patch = asRecord(node.patch);
   const diff = asRecord(node.diff);
+  if (
+    node.node_name === "write.append_ontology_suggestions" ||
+    node.node_name === "write.merge_ontology_suggestions"
+  ) {
+    const action =
+      asRecord(patch?.ontologySuggestionAction) ??
+      asRecord(diffAfter(diff, "ontologySuggestionAction"));
+    if (!action) return null;
+    return {
+      entities: 0,
+      relations: typeof action.applied === "number" ? action.applied : 0,
+      categories: 0,
+      llmEnabled: false,
+      actionMode: action.mode === "merge" ? "merge" : "append",
+      removedInfoboxRelations:
+        typeof action.removedInfoboxRelations === "number"
+          ? action.removedInfoboxRelations
+          : 0,
+    };
+  }
+  if (node.node_name !== "write.extract_ontology") return null;
   const summary =
     asRecord(patch?.ontologyExtraction) ??
     asRecord(diffAfter(diff, "ontologyExtraction"));
@@ -1144,6 +1166,22 @@ function getOntologyTraceDetail(node: NodeSpan): OntologyTraceDetail | null {
 }
 
 function OntologyDetail({ detail }: { detail: OntologyTraceDetail }) {
+  if (detail.actionMode) {
+    return (
+      <div className="flex flex-col gap-2" data-testid="trace-detail">
+        <TraceMetadata
+          rows={[
+            ["Action", detail.actionMode],
+            ["Suggestions applied", String(detail.relations)],
+            [
+              "Infobox facts removed",
+              String(detail.removedInfoboxRelations ?? 0),
+            ],
+          ]}
+        />
+      </div>
+    );
+  }
   const rows: Array<[string, string]> = [
     ["LLM extraction", detail.llmEnabled ? "on" : "off (deterministic only)"],
   ];

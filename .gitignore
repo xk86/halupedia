@@ -7,6 +7,7 @@ dist/
 *.log
 data/*.sqlite*
 data/*.lance
+data/
 .claude/
 .serena/
 mcp.json

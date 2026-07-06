@@ -22,16 +22,21 @@ import {
 } from "graphology-components";
 import louvain from "graphology-communities-louvain";
 import * as THREE from "three";
-import { DragControls } from "three/examples/jsm/controls/DragControls.js";
 import {
-  makeNodeLabel,
   setLabelColor,
   setLabelOpacity,
-  labelWorldHeight,
   faceCamera,
   disposeLabels,
   type NodeLabel,
 } from "./graphLabels";
+import {
+  createForceGraph3D,
+  DEFAULT_FORCE_GRAPH_DRAW_SETTINGS,
+  destroyForceGraph3D,
+  makeForceGraphNodeLabel,
+  observeForceGraphSize,
+  type ForceGraphInstance,
+} from "./forceGraph3d";
 import { toWikiSegment } from "./wikiPath";
 import { type Suggestion } from "./articleSuggest";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
@@ -45,57 +50,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-// ── Node-drag button dispatch ────────────────────────────────────────────────
-// 3d-force-graph builds a THREE DragControls over the node meshes but never
-// exposes the instance, and DragControls engages on every pointer button —
-// hijacking the orbit-controls right-button pan whenever the drag starts on a
-// node. Node grabs are a left-button-only gesture here, so gate the
-// pointerdown handler itself: any other button (or shift-held left, the
-// "camera, not node" modifier) never enters DragControls and falls through to
-// the camera controls untouched. The gate must sit at pointerdown — merely
-// mapping the button to "no action" still records the hovered node as the
-// active selection, and the next pointerup then emits a dragstart-less
-// dragend that crashes the library's handler and wedges all later grabs.
-//
-// The constructor binds the handler per instance, so hook the construction
-// path: the `mouseButtons` assignment (which precedes the handler binding)
-// installs an accessor that wraps whatever handler gets assigned next. pnpm
-// shares one `three` module between us and 3d-force-graph, so this prototype
-// is the one its DragControls instances use.
-{
-  const proto = DragControls.prototype as unknown as Record<string, unknown>;
-  type WithHandlers = {
-    __mouseButtons?: unknown;
-    _onPointerDown?: (event: PointerEvent) => void;
-  };
-  Object.defineProperty(proto, "mouseButtons", {
-    configurable: true,
-    get(this: WithHandlers) {
-      return this.__mouseButtons;
-    },
-    set(this: WithHandlers, value: unknown) {
-      this.__mouseButtons = value;
-      if (!Object.getOwnPropertyDescriptor(this, "_onPointerDown")) {
-        let gated: ((event: PointerEvent) => void) | undefined;
-        Object.defineProperty(this, "_onPointerDown", {
-          configurable: true,
-          get: () => gated,
-          set: (handler: (event: PointerEvent) => void) => {
-            gated = (event: PointerEvent) => {
-              if (
-                event.pointerType !== "touch" &&
-                (event.button !== 0 || event.shiftKey)
-              )
-                return;
-              handler(event);
-            };
-          },
-        });
-      }
-    },
-  });
-}
 
 interface RawNode {
   slug: string;
@@ -477,27 +431,12 @@ interface RenderSettings {
 }
 
 const DEFAULT_SETTINGS: RenderSettings = {
-  nodeResolution: 16,
-  nodeRelSize: 4,
-  nodeOpacity: 0.9,
-  linkOpacity: 0.4,
-  linkWidth: 1.0,
-  arrowLength: 3.5,
-  linkCurvature: 0,
+  ...DEFAULT_FORCE_GRAPH_DRAW_SETTINGS,
   particles: 0,
   particleSpeed: 0.005,
   particleWidth: 2,
-  chargeStrength: -180,
-  linkDistance: 60,
-  alphaDecay: 0.0228,
-  velocityDecay: 0.4,
-  bgColor: "#080810",
   alwaysShowLabels: false,
   shadedOpacity: 0.1,
-  labelSize: 1.5,
-  dynamicLabelSize: false,
-  labelSizeInfluence: 0.5,
-  labelDegreeMode: "both",
   directionalParticles: false,
   maxPaths: 3,
   particleGlow: true,
@@ -974,8 +913,7 @@ export function GraphView({
     ...loadPrefs().settings,
   }));
   const containerRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fgRef = useRef<any>(null);
+  const fgRef = useRef<ForceGraphInstance | null>(null);
   const seedsRef = useRef(seeds);
   const colorModeRef = useRef(colorMode);
   const pathEdgeSetRef = useRef(new Set<string>());
@@ -1382,57 +1320,53 @@ export function GraphView({
     const el = containerRef.current;
     let destroyed = false;
 
-    import("3d-force-graph").then(({ default: ForceGraph3D }) => {
-      if (destroyed || fgRef.current) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fg = (ForceGraph3D as any)({ controlType: "orbit" })(el);
-      fgRef.current = fg;
+    createForceGraph3D(el)
+      .then((fg) => {
+        if (destroyed || fgRef.current) {
+          destroyForceGraph3D(fg);
+          return;
+        }
+        fgRef.current = fg;
 
-      fg.nodeId("id")
-        .nodeLabel(
-          (n: FgNode) =>
-            `${n.title}\n↑ ${n.visibleInDegree} in  ↓ ${n.visibleOutDegree} out`,
-        )
-        .nodeVal((n: FgNode) => Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6))
-        .onNodeClick((n: FgNode, event?: MouseEvent) => {
-          // Shaded (non-highlighted) nodes are visually receded — don't let
-          // them be grabbed/navigated, which would be confusing.
-          const hl = highlightSetRef.current;
-          if (shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id)) return;
-          // Shift-click is the "interact with the camera, not the node" gesture.
-          if (event?.shiftKey) return;
-          if (n.exists) onNavigate(toWikiSegment(n.title));
-        });
+        fg.nodeId("id")
+          .nodeLabel(
+            (n: FgNode) =>
+              `${n.title}\n↑ ${n.visibleInDegree} in  ↓ ${n.visibleOutDegree} out`,
+          )
+          .nodeVal((n: FgNode) =>
+            Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6),
+          )
+          .onNodeClick((n: FgNode, event?: MouseEvent) => {
+            const hl = highlightSetRef.current;
+            if (
+              shadingEnabledRef.current &&
+              hl.size > 0 &&
+              !hl.has(n.id)
+            ) {
+              return;
+            }
+            if (event?.shiftKey) return;
+            if (n.exists) onNavigate(toWikiSegment(n.title));
+          });
 
-      // Seed an empty dataset before any other prop is applied. The force
-      // engine resumes (engineRunning = true) at the end of EVERY update
-      // digest, but its layout is only created by digests that include a
-      // graphData change — if the first digest came from a settings prop
-      // while /api/graph was still in flight, the next tick crashed on an
-      // undefined layout ("can't access property 'tick', e.layout is
-      // undefined" on page refresh).
-      fg.graphData({ nodes: [], links: [] });
+        // Debug handle for devtools/automation (inspecting camera, controls,
+        // and drag state without prop drilling).
+        (window as unknown as Record<string, unknown>).__halu_fg = fg;
 
-      // Debug handle for devtools/automation (inspecting camera, controls,
-      // and drag state without prop drilling).
-      (window as unknown as Record<string, unknown>).__halu_fg = fg;
-
-      setInitialized(true);
-    });
+        setInitialized(true);
+      })
+      .catch(() => {
+        if (!destroyed) setLoadError(true);
+      });
 
     return () => {
       destroyed = true;
       disposeLabels(labelSpritesRef.current);
-      if (fgRef.current) {
-        try {
-          fgRef.current._destructor?.();
-        } catch {
-          /* ignore */
-        }
-        fgRef.current = null;
-      }
+      destroyForceGraph3D(fgRef.current);
+      fgRef.current = null;
+      setInitialized(false);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [graphMode, onNavigate]);
 
   // ── Push graph data whenever it changes ────────────────────────────────────
 
@@ -1508,34 +1442,11 @@ export function GraphView({
             ? communityColor(n.componentId)
             : communityColor(n.community)
           : "#999999";
-        const nodeRadius =
-          Math.cbrt(Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6)) *
-          settings.nodeRelSize;
-        // Scale the label off the node's own radius so it stays legible
-        // relative to the node regardless of the "Base size" setting —
-        // "Label size" is a multiplier on top of that baseline.
-        // "Size by link count" scales each label by how many links the node
-        // has (in / out / both, per the dropdown), with an influence knob.
-        // log keeps very high-degree hubs from dwarfing everything.
-        const degCount =
-          settings.labelDegreeMode === "in"
-            ? n.visibleInDegree
-            : settings.labelDegreeMode === "out"
-              ? n.visibleOutDegree
-              : n.visibleInDegree + n.visibleOutDegree;
-        const prominence = settings.dynamicLabelSize
-          ? 1 + settings.labelSizeInfluence * Math.log2(1 + degCount)
-          : 1;
-        const worldHeight =
-          Math.max(2, nodeRadius) * 0.7 * settings.labelSize * prominence;
-        const sprite = makeNodeLabel(n.title, color, worldHeight, {
-          in: n.visibleInDegree,
-          out: n.visibleOutDegree,
-        });
-        sprite.position.set(
-          0,
-          nodeRadius + labelWorldHeight(sprite) / 2 + 1,
-          0,
+        const sprite = makeForceGraphNodeLabel(
+          n,
+          color,
+          Math.max(1, n.inDegree * 0.5 + n.scoreNorm * 6),
+          settings,
         );
         const hl = highlightSetRef.current;
         const faded = shadingEnabledRef.current && hl.size > 0 && !hl.has(n.id);
@@ -2077,15 +1988,7 @@ export function GraphView({
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const observer = new ResizeObserver(() => {
-      if (fgRef.current && containerRef.current) {
-        fgRef.current
-          .width(containerRef.current.clientWidth)
-          .height(containerRef.current.clientHeight);
-      }
-    });
-    observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    return observeForceGraphSize(containerRef.current, () => fgRef.current);
   }, [initialized]);
 
   // ── Seed management ─────────────────────────────────────────────────────────

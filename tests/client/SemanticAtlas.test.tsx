@@ -149,4 +149,46 @@ describe("SemanticAtlas", () => {
     await user.click(screen.getByRole("button", { name: /3D force/i }));
     expect(onViewChange).toHaveBeenCalledWith("3d");
   });
+
+  it("re-renders the graph as the entity filter is typed and backspaced", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <SemanticAtlas
+        onNavigate={() => undefined}
+        view="tree"
+        onViewChange={() => undefined}
+      />,
+    );
+
+    const svg = await screen.findByRole("img", { name: "Ontology tree graph" });
+    const svgLabels = () =>
+      Array.from(svg.querySelectorAll("text")).map((n) => n.textContent);
+    // Both entities visible by default.
+    expect(svgLabels()).toEqual(
+      expect.arrayContaining(["Root entity", "Child entity"]),
+    );
+
+    const filter = screen
+      .getAllByPlaceholderText("Filter entities…")
+      .find((el) => (el as HTMLInputElement).type !== "hidden") as HTMLInputElement;
+    await user.type(filter, "root");
+    // Only the matching entity survives on the canvas.
+    expect(svgLabels()).toEqual(expect.arrayContaining(["Root entity"]));
+    expect(svgLabels()).not.toEqual(
+      expect.arrayContaining(["Child entity"]),
+    );
+
+    // Backspace should restore the full graph — regression: previously the
+    // Input's onChange was not being called, so state stayed at "root".
+    await user.clear(filter);
+    expect(svgLabels()).toEqual(
+      expect.arrayContaining(["Root entity", "Child entity"]),
+    );
+  });
 });

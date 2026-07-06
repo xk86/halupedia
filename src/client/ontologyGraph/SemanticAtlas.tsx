@@ -311,7 +311,7 @@ function SemanticTreeCanvas({
                     selected
                       ? 0.95
                       : settings.linkOpacity *
-                        Math.max(0.18, relation.confidence)
+                      Math.max(0.18, relation.confidence)
                   }
                   onClick={() => onSelectRelation(relation)}
                   style={{ cursor: "pointer" }}
@@ -517,7 +517,7 @@ function OntologyForceGraph({
     const element = containerRef.current;
     if (!element) return;
     let destroyed = false;
-    let stopResize = () => {};
+    let stopResize = () => { };
     createForceGraph3D(element)
       .then((graph) => {
         if (destroyed) {
@@ -1170,11 +1170,6 @@ export function SemanticAtlas({
         }
       >
         <div className="flex flex-col gap-4">
-          {/* Sticky so the canvas stays on screen while the Coverage/Facts/
-              Analysis cards and predicate/type table below it scroll into
-              view, and while the Render pane's own scroll runs independently
-              in the right column. */}
-          <div className="sticky top-4 z-10">
           {view === "3d" ? (
             <OntologyForceGraph
               nodes={renderGraph.nodes}
@@ -1212,7 +1207,6 @@ export function SemanticAtlas({
               settings={renderSettings}
             />
           )}
-          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card size="sm">
               <CardHeader>

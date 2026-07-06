@@ -4616,6 +4616,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         predicate: f.predicate,
         label: rag.vocab.predicates.get(f.predicate)?.label ?? f.predicate.replace(/_/g, " "),
         object: f.object,
+        objectHtml: renderInlineMarkdown(f.object),
         objectSlug: f.objectSlug,
         source: f.source,
         confidence: f.confidence,
@@ -4625,6 +4626,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       suggestions: listOntologySuggestions(db, slug).map((suggestion) => ({
         ...suggestion,
         label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
+        objectHtml: renderInlineMarkdown(suggestion.object),
       })),
     };
   }

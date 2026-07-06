@@ -650,7 +650,7 @@ function OntologyForceGraph({
         })
         .linkPositionUpdate(
           (
-            obj: NodeLabel,
+            obj: NodeLabel | undefined,
             {
               start,
               end,
@@ -659,6 +659,7 @@ function OntologyForceGraph({
               end: { x: number; y: number; z: number };
             },
           ) => {
+            if (!obj) return false;
             obj.position.set(
               (start.x + end.x) / 2,
               (start.y + end.y) / 2,
@@ -668,7 +669,14 @@ function OntologyForceGraph({
           },
         );
     } else {
-      graph.linkThreeObjectExtend(false).linkThreeObject(null);
+      // Must also clear linkPositionUpdate — otherwise the previous tick
+      // callback keeps firing every frame against the now-null link object,
+      // throwing on `obj.position` and hammering the render loop (this was
+      // the source of the reported perf drop after toggling labels off).
+      graph
+        .linkThreeObjectExtend(false)
+        .linkThreeObject(null)
+        .linkPositionUpdate(null);
     }
     graph.d3Force("charge")?.strength(draw.chargeStrength);
     graph.d3Force("link")?.distance(draw.linkDistance);

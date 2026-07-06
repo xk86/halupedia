@@ -198,6 +198,7 @@ export function layoutSemanticTreeNodes(
   relations: OntologyGraphRelation[],
   metric: SemanticMetric,
   maxMetric: number,
+  canvasWidth: number = 960,
 ): TreePositionedNode[] {
   if (nodes.length === 0) return [];
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -249,7 +250,7 @@ export function layoutSemanticTreeNodes(
     const depth = depthById.get(node.id) ?? 0;
     levels.set(depth, [...(levels.get(depth) ?? []), node]);
   }
-  const width = 960;
+  const width = canvasWidth;
   const height = 560;
   const maxDepth = Math.max(0, ...levels.keys());
   return [...levels.entries()]

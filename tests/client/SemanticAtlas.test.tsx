@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SemanticAtlas } from "../../src/client/ontologyGraph/SemanticAtlas";
@@ -115,6 +115,7 @@ const payload: OntologyGraphPayload = {
 
 describe("SemanticAtlas", () => {
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
   });
 
@@ -190,5 +191,32 @@ describe("SemanticAtlas", () => {
     expect(svgLabels()).toEqual(
       expect.arrayContaining(["Root entity", "Child entity"]),
     );
+  });
+
+  it("draws tree edges as cubic Bézier splines, not straight lines", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { container } = render(
+      <SemanticAtlas
+        onNavigate={() => undefined}
+        view="tree"
+        onViewChange={() => undefined}
+      />,
+    );
+
+    await screen.findByRole("img", { name: "Ontology tree graph" });
+    const svg = container.querySelector(
+      'svg[aria-label="Ontology tree graph"]',
+    ) as SVGSVGElement;
+    // At least one edge <path> should carry a cubic-Bézier command.
+    const paths = Array.from(svg.querySelectorAll("path"));
+    const cubic = paths.find((p) => /^M .* C /.test(p.getAttribute("d") ?? ""));
+    expect(cubic).toBeTruthy();
+    // Straight <line> stroke elements between nodes should be gone.
+    expect(svg.querySelectorAll("line").length).toBe(0);
   });
 });

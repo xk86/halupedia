@@ -159,15 +159,39 @@ function SemanticTreeCanvas({
   onSelectRelation: (relation: OntologyGraphRelation) => void;
   settings: GraphRenderSettings;
 }) {
+  // Dynamic canvas width — tree canvas grows horizontally with the largest
+  // tree level so labels don't collide, and the container scrolls.
+  const canvasHeight = 560;
+  const canvasWidth = useMemo(() => {
+    if (nodes.length === 0) return 960;
+    const outgoing = new Map<string, number>();
+    for (const relation of relations) {
+      if (!relation.target) continue;
+      outgoing.set(
+        relation.source,
+        (outgoing.get(relation.source) ?? 0) + 1,
+      );
+    }
+    // Widest level determines the horizontal span; ~72px per slot keeps
+    // labels legible without wrapping and matches the redesigned layout.
+    const perSlot = 72;
+    const heaviestLevel = Math.max(
+      1,
+      ...Array.from(outgoing.values(), (n) => n),
+      nodes.length,
+    );
+    return Math.max(960, heaviestLevel * perSlot);
+  }, [nodes, relations]);
   const positioned = useMemo(
-    () => layoutSemanticTreeNodes(nodes, relations, metric, maxMetric),
-    [nodes, relations, metric, maxMetric],
+    () => layoutSemanticTreeNodes(nodes, relations, metric, maxMetric, canvasWidth),
+    [nodes, relations, metric, maxMetric, canvasWidth],
   );
   const nodeScale =
     settings.nodeRelSize / DEFAULT_GRAPH_RENDER_SETTINGS.nodeRelSize;
+  const center = canvasWidth / 2;
   const spreadNodes = positioned.map((node) => ({
     ...node,
-    x: 480 + (node.x - 480) * settings.treeSpread,
+    x: center + (node.x - center) * settings.treeSpread,
   }));
   const nodeById = new Map(spreadNodes.map((node) => [node.id, node]));
   const typeIndex = new Map(
@@ -189,16 +213,60 @@ function SemanticTreeCanvas({
     );
   }
 
+  const gradientOn = settings.linkColorMode === "gradient";
   return (
     <Card className="min-h-[32rem]">
-      <CardContent className="p-0">
+      <CardContent className="overflow-x-auto p-0">
         <svg
-          viewBox="0 0 960 560"
+          viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
           role="img"
           aria-label="Ontology tree graph"
-          className="h-[32rem] w-full"
+          className="h-[32rem]"
+          style={{ width: canvasWidth, minWidth: "100%" }}
         >
-          <rect width="960" height="560" fill="var(--background)" />
+          {gradientOn ? (
+            <defs>
+              {relations.map((relation) => {
+                const s = nodeById.get(relation.source);
+                const t = relation.target
+                  ? nodeById.get(relation.target)
+                  : null;
+                if (!s || !t) return null;
+                const from = nodeColor(s, typeIndex);
+                const to = nodeColor(t, typeIndex);
+                const neutral = "var(--border)";
+                // Perceptual midpoint used as a stop guarantees the arc
+                // reads as an OKLCH bridge instead of a straight sRGB lerp.
+                const mid = mixOkLch(from, to, 0.5);
+                const opacity = settings.linkColorIntensity;
+                return (
+                  <linearGradient
+                    key={relation.id}
+                    id={`edge-grad-${relation.id}`}
+                    x1={s.x}
+                    y1={s.y}
+                    x2={t.x}
+                    y2={t.y}
+                    gradientUnits="userSpaceOnUse"
+                  >
+                    <stop offset="0%" stopColor={from} stopOpacity={opacity} />
+                    <stop offset="50%" stopColor={mid} stopOpacity={opacity} />
+                    <stop offset="100%" stopColor={to} stopOpacity={opacity} />
+                    <stop
+                      offset="0%"
+                      stopColor={neutral}
+                      stopOpacity={1 - opacity}
+                    />
+                  </linearGradient>
+                );
+              })}
+            </defs>
+          ) : null}
+          <rect
+            width={canvasWidth}
+            height={canvasHeight}
+            fill="var(--background)"
+          />
           {relations.map((relation) => {
             const source = nodeById.get(relation.source);
             const target = relation.target
@@ -206,14 +274,25 @@ function SemanticTreeCanvas({
               : null;
             if (!source || !target) return null;
             const selected = relation.id === selectedRelationId;
+            // Cubic Bezier spline from parent → child. The control points sit
+            // on the same x as each endpoint but at the vertical midpoint —
+            // yielding a smooth S-curve for parent-to-child edges and a
+            // near-arc for same-depth edges.
+            const midY = (source.y + target.y) / 2;
+            const d =
+              `M ${source.x} ${source.y} ` +
+              `C ${source.x} ${midY}, ${target.x} ${midY}, ${target.x} ${target.y}`;
+            const stroke = selected
+              ? "var(--primary)"
+              : gradientOn
+                ? `url(#edge-grad-${relation.id})`
+                : "var(--border)";
             return (
               <g key={relation.id}>
-                <line
-                  x1={source.x}
-                  y1={source.y}
-                  x2={target.x}
-                  y2={target.y}
-                  stroke={selected ? "var(--primary)" : "var(--border)"}
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={stroke}
                   strokeWidth={settings.linkWidth * (selected ? 2.2 : 1)}
                   strokeDasharray={
                     relation.sourceKind === "inferred" ? "6 5" : undefined
@@ -225,14 +304,32 @@ function SemanticTreeCanvas({
                         Math.max(0.18, relation.confidence)
                   }
                   onClick={() => onSelectRelation(relation)}
+                  style={{ cursor: "pointer" }}
                 />
-                <circle
-                  cx={(source.x + target.x) / 2}
-                  cy={(source.y + target.y) / 2}
-                  r={selected ? 4 : 2}
-                  fill={selected ? "var(--primary)" : "var(--muted-foreground)"}
-                  onClick={() => onSelectRelation(relation)}
-                />
+                {settings.showLinkLabels ? (
+                  <text
+                    x={(source.x + target.x) / 2}
+                    y={midY - 4}
+                    textAnchor="middle"
+                    fill="var(--muted-foreground)"
+                    fontSize={10 * settings.linkLabelSize}
+                    onClick={() => onSelectRelation(relation)}
+                    style={{ cursor: "pointer", pointerEvents: "all" }}
+                  >
+                    {relation.predicate}
+                  </text>
+                ) : (
+                  <circle
+                    cx={(source.x + target.x) / 2}
+                    cy={midY}
+                    r={selected ? 4 : 2}
+                    fill={
+                      selected ? "var(--primary)" : "var(--muted-foreground)"
+                    }
+                    onClick={() => onSelectRelation(relation)}
+                    style={{ cursor: "pointer" }}
+                  />
+                )}
               </g>
             );
           })}
@@ -1021,7 +1118,17 @@ export function SemanticAtlas({
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div
+        className={
+          // Tree view keeps the inspector docked on the right at every width
+          // — the tree already grows horizontally to fit its widest level, so
+          // stacking the inspector below is a lot of wasted space. 3D view
+          // keeps the responsive stack (only splits at xl).
+          view === "tree"
+            ? "grid grid-cols-[minmax(0,1fr)_22rem] gap-4"
+            : "grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]"
+        }
+      >
         <div className="flex flex-col gap-4">
           {view === "3d" ? (
             <OntologyForceGraph

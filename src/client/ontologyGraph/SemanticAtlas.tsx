@@ -312,7 +312,11 @@ function SemanticTreeCanvas({
                     y={midY - 4}
                     textAnchor="middle"
                     fill="var(--muted-foreground)"
-                    fontSize={10 * settings.linkLabelSize}
+                    // Clamped: the shared linkLabelSize slider also drives
+                    // the 3D world-space label (no natural pixel ceiling
+                    // there), so an unclamped value here can blow past
+                    // legible SVG font sizes and overlap neighboring text.
+                    fontSize={Math.min(16, 10 * settings.linkLabelSize)}
                     onClick={() => onSelectRelation(relation)}
                     style={{ cursor: "pointer", pointerEvents: "all" }}
                   >
@@ -359,10 +363,14 @@ function SemanticTreeCanvas({
                 {settings.showLabels ? (
                   <text
                     x={node.x}
-                    y={node.y + radius + 14 * settings.labelSize}
+                    y={node.y + radius + Math.min(28, 14 * settings.labelSize)}
                     textAnchor="middle"
                     fill="var(--foreground)"
-                    fontSize={11 * settings.labelSize}
+                    // Clamped for the same reason as the edge label above:
+                    // labelSize is shared with the 3D world-space label,
+                    // whose slider range (up to 15) is unreadable as raw SVG
+                    // pixels.
+                    fontSize={Math.min(22, 11 * settings.labelSize)}
                   >
                     {node.label.length > 22
                       ? `${node.label.slice(0, 21)}…`
@@ -620,7 +628,13 @@ function OntologyForceGraph({
     // the midpoint of each link via linkPositionUpdate.
     disposeLabels(edgeLabelsRef.current);
     if (settings.showLinkLabels) {
-      const worldHeight = Math.max(1, 4 * settings.linkLabelSize);
+      // Tie the base size to nodeRelSize (the "Base size" node/scale
+      // control) so predicate labels grow and shrink along with the rest of
+      // the graph, then apply the dedicated "Label size" (linkLabelSize)
+      // multiplier on top — matching how node labels derive from nodeValue
+      // *and* their own labelSize multiplier.
+      const worldHeight = Math.max(1, settings.nodeRelSize * 0.6) *
+        settings.linkLabelSize;
       graph
         .linkThreeObjectExtend(true)
         .linkThreeObject((link: ForceOntologyLink) => {

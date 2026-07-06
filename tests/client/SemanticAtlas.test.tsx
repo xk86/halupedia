@@ -219,4 +219,36 @@ describe("SemanticAtlas", () => {
     // Straight <line> stroke elements between nodes should be gone.
     expect(svg.querySelectorAll("line").length).toBe(0);
   });
+
+  it("clamps tree label font size so an extreme labelSize doesn't overlap text", async () => {
+    // Simulate a user having cranked the shared Label size slider toward its
+    // max (used by the 3D world-space label, which has no natural pixel
+    // ceiling) — the 2D SVG render must clamp rather than blow up.
+    localStorage.setItem(
+      "halupedia:graph-render:v1",
+      JSON.stringify({ labelSize: 15, linkLabelSize: 4 }),
+    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { container } = render(
+      <SemanticAtlas
+        onNavigate={() => undefined}
+        view="tree"
+        onViewChange={() => undefined}
+      />,
+    );
+    await screen.findByRole("img", { name: "Ontology tree graph" });
+    const svg = container.querySelector(
+      'svg[aria-label="Ontology tree graph"]',
+    ) as SVGSVGElement;
+    const nodeLabel = Array.from(svg.querySelectorAll("text")).find((t) =>
+      t.textContent?.includes("Root entity"),
+    )!;
+    expect(Number(nodeLabel.getAttribute("font-size"))).toBeLessThanOrEqual(22);
+    localStorage.removeItem("halupedia:graph-render:v1");
+  });
 });

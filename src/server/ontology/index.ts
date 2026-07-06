@@ -25,7 +25,7 @@ export { deriveLlmExtraction, type OntologyLlmOptions, type LlmExtractionOutcome
 export { inferRelations } from "./infer";
 export { getPredicateUsageStats, getUnmappedLabelStats, getVocabularyReviewStats, runOntologyVocabularyReview, sanitizePredicateAddition, sanitizePredicateRemoval, type PredicateUsage, type UnmappedLabelUsage, type VocabularyReviewStats, type PredicateAdditionProposal, type PredicateRemovalProposal, type VocabularyReviewProposals, type OntologyVocabularyReviewOptions } from "./vocabularyReview";
 export { appendPredicates, removePredicates } from "./vocabularyToml";
-export { applyOntologySuggestions, deleteOntologySuggestions, listOntologySuggestions, type OntologySuggestion } from "./suggestions";
+export { applyOntologySuggestions, deleteOntologySuggestions, listOntologySuggestions, listPendingOntologySuggestionsByArticle, type ArticleOntologySuggestionGroup, type OntologySuggestion } from "./suggestions";
 export { buildOntologyGraphPayload, type EntityTypeSummary, type OntologyGraphCoverage, type OntologyGraphNode, type OntologyGraphPayload, type OntologyGraphRelation, type PredicateSummary } from "./graph";
 
 export interface IndexArticleOntologyArgs {

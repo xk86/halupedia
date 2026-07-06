@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Hono } from "hono";
+import { openDatabase, prepared, saveArticle } from "../src/server/db";
+import { loadOntologyVocabulary } from "../src/server/ontology";
 import { registerRagAdminRoutes } from "../src/server/rag/adminRoutes";
 import type { RagRuntime } from "../src/server/rag/runtime";
 import type {
@@ -45,6 +50,31 @@ const retrieval: RetrievalResult = {
     exclusions: [],
   },
 };
+
+function makeDb(t: { after: (fn: () => void) => void }) {
+  const root = mkdtempSync(join(tmpdir(), "halu-rag-admin-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return openDatabase(join(root, "test.db"));
+}
+
+function seedArticle(db: ReturnType<typeof makeDb>, slug: string, title: string) {
+  saveArticle(
+    db,
+    {
+      slug,
+      canonicalSlug: slug,
+      title,
+      markdown: `# ${title}\n\nBody.`,
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "Body.",
+      generated_at: Date.now(),
+    },
+    [],
+    [],
+    {},
+  );
+}
 
 test("admin RAG query runs the structured retriever and evidence assembler", async () => {
   const calls: RetrieveContextArgs[] = [];
@@ -101,6 +131,54 @@ test("admin RAG query runs the structured retriever and evidence assembler", asy
   assert.equal(body.retrieval.textDocuments[0].documentId, "article_summary:alpha");
   assert.equal(body.evidence.decisions[0].reason, "semantic");
   assert.deepEqual(body.request.directSlugs, ["alpha", "beta"]);
+});
+
+test("admin ontology suggestions groups pending rows by article", async (t) => {
+  const db = makeDb(t);
+  seedArticle(db, "apple-broker", "Apple Broker");
+  seedArticle(db, "citrus-processor", "Citrus Processor");
+  prepared(
+    db,
+    `INSERT INTO ontology_suggestions
+       (article_slug, subject, predicate, object, validated, created_at)
+     VALUES
+       ('apple-broker', 'Apple Broker', 'manages', 'orchard inventory', 1, 10),
+       ('apple-broker', 'Apple Broker', 'requires_knowledge_of', 'grade standards', 0, 11),
+       ('citrus-processor', 'Citrus Processor', 'interfaces_with', 'regulatory boards', 1, 12)`,
+  ).run();
+
+  const app = new Hono();
+  const runtime = { vocab: loadOntologyVocabulary() } as unknown as RagRuntime;
+  registerRagAdminRoutes(app, () => runtime, () => 0.4, {
+    db,
+    getLlm() {
+      throw new Error("unused");
+    },
+    getPrompts() {
+      throw new Error("unused");
+    },
+  });
+
+  const response = await app.request("/api/admin/ontology/suggestions");
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as any;
+  assert.equal(body.articleCount, 2);
+  assert.equal(body.suggestionCount, 3);
+  assert.deepEqual(
+    body.articles.map((article: any) => ({
+      slug: article.slug,
+      title: article.title,
+      count: article.suggestionCount,
+    })),
+    [
+      { slug: "apple-broker", title: "Apple Broker", count: 2 },
+      { slug: "citrus-processor", title: "Citrus Processor", count: 1 },
+    ],
+  );
+  assert.equal(body.articles[0].suggestions[0].label, "manages");
+  assert.equal(body.articles[0].suggestions[0].objectHtml, "orchard inventory");
+  assert.equal(body.articles[0].suggestions[1].validated, false);
 });
 
 test("admin RAG query rejects empty queries and unknown profiles", async () => {

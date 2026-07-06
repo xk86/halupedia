@@ -2,10 +2,11 @@ import type { Hono } from "hono";
 import type { DatabaseSync } from "node:sqlite";
 import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
+import { renderInlineMarkdown } from "../markdown";
 import type { PromptConfig } from "../types";
 import { slugify } from "../slug";
 import { parseMarkdownLinks } from "../text/markdownLinkParser";
-import { getVocabularyReviewStats, runOntologyVocabularyReview } from "../ontology";
+import { getVocabularyReviewStats, listPendingOntologySuggestionsByArticle, runOntologyVocabularyReview } from "../ontology";
 import type { RagRuntime } from "./runtime";
 import type { RetrievalProfile } from "./types";
 
@@ -34,7 +35,7 @@ export function registerRagAdminRoutes(
   app: Hono,
   getRag: () => RagRuntime,
   getMinScore: () => number,
-  ontology: OntologyReviewDeps,
+  ontology?: OntologyReviewDeps,
 ): void {
   app.post("/api/admin/rag/query", async (c) => {
     let body: RagQueryBody;
@@ -95,13 +96,37 @@ export function registerRagAdminRoutes(
   // tool: per-predicate usage counts and infobox labels that never mapped to a
   // predicate. Cheap, deterministic, no model call — safe to fetch on pane load.
   app.get("/api/admin/ontology/stats", (c) => {
+    if (!ontology) return c.json({ error: "ontology admin unavailable" }, 503);
     return c.json(getVocabularyReviewStats(ontology.db, getRag().vocab));
+  });
+
+  // GET /api/admin/ontology/suggestions — read-only corpus view of generated
+  // ontology suggestions that are still waiting for per-article review.
+  app.get("/api/admin/ontology/suggestions", (c) => {
+    if (!ontology) return c.json({ error: "ontology admin unavailable" }, 503);
+    const vocab = getRag().vocab;
+    const articles = listPendingOntologySuggestionsByArticle(ontology.db).map((article) => ({
+      slug: article.slug,
+      title: article.title,
+      suggestionCount: article.suggestions.length,
+      suggestions: article.suggestions.map((suggestion) => ({
+        ...suggestion,
+        label: vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
+        objectHtml: renderInlineMarkdown(suggestion.object),
+      })),
+    }));
+    return c.json({
+      articleCount: articles.length,
+      suggestionCount: articles.reduce((total, article) => total + article.suggestionCount, 0),
+      articles,
+    });
   });
 
   // POST /api/admin/ontology/review — LLM-assisted pass over the same evidence,
   // proposing predicates to add (closing gaps) or remove (dead weight). Returns
   // validated proposals only; nothing is written until /apply is called.
   app.post("/api/admin/ontology/review", async (c) => {
+    if (!ontology) return c.json({ error: "ontology admin unavailable" }, 503);
     try {
       const { stats, proposals } = await runOntologyVocabularyReview(ontology.db, getRag().vocab, {
         llm: ontology.getLlm(),

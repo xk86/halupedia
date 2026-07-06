@@ -17,6 +17,12 @@ export interface OntologySuggestion {
   validated: boolean;
 }
 
+export interface ArticleOntologySuggestionGroup {
+  slug: string;
+  title: string;
+  suggestions: Array<OntologySuggestion & { createdAt: number }>;
+}
+
 function text(value: unknown): string {
   if (typeof value === "string") return sanitizeFactText(value);
   if (typeof value === "number" || typeof value === "boolean")
@@ -101,6 +107,56 @@ export function listOntologySuggestions(
     Omit<OntologySuggestion, "validated"> & { validated: number }
   >;
   return rows.map((row) => ({ ...row, validated: row.validated === 1 }));
+}
+
+export function listPendingOntologySuggestionsByArticle(
+  db: DatabaseSync,
+): ArticleOntologySuggestionGroup[] {
+  const rows = prepared(
+    db,
+    `SELECT s.id,
+            s.article_slug AS articleSlug,
+            COALESCE(a.title, s.article_slug) AS articleTitle,
+            s.subject,
+            s.predicate,
+            s.object,
+            s.validated,
+            s.created_at AS createdAt
+       FROM ontology_suggestions s
+       LEFT JOIN articles a ON a.slug = s.article_slug
+      ORDER BY s.article_slug COLLATE NOCASE, s.id`,
+  ).all() as Array<{
+    id: number;
+    articleSlug: string;
+    articleTitle: string;
+    subject: string;
+    predicate: string;
+    object: string;
+    validated: number;
+    createdAt: number;
+  }>;
+
+  const groups = new Map<string, ArticleOntologySuggestionGroup>();
+  for (const row of rows) {
+    let group = groups.get(row.articleSlug);
+    if (!group) {
+      group = {
+        slug: row.articleSlug,
+        title: row.articleTitle,
+        suggestions: [],
+      };
+      groups.set(row.articleSlug, group);
+    }
+    group.suggestions.push({
+      id: row.id,
+      subject: row.subject,
+      predicate: row.predicate,
+      object: row.object,
+      validated: row.validated === 1,
+      createdAt: row.createdAt,
+    });
+  }
+  return [...groups.values()];
 }
 
 export function deleteOntologySuggestions(

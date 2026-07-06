@@ -147,8 +147,9 @@ export function applyForceGraphPhysicsSettings(
     "chargeStrength" | "centerStrength" | "linkDistance"
   >,
 ): void {
+  const centerStrength = Math.max(0, Math.min(1, settings.centerStrength));
   graph.d3Force("charge")?.strength(settings.chargeStrength);
-  graph.d3Force("center")?.strength?.(settings.centerStrength);
+  graph.d3Force("center")?.strength?.(centerStrength);
   graph.d3Force("link")?.distance(settings.linkDistance);
 }
 

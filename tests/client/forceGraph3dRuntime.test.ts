@@ -57,7 +57,7 @@ describe("shared 3D force graph runtime", () => {
     expect(runtime.graph.d3Force).toHaveBeenCalledWith("center");
     expect(runtime.graph.d3Force).toHaveBeenCalledWith("link");
     expect(runtime.forces.charge.strength).toHaveBeenCalledWith(-320);
-    expect(runtime.forces.center.strength).toHaveBeenCalledWith(1.75);
+    expect(runtime.forces.center.strength).toHaveBeenCalledWith(1);
     expect(runtime.forces.link.distance).toHaveBeenCalledWith(45);
   });
 });

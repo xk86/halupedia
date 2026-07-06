@@ -472,7 +472,7 @@ export function GraphRenderPane({
               label="Gravity"
               value={settings.centerStrength}
               min={0}
-              max={3}
+              max={1}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(v) => set("centerStrength", v)}

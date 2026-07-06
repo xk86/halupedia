@@ -121,6 +121,8 @@ import {
   sanitizePredicateRemoval,
   appendPredicates,
   removePredicates,
+  deriveLlmExtraction,
+  indexArticleOntology,
   type ArticleOntologyFact,
   type PredicateAdditionProposal,
 } from "./ontology";
@@ -5063,6 +5065,76 @@ export async function createApp(options: CreateAppOptions = {}) {
 
     const newId = updateFact(db, slug, id, updates);
     if (newId === null) return c.json({ error: "fact not found" }, 404);
+    enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
+    return c.json(buildArticleOntologyPayload(slug));
+  });
+
+  // POST /api/article/:slug/ontology/infer — trigger on-demand LLM extraction
+  // and return a preview of proposed facts without persisting them.
+  app.post("/api/article/:slug/ontology/infer", async (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
+    const full = getArticle(db, slug);
+    if (!full) return c.json({ error: "article not found" }, 404);
+
+    ensureArticleOntologyFresh(db, slug, rag.vocab);
+    try {
+      const outcome = await deriveLlmExtraction(db, rag.vocab, full, {
+        llm,
+        prompts: runtime.prompts,
+        logger,
+      });
+      const { facts: existing } = listArticleEntityFacts(db, slug);
+      const existingKeys = new Set(
+        existing.map((f) => `${f.predicate}\0${f.object}`),
+      );
+      const proposed = outcome.extraction.relations
+        .filter((r) => r.predicate !== "is_a")
+        .map((r) => ({
+          predicate: r.predicate,
+          label: rag.vocab.predicates.get(r.predicate)?.label ?? r.predicate.replace(/_/g, " "),
+          object: r.object,
+          source: r.source,
+          isNew: !existingKeys.has(`${r.predicate}\0${r.object}`),
+        }));
+      return c.json({
+        proposed,
+        reason: outcome.reason,
+        called: outcome.called,
+        entities: outcome.extraction.entities.length,
+        categories: outcome.extraction.categories,
+      });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "LLM error" }, 500);
+    }
+  });
+
+  // POST /api/article/:slug/ontology/apply-inferred — apply the cached LLM
+  // extraction to the article's ontology. Re-reads from the LLM cache so the
+  // client doesn't need to pass the extraction payload.
+  app.post("/api/article/:slug/ontology/apply-inferred", async (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
+    const full = getArticle(db, slug);
+    if (!full) return c.json({ error: "article not found" }, 404);
+
+    ensureArticleOntologyFresh(db, slug, rag.vocab);
+    const outcome = await deriveLlmExtraction(db, rag.vocab, full, {
+      llm,
+      prompts: runtime.prompts,
+      logger,
+    });
+    const title = full.displayTitle || full.title;
+    const infobox = getArticleInfobox(db, slug);
+    indexArticleOntology(db, {
+      slug,
+      title,
+      infobox,
+      vocab: rag.vocab,
+      llmExtraction: outcome.extraction,
+    });
     enqueueRagIndexJob(db, { articleSlug: slug, sourceKind: "article_body", sourceId: slug, operation: "upsert" });
     return c.json(buildArticleOntologyPayload(slug));
   });

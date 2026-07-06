@@ -67,6 +67,20 @@ const sourceBadgeVariant: Record<string, "outline" | "secondary" | "default"> = 
   curated: "default",
 };
 
+interface ProposedFact {
+  predicate: string;
+  label: string;
+  object: string;
+  source: string;
+  isNew: boolean;
+}
+
+interface InferencePreview {
+  proposed: ProposedFact[];
+  reason: string;
+  called: boolean;
+}
+
 export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const [data, setData] = useState<OntologyPayload | null>(null);
   const [predicates, setPredicates] = useState<Predicate[]>([]);
@@ -76,6 +90,8 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
   const [draft, setDraft] = useState(emptyDraft);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inferring, setInferring] = useState(false);
+  const [preview, setPreview] = useState<InferencePreview | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +101,8 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     setDraft(emptyDraft);
     setEditDraft(emptyDraft);
     setError(null);
+    setPreview(null);
+    setInferring(false);
     fetch(`/api/article/${encodeURIComponent(slug)}/ontology`)
       .then((r) => (r.ok ? r.json() : null))
       .then((payload: Partial<OntologyPayload> | null) => {
@@ -204,6 +222,40 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
       query: fact.objectSlug ? fact.object : "",
     });
   };
+
+  const inferFacts = useCallback(async () => {
+    if (inferring) return;
+    setInferring(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/infer`, { method: "POST" });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(b.error ?? "Inference failed");
+        return;
+      }
+      setPreview((await res.json()) as InferencePreview);
+    } catch {
+      setError("Inference request failed");
+    } finally {
+      setInferring(false);
+    }
+  }, [inferring, apiBase]);
+
+  const applyInferred = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/apply-inferred`, { method: "POST" });
+      if (res.ok) {
+        setData((await res.json()) as OntologyPayload);
+        setPreview(null);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, apiBase]);
 
   if (!data) return null;
   const facts = data.facts.filter((f) => f.predicate !== "is_a");
@@ -406,8 +458,64 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                   Add fact
                 </Button>
               </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={inferring || busy}
+                  onClick={inferFacts}
+                >
+                  {inferring ? "Suggesting…" : "Suggest facts"}
+                </Button>
+                {preview ? (
+                  <span className="text-xs text-muted-foreground">
+                    {preview.proposed.filter((p) => p.isNew).length} new suggestion(s)
+                    {!preview.called ? " (cached)" : ""}
+                  </span>
+                ) : null}
+              </div>
               {error ? <span className="text-xs text-destructive">{error}</span> : null}
             </div>
+
+            {preview && preview.proposed.some((p) => p.isNew) ? (
+              <div className="mt-3 rounded-sm border border-panel-border bg-muted/20 p-2">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground uppercase">
+                    LLM suggestions
+                  </span>
+                  <div className="flex gap-1">
+                    <Button size="xs" disabled={busy} onClick={applyInferred}>
+                      Apply all
+                    </Button>
+                    <Button variant="ghost" size="xs" onClick={() => setPreview(null)}>
+                      Dismiss
+                    </Button>
+                  </div>
+                </div>
+                <Table containerClassName="overflow-x-visible">
+                  <TableBody>
+                    {preview.proposed
+                      .filter((p) => p.isNew)
+                      .map((p, i) => (
+                        <TableRow key={i} className="border-b border-panel-border last:border-0">
+                          <th
+                            scope="row"
+                            className="w-[1%] px-2 py-1 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground"
+                          >
+                            {p.label}
+                          </th>
+                          <TableCell className="px-2 py-1 align-baseline text-sm whitespace-normal">
+                            <span className="flex items-baseline gap-2">
+                              <span className="flex-1">{p.object}</span>
+                              <Badge variant="warn" className="text-[10px]">new</Badge>
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </CardContent>

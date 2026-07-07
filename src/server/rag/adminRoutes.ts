@@ -7,6 +7,7 @@ import type { PromptConfig } from "../types";
 import { slugify } from "../slug";
 import { parseMarkdownLinks } from "../text/markdownLinkParser";
 import { getVocabularyReviewStats, listPendingOntologySuggestionsByArticle, runOntologyVocabularyReview } from "../ontology";
+import { makeVersionedCache } from "../responseCache";
 import type { RagRuntime } from "./runtime";
 import type { RetrievalProfile } from "./types";
 
@@ -37,6 +38,8 @@ export function registerRagAdminRoutes(
   getMinScore: () => number,
   ontology?: OntologyReviewDeps,
 ): void {
+  const ontologySuggestionsCache = ontology ? makeVersionedCache(ontology.db) : null;
+
   app.post("/api/admin/rag/query", async (c) => {
     let body: RagQueryBody;
     try {
@@ -104,21 +107,31 @@ export function registerRagAdminRoutes(
   // ontology suggestions that are still waiting for per-article review.
   app.get("/api/admin/ontology/suggestions", (c) => {
     if (!ontology) return c.json({ error: "ontology admin unavailable" }, 503);
-    const vocab = getRag().vocab;
-    const articles = listPendingOntologySuggestionsByArticle(ontology.db).map((article) => ({
-      slug: article.slug,
-      title: article.title,
-      suggestionCount: article.suggestions.length,
-      suggestions: article.suggestions.map((suggestion) => ({
-        ...suggestion,
-        label: vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
-        objectHtml: renderInlineMarkdown(suggestion.object),
-      })),
-    }));
-    return c.json({
-      articleCount: articles.length,
-      suggestionCount: articles.reduce((total, article) => total + article.suggestionCount, 0),
-      articles,
+    const cached = ontologySuggestionsCache!.get("admin:ontology:suggestions", () => {
+      const vocab = getRag().vocab;
+      const articles = listPendingOntologySuggestionsByArticle(ontology.db).map((article) => ({
+        slug: article.slug,
+        title: article.title,
+        suggestionCount: article.suggestions.length,
+        suggestions: article.suggestions.map((suggestion) => ({
+          ...suggestion,
+          label: vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
+          objectHtml: renderInlineMarkdown(suggestion.object),
+        })),
+      }));
+      return JSON.stringify({
+        articleCount: articles.length,
+        suggestionCount: articles.reduce((total, article) => total + article.suggestionCount, 0),
+        articles,
+      });
+    });
+    if (c.req.header("if-none-match") === cached.etag) {
+      return c.body(null, 304, { etag: cached.etag, "cache-control": "no-cache" });
+    }
+    return c.body(cached.body, 200, {
+      "content-type": "application/json",
+      etag: cached.etag,
+      "cache-control": "no-cache",
     });
   });
 

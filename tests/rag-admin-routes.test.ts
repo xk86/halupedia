@@ -179,6 +179,26 @@ test("admin ontology suggestions groups pending rows by article", async (t) => {
   assert.equal(body.articles[0].suggestions[0].label, "manages");
   assert.equal(body.articles[0].suggestions[0].objectHtml, "orchard inventory");
   assert.equal(body.articles[0].suggestions[1].validated, false);
+
+  const etag = response.headers.get("etag");
+  assert.ok(etag, "suggestions response should be conditionally cacheable");
+  const cachedResponse = await app.request("/api/admin/ontology/suggestions", {
+    headers: { "if-none-match": etag },
+  });
+  assert.equal(cachedResponse.status, 304);
+
+  prepared(
+    db,
+    `INSERT INTO ontology_suggestions
+       (article_slug, subject, predicate, object, validated, created_at)
+     VALUES
+       ('apple-broker', 'Apple Broker', 'manages', 'packing routes', 1, 13)`,
+  ).run();
+  const refreshedResponse = await app.request("/api/admin/ontology/suggestions", {
+    headers: { "if-none-match": etag },
+  });
+  assert.equal(refreshedResponse.status, 200);
+  assert.notEqual(refreshedResponse.headers.get("etag"), etag);
 });
 
 test("admin RAG query rejects empty queries and unknown profiles", async () => {

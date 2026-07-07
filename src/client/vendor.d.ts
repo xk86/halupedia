@@ -1,6 +1,5 @@
 declare module "graphology-communities-louvain";
 declare module "3d-force-graph";
-declare module "d3-force-3d";
 declare module "troika-three-text" {
   import type { Mesh, Material } from "three";
   export class Text extends Mesh {

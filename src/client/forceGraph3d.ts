@@ -1,5 +1,4 @@
 import { DragControls } from "three/examples/jsm/controls/DragControls.js";
-import { forceManyBody } from "d3-force-3d";
 import { labelWorldHeight, makeNodeLabel, type NodeLabel } from "./graphLabels";
 
 export interface ForceGraphDrawSettings {
@@ -112,7 +111,9 @@ function createComponentChargeForce(initialStrength: number) {
   let currentNodes: ForceGraphPhysicsNode[] = [];
   let currentRandom: (() => number) | undefined;
   let currentDimensions = 2;
-  let componentForces: Array<(alpha: number) => void> = [];
+  let components: ForceGraphPhysicsNode[][] = [];
+
+  const jiggle = () => ((currentRandom ?? Math.random)() - 0.5) * 1e-6;
 
   const rebuild = () => {
     const groups = new Map<number, ForceGraphPhysicsNode[]>();
@@ -122,17 +123,41 @@ function createComponentChargeForce(initialStrength: number) {
       if (bucket) bucket.push(node);
       else groups.set(key, [node]);
     }
-    componentForces = [];
-    for (const nodes of groups.values()) {
-      if (nodes.length < 2) continue;
-      const force = forceManyBody().strength(currentStrength);
-      force.initialize(nodes, currentRandom ?? Math.random, currentDimensions);
-      componentForces.push(force);
-    }
+    components = Array.from(groups.values()).filter((nodes) => nodes.length > 1);
   };
 
   const force = (alpha: number) => {
-    for (const componentForce of componentForces) componentForce(alpha);
+    if (currentStrength === 0) return;
+    for (const nodes of components) {
+      for (let i = 0; i < nodes.length - 1; i += 1) {
+        const a = nodes[i];
+        for (let j = i + 1; j < nodes.length; j += 1) {
+          const b = nodes[j];
+          let dx = b.x - a.x;
+          let dy = b.y - a.y;
+          let dz = currentDimensions > 2 ? (b.z ?? 0) - (a.z ?? 0) : 0;
+          let distanceSquared = dx * dx + dy * dy + dz * dz;
+          if (distanceSquared < 1e-9) {
+            dx = jiggle();
+            dy = currentDimensions > 1 ? jiggle() : 0;
+            dz = currentDimensions > 2 ? jiggle() : 0;
+            distanceSquared = dx * dx + dy * dy + dz * dz;
+          }
+          const boundedDistanceSquared = Math.max(1, distanceSquared);
+          const impulse = currentStrength * alpha / boundedDistanceSquared;
+          a.vx += dx * impulse;
+          b.vx -= dx * impulse;
+          if (currentDimensions > 1) {
+            a.vy += dy * impulse;
+            b.vy -= dy * impulse;
+          }
+          if (currentDimensions > 2) {
+            a.vz = (a.vz ?? 0) + dz * impulse;
+            b.vz = (b.vz ?? 0) - dz * impulse;
+          }
+        }
+      }
+    }
   };
 
   force.initialize = (

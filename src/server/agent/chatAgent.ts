@@ -45,9 +45,26 @@ export interface ChatTurnResult {
 const STREAM_SYSTEM_SUFFIX = `
 You have just finished researching the user's question. Write your final
 conversational answer to them now — a few sentences to a short paragraph,
-grounded only in the research transcript below. Cite articles with
-[Title](ref:slug) links from the transcript. If nothing relevant was found,
-say so plainly.`;
+grounded only in the research below and consistent with the rest of the
+conversation. Cite articles only as real markdown links, [Title](ref:slug),
+using a slug/title from the reference list verbatim — never write a bracketed
+citation marker that isn't a real link (no "[Summary]", "[Source]", footnote
+numbers, or similar; if you're not making a link, don't use brackets). If
+nothing relevant was found, say so plainly in your own words.`;
+
+/** Strips bracket-citation artifacts a model sometimes mimics from the
+ *  research transcript's own field labels (e.g. writing "[Summary]" as if it
+ *  were a footnote) — a safety net behind the prompt's explicit prohibition.
+ *  Only removes brackets that aren't followed by "(" (i.e. not a real
+ *  markdown link), so genuine [Title](ref:slug)/[Title](halu:slug) links are
+ *  untouched. */
+export function sanitizeCitations(text: string): string {
+  return text
+    .replace(/\s?\[(?:Summary|Sources?|References?|Citations?|Footnote|Note)\](?!\()/gi, "")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .replace(/ {2,}/g, " ")
+    .trim();
+}
 
 export async function runChatTurn(
   messages: ChatMessageInput[],
@@ -147,25 +164,46 @@ export async function runChatTurn(
     // (GraphRecursionError inside runAgentLoop), we still always answer —
     // just from whatever research actually completed, rather than surfacing
     // the recursion-limit error to the user.
+    //
+    // The full conversation (not just the latest question) goes into this
+    // prompt too — the tool loop above sees it already (for deciding whether
+    // to research), but this separate synthesis call is what actually
+    // produces the visible prose, and it needs the same context to stay
+    // coherent across turns.
     const streamSystem = `${deps.chatSystemPrompt}\n${STREAM_SYSTEM_SUFFIX}`;
-    const lastUserMessage = messages.at(-1)?.content ?? "";
-    const streamUser = `User's question: ${lastUserMessage}\n\nResearch transcript:\n${transcript || "(no research was needed)"}${
+    const conversationText = messages
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+      .join("\n");
+    const referenceListText = lastReferences.length
+      ? lastReferences.map((r) => `- ${r.title} (ref:${r.slug})`).join("\n")
+      : "(none)";
+    const streamUser = `Conversation so far:\n${conversationText}\n\nResearch for the latest question:\n${transcript || "(no research was needed)"}\n\nReferences available to cite (only these, only as [Title](ref:slug)):\n${referenceListText}${
       hitRecursionLimit
         ? "\n\n(Research was cut short before fully concluding — answer from what's above, and briefly note the answer may be incomplete rather than mentioning any error or limit.)"
         : ""
     }`;
 
-    let answer = "";
+    // Stream progressively-sanitized text: recompute the cleaned prefix on
+    // every chunk and only emit the newly-revealed tail, so a bracket
+    // artifact that gets stripped once its closing "]" arrives never reaches
+    // the client even though the model emitted it token-by-token.
+    let rawAnswer = "";
+    let sentLength = 0;
     const startedAt = Date.now();
     await deps.llmRouter.streamChat(
       deps.chatRole,
       streamSystem,
       streamUser,
-      (delta, accumulated) => {
-        answer = accumulated;
-        deps.onEvent?.({ type: "token", delta });
+      (_delta, accumulated) => {
+        rawAnswer = accumulated;
+        const sanitized = sanitizeCitations(rawAnswer);
+        if (sanitized.length > sentLength) {
+          deps.onEvent?.({ type: "token", delta: sanitized.slice(sentLength) });
+          sentLength = sanitized.length;
+        }
       },
     );
+    const answer = sanitizeCitations(rawAnswer);
     chatHandle.onLlmCall({
       role: deps.chatRole,
       system: streamSystem,
@@ -178,12 +216,25 @@ export async function runChatTurn(
     deps.onEvent?.({ type: "done", references: lastReferences });
     return { answer, references: lastReferences, runId: chatHandle.runId };
   } catch (err) {
-    // Reported to the caller via the "error" event (and the trace row) —
-    // deliberately not rethrown, so the NDJSON route doesn't have to guard
-    // against a double error report.
+    // Even a genuinely unexpected failure (not just a recursion-limit
+    // cutoff, which runAgentLoop already handles) should still leave the
+    // user with a real, in-character response rather than a bare error —
+    // the trace row below still records the failure for observability.
     const wrapped = err instanceof Error ? err : new Error(String(err));
     chatHandle.finish("error", wrapped);
-    deps.onEvent?.({ type: "error", message: wrapped.message });
-    return { answer: "", references: [], runId: chatHandle.runId };
+    const lastUserMessage = messages.at(-1)?.content ?? "";
+    let fallbackAnswer: string;
+    try {
+      fallbackAnswer = await deps.llmRouter.chat(
+        deps.chatRole,
+        deps.chatSystemPrompt,
+        `The user asked: "${lastUserMessage}"\n\nResearching this hit an unexpected problem, so you have no findings to draw on. Reply briefly, in character, that you can't answer that right now and suggest trying again or rephrasing — do not mention errors, tools, or anything technical.`,
+      );
+    } catch {
+      fallbackAnswer = "I can't answer that right now — please try again.";
+    }
+    deps.onEvent?.({ type: "token", delta: fallbackAnswer });
+    deps.onEvent?.({ type: "done", references: [] });
+    return { answer: fallbackAnswer, references: [], runId: chatHandle.runId };
   }
 }

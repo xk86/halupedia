@@ -91,4 +91,55 @@ describe("ChatWidget", () => {
     await user.click(referenceLink);
     expect(onNavigateToArticle).toHaveBeenCalledWith("solana");
   });
+
+  it("keeps the research steps available (folded by default) after the answer completes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      ndjsonResponse([
+        { type: "research", query: "what is solana" },
+        { type: "research_step", tool: "search_articles", args: { query: "solana" } },
+        { type: "token", delta: "Solana is a blockchain." },
+        { type: "done", references: [] },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "Ask the research chat" }));
+    const input = await screen.findByPlaceholderText("Ask about the wiki…");
+    await user.type(input, "What is Solana?");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Solana is a blockchain\./)).toBeInTheDocument();
+    });
+
+    const trigger = screen.getByText("Research steps (2)");
+    expect(screen.queryByText("Researching: what is solana")).not.toBeInTheDocument();
+
+    await user.click(trigger);
+    expect(screen.getByText("Researching: what is solana")).toBeInTheDocument();
+    expect(screen.getByText(/search_articles/)).toBeInTheDocument();
+  });
+
+  it("always leaves a visible message even if the stream ends without a done/error event", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      ndjsonResponse([{ type: "research", query: "what is solana" }]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "Ask the research chat" }));
+    const input = await screen.findByPlaceholderText("Ask about the wiki…");
+    await user.type(input, "What is Solana?");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/didn't get a complete response/i),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
+  });
 });

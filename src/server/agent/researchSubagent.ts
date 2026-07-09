@@ -104,16 +104,25 @@ export async function runResearchSubagent(
   return parseBrief(raw);
 }
 
-function parseBrief(raw: string): ResearchBrief {
+/** Strips a stray leading markdown heading marker (e.g. "# Bingus" -> "Bingus")
+ *  — the condensing model sometimes copies the "# Title" line verbatim out of
+ *  `read_article`'s rendered output into a reference's title field. */
+function stripHeadingMarker(text: string): string {
+  return text.replace(/^#+\s*/, "").trim();
+}
+
+export function parseBrief(raw: string): ResearchBrief {
   try {
     const parsed = JSON.parse(raw) as Partial<ResearchBrief>;
     return {
       summary: typeof parsed.summary === "string" ? parsed.summary : "",
       references: Array.isArray(parsed.references)
-        ? parsed.references.filter(
-            (r): r is ResearchBriefReference =>
-              !!r && typeof r.slug === "string" && typeof r.title === "string",
-          )
+        ? parsed.references
+            .filter(
+              (r): r is ResearchBriefReference =>
+                !!r && typeof r.slug === "string" && typeof r.title === "string",
+            )
+            .map((r) => ({ ...r, title: stripHeadingMarker(r.title) }))
         : [],
       keyFacts: Array.isArray(parsed.keyFacts)
         ? parsed.keyFacts.filter((f): f is string => typeof f === "string")
@@ -127,9 +136,12 @@ function parseBrief(raw: string): ResearchBrief {
 /** Render a brief as tool-call content for the chat orchestrator's
  *  transcript — condensed, never the raw retrieval evidence. */
 export function renderBriefForTranscript(brief: ResearchBrief): string {
-  const lines = [`Summary: ${brief.summary}`];
+  // Field labels deliberately avoid words like "Summary"/"Source" that a model
+  // pattern-matching this transcript could mistake for a citation marker and
+  // echo verbatim as a bogus "[Summary]"-style bracket in its own answer.
+  const lines = [brief.summary];
   if (brief.keyFacts?.length) {
-    lines.push("Key facts:", ...brief.keyFacts.map((f) => `- ${f}`));
+    lines.push("Additional details found:", ...brief.keyFacts.map((f) => `- ${f}`));
   }
   if (brief.references.length) {
     lines.push(

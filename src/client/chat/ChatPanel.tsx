@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SendIcon } from "lucide-react";
+import { ChevronRightIcon, SendIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useChatStream } from "./useChatStream";
 import { renderChatMarkdown } from "./renderChatMarkdown";
 import type { ChatUiMessage } from "./types";
@@ -29,14 +34,24 @@ function AssistantContent({
     [onNavigateToArticle],
   );
 
+  const hasSteps = !!message.steps?.length;
+
   return (
     <div>
-      {message.steps && message.steps.length > 0 && message.pending && (
-        <ul className="mb-1.5 flex flex-col gap-0.5 text-xs text-muted-foreground italic">
-          {message.steps.map((step, i) => (
-            <li key={i}>{step}</li>
-          ))}
-        </ul>
+      {hasSteps && (
+        <Collapsible className="mb-1.5">
+          <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <ChevronRightIcon className="size-3 shrink-0 transition-transform duration-150 data-panel-open:rotate-90" />
+            {message.pending
+              ? "Researching…"
+              : `Research steps (${message.steps!.length})`}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-1 flex flex-col gap-0.5 border-l border-border pl-2 text-xs text-muted-foreground italic">
+            {message.steps!.map((step, i) => (
+              <div key={i}>{step}</div>
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
       )}
       {message.content ? (
         <div
@@ -48,21 +63,26 @@ function AssistantContent({
         <p className="text-sm text-muted-foreground italic">Thinking…</p>
       ) : null}
       {message.references && message.references.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5 border-t border-border pt-2">
-          {message.references.map((ref) => (
-            <a
-              key={ref.slug}
-              href={`/wiki/${ref.slug}`}
-              onClick={(e) => {
-                e.preventDefault();
-                onNavigateToArticle(ref.slug);
-              }}
-              className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-              title={ref.relevance}
-            >
-              {ref.title}
-            </a>
-          ))}
+        <div className="mt-2 border-t border-border pt-2">
+          <p className="mb-1 text-[0.6875rem] font-medium tracking-wide text-muted-foreground uppercase">
+            Sources
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {message.references.map((ref) => (
+              <a
+                key={ref.slug}
+                href={`/wiki/${ref.slug}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigateToArticle(ref.slug);
+                }}
+                className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                title={ref.relevance}
+              >
+                {ref.title}
+              </a>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -127,6 +147,7 @@ export function ChatPanel({ slug, onNavigateToArticle }: ChatPanelProps) {
           }}
           placeholder="Ask about the wiki…"
           rows={1}
+          spellCheck
           className="max-h-32 min-h-0 resize-none"
         />
         <Button

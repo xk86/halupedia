@@ -69,6 +69,7 @@ export function useChatStream(slug?: string) {
         const decoder = new TextDecoder();
         let buffer = "";
         let content = "";
+        let settled = false;
         const steps: string[] = [];
 
         for (;;) {
@@ -84,8 +85,10 @@ export function useChatStream(slug?: string) {
               content += event.delta;
               updateAssistant({ content });
             } else if (event.type === "done") {
+              settled = true;
               updateAssistant({ references: event.references, pending: false });
             } else if (event.type === "error") {
+              settled = true;
               updateAssistant({
                 content: content || event.message,
                 pending: false,
@@ -99,6 +102,17 @@ export function useChatStream(slug?: string) {
               }
             }
           }
+        }
+
+        // The connection closed without a "done"/"error" event (a dropped
+        // stream, a server crash mid-response, etc). Never leave the bubble
+        // stuck on "Thinking…" forever — always land on something visible.
+        if (!settled) {
+          updateAssistant({
+            content: content || "I didn't get a complete response — please try again.",
+            pending: false,
+            errored: !content,
+          });
         }
       } catch (err) {
         updateAssistant({

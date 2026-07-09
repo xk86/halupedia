@@ -80,7 +80,15 @@ plainly in your own words.`;
 export function sanitizeCitations(text: string, selfSlug?: string): string {
   let result = text
     .replace(/\s?\[(?:Summary|Sources?|References?|Citations?|Footnote|Note)\](?!\()/gi, "")
-    .replace(/\s?\[[a-z0-9]+(?:-[a-z0-9]+)+\](?!\()/gi, "");
+    .replace(/\s?\[[a-z0-9]+(?:-[a-z0-9]+)+\](?!\()/gi, "")
+    // A model that starts a citation and never closes the paren — e.g.
+    // "[Text](ref:slug, more prose..." — produces markdown no link regex
+    // will ever match, so it'd otherwise leak as raw "[Text](ref:slug,"
+    // syntax. Detected by the telltale comma immediately after the slug
+    // with no closing ")" — a well-formed citation is never followed by a
+    // bare comma inside its own parens. Unwrap to the plain label so the
+    // sentence still reads, dropping only the broken citation markup.
+    .replace(/\[([^\]]+)\]\((?:ref|halu):[a-z0-9-]+,/gi, "$1,");
   if (selfSlug) {
     const escaped = selfSlug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     result = result.replace(

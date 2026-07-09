@@ -52,3 +52,12 @@ test("sanitizeCitations with a selfSlug leaves other real links alone", () => {
   const input = "See [Bingus](ref:bingus) for details.";
   assert.equal(sanitizeCitations(input, "advanced-testing-procedures"), input);
 });
+
+test("sanitizeCitations unwraps a citation whose paren was never closed", () => {
+  const input =
+    "Materials and systems [advanced-testing-procedures](ref:advanced-testing-procedurestest, which lists them as a related procedure [Test test](ref:test-test), and so on.";
+  const output = sanitizeCitations(input);
+  assert.doesNotMatch(output, /\(ref:advanced-testing-procedurestest/);
+  assert.match(output, /^Materials and systems advanced-testing-procedures, which lists/);
+  assert.match(output, /\[Test test\]\(ref:test-test\)/);
+});

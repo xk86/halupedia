@@ -103,8 +103,16 @@ function AssistantContent({
     <div>
       {hasReasoning && (
         <Collapsible className="mb-1.5">
-          <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-            <ChevronRightIcon className="size-3 shrink-0 transition-transform duration-150 data-panel-open:rotate-90" />
+          <CollapsibleTrigger
+            render={
+              <Button
+                variant="outline"
+                size="sm"
+                className="group/trigger h-auto gap-1 py-1 text-xs font-normal"
+              />
+            }
+          >
+            <ChevronRightIcon className="size-3 shrink-0 transition-transform duration-150 group-data-[panel-open]/trigger:rotate-90" />
             {message.pending
               ? "Researching…"
               : `Reasoning & sources (${stepCount} step${stepCount === 1 ? "" : "s"})`}

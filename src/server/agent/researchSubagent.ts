@@ -12,6 +12,7 @@ import type { LlmRouter } from "../llm";
 import { HalupediaChatModel, type AgentLlmCallTrace, type ChatLlmRole } from "./HalupediaChatModel";
 import { createResearchTools, type AgentToolContext } from "./tools";
 import { renderTranscript } from "./protocol";
+import { runAgentLoop } from "./runAgentLoop";
 
 export interface ResearchBriefReference {
   slug: string;
@@ -73,13 +74,18 @@ export async function runResearchSubagent(
     onLlmCall: args.onLlmCall,
   });
   const agent = createReactAgent({ llm: model, tools });
-  const result = await agent.invoke(
+  const { messages, hitRecursionLimit } = await runAgentLoop(
+    agent,
     { messages: [new HumanMessage(args.query)] },
-    { recursionLimit: args.recursionLimit },
+    args.recursionLimit,
   );
-  const transcript = renderTranscript(result.messages);
+  const transcript = renderTranscript(messages);
 
-  const condenseUser = `Research question: ${args.query}\n\nSubagent transcript:\n${transcript}`;
+  const condenseUser = `Research question: ${args.query}\n\nSubagent transcript:\n${transcript}${
+    hitRecursionLimit
+      ? "\n\n(The subagent ran out of turns before concluding on its own — condense whatever was actually retrieved above; do not treat the cutoff itself as a finding.)"
+      : ""
+  }`;
   const startedAt = Date.now();
   const raw = await args.llmRouter.chat(
     args.role,

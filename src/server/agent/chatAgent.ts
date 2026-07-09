@@ -17,6 +17,7 @@ import { HalupediaChatModel, type ChatLlmRole } from "./HalupediaChatModel";
 import { createReadArticleTool } from "./tools/readArticle";
 import { runResearchSubagent, renderBriefForTranscript, type ResearchBriefReference } from "./researchSubagent";
 import { beginAgentRun } from "./trace";
+import { runAgentLoop } from "./runAgentLoop";
 import type { ChatMessageInput, ChatStreamEvent } from "./types";
 
 export interface ChatAgentDeps {
@@ -125,11 +126,12 @@ export async function runChatTurn(
       llm: model,
       tools: [researchTool, readArticleTool],
     });
-    const result = await agent.invoke(
+    const { messages: finalMessages, hitRecursionLimit } = await runAgentLoop(
+      agent,
       { messages: history },
-      { recursionLimit: deps.chatRecursionLimit },
+      deps.chatRecursionLimit,
     );
-    const transcript = result.messages
+    const transcript = finalMessages
       .slice(history.length)
       .map((m) => {
         const kind = m.getType();
@@ -141,9 +143,17 @@ export async function runChatTurn(
       .filter(Boolean)
       .join("\n\n");
 
+    // Even when the loop was cut off before it reached its own stop condition
+    // (GraphRecursionError inside runAgentLoop), we still always answer —
+    // just from whatever research actually completed, rather than surfacing
+    // the recursion-limit error to the user.
     const streamSystem = `${deps.chatSystemPrompt}\n${STREAM_SYSTEM_SUFFIX}`;
     const lastUserMessage = messages.at(-1)?.content ?? "";
-    const streamUser = `User's question: ${lastUserMessage}\n\nResearch transcript:\n${transcript || "(no research was needed)"}`;
+    const streamUser = `User's question: ${lastUserMessage}\n\nResearch transcript:\n${transcript || "(no research was needed)"}${
+      hitRecursionLimit
+        ? "\n\n(Research was cut short before fully concluding — answer from what's above, and briefly note the answer may be incomplete rather than mentioning any error or limit.)"
+        : ""
+    }`;
 
     let answer = "";
     const startedAt = Date.now();

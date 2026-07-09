@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 import {
   BG_PRESETS,
   DEFAULT_GRAPH_RENDER_SETTINGS,
@@ -142,6 +143,7 @@ export interface GraphRenderPaneProps {
   settings: GraphRenderSettings;
   onChange: (settings: GraphRenderSettings) => void;
   onReset?: () => void;
+  className?: string;
   /**
    * Link-graph-only: external shading toggle. When these are provided (and
    * mode === "links"), the pane renders the "Shading" checkbox. The link-graph
@@ -158,6 +160,7 @@ export function GraphRenderPane({
   settings,
   onChange,
   onReset,
+  className,
   shadingEnabled,
   onShadingEnabledChange,
 }: GraphRenderPaneProps) {
@@ -176,8 +179,8 @@ export function GraphRenderPane({
   };
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className={cn("max-h-full min-h-0", className)}>
+      <CardHeader className="shrink-0">
         <CardTitle>Render</CardTitle>
         <CardDescription>
           {is3d
@@ -190,7 +193,7 @@ export function GraphRenderPane({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain pb-(--card-spacing)">
         <Section title="Nodes">
           {is3d ? (
             <Row

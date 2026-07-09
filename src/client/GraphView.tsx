@@ -2348,6 +2348,7 @@ export function GraphView({
               settings={settings}
               onChange={setSettings}
               onReset={() => setSettings(DEFAULT_GRAPH_RENDER_SETTINGS)}
+              className="h-full"
               shadingEnabled={shadingEnabled}
               onShadingEnabledChange={setShadingEnabled}
             />

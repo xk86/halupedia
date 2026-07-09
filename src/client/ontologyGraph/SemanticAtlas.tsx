@@ -1328,6 +1328,7 @@ export function SemanticAtlas({
               view={view}
               settings={renderSettings}
               onChange={setRenderSettings}
+              className="max-h-[calc(100vh-2rem)]"
             />
           ) : null}
           <NodeInspector

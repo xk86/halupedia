@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { ChatStreamEvent, ChatUiMessage } from "./types";
+import type { ChatStreamEvent, ChatUiMessage, ResearchTraceEntry } from "./types";
 
 let nextId = 0;
 function newId(): string {
@@ -71,6 +71,7 @@ export function useChatStream(slug?: string) {
         let content = "";
         let settled = false;
         const steps: string[] = [];
+        const trace: ResearchTraceEntry[] = [];
 
         for (;;) {
           const { done, value } = await reader.read();
@@ -84,6 +85,9 @@ export function useChatStream(slug?: string) {
             if (event.type === "token") {
               content += event.delta;
               updateAssistant({ content });
+            } else if (event.type === "research_trace") {
+              trace.push(...event.entries);
+              updateAssistant({ trace: [...trace] });
             } else if (event.type === "done") {
               settled = true;
               updateAssistant({ references: event.references, pending: false });

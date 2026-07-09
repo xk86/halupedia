@@ -10,7 +10,65 @@ import {
 import { useChatStream } from "./useChatStream";
 import { renderChatMarkdown } from "./renderChatMarkdown";
 import { toWikiSegment } from "../wikiPath";
-import type { ChatUiMessage } from "./types";
+import type { ChatUiMessage, ResearchTraceEntry } from "./types";
+
+/** Human-readable verb + target for a research step, from its tool + args. */
+function describeStep(entry: ResearchTraceEntry): { label: string; target?: string } {
+  const args = entry.args ?? {};
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  switch (entry.tool) {
+    case "search_articles":
+      return { label: "Searched", target: str(args.query) };
+    case "find_articles_by_title":
+      return { label: "Looked up", target: str(args.query) };
+    case "read_article":
+      return {
+        label: "Read",
+        target: [str(args.slug), str(args.section)].filter(Boolean).join(" › "),
+      };
+    case "get_ontology_facts":
+      return { label: "Fetched facts for", target: str(args.slug) };
+    default:
+      return { label: entry.tool ?? "Step", target: str(Object.values(args)[0]) };
+  }
+}
+
+function ResearchTrace({ entries }: { entries: ResearchTraceEntry[] }) {
+  return (
+    <div className="mt-1 flex flex-col gap-2 border-l border-border pl-2.5">
+      {entries.map((entry, i) => {
+        if (!entry.tool) {
+          return (
+            <p key={i} className="text-xs text-muted-foreground italic">
+              {entry.thought}
+            </p>
+          );
+        }
+        const { label, target } = describeStep(entry);
+        return (
+          <div key={i} className="flex flex-col gap-0.5 text-xs">
+            <div className="flex flex-wrap items-baseline gap-1.5">
+              <span className="font-medium text-foreground">{label}</span>
+              {target && (
+                <span className="rounded bg-muted px-1 py-0.5 text-muted-foreground">
+                  {target}
+                </span>
+              )}
+            </div>
+            {entry.thought && (
+              <p className="text-muted-foreground italic">{entry.thought}</p>
+            )}
+            {entry.result && (
+              <pre className="mt-0.5 max-h-40 overflow-y-auto whitespace-pre-wrap rounded bg-muted/60 px-2 py-1 font-sans text-[0.6875rem] leading-snug text-muted-foreground">
+                {entry.result}
+              </pre>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 interface ChatPanelProps {
   slug?: string;
@@ -36,22 +94,31 @@ function AssistantContent({
     [onNavigateToArticle],
   );
 
-  const hasSteps = !!message.steps?.length;
+  const trace = message.trace;
+  const steps = message.steps;
+  const stepCount = trace?.length ?? steps?.length ?? 0;
+  const hasReasoning = stepCount > 0;
 
   return (
     <div>
-      {hasSteps && (
+      {hasReasoning && (
         <Collapsible className="mb-1.5">
           <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
             <ChevronRightIcon className="size-3 shrink-0 transition-transform duration-150 data-panel-open:rotate-90" />
             {message.pending
               ? "Researching…"
-              : `Research steps (${message.steps!.length})`}
+              : `Reasoning & sources (${stepCount} step${stepCount === 1 ? "" : "s"})`}
           </CollapsibleTrigger>
-          <CollapsibleContent className="mt-1 flex flex-col gap-0.5 border-l border-border pl-2 text-xs text-muted-foreground italic">
-            {message.steps!.map((step, i) => (
-              <div key={i}>{step}</div>
-            ))}
+          <CollapsibleContent>
+            {trace?.length ? (
+              <ResearchTrace entries={trace} />
+            ) : (
+              <div className="mt-1 flex flex-col gap-0.5 border-l border-border pl-2 text-xs text-muted-foreground italic">
+                {steps!.map((step, i) => (
+                  <div key={i}>{step}</div>
+                ))}
+              </div>
+            )}
           </CollapsibleContent>
         </Collapsible>
       )}

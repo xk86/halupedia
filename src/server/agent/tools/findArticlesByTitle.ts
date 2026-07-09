@@ -14,6 +14,9 @@ export function createFindArticlesByTitleTool(ctx: AgentToolContext) {
       if (existing.length === 0) {
         return `No articles found matching "${query}".`;
       }
+      for (const r of existing) {
+        ctx.onArticleSeen?.({ slug: r.slug, title: r.title, via: "title" });
+      }
       return existing
         .map((r) => `- ${r.title} (slug: ${r.slug})`)
         .join("\n");

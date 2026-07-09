@@ -16,6 +16,7 @@ import type { TraceRecorder } from "../pipeline/runtime/trace";
 import { HalupediaChatModel, type ChatLlmRole } from "./HalupediaChatModel";
 import { createReadArticleTool } from "./tools/readArticle";
 import { runResearchSubagent, renderBriefForTranscript, type ResearchBriefReference } from "./researchSubagent";
+import { ReferenceCollector } from "./references";
 import { beginAgentRun } from "./trace";
 import { runAgentLoop } from "./runAgentLoop";
 import type { ChatMessageInput, ChatStreamEvent } from "./types";
@@ -78,7 +79,11 @@ export async function runChatTurn(
     origin: "http",
   });
 
-  let lastReferences: ResearchBriefReference[] = [];
+  // References are collected deterministically from every tool that touches an
+  // article — across all research passes AND the orchestrator's own
+  // read_article — so the "Sources" chips reflect exactly what the agent
+  // pulled in, with real slugs/titles for correct linking.
+  const collector = new ReferenceCollector();
 
   const researchTool = tool(
     async ({ query }: { query: string }) => {
@@ -100,6 +105,7 @@ export async function runChatTurn(
             rag: deps.rag,
             onToolCall: (name, args) =>
               deps.onEvent?.({ type: "research_step", tool: name, args }),
+            onArticleSeen: (article) => collector.add(article),
           },
           systemPrompt: deps.researchSystemPrompt,
           role: deps.researchRole,
@@ -107,7 +113,7 @@ export async function runChatTurn(
           onLlmCall: (call) => childHandle.onLlmCall(call),
         });
         childHandle.finish("ok");
-        lastReferences = brief.references;
+        deps.onEvent?.({ type: "research_trace", query, entries: brief.trace });
         return renderBriefForTranscript(brief);
       } catch (err) {
         const wrapped = err instanceof Error ? err : new Error(String(err));
@@ -125,7 +131,11 @@ export async function runChatTurn(
     },
   );
 
-  const readArticleTool = createReadArticleTool({ db: deps.db, rag: deps.rag });
+  const readArticleTool = createReadArticleTool({
+    db: deps.db,
+    rag: deps.rag,
+    onArticleSeen: (article) => collector.add(article),
+  });
 
   const model = new HalupediaChatModel({
     llmRouter: deps.llmRouter,
@@ -170,12 +180,13 @@ export async function runChatTurn(
     // to research), but this separate synthesis call is what actually
     // produces the visible prose, and it needs the same context to stay
     // coherent across turns.
+    const references = collector.references();
     const streamSystem = `${deps.chatSystemPrompt}\n${STREAM_SYSTEM_SUFFIX}`;
     const conversationText = messages
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n");
-    const referenceListText = lastReferences.length
-      ? lastReferences.map((r) => `- ${r.title} (ref:${r.slug})`).join("\n")
+    const referenceListText = references.length
+      ? references.map((r) => `- ${r.title} (ref:${r.slug})`).join("\n")
       : "(none)";
     const streamUser = `Conversation so far:\n${conversationText}\n\nResearch for the latest question:\n${transcript || "(no research was needed)"}\n\nReferences available to cite (only these, only as [Title](ref:slug)):\n${referenceListText}${
       hitRecursionLimit
@@ -213,8 +224,8 @@ export async function runChatTurn(
     });
 
     chatHandle.finish("ok");
-    deps.onEvent?.({ type: "done", references: lastReferences });
-    return { answer, references: lastReferences, runId: chatHandle.runId };
+    deps.onEvent?.({ type: "done", references });
+    return { answer, references, runId: chatHandle.runId };
   } catch (err) {
     // Even a genuinely unexpected failure (not just a recursion-limit
     // cutoff, which runAgentLoop already handles) should still leave the

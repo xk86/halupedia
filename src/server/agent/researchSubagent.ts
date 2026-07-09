@@ -6,7 +6,7 @@
  * (future, feature-flagged) agentic article-generation work will reuse to
  * produce a canon/history-informed outline brief.
  */
-import { HumanMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import type { LlmRouter } from "../llm";
 import { HalupediaChatModel, type AgentLlmCallTrace, type ChatLlmRole } from "./HalupediaChatModel";
@@ -20,10 +20,63 @@ export interface ResearchBriefReference {
   relevance?: string;
 }
 
+/** One deterministic step of the research subagent's chain of thought, built
+ *  straight from its LangGraph message history — surfaced to the user as the
+ *  expandable "reasoning" trace under a chat answer. */
+export interface ResearchTraceEntry {
+  /** The model's stated reasoning for this step, if it gave one. */
+  thought?: string;
+  /** The tool it decided to call this step. */
+  tool?: string;
+  args?: Record<string, unknown>;
+  /** What the tool returned, so the user can see how each result was evaluated.
+   *  Truncated — the trace is a glance, not the full retrieval evidence. */
+  result?: string;
+}
+
 export interface ResearchBrief {
   summary: string;
   references: ResearchBriefReference[];
   keyFacts?: string[];
+  /** The step-by-step reasoning/tool trace behind this brief. */
+  trace: ResearchTraceEntry[];
+}
+
+const TRACE_RESULT_MAX = 400;
+
+/** Fold the LangGraph message history into an ordered, human-readable trace:
+ *  each assistant turn's reasoning + tool call, paired with that tool's result
+ *  from the following tool message. Deterministic — no LLM involved. */
+export function buildResearchTrace(messages: readonly BaseMessage[]): ResearchTraceEntry[] {
+  const entries: ResearchTraceEntry[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (message.getType() !== "ai") continue;
+    const ai = message as AIMessage;
+    const thought = typeof ai.content === "string" ? ai.content.trim() : "";
+    const call = ai.tool_calls?.[0];
+    if (!call) {
+      // A thought with no tool call — the subagent's closing reasoning.
+      if (thought) entries.push({ thought });
+      continue;
+    }
+    const next = messages[i + 1];
+    const result =
+      next?.getType() === "tool" && typeof next.content === "string"
+        ? truncate(next.content.trim(), TRACE_RESULT_MAX)
+        : undefined;
+    entries.push({
+      thought: thought || undefined,
+      tool: call.name,
+      args: call.args ?? {},
+      result,
+    });
+  }
+  return entries;
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
 }
 
 export interface RunResearchSubagentArgs {
@@ -101,7 +154,7 @@ export async function runResearchSubagent(
     durationMs: Date.now() - startedAt,
   });
 
-  return parseBrief(raw);
+  return { ...parseBrief(raw), trace: buildResearchTrace(messages) };
 }
 
 /** Strips a stray leading markdown heading marker (e.g. "# Bingus" -> "Bingus")
@@ -111,7 +164,7 @@ function stripHeadingMarker(text: string): string {
   return text.replace(/^#+\s*/, "").trim();
 }
 
-export function parseBrief(raw: string): ResearchBrief {
+export function parseBrief(raw: string): Omit<ResearchBrief, "trace"> {
   try {
     const parsed = JSON.parse(raw) as Partial<ResearchBrief>;
     return {

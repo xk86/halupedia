@@ -20,8 +20,17 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
       if (view.sourceArticles.length === 0) {
         return "No matching articles found in the corpus.";
       }
-      return view.sourceArticles
-        .slice(0, 10)
+      const top = view.sourceArticles.slice(0, 10);
+      for (const a of top) {
+        ctx.onArticleSeen?.({
+          slug: a.slug,
+          title: a.title,
+          via: "search",
+          score: a.score ?? undefined,
+          relevance: a.summary,
+        });
+      }
+      return top
         .map(
           (a) =>
             `- ${a.title} (slug: ${a.slug}, score: ${(a.score ?? 0).toFixed(2)}): ${a.summary}`,

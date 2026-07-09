@@ -12,6 +12,7 @@ export function createReadArticleTool(ctx: AgentToolContext) {
       ctx.onToolCall?.("read_article", { slug, section });
       const article = getArticleByLookup(ctx.db, slug);
       if (!article) return `No article found for slug "${slug}".`;
+      ctx.onArticleSeen?.({ slug: article.slug, title: article.title, via: "read" });
       const sections = listArticleSections(article.markdown);
       if (section) {
         const match = sections.find(

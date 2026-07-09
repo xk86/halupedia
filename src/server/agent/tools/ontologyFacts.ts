@@ -11,6 +11,7 @@ export function createGetOntologyFactsTool(ctx: AgentToolContext) {
       ctx.onToolCall?.("get_ontology_facts", { slug });
       const { entity, facts } = listArticleEntityFacts(ctx.db, slug);
       if (!entity) return `No structured facts recorded for slug "${slug}".`;
+      ctx.onArticleSeen?.({ slug, title: entity.canonicalName, via: "facts" });
       if (facts.length === 0) {
         return `${entity.canonicalName} (${entity.entityType}): no relations recorded.`;
       }

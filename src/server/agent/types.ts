@@ -1,4 +1,4 @@
-import type { ResearchBriefReference } from "./researchSubagent";
+import type { ResearchBriefReference, ResearchTraceEntry } from "./researchSubagent";
 
 export interface ChatMessageInput {
   role: "user" | "assistant";
@@ -9,6 +9,7 @@ export interface ChatMessageInput {
 export type ChatStreamEvent =
   | { type: "research"; query: string }
   | { type: "research_step"; tool: string; args: Record<string, unknown> }
+  | { type: "research_trace"; query: string; entries: ResearchTraceEntry[] }
   | { type: "token"; delta: string }
   | { type: "done"; references: ResearchBriefReference[] }
   | { type: "error"; message: string };

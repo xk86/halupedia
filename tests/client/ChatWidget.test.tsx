@@ -89,7 +89,9 @@ describe("ChatWidget", () => {
 
     const referenceLink = await screen.findByText("Solana", { selector: "a" });
     await user.click(referenceLink);
-    expect(onNavigateToArticle).toHaveBeenCalledWith("solana");
+    // Navigated by title (not the raw slug) so punctuation in the title
+    // survives — see ChatPanel's Sources-chip onClick.
+    expect(onNavigateToArticle).toHaveBeenCalledWith("Solana", "Solana");
   });
 
   it("keeps the research steps available (folded by default) after the answer completes", async () => {
@@ -114,7 +116,7 @@ describe("ChatWidget", () => {
       expect(screen.getByText(/Solana is a blockchain\./)).toBeInTheDocument();
     });
 
-    const trigger = screen.getByText("Research steps (2)");
+    const trigger = screen.getByText("Reasoning & sources (2 steps)");
     expect(screen.queryByText("Researching: what is solana")).not.toBeInTheDocument();
 
     await user.click(trigger);

@@ -172,7 +172,14 @@ test("semantic retrieval excludes documents below minScore", async (t) => {
     },
   );
 
-  assert.deepEqual(res.sourceArticles, []);
+  // The semantic hit's score can never clear an impossible minScore of 2, so
+  // it's excluded — but reference_search's ontology quota (a symbolic,
+  // same-category path that deliberately bypasses minScore, see
+  // DEFAULT_PROFILES) can still surface a candidate through that other route.
+  assert.ok(
+    res.sourceArticles.every((a) => a.provenance !== "semantic"),
+    "no semantic candidate survives the impossible minScore",
+  );
   const exclusion = res.diagnostics.exclusions.find(
     (entry) => entry.reason === "below_min_score",
   );

@@ -366,7 +366,7 @@ function buildPublicNoticesSection(worldDate: WorldDate, sources: SourceArticle[
     "",
     `- Residents should preserve article-linked guidance around ${primary} until the next edition supersedes it.`,
     `- Offices, schools, and guild desks should check whether ${secondary} changes opening hours or reporting duties.`,
-    `- This edition covers ${worldDate.label}; later consequences should not be treated as resolved without newer canon.`,
+    `- This edition covers ${worldDate.label}.`,
   ].join("\n");
 }
 
@@ -402,7 +402,7 @@ function buildCorrectionsContinuitySection(worldDate: WorldDate, sources: Source
   return [
     "## Corrections & Continuity",
     "",
-    `No formal correction is posted for ${worldDate.label}. Continuity notes from ${primary} should be treated as current until a later edition or normal article update narrows the facts.`,
+    `No formal correction is posted for ${worldDate.label}. Notes from ${primary} should be treated as current until a later edition or normal article update narrows the facts.`,
   ].join("\n");
 }
 
@@ -410,7 +410,7 @@ function buildMarketsSection(worldDate: WorldDate, sources: SourceArticle[]): st
   return [
     "## Markets",
     "",
-    `Global desks closed mixed on ${worldDate.label}, with continuity-sensitive contracts moving around ${marketSignalFromSources(sources)}.`,
+    `Global desks closed mixed on ${worldDate.label}, with contracts moving around ${marketSignalFromSources(sources)}.`,
     "",
     "| Ticker | Stock or index | Move | Desk note |",
     "| --- | --- | ---: | --- |",
@@ -455,7 +455,7 @@ function buildMarketRows(worldDate: WorldDate, sources: SourceArticle[]): Market
       ticker,
       name: linkedName,
       move: `${arrow}${magnitude.toFixed(1)}%`,
-      note: `${candidate.theme}; daily desk draw from active canon.`,
+      note: `${candidate.theme}.`,
     };
   });
 }
@@ -527,7 +527,7 @@ function marketThemeFromSource(source: SourceArticle): string {
   if (/court|law|vote|council|committee/i.test(haystack)) return "Institutional continuity trade";
   if (/moon|tide|ocean|shore|flood/i.test(haystack)) return "Shoreline and tide-risk exposure";
   if (/school|archive|library|university/i.test(haystack)) return "Public knowledge and staffing trade";
-  return "Broad canon-sensitive basket";
+  return "Broad basket";
 }
 
 function uniqueTickerForMarket(name: string, used: Set<string>): string {
@@ -604,14 +604,13 @@ function buildWeatherSection(
     `| Travel advisory | ${hazard.travel} |`,
     `| Canon driver | ${signal} |`,
     "",
-    `Forecast confidence is moderate: this is an inferred local report for a daily lore-city draw, built from the active world conditions in today's lore packet rather than a separate meteorological archive.`,
   ].join("\n");
 }
 
 function weatherSignalFromSources(sources: SourceArticle[]): string {
   const source = sources.find((item) => /ash|sun|storm|rain|snow|heat|cold|fog|smoke|flood|tide|moon|volcano|weather/i.test(`${item.title} ${item.summaryMarkdown} ${item.markdown}`))
     ?? sources[0];
-  if (!source) return "the active world-state rather than ordinary seasonal averages";
+  if (!source) return ".";
   return `[${source.title}](halu:${source.slug} "${source.title}")`;
 }
 

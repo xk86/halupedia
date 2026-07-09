@@ -3143,6 +3143,35 @@ a:hover {
   scrollbar-gutter: stable;
 }
 
+@media (max-width: 680px) {
+  .graph-body {
+    flex-direction: column;
+  }
+
+  .graph-canvas {
+    flex: 1 1 12rem;
+    min-height: 12rem;
+  }
+
+  .graph-render-pane {
+    flex: 0 1 58%;
+    width: 100%;
+    max-height: min(30rem, 58dvh);
+    min-height: 0;
+    align-self: auto;
+    border-top: 1px solid var(--rule);
+    border-left: 0;
+  }
+
+  .graph-legend-panel {
+    width: 100%;
+    max-height: 12rem;
+    align-self: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+}
+
 .graph-path-info {
   color: #ffd700;
   font-weight: 600;

@@ -88,7 +88,57 @@ test("search_articles renders a condensed, ranked list", async () => {
   assert.match(output as string, /Solana/);
   assert.match(output as string, /slug: solana/);
   assert.match(output as string, /0\.87/);
-  assert.deepEqual(toolCalls, [{ tool: "search_articles", args: { query: "proof of history" } }]);
+  assert.deepEqual(toolCalls, [
+    { tool: "search_articles", args: { query: "proof of history", limit: 10 } },
+  ]);
+});
+
+test("search_articles clamps a caller-supplied limit and forwards minScore", async () => {
+  const ctx: AgentToolContext = { db: undefined as never, rag: fakeRag(EMPTY_RETRIEVAL) };
+  const toolCalls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+  ctx.onToolCall = (toolName, args) => toolCalls.push({ tool: toolName, args });
+  const searchTool = createSearchArticlesTool(ctx);
+
+  await searchTool.invoke({ query: "x", limit: 999, minScore: 0.5 });
+
+  assert.deepEqual(toolCalls, [
+    { tool: "search_articles", args: { query: "x", limit: 25, minScore: 0.5 } },
+  ]);
+});
+
+test("search_articles inlines ontology facts per result", async () => {
+  const result: RetrievalResult = {
+    textDocuments: [
+      {
+        documentId: "d1",
+        articleSlug: "solana",
+        sourceKind: "ontology_fact",
+        sourceId: "f1",
+        content: "Solana founded_by Anatoly Yakovenko",
+        rawScore: 1,
+        fusedRank: 0,
+        retrievalReason: "semantic",
+        provenance: "semantic",
+      },
+    ],
+    imageDocuments: [],
+    sourceArticles: [
+      {
+        slug: "solana",
+        title: "Solana",
+        score: 0.87,
+        contributingKinds: ["article_summary", "ontology_fact"],
+        provenance: "semantic",
+        summary: "A proof-of-history blockchain network.",
+      },
+    ],
+    relatedTitles: [],
+    diagnostics: emptyDiagnostics(),
+  };
+  const ctx: AgentToolContext = { db: undefined as never, rag: fakeRag(result) };
+  const searchTool = createSearchArticlesTool(ctx);
+  const output = await searchTool.invoke({ query: "solana" });
+  assert.match(output as string, /Facts: Solana founded_by Anatoly Yakovenko/);
 });
 
 test("search_articles reports no matches without inventing content", async () => {

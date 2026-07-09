@@ -54,7 +54,10 @@ export const DEFAULT_PROFILES: Record<RetrievalProfile, ProfileConfig> = {
   article_generation: { textTopK: 12, imageTopK: 3, maxPromptTokens: 7000, ontologyQuota: 3, bodyReserveTokens: 2000, defaultKinds: ALL_TEXT_KINDS },
   article_rewrite: { textTopK: 8, imageTopK: 2, maxPromptTokens: 4000, ontologyQuota: 2, bodyReserveTokens: 1200, defaultKinds: ALL_TEXT_KINDS },
   article_refresh: { textTopK: 4, imageTopK: 1, maxPromptTokens: 1800, ontologyQuota: 1, bodyReserveTokens: 600, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact", "article_body"] },
-  reference_search: { textTopK: 10, imageTopK: 0, maxPromptTokens: 0, ontologyQuota: 0, bodyReserveTokens: 0, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact"] },
+  // ontologyQuota reserves slots for symbolic (same-category) ontology facts so
+  // the chat research tool's default search always surfaces some structured
+  // world data, not just prose summaries that happened to rank highest.
+  reference_search: { textTopK: 10, imageTopK: 0, maxPromptTokens: 0, ontologyQuota: 3, bodyReserveTokens: 0, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact"] },
 };
 
 export interface RetrieverDeps {
@@ -208,7 +211,9 @@ export async function retrieveContext(
   args: RetrieveContextArgs,
 ): Promise<RetrievalResult> {
   const profiles = deps.profiles ?? DEFAULT_PROFILES;
-  const profile = profiles[args.profile];
+  const baseProfile = profiles[args.profile];
+  const profile: ProfileConfig =
+    args.topK && args.topK > 0 ? { ...baseProfile, textTopK: args.topK } : baseProfile;
   const targetSlug = slugify(args.targetSlug);
   const includeKinds = args.includeKinds?.length ? args.includeKinds : profile.defaultKinds;
   const excludeSlugs = [

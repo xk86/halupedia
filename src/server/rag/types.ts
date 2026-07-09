@@ -134,6 +134,9 @@ export interface RetrieveContextArgs {
   queryText?: string;
   /** Minimum cosine similarity for semantic evidence. Direct evidence bypasses it. */
   minScore?: number;
+  /** Overrides the profile's `textTopK` for this call only (e.g. a caller-tunable
+   *  search tool letting an agent ask for more/fewer results than the default). */
+  topK?: number;
   directSlugs?: string[];
   excludeSlugs?: string[];
   includeKinds?: TextDocumentKind[];

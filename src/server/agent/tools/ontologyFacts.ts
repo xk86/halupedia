@@ -23,7 +23,9 @@ export function createGetOntologyFactsTool(ctx: AgentToolContext) {
     {
       name: "get_ontology_facts",
       description:
-        "Structured fact triples (subject-predicate-object) recorded for an article's entity, by slug.",
+        "Full structured fact triples (subject-predicate-object) recorded for an article's " +
+        "entity, by slug. search_articles already inlines up to 3 facts per hit — call this " +
+        "when you need an entity's complete fact list beyond that short digest.",
       schema: z.object({
         slug: z.string().describe("The article's slug."),
       }),

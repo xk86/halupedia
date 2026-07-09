@@ -11,5 +11,5 @@ export type ChatStreamEvent =
   | { type: "research_step"; tool: string; args: Record<string, unknown> }
   | { type: "research_trace"; query: string; entries: ResearchTraceEntry[] }
   | { type: "token"; delta: string }
-  | { type: "done"; references: ResearchBriefReference[] }
+  | { type: "done"; references: ResearchBriefReference[]; html: string }
   | { type: "error"; message: string };

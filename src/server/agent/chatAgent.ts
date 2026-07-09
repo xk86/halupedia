@@ -14,8 +14,12 @@ import { getArticleByEquivalentLookup } from "../db";
 import type { LlmRouter } from "../llm";
 import type { RagRuntime } from "../rag";
 import type { TraceRecorder } from "../pipeline/runtime/trace";
+import type { ReferenceList } from "../types";
+import { resolveRefLinks, resolveBareBracketsToRefs } from "../referenceList";
+import { stripSelfLinks, renderMarkdown } from "../markdown";
 import { HalupediaChatModel, type ChatLlmRole } from "./HalupediaChatModel";
 import { createReadArticleTool } from "./tools/readArticle";
+import type { AgentToolConfig } from "./tools/context";
 import { runResearchSubagent, renderBriefForTranscript, type ResearchBriefReference } from "./researchSubagent";
 import { ReferenceCollector } from "./references";
 import { beginAgentRun } from "./trace";
@@ -32,6 +36,7 @@ export interface ChatAgentDeps {
   researchRole: ChatLlmRole;
   chatRecursionLimit: number;
   researchRecursionLimit: number;
+  toolConfig?: AgentToolConfig;
   recorder: TraceRecorder;
   requestId: string;
   slug?: string;
@@ -40,6 +45,9 @@ export interface ChatAgentDeps {
 
 export interface ChatTurnResult {
   answer: string;
+  /** Final answer with citations resolved to real /wiki/ links, pre-rendered
+   *  to HTML server-side via the same pipeline article bodies use. */
+  html: string;
   references: ResearchBriefReference[];
   runId: string;
 }
@@ -49,7 +57,8 @@ You have just finished researching the user's question. Write your final
 conversational answer to them now — a few sentences to a short paragraph,
 grounded only in the research below and consistent with the rest of the
 conversation. Cite articles only as real markdown links, [Title](ref:slug),
-using a slug/title from the reference list verbatim — never write a bracketed
+using the article's real title (never its slug) as the bracket text, and the
+slug from the reference list verbatim as the target — never write a bracketed
 citation marker that isn't a real link (no "[Summary]", "[Source]", footnote
 numbers, or similar; if you're not making a link, don't use brackets).
 
@@ -60,46 +69,61 @@ fit it in somewhere. A citation should read as a normal part of the sentence
 grammar, not a trailing appendage. If nothing relevant was found, say so
 plainly in your own words.`;
 
-/** Strips bracket-citation artifacts a model sometimes mimics from the
- *  research transcript's own field labels (e.g. writing "[Summary]" as if it
- *  were a footnote) — a safety net behind the prompt's explicit prohibition.
- *  Also strips a bare kebab-slug bracket like "[advanced-testing-procedures]"
- *  — the model's fallback when it wants to cite something not on the
- *  reference list (most often the current article, deliberately excluded so
- *  it isn't cited back at itself) and, despite instructions, writes the raw
- *  slug as a bracket instead of dropping the citation entirely. Only removes
- *  brackets that aren't followed by "(" (i.e. not a real markdown link), so
- *  genuine [Title](ref:slug)/[Title](halu:slug) links are untouched.
+/** Unwraps a citation whose closing paren the model never wrote — e.g.
+ *  "[Text](ref:slug, more prose..." — which produces markdown no parser can
+ *  match (the shared link parser, `text/markdownLinkParser.ts`, requires a
+ *  balanced closing paren for both its strict and lenient scans, same as
+ *  CommonMark). This is a genuine gap in that shared parser, not a citation
+ *  shape it already handles — everything else (well-formed [Title](ref:slug)
+ *  links, bare [Title] brackets, and bracket-less "Title (ref:slug)" markers)
+ *  goes through the real parser via `resolveRefLinks` / `resolveBareBracketsToRefs`
+ *  / `renderMarkdown` below, not a hand-rolled regex.
  *
- *  `selfSlug`, when given, additionally strips any real [Text](ref:selfSlug)
- *  link pointing at that slug — deterministic backstop for the current
- *  article's self-citation exclusion (see `runChatTurn`): a weak model can
- *  still echo that slug straight from the research transcript as a genuine
- *  link despite it being left off the reference list it was told to cite
- *  from, so the prompt instruction alone isn't reliable enough to trust. */
-export function sanitizeCitations(text: string, selfSlug?: string): string {
-  let result = text
-    .replace(/\s?\[(?:Summary|Sources?|References?|Citations?|Footnote|Note)\](?!\()/gi, "")
-    .replace(/\s?\[[a-z0-9]+(?:-[a-z0-9]+)+\](?!\()/gi, "")
-    // A model that starts a citation and never closes the paren — e.g.
-    // "[Text](ref:slug, more prose..." — produces markdown no link regex
-    // will ever match, so it'd otherwise leak as raw "[Text](ref:slug,"
-    // syntax. Detected by the telltale comma immediately after the slug
-    // with no closing ")" — a well-formed citation is never followed by a
-    // bare comma inside its own parens. Unwrap to the plain label so the
-    // sentence still reads, dropping only the broken citation markup.
-    .replace(/\[([^\]]+)\]\((?:ref|halu):[a-z0-9-]+,/gi, "$1,");
-  if (selfSlug) {
-    const escaped = selfSlug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    result = result.replace(
-      new RegExp(`\\s?\\[[^\\]]+\\]\\((?:ref|halu):${escaped}(?:\\s+"[^"]*")?\\)`, "gi"),
-      "",
-    );
-  }
-  return result
-    .replace(/\s+([.,;:!?])/g, "$1")
-    .replace(/ {2,}/g, " ")
-    .trim();
+ *  Detected by the telltale comma immediately after the ref/halu slug with no
+ *  closing ")" first — a well-formed citation's parenthetical is never
+ *  followed by a bare comma. Unwraps to the plain label so the sentence still
+ *  reads, dropping only the broken markup; a properly closed link later in
+ *  the same sentence is untouched. */
+export function unwrapUnclosedCitations(text: string): string {
+  return text.replace(/\[([^\]]+)\]\((?:ref|halu):[a-z0-9-]+,/gi, "$1,");
+}
+
+/** Builds the lightweight `ReferenceList` shape the shared link-resolution
+ *  helpers (`resolveRefLinks`, `resolveBareBracketsToRefs`) expect, from the
+ *  chat turn's deterministically-collected references. The extra fields they
+ *  require beyond slug/title (content, kind, pinned, revisionId) are inert
+ *  for chat's purposes — chat never assembles a persisted reference list,
+ *  it just needs slug→title resolution. */
+function toReferenceList(refs: ResearchBriefReference[]): ReferenceList {
+  return refs.map((r) => ({
+    slug: r.slug,
+    title: r.title,
+    content: "",
+    kind: "summary",
+    pinned: false,
+    revisionId: "current",
+  }));
+}
+
+/** Resolves a chat answer's citations into final HTML, reusing the exact
+ *  same deterministic link-resolution pipeline article bodies go through
+ *  (`resolveRefLinks` / `resolveBareBracketsToRefs` / `stripSelfLinks` /
+ *  `renderMarkdown` — see `src/server/referenceList.ts` and
+ *  `src/server/markdown.ts`) rather than reimplementing citation parsing —
+ *  every malformed shape those functions already cover (raw-slug link text,
+ *  bare brackets, bracket-less "Title (ref:slug)" markers) is handled there,
+ *  not here. */
+export function renderChatAnswer(
+  rawAnswer: string,
+  references: ResearchBriefReference[],
+  selfSlug?: string,
+): string {
+  const refList = toReferenceList(references);
+  let resolved = unwrapUnclosedCitations(rawAnswer);
+  resolved = resolveRefLinks(resolved, refList);
+  resolved = resolveBareBracketsToRefs(resolved, refList);
+  if (selfSlug) resolved = stripSelfLinks(resolved, selfSlug);
+  return renderMarkdown(resolved);
 }
 
 export async function runChatTurn(
@@ -141,6 +165,7 @@ export async function runChatTurn(
             onToolCall: (name, args) =>
               deps.onEvent?.({ type: "research_step", tool: name, args }),
             onArticleSeen: (article) => collector.add(article),
+            toolConfig: deps.toolConfig,
           },
           systemPrompt: deps.researchSystemPrompt,
           role: deps.researchRole,
@@ -243,27 +268,23 @@ export async function runChatTurn(
         : ""
     }`;
 
-    // Stream progressively-sanitized text: recompute the cleaned prefix on
-    // every chunk and only emit the newly-revealed tail, so a bracket
-    // artifact that gets stripped once its closing "]" arrives never reaches
-    // the client even though the model emitted it token-by-token.
-    let rawAnswer = "";
-    let sentLength = 0;
+    // Stream raw deltas as they arrive for live visual feedback — citation
+    // syntax may look like a plain, non-navigating link for the ~1s the
+    // answer is still in flight. Once the stream settles, the full answer is
+    // resolved through the real link-resolution pipeline (see
+    // `renderChatAnswer`) and sent as pre-rendered HTML in the "done" event,
+    // which is what the client actually displays for a settled message.
     const startedAt = Date.now();
-    await deps.llmRouter.streamChat(
+    const { content: rawAnswer } = await deps.llmRouter.streamChat(
       deps.chatRole,
       streamSystem,
       streamUser,
-      (_delta, accumulated) => {
-        rawAnswer = accumulated;
-        const sanitized = sanitizeCitations(rawAnswer, currentArticle?.slug);
-        if (sanitized.length > sentLength) {
-          deps.onEvent?.({ type: "token", delta: sanitized.slice(sentLength) });
-          sentLength = sanitized.length;
-        }
+      (delta) => {
+        if (delta) deps.onEvent?.({ type: "token", delta });
       },
     );
-    const answer = sanitizeCitations(rawAnswer, currentArticle?.slug);
+    const answer = unwrapUnclosedCitations(rawAnswer).trim();
+    const html = renderChatAnswer(rawAnswer, references, currentArticle?.slug);
     chatHandle.onLlmCall({
       role: deps.chatRole,
       system: streamSystem,
@@ -273,8 +294,8 @@ export async function runChatTurn(
     });
 
     chatHandle.finish("ok");
-    deps.onEvent?.({ type: "done", references });
-    return { answer, references, runId: chatHandle.runId };
+    deps.onEvent?.({ type: "done", references, html });
+    return { answer, html, references, runId: chatHandle.runId };
   } catch (err) {
     // Even a genuinely unexpected failure (not just a recursion-limit
     // cutoff, which runAgentLoop already handles) should still leave the
@@ -293,8 +314,9 @@ export async function runChatTurn(
     } catch {
       fallbackAnswer = "I can't answer that right now — please try again.";
     }
+    const fallbackHtml = renderChatAnswer(fallbackAnswer, []);
     deps.onEvent?.({ type: "token", delta: fallbackAnswer });
-    deps.onEvent?.({ type: "done", references: [] });
-    return { answer: fallbackAnswer, references: [], runId: chatHandle.runId };
+    deps.onEvent?.({ type: "done", references: [], html: fallbackHtml });
+    return { answer: fallbackAnswer, html: fallbackHtml, references: [], runId: chatHandle.runId };
   }
 }

@@ -684,7 +684,7 @@ export function resolveRefLinks(body: string, refs: ReferenceList): string {
  * visible brackets (or double-nested [[text](ref:slug)] when a later pass
  * wraps the label).
  */
-function resolveBareBracketsToRefs(text: string, refs: ReferenceList): string {
+export function resolveBareBracketsToRefs(text: string, refs: ReferenceList): string {
   const { bareBrackets } = parseMarkdownLinks(text);
   const candidates = bareBrackets.filter(
     (b) => b.kind === "title-seed" || b.kind === "ref-marker",

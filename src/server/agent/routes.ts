@@ -77,6 +77,12 @@ export function registerAgentRoutes(
             researchRole: deps.agentConfig.research_role,
             chatRecursionLimit: deps.agentConfig.chat_recursion_limit,
             researchRecursionLimit: deps.agentConfig.research_recursion_limit,
+            toolConfig: {
+              searchDefaultLimit: deps.agentConfig.search_default_limit,
+              searchMaxLimit: deps.agentConfig.search_max_limit,
+              searchOntologyFactsPerResult: deps.agentConfig.search_ontology_facts_per_result,
+              ontologyFactsMax: deps.agentConfig.ontology_facts_max,
+            },
             recorder: deps.recorder,
             requestId: randomUUID(),
             slug: typeof body.slug === "string" ? body.slug : undefined,

@@ -3082,6 +3082,7 @@ export function App() {
       {themeSettings.chatEnabled && (
         <ChatWidget
           slug={articleSlug ?? undefined}
+          articleTitle={articleDisplayTitle || undefined}
           onNavigateToArticle={navigateToArticle}
         />
       )}

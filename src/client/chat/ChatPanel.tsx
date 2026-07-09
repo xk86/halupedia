@@ -9,11 +9,13 @@ import {
 } from "@/components/ui/collapsible";
 import { useChatStream } from "./useChatStream";
 import { renderChatMarkdown } from "./renderChatMarkdown";
+import { toWikiSegment } from "../wikiPath";
 import type { ChatUiMessage } from "./types";
 
 interface ChatPanelProps {
   slug?: string;
-  onNavigateToArticle: (slug: string) => void;
+  articleTitle?: string;
+  onNavigateToArticle: (slugOrTitle: string, explicitTitle?: string) => void;
 }
 
 function AssistantContent({
@@ -21,7 +23,7 @@ function AssistantContent({
   onNavigateToArticle,
 }: {
   message: ChatUiMessage;
-  onNavigateToArticle: (slug: string) => void;
+  onNavigateToArticle: (slugOrTitle: string, explicitTitle?: string) => void;
 }) {
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -71,10 +73,10 @@ function AssistantContent({
             {message.references.map((ref) => (
               <a
                 key={ref.slug}
-                href={`/wiki/${ref.slug}`}
+                href={`/wiki/${toWikiSegment(ref.title)}`}
                 onClick={(e) => {
                   e.preventDefault();
-                  onNavigateToArticle(ref.slug);
+                  onNavigateToArticle(ref.title, ref.title);
                 }}
                 className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
                 title={ref.relevance}
@@ -148,7 +150,7 @@ export function ChatPanel({ slug, onNavigateToArticle }: ChatPanelProps) {
           placeholder="Ask about the wiki…"
           rows={1}
           spellCheck
-          className="max-h-32 min-h-0 resize-none"
+          className="max-h-32 min-h-0 resize-none font-sans"
         />
         <Button
           type="button"

@@ -12,13 +12,14 @@ import { ChatPanel } from "./ChatPanel";
 
 interface ChatWidgetProps {
   slug?: string;
-  onNavigateToArticle: (slug: string) => void;
+  articleTitle?: string;
+  onNavigateToArticle: (slugOrTitle: string, explicitTitle?: string) => void;
 }
 
 /** Persistent floating research-chat button, mounted once at the app shell
  *  level so it survives route changes. Toggled off entirely in user settings
  *  (see `Settings.tsx`'s "Research chat" field). */
-export function ChatWidget({ slug, onNavigateToArticle }: ChatWidgetProps) {
+export function ChatWidget({ slug, articleTitle, onNavigateToArticle }: ChatWidgetProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -42,7 +43,11 @@ export function ChatWidget({ slug, onNavigateToArticle }: ChatWidgetProps) {
               articles.
             </SheetDescription>
           </SheetHeader>
-          <ChatPanel slug={slug} onNavigateToArticle={onNavigateToArticle} />
+          <ChatPanel
+            slug={slug}
+            articleTitle={articleTitle}
+            onNavigateToArticle={onNavigateToArticle}
+          />
         </SheetContent>
       </Sheet>
     </>

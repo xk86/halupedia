@@ -145,6 +145,13 @@ height = 624
 steps = 20
 timeout_ms = 120000
 
+[agent]
+enabled = true
+chat_role = "heavy"
+research_role = "light"
+chat_recursion_limit = 4
+research_recursion_limit = 8
+
 [tests]
 database_path = "halupedia-testing.sqlite"
 llm_base_url = "http://127.0.0.1:11434/v1"

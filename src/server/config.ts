@@ -136,6 +136,13 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
         retention_days: app.pipeline?.trace?.retention_days ?? 14,
       },
     },
+    agent: {
+      enabled: app.agent?.enabled ?? true,
+      chat_role: app.agent?.chat_role === "light" ? "light" : "heavy",
+      research_role: app.agent?.research_role === "heavy" ? "heavy" : "light",
+      chat_recursion_limit: app.agent?.chat_recursion_limit ?? 4,
+      research_recursion_limit: app.agent?.research_recursion_limit ?? 8,
+    },
     images: {
       model_max_edge: (app.images as Partial<ImagesConfig> | undefined)?.model_max_edge ?? 256,
       jpeg_quality: (app.images as Partial<ImagesConfig> | undefined)?.jpeg_quality ?? 70,

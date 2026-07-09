@@ -135,6 +135,7 @@ import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
 import { regenerateSummaryWorkflow } from "./pipeline/workflows/utilities";
 import { randomPageWorkflow } from "./pipeline/workflows/randomPage";
 import { ontologyInferWorkflow, ontologySuggestionsAppendWorkflow, ontologySuggestionsMergeWorkflow } from "./pipeline/workflows/ontologyInfer";
+import { registerAgentRoutes } from "./agent/routes";
 import { articleImageGenerationWorkflow } from "./pipeline/workflows/articleImageGeneration";
 import type { LiveLlmUpdate, PipelineDeps } from "./pipeline/deps";
 import { randomUUID } from "node:crypto";
@@ -3411,6 +3412,14 @@ export async function createApp(options: CreateAppOptions = {}) {
       logger,
     },
   );
+  registerAgentRoutes(app, () => ({
+    db,
+    rag,
+    llm,
+    promptConfig: runtime.prompts,
+    recorder: getTraceRecorder(runtime.app.pipeline.trace),
+    agentConfig: runtime.app.agent,
+  }));
 
   app.get("/api/admin/overview", (c) => {
     const modelConfigs = {

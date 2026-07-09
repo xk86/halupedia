@@ -37,7 +37,7 @@
     "@fontsource/inter": "^5.2.8",
     "@hono/node-server": "^2.0.8",
     "@lancedb/lancedb": "^0.30.0",
-    "@langchain/core": "^1.2.1",
+    "@langchain/core": "^1.2.2",
     "@langchain/langgraph": "^1.4.7",
     "@prosekit/extensions": "^0.17.4",
     "@prosekit/pm": "^0.1.18",

@@ -233,6 +233,19 @@ export interface PipelineConfig {
   trace: PipelineTraceConfig;
 }
 
+/** Config for the LangGraph-based chat/research agents (`src/server/agent/`). */
+export interface AgentConfig {
+  enabled: boolean;
+  /** LLM role the chat orchestrator uses for its control turns and final answer. */
+  chat_role: "heavy" | "light";
+  /** LLM role the research subagent uses for its retrieve/rank/read loop. */
+  research_role: "heavy" | "light";
+  /** Hard cap on chat-orchestrator loop iterations (it mostly delegates). */
+  chat_recursion_limit: number;
+  /** Hard cap on research-subagent loop iterations. */
+  research_recursion_limit: number;
+}
+
 export interface ImagesConfig {
   model_max_edge: number;
   jpeg_quality: number;
@@ -295,6 +308,7 @@ export interface AppConfig {
   tests: TestConfig;
   pipeline: PipelineConfig;
   images: ImagesConfig;
+  agent: AgentConfig;
 }
 
 /** A named LLM backend. Hosts own the connection, the queue depth, and the

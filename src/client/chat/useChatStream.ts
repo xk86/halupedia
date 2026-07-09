@@ -90,7 +90,7 @@ export function useChatStream(slug?: string) {
               updateAssistant({ trace: [...trace] });
             } else if (event.type === "done") {
               settled = true;
-              updateAssistant({ references: event.references, pending: false });
+              updateAssistant({ references: event.references, html: event.html, pending: false });
             } else if (event.type === "error") {
               settled = true;
               updateAssistant({

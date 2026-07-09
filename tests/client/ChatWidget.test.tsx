@@ -124,6 +124,40 @@ describe("ChatWidget", () => {
     expect(screen.getByText(/search_articles/)).toBeInTheDocument();
   });
 
+  it("prefers the server-rendered html once the turn settles, over re-parsing raw content", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      ndjsonResponse([
+        // The raw streamed text still has unresolved ref: markup — the
+        // settled render should come from `html` (already fully resolved
+        // server-side, see runChatTurn/renderChatAnswer), not from re-parsing
+        // this raw content client-side.
+        { type: "token", delta: "See [bingus](ref:bingus) for details." },
+        {
+          type: "done",
+          references: [{ slug: "bingus", title: "Bingus" }],
+          html: '<p>See <a href="/wiki/Bingus">Bingus</a> for details.</p>',
+        },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "Ask the research chat" }));
+    const input = await screen.findByPlaceholderText("Ask about the wiki…");
+    await user.type(input, "What is Bingus?");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Bingus", { selector: "a" }).length).toBeGreaterThan(0);
+    });
+    // The answer-body link (as opposed to the Sources chip, which also reads
+    // "Bingus") comes straight from the server-provided html.
+    const bodyLink = document.querySelector(".prose a");
+    expect(bodyLink).toHaveAttribute("href", "/wiki/Bingus");
+    expect(screen.queryByText(/ref:bingus/)).not.toBeInTheDocument();
+  });
+
   it("always leaves a visible message even if the stream ends without a done/error event", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       ndjsonResponse([{ type: "research", query: "what is solana" }]),

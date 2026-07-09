@@ -135,7 +135,12 @@ function AssistantContent({
           className="prose prose-sm dark:prose-invert max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
           onClick={handleClick}
           dangerouslySetInnerHTML={{
-            __html: renderChatMarkdown(message.content, message.references),
+            // Once settled, `html` is the server's fully citation-resolved
+            // render (see renderChatMarkdown.ts's header comment) — prefer it
+            // over re-parsing raw markdown on the client. While still
+            // streaming (no html yet), fall back to a plain, non-citation-aware
+            // live render.
+            __html: message.html ?? renderChatMarkdown(message.content),
           }}
         />
       ) : message.pending ? (

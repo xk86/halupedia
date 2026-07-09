@@ -12,6 +12,7 @@ import { InfoboxCard } from "./article/infobox/InfoboxCard";
 import type { InfoboxData } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -796,6 +797,22 @@ export function Settings({ settings, onChange }: SettingsProps) {
                   <ToggleGroupItem value="light">Day</ToggleGroupItem>
                   <ToggleGroupItem value="dark">Night</ToggleGroupItem>
                 </ToggleGroup>
+              </Field>
+              <Field orientation="horizontal">
+                <Checkbox
+                  id="chat-enabled"
+                  checked={settings.chatEnabled}
+                  onCheckedChange={(checked) =>
+                    onChange({ ...settings, chatEnabled: checked === true })
+                  }
+                />
+                <div>
+                  <FieldLabel htmlFor="chat-enabled">Research chat</FieldLabel>
+                  <FieldDescription>
+                    Shows a floating button on every page for asking questions
+                    about the wiki.
+                  </FieldDescription>
+                </div>
               </Field>
             </FieldGroup>
           </CardContent>

@@ -27,6 +27,7 @@ import { MediaPage } from "./MediaPage";
 import { MediaListPage } from "./MediaListPage";
 import { SearchResults } from "./SearchResults";
 import { Settings } from "./Settings";
+import { ChatWidget } from "./chat/ChatWidget";
 import { Sidebar } from "./Sidebar";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ArticleSearchDropdown } from "./ArticleSearchDropdown";
@@ -3077,6 +3078,13 @@ export function App() {
       <footer className="site-footer">
         Local-first fictional canon engine
       </footer>
+
+      {themeSettings.chatEnabled && (
+        <ChatWidget
+          slug={articleSlug ?? undefined}
+          onNavigateToArticle={navigateToArticle}
+        />
+      )}
     </div>
   );
 }

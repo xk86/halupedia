@@ -30,6 +30,8 @@ export interface ThemeSettings {
   fontScale: number;
   light: ThemePalette;
   dark: ThemePalette;
+  /** Shows the persistent research-chat floating button on every page. */
+  chatEnabled: boolean;
 }
 
 export const MIN_FONT_SCALE = 0.85;
@@ -317,6 +319,7 @@ export function settingsFromPreset(
     fontScale: current?.fontScale ?? 1,
     light: clonePalette(preset.light),
     dark: clonePalette(preset.dark),
+    chatEnabled: current?.chatEnabled ?? true,
   };
 }
 
@@ -605,6 +608,10 @@ export function normalizeThemeSettings(value: unknown): ThemeSettings {
         : DEFAULT_THEME_SETTINGS.fontScale,
     light: validPalette(value.light, DEFAULT_THEME_SETTINGS.light),
     dark: validPalette(value.dark, DEFAULT_THEME_SETTINGS.dark),
+    chatEnabled:
+      typeof value.chatEnabled === "boolean"
+        ? value.chatEnabled
+        : DEFAULT_THEME_SETTINGS.chatEnabled,
   };
 }
 

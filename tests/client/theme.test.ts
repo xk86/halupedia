@@ -49,6 +49,17 @@ describe("theme settings", () => {
     );
   });
 
+  it("defaults chatEnabled to true and normalizes non-boolean values away", () => {
+    expect(DEFAULT_THEME_SETTINGS.chatEnabled).toBe(true);
+    expect(normalizeThemeSettings({}).chatEnabled).toBe(true);
+    expect(normalizeThemeSettings({ chatEnabled: false }).chatEnabled).toBe(
+      false,
+    );
+    expect(normalizeThemeSettings({ chatEnabled: "nope" }).chatEnabled).toBe(
+      true,
+    );
+  });
+
   it("persists one versioned model and migrates the legacy dark flag", () => {
     window.localStorage.setItem("halupedia-theme", "dark");
     expect(loadThemeSettings().mode).toBe("dark");

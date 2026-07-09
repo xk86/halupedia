@@ -474,9 +474,10 @@ export function buildReferenceList(
 
 // Import here rather than at top-level to avoid circular dep
 // (referenceList ← index.ts ← markdown.ts would be circular).
-import { buildHaluLink, normalizeHaluLinks } from "./markdown";
+import { buildHaluLink, cleanLinkLabels, extractInternalLinks, normalizeHaluLinks, stripSelfLinks } from "./markdown";
 import { titleToWikiSegment } from "./slug";
 import { parseMarkdownLinks } from "./text/markdownLinkParser";
+import { normalizeMarkdownLinks } from "./text/linkNormalize";
 
 /**
  * Render the reference list as an HTML `<section>` with numbered items and
@@ -1245,6 +1246,83 @@ export function extractRefLinksAsInternalLinks(
     });
   }
   return links;
+}
+
+/**
+ * Extract all internal graph links from saved article markdown.
+ *
+ * `halu:` links seed unwritten articles. `ref:` links point at existing
+ * articles after `convertExistingArticleLinksToRefs` has canonicalized
+ * generated body links. Article write paths must store both forms in
+ * `article_links`, or ref-linked articles disappear from backlinks and
+ * incoming hidden-hint context.
+ */
+export function extractAllBodyLinks(
+  db: DatabaseSync,
+  body: string,
+  selfSlug: string,
+): ParsedInternalLink[] {
+  const haluLinks = extractInternalLinks(body);
+  const haluSlugs = new Set(haluLinks.map((link) => link.targetSlug));
+  const refLinks = extractRefLinksAsInternalLinks(db, body, selfSlug)
+    .filter((link) => !haluSlugs.has(link.targetSlug));
+  return [...haluLinks, ...refLinks];
+}
+
+/**
+ * Shared deterministic article-body link cleanup.
+ *
+ * This is the common pass used by article generation, post-process, and
+ * deterministic article writers before persisting body markdown. It normalizes
+ * malformed/fallback markdown links, resolves known references, converts
+ * existing `halu:` targets to durable `ref:` links, and strips self-links.
+ */
+export function resolveArticleBodyLinks(
+  db: DatabaseSync,
+  body: string,
+  refs: ReferenceList,
+  selfSlug: string,
+): string {
+  let resolved = cleanLinkLabels(body);
+  resolved = normalizeMarkdownLinks(resolved, "article").markdown;
+  resolved = linkReferences(resolved, refs, selfSlug, db);
+  resolved = validateReferenceLinkTargets(db, resolved);
+  resolved = convertExistingArticleLinksToRefs(db, resolved, selfSlug);
+  return stripSelfLinks(resolved, selfSlug);
+}
+
+/**
+ * Enforce the internal-link contract after model output has been normalized:
+ * `ref:` may only target a stored article; an unwritten target must be `halu:`.
+ * Existing aliases and title-derived targets are canonicalized to the stored
+ * slug at the same time.
+ */
+function validateReferenceLinkTargets(db: DatabaseSync, body: string): string {
+  const links = parseMarkdownLinks(body).links.filter((link) => link.kind === "ref");
+  if (links.length === 0) return body;
+
+  let output = "";
+  let cursor = 0;
+  for (const link of links) {
+    const label = link.label.trim();
+    const requestedSlug = slugify(link.slug ?? link.target);
+    const article = requestedSlug
+      ? resolveExistingArticleForLink(db, requestedSlug, label)
+      : null;
+    let replacement = link.raw;
+    if (article) {
+      replacement = `[${label || article.title}](ref:${article.slug})`;
+    } else if (label && requestedSlug && !/^\d+$/.test(requestedSlug)) {
+      replacement = buildHaluLink(label, requestedSlug, label);
+    } else {
+      replacement = label;
+    }
+    output += body.slice(cursor, link.start);
+    output += replacement;
+    cursor = link.end;
+  }
+  output += body.slice(cursor);
+  return output;
 }
 
 /**

@@ -132,7 +132,7 @@ const SHARED_PROMPT_USAGE: Record<string, PromptUsage> = {
   shared_link_format: {
     description:
       "Shared formatting and placement rules for halu: and ref: links.",
-    usedBy: ["article.generate", "article.refresh", "article.rewrite"],
+    usedBy: ["article.generate", "article.refresh", "article.rewrite", "homepage.refresh"],
   },
   shared_rewrite_modes: {
     description:

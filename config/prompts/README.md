@@ -84,7 +84,7 @@ Files under `shared/` are NEVER invoked directly. They expand inline anywhere `{
 |---|---|
 | `shared/shared_tone.toml` | Tone rules expanded into `shared_article_rules`, `comment`, and others. |
 | `shared/shared_article_rules.toml` | Full body of formatting + link + tone rules expanded into `article`, `article_refresh`, `article_rewrite`, and `article_quick_edit`. |
-| `shared/shared_link_format.toml` | Halu + ref link syntax rules expanded into `shared_article_rules` and `link_*` prompts. |
+| `shared/shared_link_format.toml` | Halu + ref link syntax rules expanded into `shared_article_rules`, `todays_news`, and `link_*` prompts. |
 | `shared/shared_rewrite_modes.toml` | `{{rewrite_mode}}` blurb expanded into vibe rewrites, quick edits, and article refreshes. |
 | `shared/linking_guide.toml` | Reference material expanded into selection-edit prompts. |
 
@@ -118,7 +118,7 @@ When the article-body path runs, `build.article_rag_retrieved` logs the breakdow
 2. The hidden-hint canon the LLM gets when generating the target article.
 3. The graph-adjacent titles offered as inspiration alongside RAG chunks.
 
-`extractAllBodyLinks` (in `index.ts`) is the single chokepoint that keeps the table accurate; it scans BOTH `halu:` and `ref:slug` links at every save and update. `listBacklinks` additionally does a live LIKE scan as a fallback for legacy or out-of-band saves.
+`extractAllBodyLinks` (in `src/server/referenceList.ts`) is the single chokepoint that keeps the table accurate; it scans BOTH `halu:` and `ref:slug` links at every save and update. `listBacklinks` additionally does a live LIKE scan as a fallback for legacy or out-of-band saves.
 
 ## Reference Link Canonical Form
 

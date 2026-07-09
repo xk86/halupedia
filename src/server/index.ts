@@ -23,6 +23,7 @@ import {
   getArticleByEquivalentLookup,
   getArticleRevision,
   getCanonicalSlugForTarget,
+  countArticles,
   getHomepageCache,
   invalidateHomepageCache,
   listArticleRevisions,
@@ -109,9 +110,10 @@ import { formatRagContextForPrompt } from "./retrieval";
 import { isSlugForm, isSlugStyleWikiSegment, legacySlugify, normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToRequestedTitle, wikiSegmentToTitle } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
 import { normalizeMarkdownLinks } from "./text/linkNormalize";
+import { parseMarkdownLinks } from "./text/markdownLinkParser";
 import { formatIncomingHintsForPrompt } from "./linkHints";
 import type { ArticleRecord, HomepagePayload, LinkSuggestion, SeeAlsoCandidate } from "./types";
-import { extractRefLinksAsInternalLinks, findExistingArticleLinkReferences, linkReferencesInline, loadPriorReferenceList } from "./referenceList";
+import { extractAllBodyLinks, findExistingArticleLinkReferences, linkReferencesInline, loadPriorReferenceList } from "./referenceList";
 import { loadArticle, articleToResponse, type ArticleResponse, type ReferenceStatus, type ReferenceStatusEntry } from "./article";
 import { hasCurrentOrNoHomepageNews, isCurrentHomepageNews } from "./todaysNews";
 import { assembleArticleMarkdownForRender, renderArticleDisplayHtml, getCachedArticleHtml, rememberArticleHtml, invalidateArticleHtml } from "./articleRender";
@@ -292,12 +294,24 @@ function hasFootnoteArtifacts(markdown: string): boolean {
   return /\$\{\}\^\d+\$/.test(markdown) || /\[\^[^\]]+\]/.test(markdown);
 }
 
+function internalLinkSlugsFromMarkdown(markdown: string): Set<string> {
+  return new Set(
+    parseMarkdownLinks(markdown).links
+      .filter((link) => (link.kind === "halu" || link.kind === "ref") && link.slug)
+      .map((link) => link.slug as string),
+  );
+}
+
+function hasInternalMarkdownLink(markdown: string): boolean {
+  return internalLinkSlugsFromMarkdown(markdown).size > 0;
+}
+
 function sectionContainsNonLinkedBullets(section: string): boolean {
   return section
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => /^[-*+]\s+/.test(line))
-    .some((line) => !line.includes("(halu:"));
+    .some((line) => !hasInternalMarkdownLink(line));
 }
 
 function cachedArticleNeedsRepair(markdown: string): boolean {
@@ -305,13 +319,13 @@ function cachedArticleNeedsRepair(markdown: string): boolean {
   if (normalized.changed) return true;
   if (hasFootnoteArtifacts(markdown)) return true;
   const bodyMarkdown = stripTopLevelSections(markdown, ["References", "See also"]);
-  const bodyLinkSlugs = new Set(extractInternalLinks(bodyMarkdown).map((link) => link.targetSlug));
+  const bodyLinkSlugs = internalLinkSlugsFromMarkdown(bodyMarkdown);
   const referencesSection = sectionSlice(markdown, "References");
   const seeAlsoSection = sectionSlice(markdown, "See also");
   if (referencesSection && sectionContainsNonLinkedBullets(referencesSection)) return true;
   if (seeAlsoSection) {
-    const seeAlsoLinks = extractInternalLinks(seeAlsoSection);
-    if (seeAlsoLinks.some((link) => bodyLinkSlugs.has(link.targetSlug))) return true;
+    const seeAlsoSlugs = internalLinkSlugsFromMarkdown(seeAlsoSection);
+    if ([...seeAlsoSlugs].some((slug) => bodyLinkSlugs.has(slug))) return true;
   }
   return false;
 }
@@ -1305,7 +1319,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const normalizedMarkdown = rewriteArticleTitleHeading(article.markdown, normalizedTitle);
     if (normalizedTitle === article.title && normalizedMarkdown === article.markdown) return article;
 
-    const links = extractAllBodyLinks(normalizedMarkdown, article.slug);
+    const links = extractAllBodyLinks(db, normalizedMarkdown, article.slug);
     const repairedArticle = {
       ...article,
       title: normalizedTitle,
@@ -1388,7 +1402,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (markdown === article.markdown && normalizedTitle === article.title) {
       return article;
     }
-    const links = extractAllBodyLinks(markdown, article.slug);
+    const links = extractAllBodyLinks(db, markdown, article.slug);
     const repairedArticle: ArticleRecord = {
       ...article,
       title: normalizedTitle,
@@ -1421,7 +1435,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       html = cached;
     } else {
       const rendered = renderArticleDisplayHtml(article);
-      const links = extractInternalLinks(combined);
+      const links = extractAllBodyLinks(db, combined, article.slug);
       html = rewriteArticleHtml(rendered, links);
       rememberArticleHtml(article.slug, article.generatedAt, html);
     }
@@ -1442,10 +1456,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (bodyForScan.includes("ref:")) {
       const seen = new Set<string>();
       const selfSlug = slugify(response.slug);
-      const refPattern = /\[([^\]]*)\]\(ref:([^)]+)\)/g;
-      let m: RegExpExecArray | null;
-      while ((m = refPattern.exec(bodyForScan)) !== null) {
-        const slug = slugify(m[2]);
+      for (const link of parseMarkdownLinks(bodyForScan).links) {
+        if (link.kind !== "ref" || !link.slug) continue;
+        const slug = link.slug;
         if (!slug || slug === selfSlug || seen.has(slug)) continue;
         seen.add(slug);
         if (listed.has(slug)) continue;
@@ -1533,27 +1546,6 @@ export async function createApp(options: CreateAppOptions = {}) {
       html = html.replaceAll(`href="${currentPath}"`, `href="${preferredPath}"`);
     }
     return html;
-  }
-
-  /**
-   * Extract all internal links from article body markdown for article_links storage.
-   *
-   * Combines halu: links (articles that may not exist yet, seeds for new pages)
-   * with ref:slug links (converted from halu links to existing articles).
-   * Both are stored in article_links so that:
-   *   - listBacklinks() shows all articles that link to a given target
-   *   - listIncomingHints() can provide RAG context during generation of the
-   *     target article (using the visible_label and hidden_hint columns)
-   *
-   * This matters because convertExistingArticleLinksToRefs() converts halu links
-   * to ref: links — without this combined extraction, ref-linked articles would
-   * silently disappear from the knowledge graph.
-   */
-  function extractAllBodyLinks(markdown: string, selfSlug: string): import("./types").ParsedInternalLink[] {
-    const haluLinks = extractInternalLinks(markdown);
-    const haluSlugs = new Set(haluLinks.map((l) => l.targetSlug));
-    const refLinks = extractRefLinksAsInternalLinks(db, markdown, selfSlug).filter((l) => !haluSlugs.has(l.targetSlug));
-    return [...haluLinks, ...refLinks];
   }
 
   function buildPipelineDeps(overrides: Partial<PipelineDeps> = {}): PipelineDeps {
@@ -1832,6 +1824,8 @@ export async function createApp(options: CreateAppOptions = {}) {
   );
 
   const HOMEPAGE_TTL_MS = runtime.app.homepage.rotation_hours * 60 * 60 * 1000;
+  const homepageCacheNeedsBootstrap = (cached: HomepagePayload | null): boolean =>
+    Boolean(cached && cached.featured === null && countArticles(db) > 0);
   let homepageRequestRefreshTriggeredAt = 0;
   let homepageRefreshFailures = 0;
   let homepageRefreshNextAllowedAt = 0;
@@ -1847,6 +1841,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         const cached = getHomepageCache(db);
         if (!cached) return 0;
         if (!hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)) return 0;
+        if (homepageCacheNeedsBootstrap(cached)) return 0;
         return cached.generatedAt + HOMEPAGE_TTL_MS - now + HOMEPAGE_REFRESH_GRACE_MS;
       },
       run: async () => {
@@ -1886,7 +1881,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     });
   }
 
-  function triggerHomepageRefreshFromRequest(reason: string, now: number): number {
+  function triggerHomepageRefreshFromRequest(reason: string, now: number, bypassCooldown = false): number {
     const backoffDelay = homepageRefreshBackoffDelay(now);
     if (backoffDelay > 0) {
       logger.info("homepage.refresh_trigger_suppressed", {
@@ -1899,7 +1894,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     const cooldownDelay = homepageRequestRefreshTriggeredAt > 0 ? HOMEPAGE_REQUEST_TRIGGER_COOLDOWN_MS - (now - homepageRequestRefreshTriggeredAt) : 0;
-    if (cooldownDelay > 0) {
+    if (!bypassCooldown && cooldownDelay > 0) {
       logger.info("homepage.refresh_trigger_suppressed", {
         reason,
         suppression: "request_cooldown",
@@ -1988,7 +1983,12 @@ export async function createApp(options: CreateAppOptions = {}) {
   app.get("/api/homepage", (c) => {
     const cached = getHomepageCache(db);
     const now = Date.now();
-    if (cached && cached.generatedAt + HOMEPAGE_TTL_MS > now && hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)) {
+    if (
+      cached
+      && cached.generatedAt + HOMEPAGE_TTL_MS > now
+      && hasCurrentOrNoHomepageNews(cached.todaysNews, runtime.app)
+      && !homepageCacheNeedsBootstrap(cached)
+    ) {
       queueHomepageFeaturedImageIfMissing(cached.featured);
       queueHomepageNewsImageIfMissing(cached.todaysNews);
       return c.json(
@@ -1999,7 +1999,12 @@ export async function createApp(options: CreateAppOptions = {}) {
       );
     }
 
-    const pendingRetryMs = triggerHomepageRefreshFromRequest(cached ? "expired_cache_request" : "missing_cache_request", now);
+    const needsBootstrap = homepageCacheNeedsBootstrap(cached);
+    const pendingRetryMs = triggerHomepageRefreshFromRequest(
+      needsBootstrap ? "empty_cache_bootstrap" : cached ? "expired_cache_request" : "missing_cache_request",
+      now,
+      needsBootstrap,
+    );
     if (cached) {
       queueHomepageFeaturedImageIfMissing(cached.featured);
       if (isCurrentHomepageNews(cached.todaysNews, runtime.app)) {
@@ -2941,7 +2946,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!updated) return c.json({ error: "article not found" }, 404);
     // Rebuild HTML with new title in heading
     const newMarkdown = updated.markdown.replace(/^#\s+.+?$/m, `# ${newTitle}`);
-    const links = extractInternalLinks(newMarkdown);
     const newHtml = renderMarkdown(newMarkdown);
     db.prepare(`UPDATE articles SET markdown = ?, html = ?, plain_text = ?, display_title = '' WHERE slug = ?`).run(newMarkdown, newHtml, markdownToPlainText(newMarkdown), article.slug);
     // Save revision
@@ -3023,7 +3027,6 @@ export async function createApp(options: CreateAppOptions = {}) {
     const articleIsProtected = !isManualEdit && !body.sectionId && !body.selectedText && isArticleProtected(db, article.slug);
     if (articleIsProtected) {
       // Skip LLM entirely; record that the rewrite was blocked and return current content.
-      const links = extractInternalLinks(article.markdown);
       db.prepare(
         `INSERT INTO article_revisions (article_slug, title, markdown, html, summary_markdown, plain_text, generated_at, created_at, operation, instructions)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -3360,7 +3363,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       plain_text: revision.plain_text,
       generated_at: Date.now(),
     };
-    const links = extractAllBodyLinks(nextArticle.markdown, nextArticle.slug);
+    const links = extractAllBodyLinks(db, nextArticle.markdown, nextArticle.slug);
     nextArticle.html = rewriteArticleHtml(renderMarkdown(nextArticle.markdown), links);
     saveArticle(db, nextArticle, links, Array.from(new Set([nextArticle.slug, nextArticle.canonicalSlug])), {
       operation: "revert",
@@ -4091,7 +4094,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
     }
 
-    const links = extractInternalLinks(archived.markdown);
+    const links = extractAllBodyLinks(db, archived.markdown, archived.slug);
     saveArticle(
       db,
       {
@@ -4335,7 +4338,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       lines.push(`- ${buildHaluLink(entry.title.trim(), entrySlug, hint)} — ${hint.replace(/"/g, "'")}`);
     }
     const markdown = lines.join("\n");
-    const links = extractAllBodyLinks(markdown, slug);
+    const links = extractAllBodyLinks(db, markdown, slug);
     const article: ArticleRecord = {
       slug,
       canonicalSlug: slug,
@@ -5167,7 +5170,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (article) {
       const cleaned = article.markdown.replace(/!\[[^\]]*\]\(media:[^)]+\)\n?/g, "").trimEnd();
       if (cleaned !== article.markdown) {
-        const links = extractInternalLinks(cleaned);
+        const links = extractAllBodyLinks(db, cleaned, article.slug);
         saveArticle(
           db,
           {

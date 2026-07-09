@@ -27,10 +27,12 @@ export const refreshHomepageCacheNode = defineNode({
     const ttlMs = deps.runtime.app.homepage.rotation_hours * 60 * 60 * 1000;
     const now = Date.now();
     const cached = getHomepageCache(deps.db);
+    const sources = getRandomArticles(deps.db, 5);
     if (
       cached
       && cached.generatedAt + ttlMs > now
       && hasCurrentOrNoHomepageNews(cached.todaysNews, deps.runtime.app)
+      && !(cached.featured === null && sources.length > 0)
     ) {
       return {
         homepagePayload: {
@@ -41,7 +43,6 @@ export const refreshHomepageCacheNode = defineNode({
       };
     }
 
-    const sources = getRandomArticles(deps.db, 5);
     const generatedAt = Date.now();
     if (sources.length === 0) {
       const empty = {

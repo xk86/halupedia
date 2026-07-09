@@ -75,6 +75,25 @@ test("homepage news preview keeps at least three headlines when briefs provide f
   assert.equal(preview.headlines[2].text, "Ferry court adjourns");
 });
 
+test("homepage news does not treat a summary link as the headline target", () => {
+  const app = appWithWorldClock();
+  const worldDate = getWorldDate(app, Date.parse("2025-09-09T12:00:00.000Z"));
+  const preview = homepageNewsFromMarkdown(
+    "todays-news-day-000252",
+    [
+      "# Today's News: September 9, 2025",
+      "",
+      "## Headlines",
+      "",
+      "- **Canal ledgers wobble**: Accountants consult [Tide Court](ref:tide-court).",
+    ].join("\n"),
+    worldDate,
+  );
+
+  assert.equal(preview.headlines[0].text, "Canal ledgers wobble");
+  assert.match(preview.headlines[0].summary, /Tide Court/);
+});
+
 test("homepage news cache is stale when the date label uses an old format", () => {
   const app = appWithWorldClock();
   const now = Date.parse("2025-09-09T12:00:00.000Z");
@@ -217,9 +236,11 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
       { operation: "test", skipRevision: true },
     );
 
+    let capturedSystemPrompt = "";
     let capturedUserPrompt = "";
     const llm: LlmRouter = {
-      async chat(_role, _system, user) {
+      async chat(_role, system, user) {
+        capturedSystemPrompt = system;
         capturedUserPrompt = user;
         return [
           "# Today's News: October 29, 2028",
@@ -258,13 +279,22 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
     assert.ok(news);
     assert.equal(news.generatorVersion, "1");
     assert.ok(news.headlines[0].slug);
+    assert.match(capturedSystemPrompt, /Universal placement rule/);
+    assert.match(capturedSystemPrompt, /Reference Link Shorthand/);
+    assert.doesNotMatch(
+      capturedSystemPrompt,
+      /All returned text must be a description for a new entry/,
+      "the selection-only linking guide must not replace the article link-format guide",
+    );
     assert.match(capturedUserPrompt, /Caldera Night/);
     assert.match(capturedUserPrompt, /Why included: date match/);
     assert.match(capturedUserPrompt, /super volcano blocks the sun for one month/);
     const savedEdition = getArticleByLookup(db, "todays-news-day-000001");
     assert.ok(savedEdition);
-    assert.match(savedEdition.markdown, /- \*\*\[Ash Convoys Reach Harbor\]\(halu:(?:caldera-night|lumen-harbor)/);
-    assert.match(savedEdition.markdown, /### \[Ash Convoys Reach Harbor\]\(halu:(?:caldera-night|lumen-harbor)/);
+    assert.match(savedEdition.markdown, /- \*\*\[Ash Convoys Reach Harbor\]\(ref:(?:caldera-night|lumen-harbor)\)/);
+    assert.match(savedEdition.markdown, /### \[Ash Convoys Reach Harbor\]\(ref:(?:caldera-night|lumen-harbor)\)/);
+    assert.doesNotMatch(savedEdition.markdown, /halu:caldera-night/);
+    assert.doesNotMatch(savedEdition.markdown, /halu:lumen-harbor/);
     assert.doesNotMatch(savedEdition.markdown, /halu:todays-news-day-000001-ash-convoys-reach-harbor/);
     assert.doesNotMatch(savedEdition.markdown, /\*\*Ash Convoys Reach Harbor\*\*:/);
     assert.doesNotMatch(savedEdition.markdown, /todays-news-generator-version/);
@@ -281,7 +311,7 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
     assert.doesNotMatch(savedEdition.markdown, /\| (HLC|BKD|TIDE|UAO|MASK|CIV) \|/);
     assert.match(savedEdition.markdown, /^## Weather$/m);
     assert.match(savedEdition.markdown, /\| Metric \| Report \|/);
-    assert.match(savedEdition.markdown, /\*\*Weather desk: \[Lumen Harbor\]\(halu:lumen-harbor "Lumen Harbor"\)\*\*/);
+    assert.match(savedEdition.markdown, /\*\*Weather desk: \[Lumen Harbor\]\(ref:lumen-harbor\)\*\*/);
     assert.match(savedEdition.markdown, /^## Corrections & Continuity$/m);
     assert.equal(getArticleByLookup(db, "todays-news-day-000001-ash-convoys-reach-harbor"), null);
     db.close();

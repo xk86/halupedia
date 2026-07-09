@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { loadConfig } from "./config";
 import type { AppConfig } from "./types";
+import type { ReferenceListEntry } from "./types";
 import {
   getArticleByLookup,
   listHomepageNewsSourceArticles,
@@ -13,7 +14,11 @@ import {
 import type { LlmRouter } from "./llm";
 import type { Logger } from "./logger";
 import {
-  extractInternalLinks,
+  extractAllBodyLinks,
+  resolveArticleBodyLinks,
+} from "./referenceList";
+import {
+  buildHaluLink,
   firstParagraphMarkdownFromArticle,
   markdownToPlainText,
   normalizeMarkdown,
@@ -30,6 +35,7 @@ import {
   todaysNewsTitle,
   type WorldDate,
 } from "./worldClock";
+import { parseMarkdownLinks } from "./text/markdownLinkParser";
 
 type PromptConfig = ReturnType<typeof loadConfig>["prompts"];
 type RuntimeConfig = ReturnType<typeof loadConfig>;
@@ -83,8 +89,13 @@ export async function ensureTodaysNewsArticle(
     sources,
   );
   const weatherPlaces = listHomepageNewsWeatherPlaceCandidates(db, worldDate.endsAt, 96);
-  const normalized = linkNewsHeadlines(
-    normalizeNewsMarkdown(markdown, title, worldDate, sources, weatherPlaces),
+  const normalized = normalizeTodaysNewsLinks(
+    db,
+    slug,
+    linkNewsHeadlines(
+      normalizeNewsMarkdown(markdown, title, worldDate, sources, weatherPlaces),
+      sources,
+    ),
     sources,
   );
   const article = {
@@ -97,7 +108,7 @@ export async function ensureTodaysNewsArticle(
     plain_text: markdownToPlainText(normalized),
     generated_at: Date.now(),
   };
-  const links = extractInternalLinks(normalized);
+  const links = extractAllBodyLinks(db, normalized, slug);
   saveArticle(db, article, links, [slug], {
     operation: "todays-news",
     instructions: `Generated daily news for ${worldDate.label}`,
@@ -106,6 +117,32 @@ export async function ensureTodaysNewsArticle(
     removeArticleMedia(db, slug, 1);
   }
   return homepageNewsFromMarkdown(slug, normalized, worldDate);
+}
+
+function normalizeTodaysNewsLinks(
+  db: DatabaseSync,
+  slug: string,
+  markdown: string,
+  sources: SourceArticle[],
+): string {
+  let body = resolveArticleBodyLinks(db, markdown, referencesFromNewsSources(sources), slug);
+  body = relinkTodaysNewsBriefHeadings(body);
+  return normalizeMarkdown(body);
+}
+
+function referencesFromNewsSources(sources: SourceArticle[]): ReferenceListEntry[] {
+  return sources
+    .filter((source) => source.slug && source.title)
+    .map((source) => ({
+      slug: source.slug,
+      title: source.title,
+      content: source.summaryMarkdown || firstParagraphMarkdownFromArticle(source.markdown),
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+      source: "rag",
+      score: source.score,
+    }));
 }
 
 async function buildTodaysNewsLoreSources(
@@ -449,7 +486,7 @@ function buildMarketRows(worldDate: WorldDate, sources: SourceArticle[]): Market
     const magnitude = ((seed % 87) + 12) / 10;
     const arrow = up ? "🟢 +" : "🔴 -";
     const linkedName = candidate.slug
-      ? `[${candidate.name}](halu:${candidate.slug} "${candidate.name}")`
+      ? buildHaluLink(candidate.name, candidate.slug, candidate.name)
       : candidate.name;
     return {
       ticker,
@@ -568,7 +605,7 @@ function isUsefulMarketName(name: string): boolean {
 function marketSourceLinks(sources: SourceArticle[]): string[] {
   const picked = sources
     .slice(0, 6)
-    .map((source) => source.title.trim() ? `[${source.title}](halu:${source.slug} "${source.title}")` : "")
+    .map((source) => source.title.trim() ? buildHaluLink(source.title, source.slug, source.title) : "")
     .filter(Boolean);
   return picked;
 }
@@ -611,7 +648,7 @@ function weatherSignalFromSources(sources: SourceArticle[]): string {
   const source = sources.find((item) => /ash|sun|storm|rain|snow|heat|cold|fog|smoke|flood|tide|moon|volcano|weather/i.test(`${item.title} ${item.summaryMarkdown} ${item.markdown}`))
     ?? sources[0];
   if (!source) return ".";
-  return `[${source.title}](halu:${source.slug} "${source.title}")`;
+  return buildHaluLink(source.title, source.slug, source.title);
 }
 
 function weatherHazardFromSources(sources: SourceArticle[]) {
@@ -690,7 +727,7 @@ function pickWeatherLocation(
   });
   const picked = candidates[0];
   return picked.slug
-    ? `[${picked.name}](halu:${picked.slug} "${picked.name}")`
+    ? buildHaluLink(picked.name, picked.slug, picked.name)
     : picked.name;
 }
 
@@ -799,7 +836,10 @@ function hasNewsServiceSections(markdown: string): boolean {
 
 function hasLinkedBriefHeadings(markdown: string): boolean {
   const section = extractTopLevelSection(markdown, "Briefs");
-  return Boolean(section && /^###\s+\[[^\]]+\]\((?:halu|ref):/m.test(section));
+  return Boolean(section
+    && section
+      .split("\n")
+      .some((line) => /^###\s+/.test(line) && hasInternalMarkdownLink(line)));
 }
 
 export function relinkTodaysNewsBriefHeadings(markdown: string): string {
@@ -808,13 +848,12 @@ export function relinkTodaysNewsBriefHeadings(markdown: string): string {
 
   const storyByText = new Map<string, { text: string; target: string }>();
   for (const line of section.split("\n")) {
-    const match = line
-      .trim()
-      .match(/^[-*]\s+\*\*\[([^\]]+)\]\(((?:halu|ref):[^) "\n]+)(?:\s+"[^"]*")?\)\*\*/);
-    if (!match) continue;
-    const text = normalizeHeadlineKey(match[1]);
+    if (!/^[-*]\s+/.test(line.trim())) continue;
+    const link = firstInternalMarkdownLink(line);
+    if (!link) continue;
+    const text = normalizeHeadlineKey(link.label);
     if (!text) continue;
-    storyByText.set(text.toLowerCase(), { text, target: match[2] });
+    storyByText.set(text.toLowerCase(), { text, target: `${link.kind}:${link.slug}` });
   }
   if (storyByText.size === 0) return markdown;
 
@@ -867,7 +906,7 @@ function linkNewsHeadlines(markdown: string, sources: SourceArticle[]): string {
         const target = targetByText.get(normalizeHeadlineKey(parsed.text).toLowerCase());
         if (target) {
           const summary = parsed.summary ? `: ${parsed.summary}` : "";
-          nextLines.push(`- **[${target.text}](halu:${target.slug} "${target.text}")**${summary}`);
+          nextLines.push(`- **${buildHaluLink(target.text, target.slug, target.text)}**${summary}`);
           continue;
         }
       }
@@ -901,14 +940,15 @@ function parseHeadlineLine(
 ): HeadlineLinkTarget | null {
   if (!/^[-*]\s+/.test(line)) return null;
   const clean = line.replace(/^[-*]\s+/, "").trim();
-  const linked = clean.match(/^\*\*\[([^\]]+)\]\(halu:([^) "\n]+)(?:\s+"[^"]*")?\)\*\*:?\s*(.*)$/);
+  const linked = leadingInternalMarkdownLink(clean);
   if (linked) {
-    const text = normalizeHeadlineKey(linked[1]);
-    const existingSlug = linked[2].trim();
+    const text = normalizeHeadlineKey(linked.label);
+    const existingSlug = linked.slug;
+    const trailing = clean.slice(linked.end).replace(/^\*\*:?\s*/, "").replace(/^:?\s*/, "");
     return {
       text,
       slug: isGeneratedNewsSlug(existingSlug) ? headlineTopicSlug(text, sources) : existingSlug,
-      summary: linked[3].trim(),
+      summary: trailing.trim(),
     };
   }
   const bold = clean.match(/^\*\*(.+?)\*\*:?\s*(.*)$/);
@@ -937,7 +977,7 @@ function linkedBriefHeading(
     const text = normalizeHeadlineKey(heading[1]);
     const target = targetByText.get(text.toLowerCase());
     if (!target) return null;
-    return [`### [${target.text}](halu:${target.slug} "${target.text}")`];
+    return [`### ${buildHaluLink(target.text, target.slug, target.text)}`];
   }
 
   const bold = line.trim().match(/^\*\*(.+?)\*\*:?\s*(.*)$/);
@@ -946,7 +986,7 @@ function linkedBriefHeading(
   const target = targetByText.get(text.toLowerCase());
   if (!target) return null;
   return [
-    `### [${target.text}](halu:${target.slug} "${target.text}")`,
+    `### ${buildHaluLink(target.text, target.slug, target.text)}`,
     ...(bold[2].trim() ? [bold[2].trim()] : []),
   ];
 }
@@ -978,12 +1018,7 @@ function meaningfulWords(value: string): string[] {
 }
 
 function stripMarkdownInline(value: string): string {
-  return value
-    .replace(/\[([^\]]+)\]\(halu:[^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\(ref:[^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/\*\*/g, "")
-    .trim();
+  return replaceMarkdownLinksWithLabels(value).replace(/\*\*/g, "").trim();
 }
 
 function normalizeHeadlineKey(value: string): string {
@@ -998,15 +1033,9 @@ function extractHeadlines(markdown: string): HomepageNews["headlines"] {
     .filter((line) => /^[-*]\s+/.test(line))
     .slice(0, 6)
     .map((line) => {
+      const linked = parseHeadlineLine(line, []);
+      if (linked) return linked;
       const clean = line.replace(/^[-*]\s+/, "").trim();
-      const linked = clean.match(/^\*\*\[([^\]]+)\]\((?:halu|ref):([^) "\n]+)(?:\s+"[^"]*")?\)\*\*:?\s*(.*)$/);
-      if (linked) {
-        return {
-          text: normalizeHeadlineKey(linked[1]),
-          slug: linked[2].trim(),
-          summary: linked[3].trim(),
-        };
-      }
       const match = clean.match(/^\*\*(.+?)\*\*:?\s*(.*)$/);
       if (!match) return { text: clean.replace(/\*\*/g, ""), summary: "" };
       return {
@@ -1049,6 +1078,55 @@ function extractBriefHeadlines(markdown: string): HomepageNews["headlines"] {
         summary: (sentenceMatch?.[2] ?? "").replace(/\s+/g, " ").trim().slice(0, 220),
       };
     });
+}
+
+function firstInternalMarkdownLink(value: string): {
+  kind: "halu" | "ref";
+  label: string;
+  slug: string;
+  start: number;
+  end: number;
+} | null {
+  const link = parseMarkdownLinks(value).links.find((candidate) =>
+    (candidate.kind === "halu" || candidate.kind === "ref") && candidate.slug,
+  );
+  if (!link || (link.kind !== "halu" && link.kind !== "ref") || !link.slug) return null;
+  return {
+    kind: link.kind,
+    label: link.label,
+    slug: link.slug,
+    start: link.start,
+    end: link.end,
+  };
+}
+
+function leadingInternalMarkdownLink(value: string): ReturnType<typeof firstInternalMarkdownLink> {
+  const link = firstInternalMarkdownLink(value);
+  if (!link) return null;
+  const prefix = value.slice(0, link.start).trim();
+  return prefix === "" || prefix === "**" ? link : null;
+}
+
+function hasInternalMarkdownLink(value: string): boolean {
+  return Boolean(firstInternalMarkdownLink(value));
+}
+
+function replaceMarkdownLinksWithLabels(value: string): string {
+  const links = parseMarkdownLinks(value).links
+    .filter((link) => link.kind !== "empty")
+    .sort((a, b) => a.start - b.start);
+  if (links.length === 0) return value;
+
+  let output = "";
+  let cursor = 0;
+  for (const link of links) {
+    if (link.start < cursor) continue;
+    output += value.slice(cursor, link.start);
+    output += link.label;
+    cursor = link.end;
+  }
+  output += value.slice(cursor);
+  return output;
 }
 
 function extractTopLevelSection(markdown: string, title: string): string {

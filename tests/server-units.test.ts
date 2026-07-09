@@ -77,12 +77,14 @@ import { summarizeRetrievedSource, parseArticleFrameOutput, parsePartialArticleF
 import {
   buildReferenceList,
   convertExistingArticleLinksToRefs,
+  extractAllBodyLinks,
   findExistingArticleLinkReferences,
   findTitleMentionedArticles,
   formatReferencesForPrompt,
   linkMentionedReferencesInBody,
   linkReferences,
   renderReferencesHtml,
+  resolveArticleBodyLinks,
   resolveRefLinks,
 } from "../src/server/referenceList";
 import { parseMarkdownLinks } from "../src/server/text/markdownLinkParser";
@@ -1582,6 +1584,109 @@ test("existing halu links are scraped and converted to reference links", (t) => 
   assert.equal(
     convertExistingArticleLinksToRefs(db, body, "current-entry"),
     '[known material](ref:source-entry) and [unknown material](halu:missing-entry "missing source").',
+  );
+});
+
+test("extractAllBodyLinks stores halu and ref graph links through one helper", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-all-body-links-"));
+  t.after(() => {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const markdown = "# Source Entry\n\nKnown source.";
+  saveArticle(
+    db,
+    {
+      slug: "source-entry",
+      canonicalSlug: "source-entry",
+      title: "Source Entry",
+      markdown,
+      html: renderMarkdown(markdown),
+      summaryMarkdown: "Known source summary.",
+      plain_text: markdownToPlainText(markdown),
+      generated_at: 1,
+    },
+    [],
+    ["source-entry"],
+  );
+
+  const links = extractAllBodyLinks(
+    db,
+    [
+      '[new topic](halu:missing-entry "missing source")',
+      "[known source](ref:source-entry)",
+      "[self reference](ref:current-entry)",
+    ].join(" and "),
+    "current-entry",
+  );
+
+  assert.deepEqual(
+    links.map((link) => [link.targetSlug, link.visibleLabel, link.hiddenHint]),
+    [
+      ["missing-entry", "new topic", "missing source"],
+      ["source-entry", "known source", "Known source summary."],
+    ],
+  );
+});
+
+test("resolveArticleBodyLinks normalizes, resolves refs, converts existing halu links, and strips self-links", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-resolve-body-links-"));
+  t.after(() => {
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+  const markdown = "# Source Entry\n\nKnown source.";
+  saveArticle(
+    db,
+    {
+      slug: "source-entry",
+      canonicalSlug: "source-entry",
+      title: "Source Entry",
+      markdown,
+      html: renderMarkdown(markdown),
+      summaryMarkdown: "Known source summary.",
+      plain_text: markdownToPlainText(markdown),
+      generated_at: 1,
+    },
+    [],
+    ["source-entry"],
+  );
+
+  const resolved = resolveArticleBodyLinks(
+    db,
+    [
+      "[known material](halu:source-entry \"known source\")",
+      "mentions Source Entry",
+      "[self](ref:current-entry)",
+      "[future topic](halu:future-topic \"future hint\")",
+    ].join(" and "),
+    [{
+      slug: "source-entry",
+      title: "Source Entry",
+      content: "Known source summary.",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    }],
+    "current-entry",
+  );
+
+  assert.equal(
+    resolved,
+    '[known material](ref:source-entry) and mentions [Source Entry](ref:source-entry) and self and [future topic](halu:future-topic "future hint")',
+  );
+
+  assert.equal(
+    resolveArticleBodyLinks(
+      db,
+      "An [invented source](ref:invented-source) appears beside [Source Entry](ref:source-entry).",
+      [],
+      "current-entry",
+    ),
+    'An [invented source](halu:invented-source "invented source") appears beside [Source Entry](ref:source-entry).',
+    "missing refs become halu links while existing refs remain canonical",
   );
 });
 

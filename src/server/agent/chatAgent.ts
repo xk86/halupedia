@@ -10,6 +10,7 @@ import { z } from "zod";
 import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import type { DatabaseSync } from "node:sqlite";
+import { getArticleByLookup } from "../db";
 import type { LlmRouter } from "../llm";
 import type { RagRuntime } from "../rag";
 import type { TraceRecorder } from "../pipeline/runtime/trace";
@@ -50,8 +51,14 @@ grounded only in the research below and consistent with the rest of the
 conversation. Cite articles only as real markdown links, [Title](ref:slug),
 using a slug/title from the reference list verbatim — never write a bracketed
 citation marker that isn't a real link (no "[Summary]", "[Source]", footnote
-numbers, or similar; if you're not making a link, don't use brackets). If
-nothing relevant was found, say so plainly in your own words.`;
+numbers, or similar; if you're not making a link, don't use brackets).
+
+Weave each citation into the sentence that actually discusses that article, at
+the point where you first name it — never save citations up and tack them onto
+the end of the answer, and never append a link to an unrelated word just to
+fit it in somewhere. A citation should read as a normal part of the sentence
+grammar, not a trailing appendage. If nothing relevant was found, say so
+plainly in your own words.`;
 
 /** Strips bracket-citation artifacts a model sometimes mimics from the
  *  research transcript's own field labels (e.g. writing "[Summary]" as if it
@@ -180,7 +187,14 @@ export async function runChatTurn(
     // to research), but this separate synthesis call is what actually
     // produces the visible prose, and it needs the same context to stay
     // coherent across turns.
-    const references = collector.references();
+    // Exclude the article the user is already reading from citable references —
+    // linking it back to itself at the end of an answer about it reads as a
+    // redundant non sequitur (the exact "tacked-on" citation bug this guards
+    // against), and the model can just say "this article" instead.
+    const currentArticle = deps.slug ? getArticleByLookup(deps.db, deps.slug) : null;
+    const references = collector
+      .references()
+      .filter((r) => r.slug !== currentArticle?.slug);
     const streamSystem = `${deps.chatSystemPrompt}\n${STREAM_SYSTEM_SUFFIX}`;
     const conversationText = messages
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
@@ -188,7 +202,10 @@ export async function runChatTurn(
     const referenceListText = references.length
       ? references.map((r) => `- ${r.title} (ref:${r.slug})`).join("\n")
       : "(none)";
-    const streamUser = `Conversation so far:\n${conversationText}\n\nResearch for the latest question:\n${transcript || "(no research was needed)"}\n\nReferences available to cite (only these, only as [Title](ref:slug)):\n${referenceListText}${
+    const currentArticleLine = currentArticle
+      ? `\n\nThe user is currently reading the article "${currentArticle.title}" — don't cite it back at itself, just refer to it as "this article" if relevant.`
+      : "";
+    const streamUser = `Conversation so far:\n${conversationText}\n\nResearch for the latest question:\n${transcript || "(no research was needed)"}\n\nReferences available to cite (only these, only as [Title](ref:slug)):\n${referenceListText}${currentArticleLine}${
       hitRecursionLimit
         ? "\n\n(Research was cut short before fully concluding — answer from what's above, and briefly note the answer may be incomplete rather than mentioning any error or limit.)"
         : ""

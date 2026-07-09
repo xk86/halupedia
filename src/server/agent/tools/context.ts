@@ -17,6 +17,18 @@ export interface SeenArticle {
   relevance?: string;
 }
 
+/** Config knobs for the search/ontology tools, sourced from `AgentConfig`
+ *  (see `config/app.toml`'s `[agent]` section). Optional on `AgentToolContext`
+ *  — each tool falls back to the same numbers as its own module defaults when
+ *  omitted, so existing callers/tests that don't care about these knobs are
+ *  unaffected. */
+export interface AgentToolConfig {
+  searchDefaultLimit?: number;
+  searchMaxLimit?: number;
+  searchOntologyFactsPerResult?: number;
+  ontologyFactsMax?: number;
+}
+
 /** Shared read-only handles the retrieval/ranking tools wrap. Deliberately
  *  narrow — the chatbot flow never gets a write-capable tool. */
 export interface AgentToolContext {
@@ -29,4 +41,5 @@ export interface AgentToolContext {
   /** Fired for each article a tool surfaces, so references can be built
    *  deterministically from what the agent actually retrieved. */
   onArticleSeen?: (article: SeenArticle) => void;
+  toolConfig?: AgentToolConfig;
 }

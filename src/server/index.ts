@@ -88,7 +88,7 @@ import {
   type SidebarOperation,
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
-import { createRagRuntime, registerRagAdminRoutes, toLegacyView, type RagRuntime } from "./rag";
+import { createRagRuntime, registerRagAdminRoutes, toLegacyView, DEFAULT_PROFILES, type RagRuntime } from "./rag";
 import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
@@ -717,6 +717,17 @@ export async function createApp(options: CreateAppOptions = {}) {
     llm,
     path: ragPath,
     logger,
+    // reference_search backs the chat research subagent's search_articles
+    // tool — its ontologyQuota is config-driven (config/app.toml's
+    // [agent].search_ontology_quota) so ontology-fact exposure can be tuned
+    // without a code change; every other profile keeps its hardcoded default.
+    profiles: {
+      ...DEFAULT_PROFILES,
+      reference_search: {
+        ...DEFAULT_PROFILES.reference_search,
+        ontologyQuota: runtime.app.agent.search_ontology_quota,
+      },
+    },
     ontologyLlmExtraction: runtime.app.rag.ontology_llm_extraction,
     prompts: runtime.prompts,
     imageDescriptions: (ids) => {

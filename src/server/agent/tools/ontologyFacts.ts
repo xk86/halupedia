@@ -5,7 +5,10 @@ import type { AgentToolContext } from "./context";
 
 /** Structured fact triples for an article's entity — the symbolic-canon
  *  counterpart to prose search. */
+const DEFAULT_FACTS_MAX = 25;
+
 export function createGetOntologyFactsTool(ctx: AgentToolContext) {
+  const factsMax = ctx.toolConfig?.ontologyFactsMax ?? DEFAULT_FACTS_MAX;
   return tool(
     ({ slug }: { slug: string }) => {
       ctx.onToolCall?.("get_ontology_facts", { slug });
@@ -16,7 +19,7 @@ export function createGetOntologyFactsTool(ctx: AgentToolContext) {
         return `${entity.canonicalName} (${entity.entityType}): no relations recorded.`;
       }
       const lines = facts
-        .slice(0, 25)
+        .slice(0, factsMax)
         .map((f) => `- ${entity.canonicalName} ${f.predicate} ${f.object}`);
       return `${entity.canonicalName} (${entity.entityType}):\n${lines.join("\n")}`;
     },

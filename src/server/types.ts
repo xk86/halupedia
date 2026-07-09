@@ -244,6 +244,24 @@ export interface AgentConfig {
   chat_recursion_limit: number;
   /** Hard cap on research-subagent loop iterations. */
   research_recursion_limit: number;
+  /** Default number of results `search_articles` returns when the caller
+   *  doesn't specify `limit`. */
+  search_default_limit: number;
+  /** Hard ceiling on `search_articles`' `limit` argument, regardless of what
+   *  the caller (or a hallucinating model) asks for. */
+  search_max_limit: number;
+  /** Ontology facts inlined per article in `search_articles`' results — a
+   *  quick digest alongside prose, distinct from `get_ontology_facts`' full
+   *  per-entity list. */
+  search_ontology_facts_per_result: number;
+  /** Reserved slots for ontology_fact evidence in the `reference_search` RAG
+   *  profile (used by `search_articles`), so structured world data can't get
+   *  crowded out of a busy result set by prose hits that scored marginally
+   *  higher. See `ontologyQuota` / `DEFAULT_PROFILES` in `rag/retriever.ts`. */
+  search_ontology_quota: number;
+  /** Hard cap on fact triples returned by a single `get_ontology_facts` call
+   *  (the deep-dive tool for one entity's complete fact list). */
+  ontology_facts_max: number;
 }
 
 export interface ImagesConfig {

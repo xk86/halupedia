@@ -142,6 +142,11 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       research_role: app.agent?.research_role === "heavy" ? "heavy" : "light",
       chat_recursion_limit: app.agent?.chat_recursion_limit ?? 4,
       research_recursion_limit: app.agent?.research_recursion_limit ?? 8,
+      search_default_limit: app.agent?.search_default_limit ?? 10,
+      search_max_limit: app.agent?.search_max_limit ?? 25,
+      search_ontology_facts_per_result: app.agent?.search_ontology_facts_per_result ?? 5,
+      search_ontology_quota: app.agent?.search_ontology_quota ?? 5,
+      ontology_facts_max: app.agent?.ontology_facts_max ?? 25,
     },
     images: {
       model_max_edge: (app.images as Partial<ImagesConfig> | undefined)?.model_max_edge ?? 256,

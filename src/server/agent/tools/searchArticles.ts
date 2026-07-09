@@ -5,6 +5,7 @@ import type { AgentToolContext } from "./context";
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 25;
+const DEFAULT_FACTS_PER_RESULT = 3;
 
 /** Semantic search + RRF ranking over the article corpus, with structured
  *  ontology facts pulled in automatically alongside each result — so the
@@ -14,6 +15,9 @@ const MAX_LIMIT = 25;
  *  small. Uses a synthetic target slug since research queries aren't scoped
  *  to one article (mirrors the admin RAG tester's `adminRoutes.ts` pattern). */
 export function createSearchArticlesTool(ctx: AgentToolContext) {
+  const defaultLimit = ctx.toolConfig?.searchDefaultLimit ?? DEFAULT_LIMIT;
+  const maxLimit = ctx.toolConfig?.searchMaxLimit ?? MAX_LIMIT;
+  const factsPerResult = ctx.toolConfig?.searchOntologyFactsPerResult ?? DEFAULT_FACTS_PER_RESULT;
   return tool(
     async ({
       query,
@@ -28,7 +32,7 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
       // hallucinated out-of-range value (e.g. limit: 999) would otherwise
       // fail schema validation and waste the whole tool call instead of just
       // being capped.
-      const topK = Math.min(Math.max(Math.trunc(limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT);
+      const topK = Math.min(Math.max(Math.trunc(limit ?? defaultLimit), 1), maxLimit);
       const clampedMinScore =
         minScore != null ? Math.min(Math.max(minScore, 0), 1) : undefined;
       ctx.onToolCall?.("search_articles", {
@@ -54,7 +58,7 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
       for (const doc of result.textDocuments) {
         if (doc.sourceKind !== "ontology_fact") continue;
         const list = factsBySlug.get(doc.articleSlug) ?? [];
-        if (list.length < 3) list.push(doc.content.trim());
+        if (list.length < factsPerResult) list.push(doc.content.trim());
         factsBySlug.set(doc.articleSlug, list);
       }
 
@@ -81,8 +85,8 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
         `Ranked semantic search over the wiki corpus, with structured ontology facts ` +
         `auto-included per result when available — no separate ontology lookup needed ` +
         `for hits this already covers. Returns title, slug, relevance score, a one-line ` +
-        `summary, and any known facts for each match. Defaults to ${DEFAULT_LIMIT} results; ` +
-        `pass \`limit\` (up to ${MAX_LIMIT}) if you need a broader sweep, or \`minScore\` ` +
+        `summary, and any known facts for each match. Defaults to ${defaultLimit} results; ` +
+        `pass \`limit\` (up to ${maxLimit}) if you need a broader sweep, or \`minScore\` ` +
         `(0-1 cosine similarity) to filter out weak matches when the corpus is noisy.`,
       schema: z.object({
         query: z.string().describe("The research question or topic to search for."),
@@ -93,7 +97,7 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
           .number()
           .int()
           .optional()
-          .describe(`Max results to return (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`),
+          .describe(`Max results to return (default ${defaultLimit}, max ${maxLimit}).`),
         minScore: z
           .number()
           .optional()

@@ -69,11 +69,26 @@ plainly in your own words.`;
  *  it isn't cited back at itself) and, despite instructions, writes the raw
  *  slug as a bracket instead of dropping the citation entirely. Only removes
  *  brackets that aren't followed by "(" (i.e. not a real markdown link), so
- *  genuine [Title](ref:slug)/[Title](halu:slug) links are untouched. */
-export function sanitizeCitations(text: string): string {
-  return text
+ *  genuine [Title](ref:slug)/[Title](halu:slug) links are untouched.
+ *
+ *  `selfSlug`, when given, additionally strips any real [Text](ref:selfSlug)
+ *  link pointing at that slug — deterministic backstop for the current
+ *  article's self-citation exclusion (see `runChatTurn`): a weak model can
+ *  still echo that slug straight from the research transcript as a genuine
+ *  link despite it being left off the reference list it was told to cite
+ *  from, so the prompt instruction alone isn't reliable enough to trust. */
+export function sanitizeCitations(text: string, selfSlug?: string): string {
+  let result = text
     .replace(/\s?\[(?:Summary|Sources?|References?|Citations?|Footnote|Note)\](?!\()/gi, "")
-    .replace(/\s?\[[a-z0-9]+(?:-[a-z0-9]+)+\](?!\()/gi, "")
+    .replace(/\s?\[[a-z0-9]+(?:-[a-z0-9]+)+\](?!\()/gi, "");
+  if (selfSlug) {
+    const escaped = selfSlug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    result = result.replace(
+      new RegExp(`\\s?\\[[^\\]]+\\]\\((?:ref|halu):${escaped}(?:\\s+"[^"]*")?\\)`, "gi"),
+      "",
+    );
+  }
+  return result
     .replace(/\s+([.,;:!?])/g, "$1")
     .replace(/ {2,}/g, " ")
     .trim();
@@ -233,14 +248,14 @@ export async function runChatTurn(
       streamUser,
       (_delta, accumulated) => {
         rawAnswer = accumulated;
-        const sanitized = sanitizeCitations(rawAnswer);
+        const sanitized = sanitizeCitations(rawAnswer, currentArticle?.slug);
         if (sanitized.length > sentLength) {
           deps.onEvent?.({ type: "token", delta: sanitized.slice(sentLength) });
           sentLength = sanitized.length;
         }
       },
     );
-    const answer = sanitizeCitations(rawAnswer);
+    const answer = sanitizeCitations(rawAnswer, currentArticle?.slug);
     chatHandle.onLlmCall({
       role: deps.chatRole,
       system: streamSystem,

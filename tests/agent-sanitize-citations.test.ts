@@ -39,3 +39,16 @@ test("sanitizeCitations leaves a single-word bracket alone (not slug-shaped)", (
   const input = "The term is used loosely [sic] in older sources.";
   assert.equal(sanitizeCitations(input), input);
 });
+
+test("sanitizeCitations strips a real link to the excluded self-slug", () => {
+  const input =
+    "These systems exceed conventional diagnostics [Advanced testing procedures](ref:advanced-testing-procedures). More detail follows.";
+  const output = sanitizeCitations(input, "advanced-testing-procedures");
+  assert.doesNotMatch(output, /advanced-testing-procedures/);
+  assert.match(output, /diagnostics\. More detail follows\./);
+});
+
+test("sanitizeCitations with a selfSlug leaves other real links alone", () => {
+  const input = "See [Bingus](ref:bingus) for details.";
+  assert.equal(sanitizeCitations(input, "advanced-testing-procedures"), input);
+});

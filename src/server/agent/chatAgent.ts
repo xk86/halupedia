@@ -10,7 +10,7 @@ import { z } from "zod";
 import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import type { DatabaseSync } from "node:sqlite";
-import { getArticleByLookup } from "../db";
+import { getArticleByEquivalentLookup } from "../db";
 import type { LlmRouter } from "../llm";
 import type { RagRuntime } from "../rag";
 import type { TraceRecorder } from "../pipeline/runtime/trace";
@@ -63,12 +63,17 @@ plainly in your own words.`;
 /** Strips bracket-citation artifacts a model sometimes mimics from the
  *  research transcript's own field labels (e.g. writing "[Summary]" as if it
  *  were a footnote) — a safety net behind the prompt's explicit prohibition.
- *  Only removes brackets that aren't followed by "(" (i.e. not a real
- *  markdown link), so genuine [Title](ref:slug)/[Title](halu:slug) links are
- *  untouched. */
+ *  Also strips a bare kebab-slug bracket like "[advanced-testing-procedures]"
+ *  — the model's fallback when it wants to cite something not on the
+ *  reference list (most often the current article, deliberately excluded so
+ *  it isn't cited back at itself) and, despite instructions, writes the raw
+ *  slug as a bracket instead of dropping the citation entirely. Only removes
+ *  brackets that aren't followed by "(" (i.e. not a real markdown link), so
+ *  genuine [Title](ref:slug)/[Title](halu:slug) links are untouched. */
 export function sanitizeCitations(text: string): string {
   return text
     .replace(/\s?\[(?:Summary|Sources?|References?|Citations?|Footnote|Note)\](?!\()/gi, "")
+    .replace(/\s?\[[a-z0-9]+(?:-[a-z0-9]+)+\](?!\()/gi, "")
     .replace(/\s+([.,;:!?])/g, "$1")
     .replace(/ {2,}/g, " ")
     .trim();
@@ -191,7 +196,11 @@ export async function runChatTurn(
     // linking it back to itself at the end of an answer about it reads as a
     // redundant non sequitur (the exact "tacked-on" citation bug this guards
     // against), and the model can just say "this article" instead.
-    const currentArticle = deps.slug ? getArticleByLookup(deps.db, deps.slug) : null;
+    // deps.slug arrives in the client's URL/wiki-segment form (e.g.
+    // "Advanced_testing_procedures"), not the DB's canonical lowercase-hyphen
+    // slug — getArticleByEquivalentLookup normalizes case/separators/aliases
+    // to find it regardless of which form was passed.
+    const currentArticle = deps.slug ? getArticleByEquivalentLookup(deps.db, deps.slug) : null;
     const references = collector
       .references()
       .filter((r) => r.slug !== currentArticle?.slug);

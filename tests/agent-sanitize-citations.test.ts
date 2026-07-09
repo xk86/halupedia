@@ -26,3 +26,16 @@ test("sanitizeCitations collapses the whitespace left behind", () => {
   const output = sanitizeCitations("A sentence ends here [Summary]. Another follows.");
   assert.equal(output, "A sentence ends here. Another follows.");
 });
+
+test("sanitizeCitations strips a bare kebab-slug bracket", () => {
+  const input =
+    "These protocols exceed conventional diagnostics [advanced-testing-procedures]. More detail follows.";
+  const output = sanitizeCitations(input);
+  assert.doesNotMatch(output, /\[advanced-testing-procedures\]/);
+  assert.match(output, /diagnostics\. More detail follows\./);
+});
+
+test("sanitizeCitations leaves a single-word bracket alone (not slug-shaped)", () => {
+  const input = "The term is used loosely [sic] in older sources.";
+  assert.equal(sanitizeCitations(input), input);
+});

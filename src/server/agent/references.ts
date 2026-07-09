@@ -8,6 +8,16 @@
 import type { SeenArticle } from "./tools/context";
 import type { ResearchBriefReference } from "./researchSubagent";
 
+/** Strip stray markdown emphasis/heading markers a title can pick up when it's
+ *  sourced from rendered article output — keeps "Sources" chips (and the inline
+ *  citation text built from these titles) clean plain text. */
+function cleanTitle(title: string): string {
+  return title
+    .replace(/^#+\s*/, "")
+    .replace(/[*_`]+/g, "")
+    .trim();
+}
+
 /** Higher = stronger signal that the article informed the answer. A `read`
  *  article's body was pulled into context; the rest were merely surfaced. */
 const VIA_RANK: Record<SeenArticle["via"], number> = {
@@ -23,7 +33,8 @@ const VIA_RANK: Record<SeenArticle["via"], number> = {
 export class ReferenceCollector {
   private readonly seen = new Map<string, SeenArticle>();
 
-  add(article: SeenArticle): void {
+  add(raw: SeenArticle): void {
+    const article: SeenArticle = { ...raw, title: cleanTitle(raw.title) };
     const existing = this.seen.get(article.slug);
     if (!existing) {
       this.seen.set(article.slug, article);

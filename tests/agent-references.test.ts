@@ -37,6 +37,15 @@ test("ReferenceCollector yields nothing when no article was touched", () => {
   assert.deepEqual(new ReferenceCollector().references(), []);
 });
 
+test("ReferenceCollector strips markdown emphasis from titles", () => {
+  const c = new ReferenceCollector();
+  c.add({ slug: "extreme-testing", title: "**Extreme testing**", via: "search" });
+  c.add({ slug: "heading", title: "# A Heading Title", via: "read" });
+  const refs = c.references();
+  assert.equal(refs.find((r) => r.slug === "extreme-testing")?.title, "Extreme testing");
+  assert.equal(refs.find((r) => r.slug === "heading")?.title, "A Heading Title");
+});
+
 test("buildResearchTrace pairs each tool call with its result and closing thought", () => {
   const messages = [
     new HumanMessage("who is bingus"),

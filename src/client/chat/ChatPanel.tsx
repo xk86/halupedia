@@ -126,7 +126,9 @@ function AssistantContent({
         <div
           className="prose prose-sm dark:prose-invert max-w-none [&_p:first-child]:mt-0 [&_p:last-child]:mb-0"
           onClick={handleClick}
-          dangerouslySetInnerHTML={{ __html: renderChatMarkdown(message.content) }}
+          dangerouslySetInnerHTML={{
+            __html: renderChatMarkdown(message.content, message.references),
+          }}
         />
       ) : message.pending ? (
         <p className="text-sm text-muted-foreground italic">Thinking…</p>

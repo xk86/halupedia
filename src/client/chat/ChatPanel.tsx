@@ -160,10 +160,14 @@ function AssistantContent({
   );
 }
 
-export function ChatPanel({ slug, onNavigateToArticle }: ChatPanelProps) {
+export function ChatPanel({ slug, articleTitle, onNavigateToArticle }: ChatPanelProps) {
   const { messages, send, busy } = useChatStream(slug);
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // When the chat is opened on an article, offer a one-tap prompt about it.
+  // Hidden once the user starts typing so it never fights the draft.
+  const showArticleSuggestion = !!articleTitle && !busy && !draft.trim();
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -206,6 +210,19 @@ export function ChatPanel({ slug, onNavigateToArticle }: ChatPanelProps) {
           ),
         )}
       </div>
+      {showArticleSuggestion && (
+        <div className="flex flex-wrap gap-1.5 px-3 pb-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-auto py-1 text-xs font-normal"
+            onClick={() => void send(`Tell me about ${articleTitle}.`)}
+          >
+            Ask about {articleTitle}
+          </Button>
+        </div>
+      )}
       <div className="flex items-end gap-2 border-t border-border p-3">
         <Textarea
           value={draft}

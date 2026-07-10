@@ -2376,6 +2376,38 @@ test("linkMentionedReferencesInBody wraps exact unlinked reference title mention
   assert.match(result, /is \[already linked\]\(ref:already-linked\)/)
 });
 
+test("linkMentionedReferencesInBody protects a reference title inside a link with an empty target", () => {
+  // Regression test for markdownProtectedRanges/extractFormattedTitleSpans:
+  // both now derive link ranges from the canonical parseMarkdownLinks() parser
+  // instead of two independently hand-rolled regexes. The old
+  // markdownProtectedRanges regex required a non-empty target ([^)]+), so an
+  // empty-target link like [Alpha Beta]() was NOT recognized as an existing
+  // link — its label text was left unprotected and could be wrongly
+  // re-matched/linked by the mention scanner, producing malformed nested
+  // output. The canonical parser has no such gap: any syntactically valid
+  // link (regardless of target contents) is protected.
+  const refs: ReferenceList = [
+    {
+      slug: "alpha-beta",
+      title: "Alpha Beta",
+      content: "",
+      kind: "summary",
+      pinned: false,
+      revisionId: "current",
+    },
+  ];
+  const body = "# Current Entry\n\n[Alpha Beta]() and Alpha Beta appears again as plain text.";
+
+  const result = linkMentionedReferencesInBody(body, refs);
+  // The label inside the empty-target link is untouched (still a bare link
+  // with no nested ref: wrapping inside it).
+  assert.match(result, /\[Alpha Beta\]\(\)/);
+  assert.doesNotMatch(result, /\[Alpha Beta\]\(\)\)/);
+  assert.doesNotMatch(result, /\[\[Alpha Beta\]/);
+  // The second, genuinely bare occurrence gets linked.
+  assert.match(result, /and \[Alpha Beta\]\(ref:alpha-beta\) appears again/);
+});
+
 test("see-also metadata renders for display but is not baked into article markdown", () => {
   const article: Article = {
     slug: "current-entry",

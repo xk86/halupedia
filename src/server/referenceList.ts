@@ -853,16 +853,21 @@ export function collectReferenceLinkSlugs(body: string): Set<string> {
   return slugs;
 }
 
+/**
+ * Ranges of the body that mention-linking must never match inside: existing
+ * markdown links (via the canonical parser, not a local regex — handles
+ * nested brackets/escapes the naive `\[[^\]]*\]\(...\)` pattern doesn't) plus
+ * code spans (no canonical parser for these; a plain backtick-delimited
+ * regex is correct and unambiguous on its own).
+ */
 function markdownProtectedRanges(body: string): Array<{ start: number; end: number }> {
-  const ranges: Array<{ start: number; end: number }> = [];
-  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
-  const linkPattern = /\[[^\]]*]\([^)]+\)/g;
+  const ranges: Array<{ start: number; end: number }> = parseMarkdownLinks(body).links.map(
+    (link) => ({ start: link.start, end: link.end }),
+  );
   const codePattern = /`[^`]*`/g;
-  for (const pattern of [linkPattern, codePattern]) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(body)) !== null) {
-      ranges.push({ start: match.index, end: match.index + match[0].length });
-    }
+  let match: RegExpExecArray | null;
+  while ((match = codePattern.exec(body)) !== null) {
+    ranges.push({ start: match.index, end: match.index + match[0].length });
   }
   return ranges;
 }
@@ -877,28 +882,32 @@ function isInsideRange(index: number, ranges: Array<{ start: number; end: number
  * model has explicitly formatted.
  */
 function extractFormattedTitleSpans(body: string): string[] {
-  // Blank out existing links so we don't match inside their labels.
-  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
-  const stripped = body.replace(/\[[^\]]*\]\([^)]*\)/g, (m) => " ".repeat(m.length));
+  // Blank out existing links (via the canonical parser — see
+  // markdownProtectedRanges) so we don't match inside their labels.
+  const linkRanges = parseMarkdownLinks(body).links.map((link) => ({ start: link.start, end: link.end }));
+  let stripped = body;
+  for (const range of [...linkRanges].sort((a, b) => b.start - a.start)) {
+    stripped = stripped.slice(0, range.start) + " ".repeat(range.end - range.start) + stripped.slice(range.end);
+  }
   const seen = new Set<string>();
   const spans: string[] = [];
   const add = (text: string) => {
     const t = text.trim();
     if (t && !seen.has(t)) { seen.add(t); spans.push(t); }
   };
-  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
   for (const m of stripped.matchAll(/\*{2}([^*\n]+)\*{2}|_{2}([^_\n]+)_{2}/g)) add(m[1] ?? m[2] ?? "");
-  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
   for (const m of stripped.matchAll(/(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!_)_([^_\n]+)_(?!_)/g)) add(m[1] ?? m[2] ?? "");
   return spans;
 }
 
+/** Deterministic word-boundary matcher for one title — inherently per-title
+ *  (not duplicated logic), so this stays a small regex factory rather than
+ *  routing through the link parser, which has nothing to do with plain-text
+ *  title mentions. */
 function titleMentionPattern(title: string): RegExp | null {
   const tokens = title.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return null;
-  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
   const escaped = tokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  // Todo: remind claude to stop hand baking ten million bespoke regexps for every function and to rely on a library (or write one)
   return new RegExp(`(?<![\\p{L}\\p{N}])${escaped.join("\\s+")}(?![\\p{L}\\p{N}])`, "giu");
 }
 

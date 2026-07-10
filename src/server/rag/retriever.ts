@@ -32,6 +32,15 @@ export interface ProfileConfig {
   maxPromptTokens: number;
   /** Minimum slots reserved for ontology_fact evidence. */
   ontologyQuota: number;
+  /**
+   * Hard per-article cap on ontology_fact documents surviving fusion: at most
+   * this many ranked facts from any single article's contribution reach
+   * `selectedText`, so one fact-dense article can't crowd another's facts out
+   * of a shared result set. Distinct from `ontologyQuota`, which reserves
+   * slots for ontology evidence overall regardless of which article it's
+   * attributed to.
+   */
+  ontologyFactsPerArticle: number;
   /** Token budget reserved for prose body chunks so compact summary/infobox/
    *  ontology docs can't crowd article_body out of the assembled context. */
   bodyReserveTokens: number;
@@ -51,14 +60,37 @@ const ALL_TEXT_KINDS: TextDocumentKind[] = [
 ];
 
 export const DEFAULT_PROFILES: Record<RetrievalProfile, ProfileConfig> = {
-  article_generation: { textTopK: 12, imageTopK: 3, maxPromptTokens: 7000, ontologyQuota: 3, bodyReserveTokens: 2000, defaultKinds: ALL_TEXT_KINDS },
-  article_rewrite: { textTopK: 8, imageTopK: 2, maxPromptTokens: 4000, ontologyQuota: 2, bodyReserveTokens: 1200, defaultKinds: ALL_TEXT_KINDS },
-  article_refresh: { textTopK: 4, imageTopK: 1, maxPromptTokens: 1800, ontologyQuota: 1, bodyReserveTokens: 600, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact", "article_body"] },
+  article_generation: { textTopK: 12, imageTopK: 3, maxPromptTokens: 7000, ontologyQuota: 3, ontologyFactsPerArticle: 8, bodyReserveTokens: 2000, defaultKinds: ALL_TEXT_KINDS },
+  article_rewrite: { textTopK: 8, imageTopK: 2, maxPromptTokens: 4000, ontologyQuota: 2, ontologyFactsPerArticle: 8, bodyReserveTokens: 1200, defaultKinds: ALL_TEXT_KINDS },
+  article_refresh: { textTopK: 4, imageTopK: 1, maxPromptTokens: 1800, ontologyQuota: 1, ontologyFactsPerArticle: 8, bodyReserveTokens: 600, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact", "article_body"] },
   // ontologyQuota reserves slots for symbolic (same-category) ontology facts so
   // the chat research tool's default search always surfaces some structured
   // world data, not just prose summaries that happened to rank highest.
-  reference_search: { textTopK: 10, imageTopK: 0, maxPromptTokens: 0, ontologyQuota: 3, bodyReserveTokens: 0, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact"] },
+  reference_search: { textTopK: 10, imageTopK: 0, maxPromptTokens: 0, ontologyQuota: 3, ontologyFactsPerArticle: 8, bodyReserveTokens: 0, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact"] },
 };
+
+/**
+ * Cap the number of `kind` documents contributed by any single article,
+ * preserving relative order otherwise. Applied before quota reservation and
+ * top-K selection so a fact-dense article can't starve another admitted
+ * article's ontology-fact allowance. `maxPerArticle <= 0` disables the cap
+ * (matches the "0 = uncapped" convention used elsewhere in this config).
+ */
+function capPerArticle(
+  docs: RetrievedTextDocument[],
+  kind: TextDocumentKind,
+  maxPerArticle: number,
+): RetrievedTextDocument[] {
+  if (maxPerArticle <= 0) return docs;
+  const counts = new Map<string, number>();
+  return docs.filter((d) => {
+    if (d.sourceKind !== kind) return true;
+    const count = counts.get(d.articleSlug) ?? 0;
+    if (count >= maxPerArticle) return false;
+    counts.set(d.articleSlug, count + 1);
+    return true;
+  });
+}
 
 export interface RetrieverDeps {
   db: DatabaseSync;
@@ -289,9 +321,13 @@ export async function retrieveContext(
   accumulate(semanticOntology, "semantic", "semantic");
   accumulate(symbolicHits, "symbolic", "symbolic");
 
-  const ranked = [...docByID.values()].sort(
+  const fused = [...docByID.values()].sort(
     (a, b) => (fusionScore.get(b.documentId) ?? 0) - (fusionScore.get(a.documentId) ?? 0),
   );
+  // Enforce the per-article ontology-fact cap before quota reservation and
+  // top-K selection, so a fact-dense article can't consume every reserved
+  // ontology slot at another admitted article's expense.
+  const ranked = capPerArticle(fused, "ontology_fact", profile.ontologyFactsPerArticle);
   ranked.forEach((doc, i) => (doc.fusedRank = i));
 
   // Select with an ontology quota: guarantee up to `ontologyQuota` ontology

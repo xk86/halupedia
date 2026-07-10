@@ -13,7 +13,7 @@ import {
 import type { ArticleRecord } from "../src/server/types";
 import { RagStore } from "../src/server/rag/store";
 import { processJobs } from "../src/server/rag/jobs";
-import { retrieveContext } from "../src/server/rag/retriever";
+import { retrieveContext, DEFAULT_PROFILES } from "../src/server/rag/retriever";
 import type { TextEmbedder } from "../src/server/rag/embeddings";
 import { createOntologyDocumentProvider, loadOntologyVocabulary } from "../src/server/ontology";
 
@@ -129,6 +129,59 @@ test("ontology quota guarantees symbolic facts for same-category neighbours", as
   const ontologyDocs = res.textDocuments.filter((d) => d.sourceKind === "ontology_fact");
   assert.ok(ontologyDocs.length > 0, "ontology facts surfaced under quota");
   assert.ok(ontologyDocs.some((d) => d.articleSlug === "ethereum"), "category neighbour facts present");
+});
+
+test("ontologyFactsPerArticle caps ranked facts contributed by a single article", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halu-retr-ontology-cap-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, "test.db"));
+  const store = await RagStore.open(join(root, "rag.lance"));
+  const vocab = loadOntologyVocabulary();
+
+  saveArticle(
+    db,
+    article("solana", "Solana", "# Solana\n\nSolana blockchain proof of history consensus validator staking."),
+    [],
+    [],
+    {},
+  );
+  // Six infobox rows -> up to 7 ontology_fact docs (1 consolidated entity doc +
+  // 6 relation docs) for this single article, comfortably over a cap of 3.
+  const infobox: InfoboxData = {
+    title: "Solana",
+    subtitle: "Blockchain network",
+    groups: [
+      {
+        label: "Ops",
+        rows: [
+          { label: "Ticker", value: "SOL" },
+          { label: "Founder", value: "Anatoly Yakovenko" },
+          { label: "Launched", value: "2020" },
+          { label: "Consensus", value: "Proof of history" },
+          { label: "Category", value: "Layer 1" },
+          { label: "Language", value: "Rust" },
+        ],
+      },
+    ],
+  };
+  setArticleInfobox(db, "solana", infobox);
+  enqueueRagIndexJob(db, { articleSlug: "solana", sourceKind: "article_body", sourceId: "solana" });
+  await processJobs({ db, store, embedder, extraDocuments: createOntologyDocumentProvider(db, vocab) });
+
+  const res = await retrieveContext(
+    {
+      db,
+      store,
+      embedder,
+      profiles: {
+        ...DEFAULT_PROFILES,
+        article_generation: { ...DEFAULT_PROFILES.article_generation, textTopK: 30, ontologyQuota: 30, ontologyFactsPerArticle: 3 },
+      },
+    },
+    { targetSlug: "other-article", queryText: "Solana ticker founder launched consensus category language", profile: "article_generation" },
+  );
+  const solanaFacts = res.textDocuments.filter((d) => d.sourceKind === "ontology_fact" && d.articleSlug === "solana");
+  assert.equal(solanaFacts.length, 3, "capped to ontologyFactsPerArticle regardless of how many facts exist");
 });
 
 test("diagnostics report profile, model, and selection", async (t) => {

@@ -888,6 +888,38 @@ export function listIncomingHints(db: DatabaseSync, slug: string): IncomingHint[
     .all(slug) as unknown as IncomingHint[];
 }
 
+export interface WrittenBacklink {
+  slug: string;
+  title: string;
+  hiddenHint: string;
+  summaryMarkdown: string;
+}
+
+/**
+ * Written (real) articles that link to `slug`, indexed lookup only — no
+ * live-scan fallback. `listBacklinks` below does a full-table LIKE scan as a
+ * safety net for the user-facing backlinks display; that's too expensive to
+ * run per-candidate at every step of recursive reference traversal, which
+ * needs to stay cheap and bounded. Multiple links from the same source
+ * collapse to one row (most recent `hidden_hint` wins).
+ */
+export function listWrittenBacklinks(db: DatabaseSync, slug: string, limit: number): WrittenBacklink[] {
+  return db
+    .prepare(
+      `SELECT l.source_slug AS slug,
+              a.title AS title,
+              MAX(l.hidden_hint) AS hiddenHint,
+              COALESCE(a.summary_markdown, '') AS summaryMarkdown
+       FROM article_links l
+       JOIN articles a ON a.slug = l.source_slug
+       WHERE l.target_slug = ? AND a.is_disambiguation = 0
+       GROUP BY l.source_slug
+       ORDER BY MAX(l.created_at) DESC
+       LIMIT ?`
+    )
+    .all(slug, limit) as unknown as WrittenBacklink[];
+}
+
 export function listBacklinks(db: DatabaseSync, slug: string) {
   const rows = db
     .prepare(

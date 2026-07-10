@@ -37,6 +37,7 @@ import {
   getArticleByTitle,
   getLatestArticleReferences,
   listArticleBlacklistSlugs,
+  listWrittenBacklinks,
 } from "./db";
 import { legacySlugify, slugify, slugToTitle } from "./slug";
 
@@ -331,6 +332,7 @@ export function buildReferenceList(
 
   // TODO: logging of traversal. just dump slugs, depth and the source request
   let recursiveCandidateCount = 0;
+  let backlinkCandidateCount = 0;
   let recursiveTraversalCount = 0;
   const recursiveDepth = Math.max(0, Math.floor(config.reference_recursive_depth));
   const recursivePerArticle = Math.max(0, Math.floor(config.reference_recursive_max_per_article));
@@ -342,24 +344,25 @@ export function buildReferenceList(
       if (visitedRecursive.has(seed.slug)) continue;
       visitedRecursive.add(seed.slug);
       recursiveTraversalCount += 1;
+
+      // A recursive candidate's relevance is derived from the PARENT seed,
+      // never from the child's own stored score (that score measures the
+      // child's relevance to a different article, not to this one — using it
+      // let a recursive entry surface with an unrelated 1.000). When the
+      // parent has a real score (RAG, or a reranked prior) the child inherits
+      // it; when the parent is a trusted non-vector seed (body/user/pinned,
+      // rankScore +Inf) the child falls to the reference_min_score floor
+      // rather than being inflated to +Inf. Applies identically regardless of
+      // which graph direction (forward reference vs. backlink) surfaced it.
+      const seedHasRagScore = Number.isFinite(seed.score);
+      const inheritedScore = seedHasRagScore ? seed.score : config.reference_min_score;
+      const scoreTag: ScoreTag = seedHasRagScore ? "inherited" : "floor";
+
+      // Forward direction: articles this seed's own reference sidecar points at.
       const sidecarRefs = getLatestArticleReferences(db, seed.slug).slice(0, recursivePerArticle);
-      if (sidecarRefs.length === 0) {
-        addRecursiveSeed(nextFrontier, recursiveSeedSeen, seed.slug, seed.score);
-        continue;
-      }
       for (const ref of sidecarRefs) {
         if (blacklist.has(ref.slug)) continue;
         recursiveCandidateCount += 1;
-        // A recursive ref's relevance is derived from the PARENT seed, never
-        // from the child's own stored score (that score measures the child's
-        // relevance to a different article, not to this one — using it let a
-        // recursive entry surface with an unrelated 1.000). When the parent has
-        // a real score (RAG, or a reranked prior) the child inherits it; when
-        // the parent is a trusted non-vector seed (body/user/pinned, rankScore
-        // +Inf) the child falls to the reference_min_score floor rather than
-        // being inflated to +Inf.
-        const seedHasRagScore = Number.isFinite(seed.score);
-        const inheritedScore = seedHasRagScore ? seed.score : config.reference_min_score;
         add(
           {
             slug: ref.slug,
@@ -373,9 +376,40 @@ export function buildReferenceList(
           },
           inheritedScore,
           "recursive",
-          seedHasRagScore ? "inherited" : "floor",
+          scoreTag,
         );
         addRecursiveSeed(nextFrontier, recursiveSeedSeen, ref.slug, inheritedScore);
+      }
+
+      // Backward direction: written articles that link TO this seed. Lets an
+      // admitted article surface neighbours discovered because THEY reference
+      // it, not just what it references — e.g. a well-known article backlinked
+      // by many others still enters context even if its own sidecar is thin.
+      const backlinks = listWrittenBacklinks(db, seed.slug, recursivePerArticle);
+      for (const link of backlinks) {
+        const linkSlug = slugify(link.slug);
+        if (!linkSlug || blacklist.has(linkSlug)) continue;
+        backlinkCandidateCount += 1;
+        add(
+          {
+            slug: linkSlug,
+            title: link.title,
+            content: link.summaryMarkdown,
+            kind: "summary",
+            pinned: false,
+            score: inheritedScore,
+            source: "backlink",
+            explicitRevisionId: "current",
+          },
+          inheritedScore,
+          "backlink",
+          scoreTag,
+        );
+        addRecursiveSeed(nextFrontier, recursiveSeedSeen, linkSlug, inheritedScore);
+      }
+
+      if (sidecarRefs.length === 0 && backlinks.length === 0) {
+        addRecursiveSeed(nextFrontier, recursiveSeedSeen, seed.slug, seed.score);
       }
     }
     frontier = nextFrontier;
@@ -384,17 +418,19 @@ export function buildReferenceList(
   // Dedicated recursive-article cap: independent of reference_cull_top_k
   // (which also covers fresh RAG hits and reranked priors) and separate from
   // reference_recursive_max_per_article (which only bounds per-parent fan-out
-  // DURING traversal, not the total admitted afterward). Rank every
-  // recursively-discovered candidate by its rankScore (descending, stable
-  // slug tie-break — this is the "sort by relevance, cut by count" behavior:
-  // relevance determines order, the configured limit determines the cutoff)
-  // and drop the tail before it ever competes in the cull/count-cap stages
-  // below.
+  // DURING traversal, not the total admitted afterward). Covers both graph
+  // directions — forward ("recursive") and backward ("backlink") — as one
+  // combined admitted-article budget. Rank every recursively-discovered
+  // candidate by its rankScore (descending, stable slug tie-break — this is
+  // the "sort by relevance, cut by count" behavior: relevance determines
+  // order, the configured limit determines the cutoff) and drop the tail
+  // before it ever competes in the cull/count-cap stages below.
   let recursiveCapDropped = 0;
+  const isRecursiveSource = (source: ReferenceSource) => source === "recursive" || source === "backlink";
   const recursiveArticleLimit = config.reference_recursive_article_limit;
   if (typeof recursiveArticleLimit === "number" && Number.isFinite(recursiveArticleLimit)) {
     const limit = Math.max(0, Math.floor(recursiveArticleLimit));
-    const recursiveCandidates = candidates.filter((c) => c.source === "recursive");
+    const recursiveCandidates = candidates.filter((c) => isRecursiveSource(c.source));
     if (recursiveCandidates.length > limit) {
       const ranked = [...recursiveCandidates].sort(
         (a, b) => b.rankScore - a.rankScore || a.entry.slug.localeCompare(b.entry.slug),
@@ -403,7 +439,7 @@ export function buildReferenceList(
       recursiveCapDropped = recursiveCandidates.length - keepSlugs.size;
       for (let i = candidates.length - 1; i >= 0; i -= 1) {
         const c = candidates[i];
-        if (c.source === "recursive" && !keepSlugs.has(c.entry.slug)) candidates.splice(i, 1);
+        if (isRecursiveSource(c.source) && !keepSlugs.has(c.entry.slug)) candidates.splice(i, 1);
       }
     }
   }
@@ -436,9 +472,9 @@ export function buildReferenceList(
 
   // Apply count caps to the culled pool:
   //   - pinned entries are FREE (never count toward any cap).
-  //   - user/body refs supplied for THIS build, plus recursive refs (already
-  //     vetted by the cull stage), are carried — capped only by max_references
-  //     and never squeezed out by the score budget.
+  //   - user/body refs supplied for THIS build, plus recursive/backlink refs
+  //     (already vetted by the cull stage), are carried — capped only by
+  //     max_references and never squeezed out by the score budget.
   //   - rag results AND reranked prior refs share the score budget: they are
   //     ranked together by score and only the top reference_max_results (within
   //     whatever remains of max_references) survive. A prior is kept only if it
@@ -448,9 +484,7 @@ export function buildReferenceList(
   // reranked priors), so stale priors can no longer accrete past the budget.
   const pinned = afterCull.filter((c) => c.entry.pinned);
   const carried = afterCull.filter(
-    (c) =>
-      !c.entry.pinned &&
-      (c.source === "user" || c.source === "body" || c.source === "recursive"),
+    (c) => !c.entry.pinned && (c.source === "user" || c.source === "body" || isRecursiveSource(c.source)),
   );
   const scored = afterCull
     .filter((c) => !c.entry.pinned && (c.source === "rag" || c.source === "prior"))
@@ -469,16 +503,18 @@ export function buildReferenceList(
   //   prior:0.642       — carried-over ref, reranked on its stored score
   //   prior:floor       — carried-over ref with no stored score (floor-ranked)
   //   rag:0.656         — cosine similarity from vector search
-  //   recursive:0.598   — inherited from a RAG-scored parent seed
-  //   recursive:floor   — parent seed was body/user/pinned (not vector-ranked)
+  //   recursive:0.598   — forward sidecar ref, inherited from a RAG-scored parent
+  //   recursive:floor   — forward sidecar ref, parent was body/user/pinned
+  //   backlink:0.598    — backward graph edge, inherited from a RAG-scored parent
+  //   backlink:floor    — backward graph edge, parent was body/user/pinned
   const formatEntry = (c: InternalCandidate): string => {
     switch (c.scoreTag) {
       case "pinned":    return `${c.entry.slug}[pinned]`;
       case "trusted":   return `${c.entry.slug}[${c.source}]`;
       case "prior":     return `${c.entry.slug}[prior:${c.entry.score !== undefined ? c.entry.score.toFixed(3) : "floor"}]`;
       case "rag":       return `${c.entry.slug}[rag:${(c.entry.score ?? 0).toFixed(3)}]`;
-      case "inherited": return `${c.entry.slug}[recursive:${(c.entry.score ?? 0).toFixed(3)}]`;
-      case "floor":     return `${c.entry.slug}[recursive:floor]`;
+      case "inherited": return `${c.entry.slug}[${c.source}:${(c.entry.score ?? 0).toFixed(3)}]`;
+      case "floor":     return `${c.entry.slug}[${c.source}:floor]`;
     }
   };
 
@@ -490,6 +526,7 @@ export function buildReferenceList(
     user: userAdditions.filter((ref) => ref.source !== "body").length,
     pinned: pinnedCount,
     recursive_candidates: recursiveCandidateCount,
+    backlink_candidates: backlinkCandidateCount,
     recursive_traversed: recursiveTraversalCount,
     recursive_max_per_article: config.reference_recursive_max_per_article,
     recursive_article_limit: config.reference_recursive_article_limit,

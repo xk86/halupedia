@@ -2266,6 +2266,78 @@ test("buildReferenceList caps recursive admissions at reference_recursive_articl
   );
 });
 
+test("buildReferenceList discovers backlinks (articles that link TO the seed), not just its own sidecar refs", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-backlink-ref-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const saveRefArticle = (
+    slug: string,
+    title: string,
+    generatedAt: number,
+    links: Array<{ targetSlug: string; visibleLabel: string; hiddenHint: string }> = [],
+  ) => {
+    const markdown = `# ${title}\n\nReference body.`;
+    saveArticle(
+      db,
+      {
+        slug,
+        canonicalSlug: slug,
+        title,
+        markdown,
+        html: renderMarkdown(markdown),
+        summaryMarkdown: `${title} summary.`,
+        plain_text: markdownToPlainText(markdown),
+        generated_at: generatedAt,
+      },
+      links,
+      [slug],
+    );
+  };
+
+  saveRefArticle("root-ref", "Root Reference", 1);
+  // "backlinker" has NO sidecar reference to root-ref, but its body links TO
+  // root-ref — only discoverable via the backward direction.
+  saveRefArticle("backlinker", "Backlinker", 2, [
+    { targetSlug: "root-ref", visibleLabel: "Root Reference", hiddenHint: "" },
+  ]);
+  // A second, unrelated article that does NOT link to root-ref must not surface.
+  saveRefArticle("unrelated", "Unrelated", 3);
+
+  const refs = buildReferenceList(db, {
+    articleSlug: "current-entry",
+    userAdditions: [
+      {
+        slug: "root-ref",
+        title: "Root Reference",
+        content: "",
+        kind: "summary",
+        pinned: false,
+        revisionId: "current",
+        source: "body",
+      },
+    ],
+    priorReferences: [],
+    ragSources: [],
+    revisionId: "current",
+    config: {
+      reference_max_results: 8,
+      reference_min_score: 0.4,
+      max_references: 10,
+      reference_recursive_depth: 1,
+      reference_recursive_max_per_article: 5,
+      reference_cull_min_score: 0,
+      reference_cull_top_k: 0,
+    },
+  });
+
+  assert.deepEqual(refs.map((r) => r.slug).sort(), ["backlinker", "root-ref"]);
+  const backlinkEntry = refs.find((r) => r.slug === "backlinker");
+  assert.equal(backlinkEntry?.source, "backlink");
+});
+
 test("linkMentionedReferencesInBody wraps exact unlinked reference title mentions", () => {
   const refs: ReferenceList = [
     {

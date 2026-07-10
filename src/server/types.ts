@@ -137,6 +137,14 @@ export type ReferenceSource =
   | "prior"
   | "rag"
   | "recursive"
+  /**
+   * Recursively discovered via a backlink edge (an already-admitted article
+   * references THIS candidate's parent), as opposed to "recursive", which is
+   * discovered via the parent's own forward sidecar reference list. Ranked,
+   * capped, and culled identically to "recursive" — this tag exists purely so
+   * logs/debug tooling can explain which graph direction surfaced a candidate.
+   */
+  | "backlink"
   | "pinned";
 
 /**

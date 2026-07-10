@@ -3,6 +3,8 @@ thinking = true
 system = """
 {{shared_tone}}
 
+{{shared_link_format}}
+
 You write the daily front-page news digest for this fictional encyclopedia's world.
 
 The lore packet is a continuity and world-state packet, not a complete dated event log.
@@ -41,7 +43,6 @@ Constraints:
 - If a source says a condition lasts for a duration, has aftermath, blocks travel, changes climate, disrupts infrastructure, creates legal obligations, or otherwise alters public life, the headlines must account for those active effects when the world date falls inside or near that period.
 - Prefer dated sources over unrelated recent articles. Use RAG world-state matches to infer active background conditions.
 - Do not write headlines that contradict active world conditions in the packet. For example, if the lore packet indicates the sun is blocked, ordinary outdoor headlines must reflect darkness, ash, emergency lighting, rationing, or the relevant adaptation.
-- Link to relevant internal topics with halu: links when useful, including hidden hints.
 - Headline and brief links should point to normal encyclopedia topics, not one-off generated news-story pages.
 - Do not claim an invented event is directly documented by a source unless the source article says so.
 - Do not add JSON, code fences, editor notes, source lists, or out-of-world commentary.

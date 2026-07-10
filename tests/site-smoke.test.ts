@@ -1570,6 +1570,41 @@ test("homepage returns empty state when no articles exist", async (t) => {
   assert.ok(body.generatedAt, "empty homepage state is still persisted");
 });
 
+test("homepage refreshes a fresh empty cache after the first article is added", async (t) => {
+  const server = await createTestServer({ seed: false, homepagePrepare: true });
+  cleanupTestServer(t, server);
+
+  await waitForHomepage(
+    server,
+    (payload) => payload.featured === null && payload.refreshPending !== true,
+  );
+
+  const db = openDatabase(server.databasePath);
+  const markdown = "# First Article\n\nThe first article arrives after the empty homepage cache was created.";
+  saveArticle(
+    db,
+    {
+      slug: "first-article",
+      canonicalSlug: "first-article",
+      title: "First Article",
+      markdown,
+      html: renderMarkdown(markdown),
+      plain_text: markdownToPlainText(markdown),
+      generated_at: Date.now(),
+    },
+    [],
+    ["first-article"],
+  );
+  db.close();
+
+  const refreshed = await waitForHomepage(
+    server,
+    (payload) => payload.featured?.slug === "first-article",
+  );
+  assert.equal(refreshed.featured.slug, "first-article");
+  assert.ok(refreshed.todaysNews, "the bootstrap refresh should also generate today's news");
+});
+
 test("homepage featured article uses the literal first paragraph", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halupedia-test-"));
   const databasePath = join(root, TEST_CONFIG.database_path);

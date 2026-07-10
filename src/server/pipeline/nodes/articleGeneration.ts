@@ -38,12 +38,11 @@ import { toLegacyView, type RetrievalProfile } from "../../rag";
 import { buildRagPromptTrace } from "../ragTrace";
 import {
   buildReferenceList,
-  convertExistingArticleLinksToRefs,
+  extractAllBodyLinks,
   findBodyReferencedArticles,
-  linkReferences,
-  loadPriorReferenceList,
-
   formatReferencesForPromptText,
+  loadPriorReferenceList,
+  resolveArticleBodyLinks,
 } from "../../referenceList";
 import {
   cleanLinkLabels,
@@ -56,7 +55,6 @@ import {
   normalizeMarkdown,
   renderMarkdown,
   stripFootnoteArtifacts,
-  stripSelfLinks,
   stripTopLevelSections,
   summaryMarkdownFromArticle,
 } from "../../markdown";
@@ -65,13 +63,12 @@ import {
   slugify,
   titleToWikiSegment,
 } from "../../slug";
-import { normalizeMarkdownLinks } from "../../text/linkNormalize";
 import { formatIncomingHintsForPrompt } from "../../linkHints";
-import { extractRefLinksAsInternalLinks } from "../../referenceList";
 import {
   parseArticleFrameOutput,
   parsePartialArticleFrame,
 } from "../../articleFrame";
+import { parseMarkdownLinks } from "../../text/markdownLinkParser";
 import type {
   ReferenceList,
   ReferenceListEntry,
@@ -420,17 +417,15 @@ export const readInfoboxRefsNode = defineNode({
     const existing = new Set((references ?? []).map((r) => r.slug));
     const toAdd: ReferenceEntry[] = [];
 
-    const REF_RE = /\[([^\]]+)\]\(ref:([a-z0-9-]+)\)/g;
     const allValues = [
       infobox.subtitle ?? "",
       ...(infobox.groups ?? []).flatMap((g) => (g.rows ?? []).map((r) => String(r.value ?? ""))),
     ];
 
     for (const val of allValues) {
-      let m: RegExpExecArray | null;
-      REF_RE.lastIndex = 0;
-      while ((m = REF_RE.exec(val)) !== null) {
-        const refSlug = m[2];
+      for (const link of parseMarkdownLinks(val).links) {
+        if (link.kind !== "ref" || !link.slug) continue;
+        const refSlug = link.slug;
         if (existing.has(refSlug)) continue;
         const article = getArticleByLookup(deps.db, refSlug);
         if (!article) continue;
@@ -733,10 +728,7 @@ export const resolveLinksNode = defineNode({
       body = ensureLeadingTitleHeading(body, canonicalTitle);
     }
 
-    body = normalizeMarkdownLinks(body, "article").markdown;
-    body = linkReferences(body, refs, slug, deps.db);
-    body = convertExistingArticleLinksToRefs(deps.db, body, slug);
-    body = stripSelfLinks(body, slug);
+    body = resolveArticleBodyLinks(deps.db, body, refs, slug);
 
     const mergedRefs = new Map<string, ReferenceEntry>();
     for (const ref of references ?? []) {
@@ -873,12 +865,7 @@ export const persistArticleNode = defineNode({
     const html = renderMarkdown(body);
     const plainText = markdownToPlainText(body);
 
-    const haluLinks = extractInternalLinks(body);
-    const haluSlugs = new Set(haluLinks.map((l) => l.targetSlug));
-    const refLinks = extractRefLinksAsInternalLinks(deps.db, body, slug).filter(
-      (l) => !haluSlugs.has(l.targetSlug),
-    );
-    const links = [...haluLinks, ...refLinks];
+    const links = extractAllBodyLinks(deps.db, body, slug);
 
     const record: ArticleRecord = {
       slug,

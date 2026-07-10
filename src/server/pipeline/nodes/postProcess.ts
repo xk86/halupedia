@@ -39,21 +39,18 @@ import {
 } from "../../ontology";
 import {
   buildReferenceList,
-  convertExistingArticleLinksToRefs,
-  extractRefLinksAsInternalLinks,
+  extractAllBodyLinks,
   findBodyReferencedArticles,
-  linkReferences,
   loadPriorReferenceList,
+  resolveArticleBodyLinks,
 } from "../../referenceList";
 import {
   extractInternalLinks,
   markdownToPlainText,
   renderMarkdown,
-  stripSelfLinks,
   stripTopLevelSections,
   summaryMarkdownFromArticle,
 } from "../../markdown";
-import { normalizeMarkdownLinks } from "../../text/linkNormalize";
 import { slugify } from "../../slug";
 import { relinkTodaysNewsBriefHeadings } from "../../todaysNews";
 import type { ReferenceEntry } from "../state";
@@ -223,14 +220,8 @@ export const resolveLinksPostProcessNode = defineNode({
   writes: ["finalArticleBody"] as const,
   run({ finalArticleBody, references, input }, deps: PipelineDeps) {
     const slug = slugify(input.slug ?? "");
-    let body = normalizeMarkdownLinks(
-      finalArticleBody ?? "",
-      "article",
-    ).markdown;
     const refs = (references ?? []).map((r) => fromStateEntry(r, "current"));
-    body = linkReferences(body, refs, slug, deps.db);
-    body = convertExistingArticleLinksToRefs(deps.db, body, slug);
-    body = stripSelfLinks(body, slug);
+    let body = resolveArticleBodyLinks(deps.db, finalArticleBody ?? "", refs, slug);
     if (/^todays-news-day-\d+$/.test(slug)) {
       body = relinkTodaysNewsBriefHeadings(body);
     }
@@ -445,12 +436,7 @@ export const updateArticleInPlaceNode = defineNode({
     }
     const summary = articleSummary?.trim() || summaryMarkdownFromArticle(body);
 
-    const haluLinks = extractInternalLinks(body);
-    const haluSlugs = new Set(haluLinks.map((l) => l.targetSlug));
-    const refLinks = extractRefLinksAsInternalLinks(deps.db, body, slug).filter(
-      (l) => !haluSlugs.has(l.targetSlug),
-    );
-    const links = [...haluLinks, ...refLinks];
+    const links = extractAllBodyLinks(deps.db, body, slug);
     const html = renderMarkdown(body);
     const plainText = markdownToPlainText(body);
 

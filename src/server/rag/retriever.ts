@@ -168,8 +168,11 @@ function rrf(rank: number): number {
  * Link hints are owned by the article containing the link, but their text is
  * evidence about the link target. Keep storage ownership intact while
  * attributing prompt evidence and link candidates to the described subject.
+ *
+ * Exported for `./evidenceContext`, which groups documents by the same
+ * subject when building the typed per-article evidence context.
  */
-function evidenceSubject(doc: RetrievedTextDocument): { slug: string; title?: string } {
+export function evidenceSubject(doc: RetrievedTextDocument): { slug: string; title?: string } {
   if (doc.sourceKind !== "link_hint") return { slug: doc.articleSlug };
   const targetSlug = typeof doc.metadata?.targetSlug === "string"
     ? slugify(doc.metadata.targetSlug)
@@ -182,61 +185,6 @@ function evidenceSubject(doc: RetrievedTextDocument): { slug: string; title?: st
     : { slug: doc.articleSlug };
 }
 
-/**
- * Legacy-shaped view of a retrieval result.
- *
- * Bridges the new structured retriever into the `retrievedContext` shape the
- * generation/rewrite/refresh nodes and `buildReferenceList` already consume, so
- * the new store can feed prompts without rewriting every downstream node at
- * once. Each article's selected text documents are concatenated into a single
- * `content` block, matching what the old per-article chunk packets produced.
- */
-export interface LegacyRetrievalView {
-  sourceArticles: Array<{
-    slug: string;
-    title: string;
-    content: string;
-    score?: number;
-    summary?: string;
-  }>;
-  relatedTitles: string[];
-  embedding: {
-    strategy: string;
-    model?: string;
-    host?: string;
-    dimensions?: number;
-    corpusChunks?: number;
-  };
-}
-
-export function toLegacyView(result: RetrievalResult): LegacyRetrievalView {
-  const contentBySlug = new Map<string, string[]>();
-  for (const doc of result.textDocuments) {
-    const subjectSlug = evidenceSubject(doc).slug;
-    const list = contentBySlug.get(subjectSlug) ?? [];
-    if (!list.includes(doc.content)) list.push(doc.content);
-    contentBySlug.set(subjectSlug, list);
-  }
-  const sourceArticles = result.sourceArticles.map((c) => ({
-    slug: c.slug,
-    title: c.title,
-    content: (contentBySlug.get(c.slug) ?? []).join("\n\n"),
-    score: c.score,
-    ...(c.summary ? { summary: c.summary } : {}),
-  }));
-  const diag = result.diagnostics;
-  return {
-    sourceArticles,
-    relatedTitles: result.relatedTitles,
-    embedding: {
-      strategy: diag.degraded ? "lexical_fallback" : "embeddings",
-      model: diag.textEmbeddingModel,
-      host: diag.servingHost,
-      dimensions: diag.vectorDimensions,
-      corpusChunks: diag.candidateTextCount,
-    },
-  };
-}
 
 export async function retrieveContext(
   deps: RetrieverDeps,

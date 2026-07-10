@@ -3,10 +3,11 @@
  *
  * Retrieval itself now lives in `./rag` (the LanceDB-backed structured
  * retriever). What remains here are the pure helpers that turn a retrieved
- * result — already mapped to the legacy `sourceArticles` shape via
- * `toLegacyView` — into the prompt blocks the generation/refresh/rewrite nodes
- * interpolate, plus the blacklist filter applied before any prompt sees a
- * source.
+ * result — already flattened to the `{slug,title,content,score}[]`
+ * `sourceArticles` shape via `./rag`'s `toPromptSourceArticles` (itself built
+ * from the typed `EvidenceContext`, see `./rag/evidenceContext.ts`) — into the
+ * prompt blocks the generation/refresh/rewrite nodes interpolate, plus the
+ * blacklist filter applied before any prompt sees a source.
  */
 import type { DatabaseSync } from "node:sqlite";
 import { listArticleBlacklistSlugs } from "./db";

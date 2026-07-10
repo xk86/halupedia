@@ -22,12 +22,20 @@ export { RagStore, type TextQueryHit, type TextQueryOptions } from "./store";
 export { createTextEmbedder, type TextEmbedder, type EmbedResult } from "./embeddings";
 export {
   retrieveContext,
-  toLegacyView,
   DEFAULT_PROFILES,
   type RetrieverDeps,
   type ProfileConfig,
-  type LegacyRetrievalView,
 } from "./retriever";
+export {
+  buildEvidenceContext,
+  renderArticleEvidenceText,
+  toPromptSourceArticles,
+  evidenceEmbeddingDiagnostics,
+  type EvidenceContext,
+  type RetrievedArticleEvidence,
+  type RetrievedExcerpt,
+  type RankedOntologyFact,
+} from "./evidenceContext";
 export { processJobs, type ProcessJobsDeps, type ProcessJobsResult } from "./jobs";
 export {
   assembleEvidence,

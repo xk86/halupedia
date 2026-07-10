@@ -26,7 +26,7 @@ import {
   stripTopLevelSections,
 } from "./markdown";
 import { getPrompt, renderTemplate } from "./prompts";
-import { toLegacyView, type RagRuntime } from "./rag";
+import { buildEvidenceContext, toPromptSourceArticles, type RagRuntime } from "./rag";
 import { slugify } from "./slug";
 import type { HomepageNews } from "./types";
 import {
@@ -248,7 +248,7 @@ async function retrieveNewsWorldStateSources(
     minScore: Math.min(ragCfg.min_score, 0.18),
     profile: "reference_search",
   });
-  return toLegacyView(result).sourceArticles;
+  return toPromptSourceArticles(buildEvidenceContext(result));
 }
 
 function buildTemporalSearchTerms(worldDate: WorldDate): string[] {

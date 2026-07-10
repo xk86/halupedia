@@ -34,7 +34,7 @@ import {
   formatRagContextForPrompt,
   formatRelatedTitlesForPrompt,
 } from "../../retrieval";
-import { toLegacyView, type RetrievalProfile } from "../../rag";
+import { buildEvidenceContext, toPromptSourceArticles, evidenceEmbeddingDiagnostics, type RetrievalProfile } from "../../rag";
 import { buildRagPromptTrace } from "../ragTrace";
 import {
   buildReferenceList,
@@ -176,8 +176,9 @@ function makeRetrieveContextNode(opts: { name: string; profile: RetrievalProfile
       .map((h) => slugify(h.sourceSlug))
       .filter(Boolean);
 
-    // Maps the structured LanceDB result into the legacy retrievedContext shape
-    // so the reference list and prompt render nodes work unchanged.
+    // Groups the structured LanceDB result into typed per-article evidence,
+    // then flattens it into the retrievedContext shape the reference list and
+    // prompt render nodes consume.
     if (deps.rag) {
       const result = await deps.rag.retrieve({
         targetSlug: slug,
@@ -186,16 +187,16 @@ function makeRetrieveContextNode(opts: { name: string; profile: RetrievalProfile
         directSlugs: referencedSlugsForHints,
         profile: opts.profile,
       });
-      const view = toLegacyView(result);
+      const evidence = buildEvidenceContext(result);
       return {
         retrievedContext: excludeBlacklistedSources(
           deps.db,
           slug,
           {
-            sourceArticles: view.sourceArticles,
-            ragTitles: view.relatedTitles,
+            sourceArticles: toPromptSourceArticles(evidence),
+            ragTitles: evidence.relatedTitles,
             backlinks: hints.map((h) => ({ slug: h.sourceSlug, title: h.sourceTitle })),
-            embedding: view.embedding,
+            embedding: evidenceEmbeddingDiagnostics(evidence),
           },
           input.blacklistSlugs ?? [],
         ),

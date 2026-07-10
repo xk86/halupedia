@@ -38,7 +38,7 @@ import {
   formatRagContextForPrompt,
   formatRelatedTitlesForPrompt,
 } from "../../retrieval";
-import { toLegacyView } from "../../rag";
+import { buildEvidenceContext, toPromptSourceArticles, evidenceEmbeddingDiagnostics } from "../../rag";
 import { buildRagPromptTrace } from "../ragTrace";
 import {
   findFuzzyTitleMatchesInEditText,
@@ -207,16 +207,16 @@ export const retrieveContextForRewriteNode = defineNode({
         directSlugs,
         profile: "article_rewrite",
       });
-      const view = toLegacyView(result);
+      const evidence = buildEvidenceContext(result);
       return {
         retrievedContext: excludeBlacklistedSources(
           deps.db,
           slug,
           {
-            sourceArticles: view.sourceArticles,
-            ragTitles: view.relatedTitles,
+            sourceArticles: toPromptSourceArticles(evidence),
+            ragTitles: evidence.relatedTitles,
             backlinks: backlinkEntries(),
-            embedding: view.embedding,
+            embedding: evidenceEmbeddingDiagnostics(evidence),
           },
           input.blacklistSlugs ?? [],
         ),

@@ -1,6 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import { toLegacyView } from "../../rag";
+import { buildEvidenceContext } from "../../rag";
 import type { AgentToolContext } from "./context";
 
 const DEFAULT_LIMIT = 10;
@@ -47,22 +47,12 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
         topK,
         ...(clampedMinScore != null ? { minScore: clampedMinScore } : {}),
       });
-      const view = toLegacyView(result);
-      if (view.sourceArticles.length === 0) {
+      const evidence = buildEvidenceContext(result);
+      if (evidence.articles.length === 0) {
         return "No matching articles found in the corpus.";
       }
 
-      // Group ontology facts by article so each result line can carry a short
-      // "world data" digest straight from structured canon, not just prose.
-      const factsBySlug = new Map<string, string[]>();
-      for (const doc of result.textDocuments) {
-        if (doc.sourceKind !== "ontology_fact") continue;
-        const list = factsBySlug.get(doc.articleSlug) ?? [];
-        if (list.length < factsPerResult) list.push(doc.content.trim());
-        factsBySlug.set(doc.articleSlug, list);
-      }
-
-      for (const a of view.sourceArticles) {
+      for (const a of evidence.articles) {
         ctx.onArticleSeen?.({
           slug: a.slug,
           title: a.title,
@@ -71,10 +61,13 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
           relevance: a.summary,
         });
       }
-      return view.sourceArticles
+      // Ontology facts are already grouped and ranked per article; take this
+      // tool's own (typically tighter) display cap on top of the canonical
+      // ontology_facts_per_retrieved_article cap already applied upstream.
+      return evidence.articles
         .map((a) => {
-          const facts = factsBySlug.get(a.slug);
-          const factsLine = facts?.length ? `\n  Facts: ${facts.join("; ")}` : "";
+          const facts = a.ontologyFacts.slice(0, factsPerResult).map((f) => f.content.trim());
+          const factsLine = facts.length ? `\n  Facts: ${facts.join("; ")}` : "";
           return `- ${a.title} (slug: ${a.slug}, score: ${(a.score ?? 0).toFixed(2)}): ${a.summary}${factsLine}`;
         })
         .join("\n");

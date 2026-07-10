@@ -89,7 +89,7 @@ import {
   type SidebarOperation,
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
-import { createRagRuntime, registerRagAdminRoutes, toLegacyView, DEFAULT_PROFILES, type RagRuntime } from "./rag";
+import { createRagRuntime, registerRagAdminRoutes, buildEvidenceContext, toPromptSourceArticles, DEFAULT_PROFILES, type RagRuntime } from "./rag";
 import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
@@ -2733,15 +2733,17 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
 
     if (body.ragQuery?.trim()) {
-      const retrieved = toLegacyView(
-        await rag.retrieve({
-          targetSlug: article.slug,
-          queryText: body.ragQuery.trim(),
-          minScore: runtime.app.rag.min_score,
-          profile: "reference_search",
-        }),
+      const retrieved = toPromptSourceArticles(
+        buildEvidenceContext(
+          await rag.retrieve({
+            targetSlug: article.slug,
+            queryText: body.ragQuery.trim(),
+            minScore: runtime.app.rag.min_score,
+            profile: "reference_search",
+          }),
+        ),
       );
-      for (const src of retrieved.sourceArticles) {
+      for (const src of retrieved) {
         addArticle({
           slug: src.slug,
           title: src.title,
@@ -2767,7 +2769,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!article) return c.json({ error: "article not found" }, 404);
 
     const hints = listIncomingHints(db, article.slug);
-    const retrieved = toLegacyView(
+    const linkEvidence = buildEvidenceContext(
       await rag.retrieve({
         targetSlug: article.slug,
         queryText: hintsToSearchStrings(hints).join("\n"),
@@ -2775,6 +2777,10 @@ export async function createApp(options: CreateAppOptions = {}) {
         profile: "reference_search",
       }),
     );
+    const retrieved = {
+      sourceArticles: toPromptSourceArticles(linkEvidence),
+      relatedTitles: linkEvidence.relatedTitles,
+    };
     const excerpt = extractSelectionExcerpt(article.markdown, selectedText);
     const wrapRange = findBestWrapRange(article.markdown, selectedText);
     if (!wrapRange) {

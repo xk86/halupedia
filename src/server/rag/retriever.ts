@@ -40,7 +40,7 @@ export interface ProfileConfig {
    * slots for ontology evidence overall regardless of which article it's
    * attributed to.
    */
-  ontologyFactsPerArticle: number;
+  ontologyFactsPerRetrievedArticle: number;
   /** Token budget reserved for prose body chunks so compact summary/infobox/
    *  ontology docs can't crowd article_body out of the assembled context. */
   bodyReserveTokens: number;
@@ -60,13 +60,13 @@ const ALL_TEXT_KINDS: TextDocumentKind[] = [
 ];
 
 export const DEFAULT_PROFILES: Record<RetrievalProfile, ProfileConfig> = {
-  article_generation: { textTopK: 12, imageTopK: 3, maxPromptTokens: 7000, ontologyQuota: 3, ontologyFactsPerArticle: 8, bodyReserveTokens: 2000, defaultKinds: ALL_TEXT_KINDS },
-  article_rewrite: { textTopK: 8, imageTopK: 2, maxPromptTokens: 4000, ontologyQuota: 2, ontologyFactsPerArticle: 8, bodyReserveTokens: 1200, defaultKinds: ALL_TEXT_KINDS },
-  article_refresh: { textTopK: 4, imageTopK: 1, maxPromptTokens: 1800, ontologyQuota: 1, ontologyFactsPerArticle: 8, bodyReserveTokens: 600, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact", "article_body"] },
+  article_generation: { textTopK: 12, imageTopK: 3, maxPromptTokens: 7000, ontologyQuota: 3, ontologyFactsPerRetrievedArticle: 8, bodyReserveTokens: 2000, defaultKinds: ALL_TEXT_KINDS },
+  article_rewrite: { textTopK: 8, imageTopK: 2, maxPromptTokens: 4000, ontologyQuota: 2, ontologyFactsPerRetrievedArticle: 8, bodyReserveTokens: 1200, defaultKinds: ALL_TEXT_KINDS },
+  article_refresh: { textTopK: 4, imageTopK: 1, maxPromptTokens: 1800, ontologyQuota: 1, ontologyFactsPerRetrievedArticle: 8, bodyReserveTokens: 600, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact", "article_body"] },
   // ontologyQuota reserves slots for symbolic (same-category) ontology facts so
   // the chat research tool's default search always surfaces some structured
   // world data, not just prose summaries that happened to rank highest.
-  reference_search: { textTopK: 10, imageTopK: 0, maxPromptTokens: 0, ontologyQuota: 3, ontologyFactsPerArticle: 8, bodyReserveTokens: 0, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact"] },
+  reference_search: { textTopK: 10, imageTopK: 0, maxPromptTokens: 0, ontologyQuota: 3, ontologyFactsPerRetrievedArticle: 8, bodyReserveTokens: 0, defaultKinds: ["article_summary", "infobox_digest", "ontology_fact"] },
 };
 
 /**
@@ -327,7 +327,7 @@ export async function retrieveContext(
   // Enforce the per-article ontology-fact cap before quota reservation and
   // top-K selection, so a fact-dense article can't consume every reserved
   // ontology slot at another admitted article's expense.
-  const ranked = capPerArticle(fused, "ontology_fact", profile.ontologyFactsPerArticle);
+  const ranked = capPerArticle(fused, "ontology_fact", profile.ontologyFactsPerRetrievedArticle);
   ranked.forEach((doc, i) => (doc.fusedRank = i));
 
   // Select with an ontology quota: guarantee up to `ontologyQuota` ontology

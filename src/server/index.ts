@@ -735,25 +735,25 @@ export async function createApp(options: CreateAppOptions = {}) {
     // tool — its ontologyQuota is config-driven (config/app.toml's
     // [agent].search_ontology_quota) so ontology-fact exposure can be tuned
     // without a code change; every other profile keeps its hardcoded default.
-    // ontologyFactsPerArticle is canonical, so it overrides every profile
-    // uniformly from [rag].ontology_facts_per_article rather than being
+    // ontologyFactsPerRetrievedArticle is canonical, so it overrides every profile
+    // uniformly from [rag].ontology_facts_per_retrieved_article rather than being
     // agent-tool-specific like ontologyQuota above.
     profiles: {
       article_generation: {
         ...DEFAULT_PROFILES.article_generation,
-        ontologyFactsPerArticle: runtime.app.rag.ontology_facts_per_article,
+        ontologyFactsPerRetrievedArticle: runtime.app.rag.ontology_facts_per_retrieved_article,
       },
       article_rewrite: {
         ...DEFAULT_PROFILES.article_rewrite,
-        ontologyFactsPerArticle: runtime.app.rag.ontology_facts_per_article,
+        ontologyFactsPerRetrievedArticle: runtime.app.rag.ontology_facts_per_retrieved_article,
       },
       article_refresh: {
         ...DEFAULT_PROFILES.article_refresh,
-        ontologyFactsPerArticle: runtime.app.rag.ontology_facts_per_article,
+        ontologyFactsPerRetrievedArticle: runtime.app.rag.ontology_facts_per_retrieved_article,
       },
       reference_search: {
         ...DEFAULT_PROFILES.reference_search,
-        ontologyFactsPerArticle: runtime.app.rag.ontology_facts_per_article,
+        ontologyFactsPerRetrievedArticle: runtime.app.rag.ontology_facts_per_retrieved_article,
         ontologyQuota: runtime.app.agent.search_ontology_quota,
       },
     },

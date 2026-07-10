@@ -131,7 +131,7 @@ test("ontology quota guarantees symbolic facts for same-category neighbours", as
   assert.ok(ontologyDocs.some((d) => d.articleSlug === "ethereum"), "category neighbour facts present");
 });
 
-test("ontologyFactsPerArticle caps ranked facts contributed by a single article", async (t) => {
+test("ontologyFactsPerRetrievedArticle caps ranked facts contributed by a single article", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halu-retr-ontology-cap-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const db = openDatabase(join(root, "test.db"));
@@ -175,13 +175,13 @@ test("ontologyFactsPerArticle caps ranked facts contributed by a single article"
       embedder,
       profiles: {
         ...DEFAULT_PROFILES,
-        article_generation: { ...DEFAULT_PROFILES.article_generation, textTopK: 30, ontologyQuota: 30, ontologyFactsPerArticle: 3 },
+        article_generation: { ...DEFAULT_PROFILES.article_generation, textTopK: 30, ontologyQuota: 30, ontologyFactsPerRetrievedArticle: 3 },
       },
     },
     { targetSlug: "other-article", queryText: "Solana ticker founder launched consensus category language", profile: "article_generation" },
   );
   const solanaFacts = res.textDocuments.filter((d) => d.sourceKind === "ontology_fact" && d.articleSlug === "solana");
-  assert.equal(solanaFacts.length, 3, "capped to ontologyFactsPerArticle regardless of how many facts exist");
+  assert.equal(solanaFacts.length, 3, "capped to ontologyFactsPerRetrievedArticle regardless of how many facts exist");
 });
 
 test("diagnostics report profile, model, and selection", async (t) => {

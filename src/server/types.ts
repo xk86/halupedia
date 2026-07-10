@@ -112,7 +112,7 @@ export interface RagConfig {
    * every retrieval profile, unlike the `[agent]` ontology limits, which are
    * presentation caps specific to the chat research tools.
    */
-  ontology_facts_per_article: number;
+  ontology_facts_per_retrieved_article: number;
 }
 
 /**

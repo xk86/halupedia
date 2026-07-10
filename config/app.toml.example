@@ -67,7 +67,7 @@ ontology_llm_extraction = false
 # article's contribution to a retrieval result. Applies across every
 # retrieval profile — distinct from the [agent] ontology limits below, which
 # are presentation caps specific to the chat research tools.
-ontology_facts_per_article = 8
+ontology_facts_per_retrieved_article = 8
 
 [homepage]
 rotation_hours = 4

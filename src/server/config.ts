@@ -95,6 +95,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       max_references: app.rag?.max_references ?? 50,
       reference_recursive_depth: app.rag?.reference_recursive_depth ?? 2,
       reference_recursive_max_per_article: app.rag?.reference_recursive_max_per_article ?? 3,
+      reference_recursive_article_limit: app.rag?.reference_recursive_article_limit ?? 25,
       reference_cull_min_score: app.rag?.reference_cull_min_score ?? 0.3,
       reference_cull_top_k: app.rag?.reference_cull_top_k ?? 20,
       prompt_ref_content_min_score: app.rag?.prompt_ref_content_min_score ?? 0.5,
@@ -105,6 +106,7 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       refresh_context_max_articles: app.rag?.refresh_context_max_articles ?? 4,
       refresh_related_titles_max: app.rag?.refresh_related_titles_max ?? 6,
       ontology_llm_extraction: app.rag?.ontology_llm_extraction ?? false,
+      ontology_facts_per_article: app.rag?.ontology_facts_per_article ?? 8,
     },
     homepage: {
       rotation_hours: app.homepage?.rotation_hours ?? 4,

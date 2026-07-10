@@ -49,8 +49,23 @@ export interface RagConfig {
   prompt_ref_content_top_k: number;
   /** How far to traverse persisted reference sidecars from candidate refs. */
   reference_recursive_depth: number;
-  /** Maximum sidecar refs to pull from each traversed article per depth step. */
+  /**
+   * Traversal fan-out safety limit: maximum sidecar refs pulled from a single
+   * traversed article per depth step. This bounds how fast the frontier can
+   * grow — it is NOT the total number of recursively-discovered articles
+   * admitted to the final reference list (see `reference_recursive_article_limit`
+   * for that).
+   */
   reference_recursive_max_per_article: number;
+  /**
+   * Hard cap on the total number of recursively-discovered articles admitted
+   * to the reference list, applied after ranking all recursive candidates by
+   * score (descending, stable slug tie-break) and independent of
+   * `reference_cull_top_k` (which also covers fresh RAG hits and reranked
+   * priors). Distinct from `reference_recursive_max_per_article`, which only
+   * bounds per-parent fan-out during traversal.
+   */
+  reference_recursive_article_limit: number;
   /**
    * Global cull applied after full assembly (RAG + recursive + prior-save).
    * Only entries with a finite rankScore are eligible (rag, inherited, floor,
@@ -89,6 +104,15 @@ export interface RagConfig {
    * only called when the article or the vocabulary changes.
    */
   ontology_llm_extraction: boolean;
+  /**
+   * Canonical per-article cap on ontology facts admitted into retrieval
+   * evidence: at most this many ranked ontology facts survive for any single
+   * article's contribution to a retrieval result, so one fact-dense article
+   * can't crowd another's facts out of a shared result set. Applies across
+   * every retrieval profile, unlike the `[agent]` ontology limits, which are
+   * presentation caps specific to the chat research tools.
+   */
+  ontology_facts_per_article: number;
 }
 
 /**

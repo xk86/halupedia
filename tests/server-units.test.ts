@@ -2189,6 +2189,83 @@ test("buildReferenceList recursive refs inherit the parent RAG score, not their 
   assert.equal(child!.score, 0.62, "recursive score inherits the parent, never the child's own 1.0");
 });
 
+test("buildReferenceList caps recursive admissions at reference_recursive_article_limit, keeping the highest-scoring", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halupedia-recursive-limit-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+  const db = openDatabase(join(root, TEST_CONFIG.database_path));
+
+  const saveRefArticle = (slug: string, title: string, generatedAt: number) => {
+    const markdown = `# ${title}\n\nReference body.`;
+    saveArticle(
+      db,
+      {
+        slug,
+        canonicalSlug: slug,
+        title,
+        markdown,
+        html: renderMarkdown(markdown),
+        summaryMarkdown: `${title} summary.`,
+        plain_text: markdownToPlainText(markdown),
+        generated_at: generatedAt,
+      },
+      [],
+      [slug],
+    );
+  };
+
+  const parents = [
+    { slug: "parent-a", title: "Parent A", score: 0.9 },
+    { slug: "parent-b", title: "Parent B", score: 0.7 },
+    { slug: "parent-c", title: "Parent C", score: 0.5 },
+    { slug: "parent-d", title: "Parent D", score: 0.3 },
+  ];
+  let gen = 1;
+  for (const p of parents) {
+    saveRefArticle(p.slug, p.title, gen++);
+    const childSlug = `child-of-${p.slug}`;
+    saveRefArticle(childSlug, `Child of ${p.title}`, gen++);
+    saveArticleReferences(db, p.slug, gen++, [
+      {
+        slug: childSlug,
+        title: `Child of ${p.title}`,
+        content: `${p.title} child summary.`,
+        kind: "summary",
+        pinned: false,
+        revisionId: "initial",
+      },
+    ]);
+  }
+
+  const refs = buildReferenceList(db, {
+    articleSlug: "current-entry",
+    userAdditions: [],
+    priorReferences: [],
+    ragSources: parents.map((p) => ({ slug: p.slug, title: p.title, content: "", score: p.score })),
+    revisionId: "current",
+    config: {
+      reference_max_results: 10,
+      reference_min_score: 0.1,
+      max_references: 50,
+      reference_recursive_depth: 1,
+      reference_recursive_max_per_article: 1,
+      reference_recursive_article_limit: 2,
+      reference_cull_min_score: 0,
+      reference_cull_top_k: 0,
+    },
+  });
+
+  const recursiveSlugs = refs.filter((r) => r.source === "recursive").map((r) => r.slug).sort();
+  // Only the two highest-scoring parents' children survive the recursive cap;
+  // the parents themselves (rag source) are unaffected by the recursive cap.
+  assert.deepEqual(recursiveSlugs, ["child-of-parent-a", "child-of-parent-b"]);
+  assert.deepEqual(
+    refs.filter((r) => r.source === "rag").map((r) => r.slug).sort(),
+    ["parent-a", "parent-b", "parent-c", "parent-d"],
+  );
+});
+
 test("linkMentionedReferencesInBody wraps exact unlinked reference title mentions", () => {
   const refs: ReferenceList = [
     {

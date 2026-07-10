@@ -79,7 +79,15 @@ export interface BuildReferenceListInput {
     | "reference_recursive_max_per_article"
     | "reference_cull_min_score"
     | "reference_cull_top_k"
-  >;
+  > & {
+    /**
+     * Hard cap on the total number of recursively-discovered articles
+     * admitted to the list, ranked by score. Optional here (defaults to
+     * uncapped) so callers/tests that don't exercise recursion aren't forced
+     * to set it; production config always supplies it.
+     */
+    reference_recursive_article_limit?: number;
+  };
 }
 
 /**
@@ -373,6 +381,33 @@ export function buildReferenceList(
     frontier = nextFrontier;
   }
 
+  // Dedicated recursive-article cap: independent of reference_cull_top_k
+  // (which also covers fresh RAG hits and reranked priors) and separate from
+  // reference_recursive_max_per_article (which only bounds per-parent fan-out
+  // DURING traversal, not the total admitted afterward). Rank every
+  // recursively-discovered candidate by its rankScore (descending, stable
+  // slug tie-break — this is the "sort by relevance, cut by count" behavior:
+  // relevance determines order, the configured limit determines the cutoff)
+  // and drop the tail before it ever competes in the cull/count-cap stages
+  // below.
+  let recursiveCapDropped = 0;
+  const recursiveArticleLimit = config.reference_recursive_article_limit;
+  if (typeof recursiveArticleLimit === "number" && Number.isFinite(recursiveArticleLimit)) {
+    const limit = Math.max(0, Math.floor(recursiveArticleLimit));
+    const recursiveCandidates = candidates.filter((c) => c.source === "recursive");
+    if (recursiveCandidates.length > limit) {
+      const ranked = [...recursiveCandidates].sort(
+        (a, b) => b.rankScore - a.rankScore || a.entry.slug.localeCompare(b.entry.slug),
+      );
+      const keepSlugs = new Set(ranked.slice(0, limit).map((c) => c.entry.slug));
+      recursiveCapDropped = recursiveCandidates.length - keepSlugs.size;
+      for (let i = candidates.length - 1; i >= 0; i -= 1) {
+        const c = candidates[i];
+        if (c.source === "recursive" && !keepSlugs.has(c.entry.slug)) candidates.splice(i, 1);
+      }
+    }
+  }
+
   // Cull stage: applied across the fully-assembled candidate pool before the
   // count caps below. Exempt sources are pinned, user-added, and body-linked
   // (source "user" or "body") — these are explicit human choices and immune.
@@ -457,6 +492,8 @@ export function buildReferenceList(
     recursive_candidates: recursiveCandidateCount,
     recursive_traversed: recursiveTraversalCount,
     recursive_max_per_article: config.reference_recursive_max_per_article,
+    recursive_article_limit: config.reference_recursive_article_limit,
+    recursive_cap_dropped: recursiveCapDropped,
     blacklisted: blacklistSlugs.length,
     cull_dropped: cullDropped,
     cull_min_score: cullMinScore,

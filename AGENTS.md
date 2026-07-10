@@ -93,6 +93,17 @@ Several `[rag]` keys look similar but govern distinct mechanisms — do not conf
 
 When adding a new cap in this area, name it for what it actually bounds (e.g. "admitted count" vs. "per-parent fan-out" vs. "per-article allowance") rather than reusing a generic `top_k`/`limit` name — the existing muddled names above are exactly what made this distinction hard to read.
 
+## Content and Retrieval Invariants
+
+- `src/server/text/markdownLinkParser.ts` (`parseMarkdownLinks`) is the canonical `halu:`/`ref:` link parser — it owns bracket/paren scanning, escape handling, bare-bracket and loose-marker recovery, and structural diagnostics. Do not hand-roll a new regex to recognize or extract `halu:`/`ref:` links; extend this parser instead (see its test coverage for the malformed-input shapes it already handles).
+- Consult it before writing a new "is this text inside a markdown link" check, too — `markdownProtectedRanges`/`extractFormattedTitleSpans` in `referenceList.ts` used to each hand-roll a slightly different link-detecting regex (they disagreed on empty-target links, a real bug); both now derive ranges from `parseMarkdownLinks(...).links` instead.
+- `src/server/text/linkNormalize.ts` (`normalizeMarkdownLinks`) is the canonical slug-normalization/link-repair pass. Don't reimplement slug normalization or malformed-link repair locally — extend it.
+- Markdown-derived HTML must only come from `renderMarkdown`/`renderInlineMarkdown` (`src/server/markdown.ts`), which own the `markdown-it` + KaTeX rendering path. Never hand-assemble `<a href>`/etc. from a parsed link's `label`/`slug` — that bypasses whatever escaping/normalization the renderer does.
+- Application HTML that legitimately IS hand-assembled (not derived from parsed article Markdown — e.g. `renderReferencesHtml`'s reference list, `renderInfoboxHtml`'s infobox) must still escape any interpolated user/model-authored text. Use the shared `escapeHtml` export from `src/server/markdown.ts`, not a local copy — `articleRender.ts` and `referenceList.ts` both had (and `referenceList.ts` had a real, unescaped stored-XSS gap in `renderReferencesHtml` until it was fixed) their own duplicate before this was consolidated.
+- The reference sidecar (`ReferenceList`/`buildReferenceList` in `referenceList.ts`) is derived, algorithmic metadata — never LLM-produced. See the file's own header comment for the full invariant list.
+- Recursive reference traversal explores both graph directions (forward sidecar refs AND backlinks — `listWrittenBacklinks` in `db.ts`), is deterministic (score-ranked, stable slug tie-break, no LLM, no random sampling), and is cycle-safe via the visited-set.
+- Do not add language metadata to any content-processing type. Halupedia has no language dimension that matters to this architecture.
+
 ## Working Rules For Future Edits
 
 - Always write tests for behavior changes.

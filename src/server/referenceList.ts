@@ -548,7 +548,7 @@ export function buildReferenceList(
 
 // Import here rather than at top-level to avoid circular dep
 // (referenceList ← index.ts ← markdown.ts would be circular).
-import { buildHaluLink, cleanLinkLabels, extractInternalLinks, normalizeHaluLinks, stripSelfLinks } from "./markdown";
+import { buildHaluLink, cleanLinkLabels, extractInternalLinks, normalizeHaluLinks, stripSelfLinks, escapeHtml } from "./markdown";
 import { titleToWikiSegment } from "./slug";
 import { parseMarkdownLinks } from "./text/markdownLinkParser";
 import { normalizeMarkdownLinks } from "./text/linkNormalize";
@@ -577,7 +577,7 @@ export function renderReferencesHtml(refs: ReferenceList): string {
       .map((entry, i) => {
         const n = i + 1;
         const wikiPath = `/wiki/${titleToWikiSegment(entry.title)}`;
-        return `<li id="ref-${n}"><a href="${wikiPath}">${entry.title}</a></li>`;
+        return `<li id="ref-${n}"><a href="${wikiPath}">${escapeHtml(entry.title)}</a></li>`;
       })
       .join("");
     html += `<section class="article-references"><h2>References</h2><ol>${items}</ol></section>`;
@@ -586,7 +586,7 @@ export function renderReferencesHtml(refs: ReferenceList): string {
     const items = unlinked
       .map((entry) => {
         const wikiPath = `/wiki/${titleToWikiSegment(entry.title)}`;
-        return `<span class="ref-context"><a href="${wikiPath}">${entry.title}</a></span>`;
+        return `<span class="ref-context"><a href="${wikiPath}">${escapeHtml(entry.title)}</a></span>`;
       })
       .join("");
     html += `<section class="article-references-context">${items}</section>`;

@@ -97,7 +97,10 @@ md.renderer.rules.image = (tokens: any[], idx: number, options: any, env: any, s
   return defaultImageRule(tokens, idx, options, env, self);
 };
 
-function escapeHtml(value: string): string {
+/** Escape HTML special characters. Exported so any module hand-assembling
+ *  application HTML (not Markdown-derived) from typed data — titles, labels —
+ *  escapes it the same way instead of growing its own copy. */
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

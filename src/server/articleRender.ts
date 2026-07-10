@@ -1,7 +1,7 @@
 // In-memory render cache keyed by slug+generatedAt.
 
 import type { Article } from "./article";
-import { renderMarkdown, stripSelfLinks } from "./markdown";
+import { renderMarkdown, stripSelfLinks, escapeHtml } from "./markdown";
 import {
   renderReferencesHtml,
   linkReferences,
@@ -33,10 +33,6 @@ export function renderSeeAlsoSection(seeAlso: SeeAlsoList): string {
 export function assembleArticleMarkdownForRender(article: Article): string {
   const linked = linkReferences(article.body, article.metadata.references, article.slug);
   return stripSelfLinks(linked, article.slug).trim();
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 export function renderInfoboxHtml(

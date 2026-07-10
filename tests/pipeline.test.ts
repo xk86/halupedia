@@ -899,12 +899,17 @@ test("renderReferencesHtml: produces numbered <ol> with anchor IDs", () => {
   assert.match(html, /Beta/);
 });
 
-test("renderReferencesHtml: title with ampersand and angle bracket rendered as-is (not HTML-escaped by this layer)", () => {
-  // renderReferencesHtml places the title directly in an <a> element; markdown-it
-  // rendering later handles any escaping for the final HTML output.
-  const refs = [makeRef("x", "AT&T Corp")];
+test("renderReferencesHtml: title with ampersand and angle bracket is HTML-escaped", () => {
+  // renderReferencesHtml's output is joined directly with already-rendered
+  // body HTML (see articleRender.ts's renderArticleDisplayHtml) — it is NOT
+  // passed back through the Markdown renderer, so this layer must escape any
+  // HTML-special characters in the title itself or they'd reach the page raw.
+  const refs = [makeRef("x", "AT&T Corp"), makeRef("y", "<script>alert(1)</script>")];
   const html = renderReferencesHtml(refs);
-  assert.match(html, /AT&T Corp/);
+  assert.match(html, /AT&amp;T Corp/);
+  assert.doesNotMatch(html, /AT&T Corp/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>alert/);
 });
 
 /* ─────────────────────────────────────────────────────────────────

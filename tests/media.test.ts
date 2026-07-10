@@ -6,7 +6,6 @@
  *   mediaDb          — CRUD for the media SQLite sidecar
  *   article_media    — article_media table queries
  *   article_infobox  — article_infobox table queries
- *   rendering        — renderInfoboxHtml output
  *   markdown         — :::sidebar container + media: image scheme
  *   vision-probe     — LLM capability check via Ollama /api/show
  *   multimodal       — native /api/chat base64 images array construction
@@ -25,7 +24,6 @@ import { randomUUID } from "node:crypto";
 
 import { openMediaDatabase, getMediaById, getMediaBytesById, getMediaBySha256, insertMedia, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMediaRevisions, listMedia } from "../src/server/mediaDb";
 import { openDatabase, saveArticle, getArticleHeadlineMedia, upsertArticleHeadlineMedia, updateArticleMediaCaption, removeArticleMedia, getArticleMediaRows, getArticleInfobox, setArticleInfobox, listArticleRevisions, listImageBacklinks, type InfoboxData } from "../src/server/db";
-import { renderInfoboxHtml } from "../src/server/articleRender";
 import { renderMarkdown, markdownToPlainText } from "../src/server/markdown";
 import { type LlmRouter, type ChatOptions } from "../src/server/llm";
 import { makeRouter } from "./helpers/router";
@@ -782,56 +780,6 @@ describe("article_infobox", () => {
     const db = makeArticleDb(dir);
     assert.equal(getArticleInfobox(db, "test-article"), null);
     db.close();
-  });
-});
-
-// ── rendering ─────────────────────────────────────────────────────────────────
-
-describe("rendering", () => {
-  test("renderInfoboxHtml: empty string when no infobox and no image", () => {
-    assert.equal(renderInfoboxHtml(null, null), "");
-  });
-
-  test("renderInfoboxHtml: renders .infobox aside with title", () => {
-    const html = renderInfoboxHtml({ title: "Benzodiazepine", groups: [] }, null);
-    assert.match(html, /<aside class="infobox">/);
-    assert.match(html, /Benzodiazepine/);
-  });
-
-  test("renderInfoboxHtml: headline image links to /api/media and /media", () => {
-    const media = { id: 1, articleSlug: "x", mediaId: "benzo-mol", role: "headline", ordinal: 1, caption: "Formula", createdAt: 0, updatedAt: 0 };
-    const html = renderInfoboxHtml(null, media);
-    assert.match(html, /src="\/api\/media\/benzo-mol"/);
-    assert.match(html, /href="\/media\/benzo-mol"/);
-    assert.match(html, /Formula/);
-  });
-
-  test("renderInfoboxHtml: renders table rows with label/value", () => {
-    const box: InfoboxData = { title: "Aspirin", groups: [{ label: "Props", rows: [{ label: "Formula", value: "C9H8O4" }] }] };
-    const html = renderInfoboxHtml(box, null);
-    assert.match(html, /Props/);
-    assert.match(html, /Formula/);
-    assert.match(html, /C9H8O4/);
-  });
-
-  test("renderInfoboxHtml: escapes HTML in title and values", () => {
-    const box: InfoboxData = { title: "<script>xss</script>", groups: [{ label: "", rows: [{ label: "F", value: "<b>v</b>" }] }] };
-    const html = renderInfoboxHtml(box, null);
-    assert.doesNotMatch(html, /<script>/);
-    assert.match(html, /&lt;script&gt;/);
-    assert.match(html, /&lt;b&gt;v&lt;\/b&gt;/);
-  });
-
-  test("renderInfoboxHtml: empty caption renders no caption paragraph", () => {
-    const media = { id: 1, articleSlug: "x", mediaId: "img", role: "headline", ordinal: 1, caption: "", createdAt: 0, updatedAt: 0 };
-    const html = renderInfoboxHtml(null, media);
-    // No caption paragraph when caption is empty — no fallback to description
-    assert.doesNotMatch(html, /infobox-caption/);
-  });
-
-  test("renderInfoboxHtml: no image when headlineMedia is null", () => {
-    const html = renderInfoboxHtml({ title: "T", groups: [] }, null);
-    assert.doesNotMatch(html, /infobox-image/);
   });
 });
 

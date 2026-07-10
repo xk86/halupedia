@@ -53,12 +53,14 @@
  *    article text retrieval.
  *
  * Sidebar rendering:
- *    The sidebar (sidepane) is assembled server-side from two sidecars:
+ *    The sidebar (sidepane) is assembled from two sidecars:
  *      - article_infobox  — structured rows (title, subtitle, key/value groups)
  *      - article_media    — headline image + per-article caption
- *    renderInfoboxHtml() in articleRender.ts combines both into the <aside>
- *    that appears to the right of the article body. The article markdown body
- *    never contains image markdown.
+ *    index.ts pre-renders each infobox/caption value server-side via
+ *    renderInlineMarkdown(linkReferencesInline(...)) — so ref: links resolve
+ *    and bare title mentions get linked — then ships the structured JSON to
+ *    the client, which renders the <aside> sidebar (right column) in React.
+ *    The article markdown body never contains image markdown.
  *
  * Auto-sidebar:
  *    When /api/page/:slug is served for an article that has no infobox yet,

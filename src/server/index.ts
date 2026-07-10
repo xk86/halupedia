@@ -96,7 +96,6 @@ import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
 import { generateArticleImage } from "./imageGeneration";
 import { captionImageWorkflow } from "./pipeline/workflows/captionImage";
-import { renderInfoboxHtml } from "./articleRender";
 import { findFuzzyTitleMatchesInEditText, findReferencedArticlesInEditText } from "./editReferences";
 import { OpenAICompatRouter, fetchHostModels, type LlmRouter } from "./llm";
 import type { ChatConfig, ImageGenerationConfig } from "./types";

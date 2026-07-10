@@ -83,6 +83,16 @@ Related note:
 
 - `src/server/config.ts` and `src/server/types.ts` currently type only a subset of `config/llm.toml`. For example, `top_k` and `top_p` exist in the file today but are not wired through the typed config or request payload. If extending LLM settings, update types, config loading, transport, and tests together.
 
+### Reference & Retrieval Config Keys (`[rag]`)
+
+Several `[rag]` keys look similar but govern distinct mechanisms — do not conflate them:
+
+- `reference_recursive_max_per_article`: traversal fan-out safety limit — max sidecar refs pulled from a single traversed article per depth step, during recursion.
+- `reference_recursive_article_limit`: hard cap on the *total* recursively-discovered articles admitted to the final reference list, applied after ranking all recursive candidates by score (descending, stable slug tie-break). Independent of `reference_cull_top_k`, which culls the whole assembled pool (RAG + recursive + reranked priors) together.
+- `ontology_facts_per_retrieved_article`: canonical, cross-profile cap on ranked ontology facts contributed by any single article during retrieval (`src/server/rag/retriever.ts`), so a fact-dense article can't crowd another admitted article's facts out of a shared result. Distinct from the `[agent]` ontology keys (`search_ontology_facts_per_result`, `search_ontology_quota`, `ontology_facts_max`), which are presentation caps specific to the chat research tools, not the canonical retrieval context.
+
+When adding a new cap in this area, name it for what it actually bounds (e.g. "admitted count" vs. "per-parent fan-out" vs. "per-article allowance") rather than reusing a generic `top_k`/`limit` name — the existing muddled names above are exactly what made this distinction hard to read.
+
 ## Working Rules For Future Edits
 
 - Always write tests for behavior changes.

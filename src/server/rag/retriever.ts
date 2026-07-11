@@ -272,19 +272,24 @@ export async function retrieveContext(
   const fused = [...docByID.values()].sort(
     (a, b) => (fusionScore.get(b.documentId) ?? 0) - (fusionScore.get(a.documentId) ?? 0),
   );
-  // Enforce the per-article ontology-fact cap before quota reservation and
-  // top-K selection, so a fact-dense article can't consume every reserved
-  // ontology slot at another admitted article's expense.
+  // Trim each article to at most `ontologyFactsPerRetrievedArticle` ontology
+  // facts. Every fact that survives this cap is then guaranteed a slot below, so
+  // the cap doubles as the per-article fact allowance.
   const ranked = capPerArticle(fused, "ontology_fact", profile.ontologyFactsPerRetrievedArticle);
   ranked.forEach((doc, i) => (doc.fusedRank = i));
 
-  // Select with an ontology quota: guarantee up to `ontologyQuota` ontology
-  // facts even if they'd otherwise fall outside textTopK.
-  const ontologyRanked = ranked.filter((d) => d.sourceKind === "ontology_fact");
-  const reserved = ontologyRanked.slice(0, profile.ontologyQuota);
-  const reservedIds = new Set(reserved.map((d) => d.documentId));
-  const remainder = ranked.filter((d) => !reservedIds.has(d.documentId));
-  const selectedText = [...reserved, ...remainder].slice(0, profile.textTopK);
+  // Guarantee up to `ontologyFactsPerRetrievedArticle` facts for *every* article
+  // that surfaced, reserved on top of the textTopK budget so they never crowd
+  // out — or get crowded out by — article bodies/summaries. Only non-fact
+  // evidence competes for textTopK; the per-article cap above already bounds how
+  // many facts each article can contribute, and the downstream token budget
+  // (maxPromptTokens) still caps the total prompt size.
+  const reservedFacts = ranked.filter((d) => d.sourceKind === "ontology_fact");
+  const reservedIds = new Set(reservedFacts.map((d) => d.documentId));
+  const nonFacts = ranked.filter((d) => !reservedIds.has(d.documentId));
+  const selectedText = [...reservedFacts, ...nonFacts.slice(0, profile.textTopK)].sort(
+    (a, b) => a.fusedRank - b.fusedRank,
+  );
 
   // ---- direct references ----
   const directDocs: RetrievedTextDocument[] = [];
@@ -297,7 +302,15 @@ export async function retrieveContext(
       3,
     );
     hits.forEach((hit, i) => {
-      if (selectedText.some((d) => d.documentId === hit.documentId)) return;
+      // A doc already selected semantically/symbolically is still an explicit
+      // reference — promote it to direct provenance in place rather than adding
+      // a duplicate (or, as before, silently dropping the direct signal).
+      const existing = selectedText.find((d) => d.documentId === hit.documentId);
+      if (existing) {
+        existing.provenance = "direct";
+        existing.retrievalReason = "direct";
+        return;
+      }
       directDocs.push(hitToDoc(hit, "direct", "direct", i));
     });
   }

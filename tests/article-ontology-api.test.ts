@@ -74,5 +74,8 @@ test("article ontology API renders literal fact objects as inline markdown", asy
 
   assert.ok(composition);
   assert.match(composition.objectHtml, /<em>Silicon dioxide<\/em>/);
-  assert.match(composition.objectHtml, /katex/);
+  // Ontology values strip TeX delimiters (KaTeX is unwanted in compact table
+  // cells) but keep the inner text — see renderOntologyValueHtml.
+  assert.doesNotMatch(composition.objectHtml, /katex/);
+  assert.match(composition.objectHtml, /\\text\{SiO\}_2/);
 });

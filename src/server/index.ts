@@ -3585,18 +3585,32 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       path?: unknown;
       value?: unknown;
+      updates?: unknown;
     };
-    if (typeof body.path !== "string") {
-      return c.json({ error: "path is required" }, 400);
+    const updates = Array.isArray(body.updates)
+      ? body.updates
+      : typeof body.path === "string"
+        ? [{ path: body.path, value: body.value }]
+        : [];
+    if (updates.length === 0) {
+      return c.json({ error: "at least one update is required" }, 400);
     }
     try {
-      editAppToml((source) => updateAppConfigToml(source, body.path as string, body.value));
+      editAppToml((source) =>
+        updates.reduce((next, update) => {
+          if (!update || typeof update !== "object") throw new Error("each update must be an object");
+          const entry = update as { path?: unknown; value?: unknown };
+          if (typeof entry.path !== "string") throw new Error("each update path must be a string");
+          return updateAppConfigToml(next, entry.path, entry.value);
+        }, source),
+      );
       await reloadRuntime();
       return c.json({ ok: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const badInput =
         message.startsWith("unknown app config field:") ||
+        message.startsWith("each update") ||
         message.includes(" must ") ||
         message.includes("allowed option") ||
         message.includes("cannot be blank");

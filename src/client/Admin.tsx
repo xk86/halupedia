@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { cn, ERROR_BOX } from "@/lib/utils";
 import { RuntimePane } from "./admin/panes/RuntimePane";
+import { AppConfigPane } from "./admin/panes/AppConfigPane";
 import { PipelinesPane } from "./admin/panes/PipelinesPane";
 import { PromptModelsPane } from "./admin/panes/PromptModelsPane";
 import {
@@ -623,14 +624,24 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
       case "config":
         return [
           {
+            id: "app-config",
+            span: "full",
+            content: <AppConfigPane />,
+          },
+          {
             id: "runtime",
-            span: "wide",
+            span: "half",
             content: (
               <RuntimePane
                 databasePath={overview.databasePath}
                 promptConfigPath={overview.promptConfigPath}
               />
             ),
+          },
+          {
+            id: "config-image-generation",
+            span: "half",
+            content: <ImageGenerationPane />,
           },
         ];
       case "articles":

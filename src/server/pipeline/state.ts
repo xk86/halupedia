@@ -107,7 +107,9 @@ export const ReferenceEntrySchema = z.object({
   kind: z.enum(["summary", "chunk"]),
   pinned: z.boolean(),
   score: z.number().optional(),
-  source: z.enum(["body", "user", "prior", "rag", "recursive", "pinned"]).optional(),
+  // Keep in sync with ReferenceSource in ../types.ts (Zod can't consume a bare
+  // TS union, so this enum is a hand-maintained mirror).
+  source: z.enum(["body", "user", "prior", "rag", "recursive", "backlink", "pinned"]).optional(),
 });
 export type ReferenceEntry = z.infer<typeof ReferenceEntrySchema>;
 

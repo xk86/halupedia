@@ -12,6 +12,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { loadConfig } from "./config";
+import { appConfigAdminPayload, updateAppConfigToml } from "./appConfigAdmin";
 import { createArticleImagePresetFile, deleteArticleImagePresetFile, listArticleImagePresetFiles, listPromptFiles, readArticleImagePresetFile, readPromptFile, writeArticleImagePresetFile, writePromptFile } from "./promptEditor";
 import { listArticleImageAspectRatios, normalizeArticleImageAspectRatioKey, resolveArticleImageAspectRatio } from "./imageAspectRatios";
 import {
@@ -3577,6 +3578,31 @@ export async function createApp(options: CreateAppOptions = {}) {
     const src = existsSync(path) ? readFileSync(path, "utf8") : existsSync(examplePath) ? readFileSync(examplePath, "utf8") : "";
     writeFileSync(path, mutate(src));
   };
+
+  app.get("/api/admin/config", (c) => c.json(appConfigAdminPayload(runtime.app)));
+
+  app.put("/api/admin/config", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      path?: unknown;
+      value?: unknown;
+    };
+    if (typeof body.path !== "string") {
+      return c.json({ error: "path is required" }, 400);
+    }
+    try {
+      editAppToml((source) => updateAppConfigToml(source, body.path as string, body.value));
+      await reloadRuntime();
+      return c.json({ ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const badInput =
+        message.startsWith("unknown app config field:") ||
+        message.includes(" must ") ||
+        message.includes("allowed option") ||
+        message.includes("cannot be blank");
+      return c.json({ error: message }, badInput ? 400 : 500);
+    }
+  });
 
   // POST /api/admin/ontology/apply — write operator-selected vocabulary review
   // proposals into config/ontology.toml and hot-reload the running vocabulary

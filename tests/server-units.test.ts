@@ -1507,6 +1507,37 @@ test("parseJsonLoose returns null for empty input", () => {
   assert.equal(parseJsonLoose("   \n  "), null);
 });
 
+test("parseJsonLoose default mangles single-backslash TeX (JSON semantics)", () => {
+  // Without preserveLatex, "\t" is the JSON tab escape: strict parse succeeds
+  // but yields TAB + "ext{...}". This documents the failure preserveLatex fixes.
+  const parsed = parseJsonLoose(String.raw`{"object":"\text{SiO}_2"}`) as { object: string };
+  assert.equal(parsed.object, "\text{SiO}_2"); // compile-time tab + "ext{SiO}_2"
+  assert.equal(parsed.object.charCodeAt(0), 9); // leading char is a TAB, not "\"
+});
+
+test("parseJsonLoose preserveLatex keeps single-backslash LaTeX commands", () => {
+  const parsed = parseJsonLoose(String.raw`{"object":"\text{SiO}_2"}`, {
+    preserveLatex: true,
+  }) as { object: string };
+  assert.equal(parsed.object, String.raw`\text{SiO}_2`);
+});
+
+test("parseJsonLoose preserveLatex handles multiple commands and control-letters", () => {
+  const parsed = parseJsonLoose(
+    String.raw`{"object":"\alpha \neq \beta, \frac{a}{b}, \times"}`,
+    { preserveLatex: true },
+  ) as { object: string };
+  assert.equal(parsed.object, String.raw`\alpha \neq \beta, \frac{a}{b}, \times`);
+});
+
+test("parseJsonLoose preserveLatex leaves already-escaped backslashes intact", () => {
+  // A correctly-doubled backslash must stay a single literal backslash, not grow.
+  const parsed = parseJsonLoose(String.raw`{"object":"\\text{x}"}`, {
+    preserveLatex: true,
+  }) as { object: string };
+  assert.equal(parsed.object, String.raw`\text{x}`);
+});
+
 /* -------------------------------------------------------------------------- */
 /*  Title extraction and display titles                                       */
 /* -------------------------------------------------------------------------- */

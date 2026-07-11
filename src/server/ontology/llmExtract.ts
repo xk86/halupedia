@@ -169,7 +169,9 @@ export async function deriveLlmExtraction(db: DatabaseSync, vocab: OntologyVocab
       jsonMode,
     });
     responseText = raw;
-    const parsed = parseJsonLoose(raw);
+    // Fact objects carry TeX (e.g. "\text{SiO}_2"); preserve single-backslash
+    // LaTeX so JSON.parse doesn't eat "\t"/"\n"/etc. as control chars.
+    const parsed = parseJsonLoose(raw, { preserveLatex: true });
     if (parsed === null) {
       options.logger?.warn?.("ontology.llm_extraction_unparseable", {
         slug: article.slug,

@@ -66,16 +66,44 @@ export function stripJsonFences(raw: string): string {
 }
 
 /**
+ * Repair LaTeX command backslashes that the model emitted without doubling.
+ *
+ * Inside a JSON string, `\text` / `\times` / `\tau` are *invalid* JSON: `\t` is
+ * the tab escape, so strict `JSON.parse` silently yields a literal TAB + "ext"
+ * (and `\neq` → newline, `\beta` → backspace, `\frac` → formfeed, `\rho` → CR).
+ * Models routinely emit single-backslash TeX, so double any odd-length run of
+ * backslashes that precedes a letter-word (a LaTeX-command shape) — an even run
+ * is already a correctly-escaped literal backslash and is left as-is.
+ *
+ * This is lossy for a *genuine* control escape immediately followed by a word
+ * (e.g. a real tab in `"\tafter"` becomes literal `\t`), so it is opt-in and
+ * only used where values are short scientific tokens, never multi-line prose.
+ */
+function preserveLatexBackslashes(json: string): string {
+  return json.replace(/(\\+)(?=[a-zA-Z]{2,})/g, (run) =>
+    run.length % 2 === 1 ? run + "\\" : run,
+  );
+}
+
+/**
  * Parse model output that is meant to be JSON but frequently isn't quite:
  * fenced, truncated (finish_reason=length), or trailed by prose. Strips fences,
  * tries a strict parse, then falls back to `jsonrepair` — which closes open
  * strings/arrays/objects, salvaging the complete leading entries of a truncated
  * array. Returns `null` when nothing usable survives; callers MUST handle null
  * rather than let a parse error abort the whole operation.
+ *
+ * Pass `preserveLatex` for payloads whose string values carry TeX (e.g. ontology
+ * fact objects like `\text{SiO}_2`); see {@link preserveLatexBackslashes}. Leave
+ * it off for prose/body payloads where `\n` legitimately means a newline.
  */
-export function parseJsonLoose(raw: string): unknown {
-  const text = stripJsonFences(raw);
+export function parseJsonLoose(
+  raw: string,
+  options: { preserveLatex?: boolean } = {},
+): unknown {
+  let text = stripJsonFences(raw);
   if (!text) return null;
+  if (options.preserveLatex) text = preserveLatexBackslashes(text);
   try {
     return JSON.parse(text);
   } catch {

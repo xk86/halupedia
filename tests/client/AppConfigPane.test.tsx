@@ -113,4 +113,20 @@ describe("AppConfigPane", () => {
     expect(input).toHaveValue(0.25);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("uses a responsive auto-fit grid for compact section fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(payload)),
+    );
+    render(<AppConfigPane />);
+
+    const sections = await screen.findByTestId("config-sections");
+    const fields = await screen.findByTestId("config-fields-retrieval");
+    expect(sections).toHaveClass("grid", "min-w-0", "gap-3");
+    expect(sections.className).not.toContain("grid-cols-2");
+    expect(fields).toHaveClass("grid", "min-w-0", "gap-y-3");
+    expect(fields.className).toContain("auto-fit");
+    expect(fields.className).toContain("min(100%,15rem)");
+  });
 });

@@ -180,7 +180,7 @@ function AppConfigPaneComponent() {
       {!payload ? (
         <p className="text-sm text-muted-foreground">Loading configuration…</p>
       ) : (
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div data-testid="config-sections" className="grid min-w-0 gap-3">
           {payload.sections.map((section) => {
             const sectionDirty = section.fields.some((field) =>
               dirtyPaths.has(fieldPath(field)),
@@ -196,8 +196,11 @@ function AppConfigPaneComponent() {
                       : `${section.fields.length} settings`}
                   </Badge>
                 </CardHeader>
-                <CardContent>
-                  <FieldGroup className="gap-4">
+                <CardContent className="min-w-0">
+                  <FieldGroup
+                    data-testid={`config-fields-${section.id}`}
+                    className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-x-4 gap-y-3"
+                  >
                     {section.fields.map((field) => (
                       <ConfigControl
                         key={fieldPath(field)}
@@ -253,29 +256,37 @@ function ConfigControl({
   const id = `config-${field.table}-${field.key}`.replaceAll(".", "-");
   if (field.kind === "boolean") {
     return (
-      <Field orientation="horizontal">
+      <Field orientation="horizontal" className="min-w-0 gap-2 self-start py-1">
         <Checkbox
           id={id}
           checked={Boolean(value)}
           onCheckedChange={(checked) => onChange(checked)}
         />
-        <div className="flex flex-1 flex-col gap-1">
-          <FieldLabel htmlFor={id}>{field.label}</FieldLabel>
-          <FieldDescription>{field.description}</FieldDescription>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <FieldLabel className="text-xs" htmlFor={id}>
+            {field.label}
+          </FieldLabel>
+          <FieldDescription className="text-xs leading-snug">
+            {field.description}
+          </FieldDescription>
         </div>
       </Field>
     );
   }
 
   return (
-    <Field>
-      <div className="flex items-center gap-2">
-        <FieldLabel htmlFor={id}>{field.label}</FieldLabel>
+    <Field className="min-w-0 gap-1.5 self-start">
+      <div className="flex min-w-0 items-center gap-2">
+        <FieldLabel className="min-w-0 text-xs" htmlFor={id}>
+          {field.label}
+        </FieldLabel>
         {field.restartRequired ? (
           <Badge variant="outline">Restart</Badge>
         ) : null}
       </div>
-      <FieldDescription>{field.description}</FieldDescription>
+      <FieldDescription className="text-xs leading-snug">
+        {field.description}
+      </FieldDescription>
       {field.kind === "select" ? (
         <Select
           value={String(value)}
@@ -295,7 +306,7 @@ function ConfigControl({
           </SelectContent>
         </Select>
       ) : field.kind === "number" ? (
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           {field.min !== undefined && field.max !== undefined ? (
             <Slider
               aria-label={field.label}
@@ -314,7 +325,7 @@ function ConfigControl({
             id={id}
             className={
               field.min !== undefined && field.max !== undefined
-                ? "w-28 shrink-0"
+                ? "w-24 shrink-0"
                 : undefined
             }
             type="number"

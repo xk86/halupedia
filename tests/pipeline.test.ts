@@ -2413,19 +2413,27 @@ test("generation: pipeline admin endpoint records a trace for the run", async (t
 
   // Generate an article which runs the pipeline.
   await readNdjsonDone(await request("/api/page/trace-test"));
-  // Give async post-process tasks a moment to settle.
-  await new Promise((r) => setTimeout(r, 200));
 
-  const runsRes = await request("/api/admin/pipeline/runs?workflow=article.generate&limit=5");
-  assert.equal(runsRes.status, 200);
-  const runsBody = await runsRes.json() as { traceEnabled: boolean; runs: Array<{ workflow: string; status: string; nodes_executed: number }> };
+  // The final run status ('ok') is written asynchronously after the HTTP
+  // response returns, so poll until the run reaches a terminal status rather
+  // than racing a fixed sleep (flaky under full-suite load).
+  type RunsBody = { traceEnabled: boolean; runs: Array<{ workflow: string; status: string; nodes_executed: number }> };
+  let runsBody: RunsBody | undefined;
+  let run: RunsBody["runs"][number] | undefined;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const runsRes = await request("/api/admin/pipeline/runs?workflow=article.generate&limit=5");
+    assert.equal(runsRes.status, 200);
+    runsBody = await runsRes.json() as RunsBody;
+    if (!runsBody.traceEnabled) break;
+    run = runsBody.runs.find((r) => r.workflow === "article.generate");
+    if (run && run.status !== "pending" && run.status !== "running") break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
   // Tracing may be disabled in test config — just assert shape is correct if enabled.
-  if (runsBody.traceEnabled) {
-    const run = runsBody.runs.find((r) => r.workflow === "article.generate");
-    if (run) {
-      assert.equal(run.status, "ok");
-      assert.ok(run.nodes_executed > 0, "should have executed nodes");
-    }
+  if (runsBody?.traceEnabled && run) {
+    assert.equal(run.status, "ok");
+    assert.ok(run.nodes_executed > 0, "should have executed nodes");
   }
 });
 

@@ -37,6 +37,7 @@ import {
   normalizeHaluLinks,
   buildHaluLink,
   renderInlineMarkdown,
+  renderOntologyValueHtml,
   renderMarkdown,
   normalizeMarkdown,
   summaryMarkdownFromArticle,
@@ -713,6 +714,29 @@ test("renderInlineMarkdown stringifies invalid sidecar values instead of throwin
 
 test("renderInlineMarkdown preserves Markdown emphasis around Chinese text", () => {
   assert.equal(renderInlineMarkdown("**女***作品*"), "<strong>女</strong><em>作品</em>");
+});
+
+test("renderOntologyValueHtml humanizes single-token snake_case identifiers", () => {
+  assert.equal(
+    renderOntologyValueHtml("advanced_material_science"),
+    "advanced material science",
+  );
+  assert.equal(
+    renderOntologyValueHtml("CDI_aligns_perfectly_with_AR"),
+    "CDI aligns perfectly with AR",
+  );
+});
+
+test("renderOntologyValueHtml leaves underscores alone when the string already has spaces", () => {
+  assert.equal(
+    renderOntologyValueHtml("the _word_ is emphasized"),
+    "the <em>word</em> is emphasized",
+  );
+});
+
+test("renderOntologyValueHtml strips math delimiters but keeps the inner text", () => {
+  assert.equal(renderOntologyValueHtml("$x^2$"), "x^2");
+  assert.equal(renderOntologyValueHtml("$$E = mc^2$$"), "E = mc^2");
 });
 
 test("ensureLeadingTitleHeading compares bold title restatements with Unicode letters", () => {

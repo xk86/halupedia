@@ -441,6 +441,38 @@ export function renderInlineMarkdown(text: unknown): string {
   return html;
 }
 
+/** Strip TeX delimiters, keeping the inner text (no KaTeX rendering). */
+function stripMathDelimiters(text: string): string {
+  return text
+    .replace(/\$\$([^$]+)\$\$/g, "$1")
+    .replace(/\$([^$\n]+)\$/g, "$1");
+}
+
+/** Render a machine-generated ontology value (fact/suggestion object) as inline HTML.
+ *  These strings come from LLM extraction, not authored article Markdown, so they need
+ *  two extra normalizations renderInlineMarkdown alone doesn't do:
+ *   - Math delimiters are stripped (KaTeX rendering is unwanted in a compact table cell)
+ *     but the inner text is kept rather than dropped.
+ *   - Snake_case identifiers (e.g. "advanced_material_science") are humanized to spaced
+ *     words. Detected by the absence of any whitespace in the string — a real Markdown
+ *     italic span like " _word_ " already has surrounding spaces, so single-token
+ *     underscore strings are the only ones treated as snake_case. */
+export function renderOntologyValueHtml(text: unknown): string {
+  const raw =
+    text == null
+      ? ""
+      : typeof text === "string"
+        ? text
+        : typeof text === "object"
+          ? JSON.stringify(text)
+        : String(text);
+  const withoutMath = stripMathDelimiters(raw);
+  const humanized = /\s/.test(withoutMath)
+    ? withoutMath
+    : withoutMath.replace(/_/g, " ");
+  return renderInlineMarkdown(humanized);
+}
+
 export function summaryMarkdownFromArticle(markdown: string): string {
   const withoutTitle = markdown.replace(/^#\s+.+?$/m, "").trim();
   const withoutDerivedSections = stripTopLevelSections(withoutTitle, [

@@ -103,7 +103,7 @@ import { addTomlTable, removeTomlTableKey, setTomlTableValue } from "./tomlEdit"
 import { createConsoleLogger, type Logger } from "./logger";
 import { MaintenanceScheduler } from "./maintenance";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
-import { articleSectionMarkdown, buildHaluLink, extractDisplayTitle, extractInternalLinks, extractTitle, fixSlugVisibleText, LINK_RE, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, renderInlineMarkdown, replaceArticleSection, sectionSlice, spliceProtectedSections, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
+import { articleSectionMarkdown, buildHaluLink, extractDisplayTitle, extractInternalLinks, extractTitle, fixSlugVisibleText, LINK_RE, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, renderInlineMarkdown, renderOntologyValueHtml, replaceArticleSection, sectionSlice, spliceProtectedSections, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
 import { getPrompt, getSharedPrompt, renderTemplate } from "./prompts";
 import { formatRagContextForPrompt } from "./retrieval";
 import { isSlugForm, isSlugStyleWikiSegment, legacySlugify, normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToRequestedTitle, wikiSegmentToTitle } from "./slug";
@@ -4695,7 +4695,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         predicate: f.predicate,
         label: rag.vocab.predicates.get(f.predicate)?.label ?? f.predicate.replace(/_/g, " "),
         object: f.object,
-        objectHtml: renderInlineMarkdown(f.object),
+        objectHtml: renderOntologyValueHtml(f.object),
         objectSlug: f.objectSlug,
         source: f.source,
         confidence: f.confidence,
@@ -4705,7 +4705,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       suggestions: listOntologySuggestions(db, slug).map((suggestion) => ({
         ...suggestion,
         label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
-        objectHtml: renderInlineMarkdown(suggestion.object),
+        objectHtml: renderOntologyValueHtml(suggestion.object),
       })),
     };
   }

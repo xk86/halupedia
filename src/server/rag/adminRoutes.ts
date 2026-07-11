@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import type { DatabaseSync } from "node:sqlite";
 import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
-import { renderInlineMarkdown } from "../markdown";
+import { renderOntologyValueHtml } from "../markdown";
 import type { PromptConfig } from "../types";
 import { slugify } from "../slug";
 import { parseMarkdownLinks } from "../text/markdownLinkParser";
@@ -116,7 +116,7 @@ export function registerRagAdminRoutes(
         suggestions: article.suggestions.map((suggestion) => ({
           ...suggestion,
           label: vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
-          objectHtml: renderInlineMarkdown(suggestion.object),
+          objectHtml: renderOntologyValueHtml(suggestion.object),
         })),
       }));
       return JSON.stringify({

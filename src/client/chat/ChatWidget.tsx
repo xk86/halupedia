@@ -28,48 +28,50 @@ export function ChatWidget({
   const [open, setOpen] = useState(false);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={
-          <Button
-            type="button"
-            size="icon"
-            aria-label="Ask the research chat"
-            title="Ask the research chat"
-            className="fixed right-4 bottom-4 size-12 rounded-full shadow-lg"
+    <div className="fixed right-4 bottom-4 z-40">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={
+            <Button
+              type="button"
+              size="icon"
+              aria-label="Ask the research chat"
+              title="Ask the research chat"
+              className="size-12 rounded-full shadow-lg"
+            />
+          }
+        >
+          <MessageCircleIcon />
+        </PopoverTrigger>
+        <PopoverContent
+          side="top"
+          align="end"
+          sideOffset={12}
+          className="h-[min(36rem,calc(100dvh-6rem))] w-[min(24rem,calc(100vw-2rem))] gap-0 overflow-hidden p-0 shadow-lg"
+        >
+          <PopoverHeader className="grid grid-cols-[1fr_auto] items-start gap-x-3 border-b border-border p-4">
+            <PopoverTitle className="text-base">Research chat</PopoverTitle>
+            <PopoverDescription className="text-xs">
+              Answers grounded in your wiki
+            </PopoverDescription>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Close research chat"
+              className="col-start-2 row-span-2 row-start-1"
+              onClick={() => setOpen(false)}
+            >
+              <XIcon />
+            </Button>
+          </PopoverHeader>
+          <ChatPanel
+            slug={slug}
+            articleTitle={articleTitle}
+            onNavigateToArticle={onNavigateToArticle}
           />
-        }
-      >
-        <MessageCircleIcon />
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="end"
-        sideOffset={12}
-        className="h-[min(36rem,calc(100dvh-6rem))] w-[min(24rem,calc(100vw-2rem))] gap-0 overflow-hidden p-0 shadow-lg"
-      >
-        <PopoverHeader className="grid grid-cols-[1fr_auto] items-start gap-x-3 border-b border-border p-4">
-          <PopoverTitle className="text-base">Research chat</PopoverTitle>
-          <PopoverDescription className="text-xs">
-            Answers grounded in your wiki
-          </PopoverDescription>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Close research chat"
-            className="col-start-2 row-span-2 row-start-1"
-            onClick={() => setOpen(false)}
-          >
-            <XIcon />
-          </Button>
-        </PopoverHeader>
-        <ChatPanel
-          slug={slug}
-          articleTitle={articleTitle}
-          onNavigateToArticle={onNavigateToArticle}
-        />
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }

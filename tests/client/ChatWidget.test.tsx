@@ -34,16 +34,49 @@ describe("ChatWidget", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("opens as a dismissible floating chat card", async () => {
+    const user = userEvent.setup();
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Ask the research chat" }),
+    );
+
+    expect(screen.getByText("Research chat")).toBeInTheDocument();
+    expect(
+      screen.getByText("Answers grounded in your wiki"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("Ask about the wiki…"),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Close research chat" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByPlaceholderText("Ask about the wiki…"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("opens the panel, sends a question, and renders the streamed answer with references", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       ndjsonResponse([
         { type: "research", query: "what is solana" },
-        { type: "research_step", tool: "search_articles", args: { query: "solana" } },
+        {
+          type: "research_step",
+          tool: "search_articles",
+          args: { query: "solana" },
+        },
         { type: "token", delta: "Solana " },
         { type: "token", delta: "is a blockchain." },
         {
           type: "done",
-          references: [{ slug: "solana", title: "Solana", relevance: "primary subject" }],
+          references: [
+            { slug: "solana", title: "Solana", relevance: "primary subject" },
+          ],
         },
       ]),
     );
@@ -52,7 +85,9 @@ describe("ChatWidget", () => {
     const user = userEvent.setup();
     render(<ChatWidget onNavigateToArticle={() => {}} />);
 
-    await user.click(screen.getByRole("button", { name: "Ask the research chat" }));
+    await user.click(
+      screen.getByRole("button", { name: "Ask the research chat" }),
+    );
     const input = await screen.findByPlaceholderText("Ask about the wiki…");
     await user.type(input, "What is Solana?");
     await user.click(screen.getByRole("button", { name: "Send" }));
@@ -62,7 +97,9 @@ describe("ChatWidget", () => {
       expect.objectContaining({ method: "POST" }),
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(body.messages).toEqual([{ role: "user", content: "What is Solana?" }]);
+    expect(body.messages).toEqual([
+      { role: "user", content: "What is Solana?" },
+    ]);
 
     await waitFor(() => {
       expect(screen.getByText(/Solana is a blockchain\./)).toBeInTheDocument();
@@ -82,7 +119,9 @@ describe("ChatWidget", () => {
 
     const user = userEvent.setup();
     render(<ChatWidget onNavigateToArticle={onNavigateToArticle} />);
-    await user.click(screen.getByRole("button", { name: "Ask the research chat" }));
+    await user.click(
+      screen.getByRole("button", { name: "Ask the research chat" }),
+    );
     const input = await screen.findByPlaceholderText("Ask about the wiki…");
     await user.type(input, "Tell me about Solana");
     await user.click(screen.getByRole("button", { name: "Send" }));
@@ -98,7 +137,11 @@ describe("ChatWidget", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       ndjsonResponse([
         { type: "research", query: "what is solana" },
-        { type: "research_step", tool: "search_articles", args: { query: "solana" } },
+        {
+          type: "research_step",
+          tool: "search_articles",
+          args: { query: "solana" },
+        },
         { type: "token", delta: "Solana is a blockchain." },
         { type: "done", references: [] },
       ]),
@@ -107,7 +150,9 @@ describe("ChatWidget", () => {
 
     const user = userEvent.setup();
     render(<ChatWidget onNavigateToArticle={() => {}} />);
-    await user.click(screen.getByRole("button", { name: "Ask the research chat" }));
+    await user.click(
+      screen.getByRole("button", { name: "Ask the research chat" }),
+    );
     const input = await screen.findByPlaceholderText("Ask about the wiki…");
     await user.type(input, "What is Solana?");
     await user.click(screen.getByRole("button", { name: "Send" }));
@@ -117,7 +162,9 @@ describe("ChatWidget", () => {
     });
 
     const trigger = screen.getByText("Reasoning & sources (2 steps)");
-    expect(screen.queryByText("Researching: what is solana")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Researching: what is solana"),
+    ).not.toBeInTheDocument();
 
     await user.click(trigger);
     expect(screen.getByText("Researching: what is solana")).toBeInTheDocument();
@@ -143,13 +190,17 @@ describe("ChatWidget", () => {
 
     const user = userEvent.setup();
     render(<ChatWidget onNavigateToArticle={() => {}} />);
-    await user.click(screen.getByRole("button", { name: "Ask the research chat" }));
+    await user.click(
+      screen.getByRole("button", { name: "Ask the research chat" }),
+    );
     const input = await screen.findByPlaceholderText("Ask about the wiki…");
     await user.type(input, "What is Bingus?");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => {
-      expect(screen.getAllByText("Bingus", { selector: "a" }).length).toBeGreaterThan(0);
+      expect(
+        screen.getAllByText("Bingus", { selector: "a" }).length,
+      ).toBeGreaterThan(0);
     });
     // The answer-body link (as opposed to the Sources chip, which also reads
     // "Bingus") comes straight from the server-provided html.
@@ -159,14 +210,18 @@ describe("ChatWidget", () => {
   });
 
   it("always leaves a visible message even if the stream ends without a done/error event", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      ndjsonResponse([{ type: "research", query: "what is solana" }]),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        ndjsonResponse([{ type: "research", query: "what is solana" }]),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const user = userEvent.setup();
     render(<ChatWidget onNavigateToArticle={() => {}} />);
-    await user.click(screen.getByRole("button", { name: "Ask the research chat" }));
+    await user.click(
+      screen.getByRole("button", { name: "Ask the research chat" }),
+    );
     const input = await screen.findByPlaceholderText("Ask about the wiki…");
     await user.type(input, "What is Solana?");
     await user.click(screen.getByRole("button", { name: "Send" }));

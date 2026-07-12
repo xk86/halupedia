@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatWidget } from "../../src/client/chat/ChatWidget";
 
@@ -21,6 +27,7 @@ function ndjsonResponse(events: unknown[]) {
 describe("ChatWidget", () => {
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     vi.unstubAllGlobals();
   });
 
@@ -59,6 +66,76 @@ describe("ChatWidget", () => {
         screen.queryByPlaceholderText("Ask about the wiki…"),
       ).not.toBeInTheDocument();
     });
+  });
+
+  it("restores the saved floating-button position", () => {
+    localStorage.setItem(
+      "halupedia:research-chat-button-position:v1",
+      JSON.stringify({ x: 100, y: 100 }),
+    );
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+
+    const button = screen.getByRole("button", {
+      name: "Ask the research chat",
+    });
+    expect(button.parentElement).toHaveStyle({ left: "100px", top: "100px" });
+  });
+
+  it("restores the saved chat-window position", async () => {
+    localStorage.setItem(
+      "halupedia:research-chat-panel-position:v1",
+      JSON.stringify({ x: 80, y: 120 }),
+    );
+    const user = userEvent.setup();
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Ask the research chat" }),
+    );
+
+    expect(screen.getByRole("dialog").parentElement).toHaveStyle({
+      left: "80px",
+      top: "120px",
+    });
+  });
+
+  it("persists a mouse-dragged button position without opening chat", () => {
+    localStorage.setItem(
+      "halupedia:research-chat-button-position:v1",
+      JSON.stringify({ x: 100, y: 100 }),
+    );
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        width: 48,
+        height: 48,
+        top: 0,
+        right: 48,
+        bottom: 48,
+        left: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+
+    const button = screen.getByRole("button", {
+      name: "Ask the research chat",
+    });
+    fireEvent.mouseDown(button, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.mouseMove(window, { clientX: 70, clientY: 40 });
+    fireEvent.mouseUp(window);
+    fireEvent.click(button);
+
+    expect(button.parentElement).toHaveStyle({ left: "160px", top: "130px" });
+    expect(
+      JSON.parse(
+        localStorage.getItem("halupedia:research-chat-button-position:v1") ??
+          "{}",
+      ),
+    ).toEqual({ x: 160, y: 130 });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    rect.mockRestore();
   });
 
   it("opens the panel, sends a question, and renders the streamed answer with references", async () => {

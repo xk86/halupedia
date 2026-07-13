@@ -11,107 +11,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/client/App";
 import { hexToOklch } from "../../src/client/theme";
-
-function setPath(path: string) {
-  window.history.replaceState({}, "", path);
-}
-
-// The article/instruction editors are ProseKit (WYSIWYG) — its contenteditable
-// surface can't be driven in jsdom, but its "Raw markdown" footer toggle reveals
-// a plain textarea that round-trips the same value. Use that to set editor text
-// deterministically. Pass an index when more than one editor is on screen.
-async function setRichEditorMarkdown(markdown: string, editorIndex = 0) {
-  const toggles = screen.getAllByRole("button", { name: "Raw markdown" });
-  await userEvent.click(toggles[editorIndex]);
-  const textareas = document.querySelectorAll<HTMLTextAreaElement>(
-    ".mdedit-raw-textarea",
-  );
-  const textarea =
-    textareas[textareas.length === toggles.length ? editorIndex : 0];
-  fireEvent.change(textarea, { target: { value: markdown } });
-}
-
-// Minimal well-shaped stand-ins for the homepage/top-articles endpoints —
-// Homepage reads `data.didYouKnow.length` / `data.articles`, so a shared
-// article-page payload (wrong shape) crashes it with "Cannot read properties
-// of undefined (reading 'length')".
-function emptyHomepagePayload() {
-  return {
-    featured: null,
-    didYouKnow: [],
-    generatedAt: Date.now(),
-    expiresAt: Date.now() + 3600_000,
-  };
-}
-function emptyTopArticlesPayload() {
-  return { articles: [] };
-}
-
-// The Sidebar subscribes to /api/article/:slug/live as soon as an article
-// route is active — concurrently with the page-data fetch. Test fixtures
-// built around a single shared mocked Response (mockResolvedValue / a fixed
-// Response instance returned for every URL) break once that body is read
-// twice ("Body is unusable: Body has already been read"). Wrapping the test's
-// fetch implementation so /live requests short-circuit with a non-ok response
-// (Sidebar bails out on `!res.ok` without touching the body) keeps the shared
-// fixture pattern working without each test having to special-case /live.
-function withLiveBypass(
-  impl: (
-    input: RequestInfo | URL,
-    init?: RequestInit,
-  ) => Promise<Response> | Response,
-) {
-  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (/\/live(\?|$)/.test(String(input))) {
-      return new Response(null, { status: 404 });
-    }
-    return impl(input, init);
-  });
-}
-
-function pagePayload(overrides: Partial<any> = {}) {
-  return {
-    cached: true,
-    article: {
-      slug: "test-article",
-      canonicalSlug: "test-article",
-      title: "Test Article",
-      html: '<h1>Test Article</h1><p>Body copy with <a href="/wiki/Linked_Article">Linked Article</a>.</p>',
-      markdown:
-        '# Test Article\n\nBody copy with [Linked Article](halu:linked-article "Hidden hint").',
-      plain_text: "Body copy with Linked Article.",
-      generated_at: 1715000000000,
-    },
-    backlinks: {
-      existing: [
-        {
-          slug: "linking-article",
-          title: "Linking Article",
-          visibleLabel: "Test Article",
-          hiddenHint: "Seed backlink",
-          createdAt: 1715000000001,
-        },
-      ],
-      unwritten: [],
-    },
-    ...overrides,
-  };
-}
-
-function ndjsonResponse(events: unknown[]) {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const event of events) {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-      }
-      controller.close();
-    },
-  });
-  return new Response(stream, {
-    headers: { "content-type": "application/x-ndjson; charset=utf-8" },
-  });
-}
+import {
+  emptyHomepagePayload,
+  emptyTopArticlesPayload,
+  ndjsonResponse,
+  pagePayload,
+  setPath,
+  setRichEditorMarkdown,
+  withLiveBypass,
+} from "./appTestHelpers";
 
 describe("App", () => {
   beforeEach(() => {
@@ -249,6 +157,15 @@ describe("App", () => {
       ).toBe("dark");
     });
     expect(document.documentElement.dataset.theme).toBe("dark");
+
+    // Close the color-picker popover — leaving it open at teardown leaks
+    // Base UI's scroll-lock state into later tests.
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("application", { name: "Color area" }),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("toggles full-screen theme settings without leaving the current page", async () => {
@@ -292,45 +209,6 @@ describe("App", () => {
     expect(
       screen.getByRole("heading", { name: "Halupedia" }),
     ).toBeInTheDocument();
-  });
-
-  it("persists font and roundness changes immediately from the settings overlay", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(emptyHomepagePayload()), {
-          headers: { "content-type": "application/json" },
-        }),
-      ),
-    );
-    setPath("/");
-    render(<App />);
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Theme/user settings" }),
-    );
-
-    await userEvent.click(
-      screen.getByRole("combobox", { name: "Article font" }),
-    );
-    await userEvent.click(screen.getByRole("option", { name: "Georgia" }));
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("option", { name: "Georgia" }),
-      ).not.toBeInTheDocument(),
-    );
-
-    const radius = document.querySelector<HTMLInputElement>(
-      "#theme-radius input[type='range']",
-    );
-    expect(radius).not.toBeNull();
-    fireEvent.change(radius!, { target: { value: "12" } });
-
-    expect(
-      JSON.parse(
-        window.localStorage.getItem("halupedia-user-settings") ?? "{}",
-      ),
-    ).toMatchObject({ articleFont: "georgia", radius: 12 });
   });
 
   it("random nav asks the server for a random page and redirects to it", async () => {
@@ -1612,58 +1490,6 @@ describe("App", () => {
     });
   });
 
-  it("confirms before leaving a page with unsaved in-place edits", async () => {
-    const fetchMock = withLiveBypass((input) => {
-      const url = String(input);
-      const body = url.includes("/api/homepage")
-        ? emptyHomepagePayload()
-        : url.includes("/api/top-articles")
-          ? emptyTopArticlesPayload()
-          : url.includes("/api/page/")
-            ? pagePayload()
-            : url.includes("/references")
-              ? { references: [] }
-              : { image: null };
-      return new Response(JSON.stringify(body), {
-        headers: { "content-type": "application/json" },
-      });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    setPath("/wiki/Test_Article");
-
-    render(<App />);
-    await screen.findByRole("heading", { name: "Test Article" });
-    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
-    await userEvent.click(screen.getByRole("button", { name: "Raw" }));
-    await setRichEditorMarkdown("# Test Article\n\nUnsaved local change.");
-
-    // Leaving via the home link raises the discard confirm; the page stays.
-    await userEvent.click(screen.getByRole("link", { name: "Halupedia" }));
-    expect(
-      await screen.findByText("Discard unsaved edits?"),
-    ).toBeInTheDocument();
-    // Navigation is held: still in the in-place editor.
-    expect(document.querySelector(".article--editing")).toBeTruthy();
-
-    // "Stay on page" dismisses the dialog and keeps the editor open.
-    await userEvent.click(screen.getByRole("button", { name: "Stay on page" }));
-    await waitFor(() =>
-      expect(
-        screen.queryByText("Discard unsaved edits?"),
-      ).not.toBeInTheDocument(),
-    );
-    expect(document.querySelector(".article--editing")).toBeTruthy();
-
-    // "Discard changes" closes the editor and follows the navigation.
-    await userEvent.click(screen.getByRole("link", { name: "Halupedia" }));
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Discard changes" }),
-    );
-    await waitFor(() =>
-      expect(document.querySelector(".article--editing")).toBeNull(),
-    );
-  });
-
   it("closes the editor without confirming when leaving with no unsaved edits", async () => {
     const fetchMock = withLiveBypass((input) => {
       const url = String(input);
@@ -1877,59 +1703,6 @@ describe("App", () => {
 
     expect(await screen.findByText("Article refreshed.")).toBeInTheDocument();
     expect(await screen.findByText("Changed body.")).toBeInTheDocument();
-  });
-
-  it("locks existing references during section edits", async () => {
-    const payload = pagePayload({
-      sections: [{ id: "notes", title: "Notes" }],
-    });
-    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
-      const u = String(url);
-      if (u.includes("/api/page/"))
-        return new Response(JSON.stringify(payload), {
-          headers: { "content-type": "application/json" },
-        });
-      if (u.includes("/references"))
-        return new Response(
-          JSON.stringify({
-            references: [
-              {
-                slug: "source-entry",
-                title: "Source Entry",
-                summaryMarkdown: "Source summary.",
-              },
-            ],
-          }),
-          { headers: { "content-type": "application/json" } },
-        );
-      return new Response(JSON.stringify({ image: null }), {
-        headers: { "content-type": "application/json" },
-      });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    setPath("/wiki/Test_Article");
-
-    render(<App />);
-
-    await screen.findByRole("heading", { name: "Test Article" });
-    await userEvent.click(screen.getByRole("button", { name: "Edit article" }));
-
-    const refsCheckbox = await screen.findByRole("checkbox", {
-      name: "Reference other articles",
-    });
-    await waitFor(() => expect(refsCheckbox).toBeChecked());
-    // Base UI Checkbox renders a <span role=checkbox>, so disabled state is
-    // aria-disabled (not the native disabled attribute / toBeDisabled).
-    expect(refsCheckbox).not.toHaveAttribute("aria-disabled", "true");
-
-    // Section picker is now a Base UI Select: open it and click the "Notes" option.
-    await userEvent.click(screen.getByRole("combobox", { name: "Section" }));
-    await userEvent.click(await screen.findByRole("option", { name: "Notes" }));
-
-    expect(refsCheckbox).toHaveAttribute("aria-disabled", "true");
-    expect(
-      screen.getByRole("button", { name: "Remove Source Entry" }),
-    ).toBeDisabled();
   });
 
   it("sends a one-off quick edit and keeps the vibe after streaming", async () => {
@@ -2169,133 +1942,6 @@ describe("App", () => {
       );
     });
     expect(await screen.findByText("Version restored.")).toBeInTheDocument();
-  });
-
-  it("admin prompt editor: loads, edits, and saves a prompt", async () => {
-    const overview = {
-      articleCount: 0,
-      linkCount: 0,
-      aliasCount: 0,
-      latestArticles: [],
-      model: "test-model",
-      databasePath: "test.sqlite",
-      promptConfigPath: "config/prompts",
-      promptModelAssociations: [],
-    };
-    const promptContent = {
-      key: "article",
-      scope: "runnable",
-      system: "original system text",
-      user: "original user text",
-      model: "heavy",
-      thinking: false,
-      json: false,
-      hasModes: false,
-      path: "config/prompts/article.toml",
-    };
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        const method = (init?.method ?? "GET").toUpperCase();
-        if (url === "/api/admin/overview")
-          return new Response(JSON.stringify(overview), {
-            headers: { "content-type": "application/json" },
-          });
-        if (url === "/api/admin/generation-queue")
-          return new Response(JSON.stringify({ items: [] }), {
-            headers: { "content-type": "application/json" },
-          });
-        if (url === "/api/admin/pipeline/workflows")
-          return new Response(JSON.stringify({ workflows: [] }), {
-            headers: { "content-type": "application/json" },
-          });
-        if (url === "/api/admin/pipeline/runs?limit=12")
-          return new Response(
-            JSON.stringify({ traceEnabled: false, runs: [] }),
-            { headers: { "content-type": "application/json" } },
-          );
-        if (url === "/api/admin/prompts")
-          return new Response(
-            JSON.stringify({
-              runnable: [
-                {
-                  key: "article",
-                  scope: "runnable",
-                  model: "heavy",
-                  thinking: false,
-                  json: false,
-                  hasModes: false,
-                },
-              ],
-              shared: [],
-            }),
-            { headers: { "content-type": "application/json" } },
-          );
-        if (url === "/api/admin/prompt/runnable/article" && method === "GET")
-          return new Response(JSON.stringify(promptContent), {
-            headers: { "content-type": "application/json" },
-          });
-        if (url === "/api/admin/prompt/runnable/article" && method === "PUT") {
-          const body = JSON.parse(String(init?.body));
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              prompt: {
-                ...promptContent,
-                system: body.system,
-                user: body.user,
-              },
-            }),
-            { headers: { "content-type": "application/json" } },
-          );
-        }
-        return new Response("not found", { status: 404 });
-      },
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    setPath("/admin");
-
-    render(<App />);
-
-    await screen.findByRole("heading", { name: "Admin" });
-    await userEvent.click(screen.getByRole("tab", { name: "Prompts" }));
-
-    // Select the article prompt (Base UI Select: open trigger, click option)
-    const promptPicker = await screen.findByRole("combobox");
-    await waitFor(() => expect(promptPicker).toBeEnabled());
-    await userEvent.click(promptPicker);
-    await userEvent.click(
-      await screen.findByRole("option", { name: "article" }),
-    );
-
-    // Prompt text loads as rendered markdown blocks — click to destructure
-    // into the raw source textarea.
-    await userEvent.click(await screen.findByText("original system text"));
-    const systemTA = await screen.findByDisplayValue("original system text");
-
-    // Edit the system block
-    await userEvent.clear(systemTA);
-    await userEvent.type(systemTA, "updated system text");
-
-    // Save button becomes enabled and can be clicked
-    const saveBtn = screen.getByRole("button", { name: "Save" });
-    expect(saveBtn).not.toBeDisabled();
-    await userEvent.click(saveBtn);
-
-    // Confirm the PUT was called with edited content
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/admin/prompt/runnable/article",
-        expect.objectContaining({
-          method: "PUT",
-          body: expect.stringContaining("updated system text"),
-        }),
-      );
-    });
-
-    expect(
-      await screen.findByText("Saved — runtime reloaded."),
-    ).toBeInTheDocument();
   });
 
   it("toggles night mode from the header", async () => {

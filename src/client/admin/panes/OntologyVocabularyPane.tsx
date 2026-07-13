@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { SparklesIcon } from "lucide-react";
+import { useCallback, useState } from "react";
+import { RefreshCwIcon, SparklesIcon } from "lucide-react";
 import { Pane } from "../Pane";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,15 +83,17 @@ export function OntologyVocabularyPane() {
   const [selectedRemovals, setSelectedRemovals] = useState<Set<string>>(new Set());
   const [reviewing, setReviewing] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadStats = useCallback(() => {
+    setStatsLoading(true);
+    setError(null);
     fetchJson<VocabularyStats>("/api/admin/ontology/stats")
       .then(setStats)
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "failed to load stats"));
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "failed to load stats"))
+      .finally(() => setStatsLoading(false));
   }, []);
-
-  useEffect(loadStats, [loadStats]);
 
   const runReview = useCallback(async () => {
     setReviewing(true);
@@ -164,6 +166,10 @@ export function OntologyVocabularyPane() {
       wide
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" onClick={loadStats} disabled={statsLoading}>
+          <RefreshCwIcon data-icon="inline-start" />
+          {statsLoading ? "Loading…" : stats ? "Refresh stats" : "Load stats"}
+        </Button>
         <Button size="sm" onClick={runReview} disabled={reviewing}>
           <SparklesIcon data-icon="inline-start" />
           {reviewing ? "Reviewing…" : "Run LLM vocabulary review"}
@@ -241,6 +247,12 @@ export function OntologyVocabularyPane() {
             )}
           </section>
         </div>
+      ) : null}
+
+      {!stats && !statsLoading ? (
+        <p className="m-0 text-sm text-muted-foreground">
+          Load stats to see current predicate usage and unmapped labels.
+        </p>
       ) : null}
 
       {stats ? (

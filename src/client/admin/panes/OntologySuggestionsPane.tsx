@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ChevronDownIcon,
   ExternalLinkIcon,
@@ -11,6 +11,16 @@ import {
 import { Pane } from "../Pane";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Card,
   CardAction,
@@ -163,8 +173,10 @@ export function OntologySuggestionsPane({
   onNavigate,
 }: OntologySuggestionsPaneProps) {
   const [data, setData] = useState<PendingOntologyPayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [autoMerging, setAutoMerging] = useState(false);
+  const [confirmAutoMerge, setConfirmAutoMerge] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -185,10 +197,6 @@ export function OntologySuggestionsPane({
       setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const applySuggestions = useCallback(
     async (slug: string, mode: "append" | "merge", ids?: number[]) => {
@@ -240,7 +248,36 @@ export function OntologySuggestionsPane({
     [busyKey, load],
   );
 
+  const autoMergeAll = useCallback(async () => {
+    if (!data || autoMerging || busyKey) return;
+    setAutoMerging(true);
+    setError(null);
+    try {
+      // Sweep every article sequentially, merging all of its suggestions.
+      for (const article of data.articles) {
+        await fetchJson(
+          `/api/article/${encodeSlug(article.slug)}/ontology/suggestions/merge`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          },
+        );
+      }
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "failed to auto-merge ontology suggestions",
+      );
+    } finally {
+      setAutoMerging(false);
+    }
+  }, [data, autoMerging, busyKey, load]);
+
   const count = data ? `${data.suggestionCount} pending` : undefined;
+  const busy = busyKey !== null || autoMerging;
 
   return (
     <Pane
@@ -249,18 +286,31 @@ export function OntologySuggestionsPane({
       description="Generated ontology candidates waiting for per-article review."
       count={count}
       actions={
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Refresh ontology suggestions"
-          disabled={loading}
-          onClick={() => {
-            setLoading(true);
-            void load();
-          }}
-        >
-          <RefreshCwIcon />
-        </Button>
+        <>
+          {data && data.articles.length > 0 ? (
+            <Button
+              variant="secondary"
+              size="xs"
+              disabled={busy}
+              onClick={() => setConfirmAutoMerge(true)}
+            >
+              <GitMergeIcon data-icon="inline-start" />
+              Auto merge all
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Refresh ontology suggestions"
+            disabled={loading || busy}
+            onClick={() => {
+              setLoading(true);
+              void load();
+            }}
+          >
+            <RefreshCwIcon />
+          </Button>
+        </>
       }
       wide
     >
@@ -269,6 +319,18 @@ export function OntologySuggestionsPane({
         <p className="m-0 text-sm text-muted-foreground">
           Loading pending ontology suggestions...
         </p>
+      ) : null}
+      {!loading && !data ? (
+        <Button
+          size="sm"
+          onClick={() => {
+            setLoading(true);
+            void load();
+          }}
+        >
+          <RefreshCwIcon data-icon="inline-start" />
+          Load pending suggestions
+        </Button>
       ) : null}
       {!loading && data && data.articles.length === 0 ? (
         <p className="m-0 text-sm text-muted-foreground">
@@ -281,7 +343,7 @@ export function OntologySuggestionsPane({
             <ArticleSuggestionGroup
               key={article.slug}
               article={article}
-              busy={busyKey !== null}
+              busy={busy}
               onAppend={(slug, ids) => applySuggestions(slug, "append", ids)}
               onMerge={(slug, ids) => applySuggestions(slug, "merge", ids)}
               onDismiss={dismissSuggestions}
@@ -290,6 +352,37 @@ export function OntologySuggestionsPane({
           ))}
         </div>
       ) : null}
+      <AlertDialog
+        open={confirmAutoMerge}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAutoMerge(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Auto merge all suggestions?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will merge every pending suggestion
+              {data
+                ? ` (${data.suggestionCount} across ${data.articleCount} articles)`
+                : ""}{" "}
+              into the ontology. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={autoMerging}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={autoMerging}
+              onClick={() => {
+                setConfirmAutoMerge(false);
+                void autoMergeAll();
+              }}
+            >
+              Merge all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Pane>
   );
 }

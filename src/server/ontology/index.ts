@@ -27,6 +27,8 @@ export { getPredicateUsageStats, getUnmappedLabelStats, getVocabularyReviewStats
 export { appendPredicates, removePredicates } from "./vocabularyToml";
 export { applyOntologySuggestions, deleteOntologySuggestions, listOntologySuggestions, listPendingOntologySuggestionsByArticle, replaceOntologyTypeSuggestion, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, type ArticleOntologySuggestionGroup, type OntologySuggestion, type OntologyTypeSuggestion } from "./suggestions";
 export { buildOntologyGraphPayload, type EntityTypeSummary, type OntologyGraphCoverage, type OntologyGraphNode, type OntologyGraphPayload, type OntologyGraphRelation, type PredicateSummary } from "./graph";
+export { countActiveReviews, enqueueReviewTasks, claimNextReview, completeReview, failReview, listReviewQueue, type ReviewQueueItem, type ReviewQueueStatus, type ReviewResult } from "./reviewQueue";
+export { reviewArticleSuggestions, type OntologyReviewOptions, type OntologyReviewResult, type OntologyReviewItemResult, type OntologyReviewTypeResult, type OntologyReviewCallInfo, type ReviewVerdict } from "./reviewer";
 
 export interface IndexArticleOntologyArgs {
   slug: string;

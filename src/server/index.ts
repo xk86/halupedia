@@ -91,7 +91,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { createRagRuntime, registerRagAdminRoutes, buildEvidenceContext, toPromptSourceArticles, DEFAULT_PROFILES, type RagRuntime } from "./rag";
-import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -137,6 +137,7 @@ import { homepageRefreshWorkflow } from "./pipeline/workflows/homepageRefresh";
 import { regenerateSummaryWorkflow } from "./pipeline/workflows/utilities";
 import { randomPageWorkflow } from "./pipeline/workflows/randomPage";
 import { ontologyInferWorkflow, ontologySuggestionsAppendWorkflow, ontologySuggestionsMergeWorkflow } from "./pipeline/workflows/ontologyInfer";
+import { startScheduler, listSchedules, setScheduleEnabled, type SchedulerController } from "./pipeline/scheduler";
 import { registerAgentRoutes } from "./agent/routes";
 import { articleImageGenerationWorkflow } from "./pipeline/workflows/articleImageGeneration";
 import type { LiveLlmUpdate, PipelineDeps } from "./pipeline/deps";
@@ -868,6 +869,70 @@ export async function createApp(options: CreateAppOptions = {}) {
   }, 2000);
   ragDrainTimer.unref?.();
 
+  // Scheduled ontology-suggestion auto-review: separate from the live
+  // generation queue, driven by its own timer rather than user actions. See
+  // `pipeline/scheduler.ts` for the enqueue/run schedule definitions.
+  const schedulerController: SchedulerController = startScheduler({
+    db,
+    logger,
+    getConfig: () => runtime.app.ontology_review,
+    getLlm: () => llm,
+    getPrompts: () => runtime.prompts,
+    getVocab: () => rag.vocab,
+    onReview: (slug, result, info) => {
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const runId = randomUUID();
+      const startedAt = Date.now() - info.durationMs;
+      recorder.recordRun({
+        workflow: "ontology.auto_review",
+        runId,
+        requestId: randomUUID(),
+        slug,
+        startedAt,
+        durationMs: info.durationMs,
+        status: info.error ? "error" : "ok",
+        nodesExecuted: 1,
+        error: info.error ? { message: info.error.message, stack: info.error.stack } : undefined,
+        origin: "scheduler",
+      });
+      recorder.recordNode({
+        workflow: "ontology.auto_review",
+        runId,
+        nodeName: "llm.ontology_review",
+        nodeKind: "llm",
+        startedAt,
+        durationMs: info.durationMs,
+        status: info.error ? "error" : "ok",
+        reads: [],
+        writes: [],
+        error: info.error ? { message: info.error.message, stack: info.error.stack } : undefined,
+        promptChars: info.promptChars,
+        promptText: info.promptText,
+        responseText: info.responseText,
+        llmRole: info.metadata?.requestedRole,
+        llmResolvedRole: info.metadata?.resolvedRole,
+        llmConfigKey: info.metadata?.configKey,
+        llmModel: info.metadata?.model,
+        llmBaseUrl: info.metadata?.baseUrl,
+        llmHost: info.metadata?.host,
+        llmTemperature: info.metadata?.temperature,
+        llmMaxTokens: info.metadata?.maxTokens,
+        llmTopK: info.metadata?.topK,
+        llmTopP: info.metadata?.topP,
+        llmMinP: info.metadata?.minP,
+        llmThinking: info.thinking,
+        llmJsonMode: info.jsonMode,
+      });
+      logger.info("ontology.review_complete", {
+        slug,
+        verdict: result.verdict,
+        passed: result.passed,
+        failed: result.failed,
+      });
+      notifySidecar(slug, { type: "ontology", ontology: buildArticleOntologyPayload(slug) });
+    },
+  });
+
   const app = new Hono();
 
   // Log every request that reaches the server — method, path, status, and
@@ -1279,6 +1344,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     }
     logger.info("shutdown.closing_database");
     clearInterval(ragDrainTimer);
+    schedulerController.stop();
     await rag.close().catch(() => {});
     db.close();
     mediaDb.close();
@@ -3503,6 +3569,36 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.get("/api/admin/generation-queue", (c) => {
     return c.json(generationQueuePayload());
+  });
+
+  // GET /api/admin/workflow-schedules — schedule state + the long-term
+  // ontology-review queue, for the Monitoring admin view.
+  app.get("/api/admin/workflow-schedules", (c) => {
+    return c.json({
+      schedules: listSchedules(db, runtime.app.ontology_review),
+      queue: listReviewQueue(db, 50),
+    });
+  });
+
+  app.post("/api/admin/workflow-schedules/:id/enabled", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown };
+    if (typeof body.enabled !== "boolean") return c.json({ error: "enabled must be a boolean" }, 400);
+    if (!setScheduleEnabled(db, id, body.enabled)) return c.json({ error: "unknown schedule" }, 404);
+    return c.json({ schedules: listSchedules(db, runtime.app.ontology_review) });
+  });
+
+  app.post("/api/admin/workflow-schedules/:id/run-now", async (c) => {
+    const id = c.req.param("id");
+    try {
+      await schedulerController.runNow(id);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "run failed" }, 400);
+    }
+    return c.json({
+      schedules: listSchedules(db, runtime.app.ontology_review),
+      queue: listReviewQueue(db, 50),
+    });
   });
 
   app.post("/api/admin/reload", async (c) => {

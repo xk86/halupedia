@@ -138,6 +138,13 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
         retention_days: app.pipeline?.trace?.retention_days ?? 14,
       },
     },
+    ontology_review: {
+      enabled: app.ontology_review?.enabled ?? true,
+      enqueue_interval_minutes: Math.max(1, app.ontology_review?.enqueue_interval_minutes ?? 15),
+      enqueue_batch: Math.max(1, Math.floor(app.ontology_review?.enqueue_batch ?? 10)),
+      run_interval_minutes: Math.max(1, app.ontology_review?.run_interval_minutes ?? 5),
+      key_max_words: Math.max(1, Math.floor(app.ontology_review?.key_max_words ?? 10)),
+    },
     agent: {
       enabled: app.agent?.enabled ?? true,
       chat_role: app.agent?.chat_role === "light" ? "light" : "heavy",

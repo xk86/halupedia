@@ -346,6 +346,21 @@ export interface OllamaImageGenerationConfig {
   timeout_ms: number;
 }
 
+/** Config for the scheduled ontology-suggestion auto-review pipeline
+ *  (`src/server/pipeline/scheduler.ts`). */
+export interface OntologyReviewConfig {
+  /** Master switch; both schedules no-op when false. */
+  enabled: boolean;
+  /** How often the enqueue schedule tops up the review queue. */
+  enqueue_interval_minutes: number;
+  /** Articles added per enqueue pass, when the queue is empty. */
+  enqueue_batch: number;
+  /** How often the run schedule claims and reviews one queued article. */
+  run_interval_minutes: number;
+  /** Relation labels longer than this many words auto-fail. */
+  key_max_words: number;
+}
+
 export interface AppConfig {
   server: ServerConfig;
   storage: StorageConfig;
@@ -359,6 +374,7 @@ export interface AppConfig {
   pipeline: PipelineConfig;
   images: ImagesConfig;
   agent: AgentConfig;
+  ontology_review: OntologyReviewConfig;
 }
 
 /** A named LLM backend. Hosts own the connection, the queue depth, and the

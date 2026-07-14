@@ -103,6 +103,18 @@ export const APP_CONFIG_SECTIONS: AppConfigSectionDefinition[] = [
     ],
   },
   {
+    id: "ontology-review",
+    title: "Ontology review",
+    description: "Scheduled auto-review of pending ontology suggestions: enqueue cadence, per-run batch size, and format rules.",
+    fields: [
+      field("ontology_review", "enabled", "Enable auto-review", "Run the scheduled ontology-suggestion review pipeline.", "boolean"),
+      field("ontology_review", "enqueue_interval_minutes", "Enqueue interval", "Minutes between review-queue top-ups, when the queue is empty.", "number", { min: 1, step: 1 }),
+      field("ontology_review", "enqueue_batch", "Enqueue batch", "Articles added per top-up.", "number", { min: 1, step: 1 }),
+      field("ontology_review", "run_interval_minutes", "Run interval", "Minutes between each reviewed article.", "number", { min: 1, step: 1 }),
+      field("ontology_review", "key_max_words", "Max label words", "Relation labels longer than this many words auto-fail.", "number", { min: 1, step: 1 }),
+    ],
+  },
+  {
     id: "observability-media",
     title: "Tracing & media",
     description: "Pipeline trace retention and locally stored media limits.",

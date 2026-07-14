@@ -19,6 +19,7 @@ import { RecentArticlesPane } from "./admin/panes/RecentArticlesPane";
 import { RagTesterPane } from "./admin/panes/RagTesterPane";
 import { OntologySuggestionsPane } from "./admin/panes/OntologySuggestionsPane";
 import { OntologyVocabularyPane } from "./admin/panes/OntologyVocabularyPane";
+import { WorkflowSchedulePane } from "./admin/panes/WorkflowSchedulePane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { LiveLlmView } from "./admin/LiveLlmViews";
@@ -564,6 +565,11 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
                 onNavigateHome={onNavigateHome}
               />
             ),
+          },
+          {
+            id: "workflow-schedules",
+            span: "full",
+            content: <WorkflowSchedulePane onNavigate={onNavigate} />,
           },
         ];
       case "rag":

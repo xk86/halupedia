@@ -91,7 +91,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { createRagRuntime, registerRagAdminRoutes, buildEvidenceContext, toPromptSourceArticles, DEFAULT_PROFILES, type RagRuntime } from "./rag";
-import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -4747,6 +4747,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
         objectHtml: renderOntologyValueHtml(suggestion.object),
       })),
+      typeSuggestion: getOntologyTypeSuggestion(db, slug),
     };
   }
 
@@ -4801,6 +4802,43 @@ export async function createApp(options: CreateAppOptions = {}) {
       sourceId: slug,
       operation: "upsert",
     });
+    return c.json(buildArticleOntologyPayload(slug));
+  });
+
+  // POST /api/article/:slug/ontology/type-suggestion/apply — accept a pending
+  // suggested entity-type change (from LLM extraction) for the article's
+  // subject entity.
+  app.post("/api/article/:slug/ontology/type-suggestion/apply", (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
+    const suggestion = getOntologyTypeSuggestion(db, slug);
+    if (!suggestion) return c.json({ error: "no pending type suggestion" }, 404);
+    if (!rag.vocab.entityTypes.has(suggestion.suggestedType)) {
+      deleteOntologyTypeSuggestion(db, slug);
+      return c.json({ error: "suggested type is no longer valid" }, 409);
+    }
+    if (!updateArticleEntityType(db, slug, suggestion.suggestedType)) {
+      return c.json({ error: "article has no ontology entity" }, 409);
+    }
+    deleteOntologyTypeSuggestion(db, slug);
+    enqueueRagIndexJob(db, {
+      articleSlug: slug,
+      sourceKind: "article_body",
+      sourceId: slug,
+      operation: "upsert",
+    });
+    const payload = buildArticleOntologyPayload(slug);
+    notifySidecar(slug, { type: "ontology", ontology: payload });
+    return c.json(payload);
+  });
+
+  // DELETE /api/article/:slug/ontology/type-suggestion — dismiss without applying.
+  app.delete("/api/article/:slug/ontology/type-suggestion", (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const slug = article.slug;
+    deleteOntologyTypeSuggestion(db, slug);
     return c.json(buildArticleOntologyPayload(slug));
   });
 

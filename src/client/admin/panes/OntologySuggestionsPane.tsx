@@ -5,6 +5,7 @@ import {
   GitMergeIcon,
   ListPlusIcon,
   RefreshCwIcon,
+  TagIcon,
   XIcon,
 } from "lucide-react";
 
@@ -34,16 +35,22 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import {
   OntologySuggestionsTable,
   type OntologySuggestionView,
 } from "@/ontology/OntologySuggestionsTable";
+
+interface PendingOntologyTypeSuggestion {
+  suggestedType: string;
+}
 
 interface PendingOntologyArticle {
   slug: string;
   title: string;
   suggestionCount: number;
   suggestions: OntologySuggestionView[];
+  typeSuggestion: PendingOntologyTypeSuggestion | null;
 }
 
 interface PendingOntologyPayload {
@@ -76,6 +83,8 @@ function ArticleSuggestionGroup({
   onMerge,
   onDismiss,
   onNavigate,
+  onApplyType,
+  onDismissType,
 }: {
   article: PendingOntologyArticle;
   busy: boolean;
@@ -83,6 +92,8 @@ function ArticleSuggestionGroup({
   onMerge: (slug: string, ids?: number[]) => void;
   onDismiss: (slug: string, id?: number) => void;
   onNavigate: (slug: string) => void;
+  onApplyType: (slug: string) => void;
+  onDismissType: (slug: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   const ids = article.suggestions.map((suggestion) => suggestion.id);
@@ -155,6 +166,50 @@ function ArticleSuggestionGroup({
         <CollapsibleContent>
           <Separator />
           <CardContent className="px-0">
+            {article.typeSuggestion ? (
+              <Table>
+                <TableBody>
+                  <TableRow className="border-b border-panel-border max-[560px]:block">
+                    <th
+                      scope="row"
+                      className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground max-[560px]:block max-[560px]:w-full max-[560px]:pb-0 max-[560px]:whitespace-normal"
+                    >
+                      type
+                    </th>
+                    <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal max-[560px]:block max-[560px]:w-full">
+                      <span className="flex min-w-0 flex-wrap items-baseline gap-2">
+                        <span className="min-w-0 flex-1 break-words">
+                          → {article.typeSuggestion.suggestedType}
+                        </span>
+                        <Badge variant="warn" className="text-[10px]">
+                          raw
+                        </Badge>
+                        <span className="flex shrink-0 flex-wrap items-center gap-1">
+                          <Button
+                            size="xs"
+                            disabled={busy}
+                            aria-label={`Set suggested type for ${article.title}`}
+                            onClick={() => onApplyType(article.slug)}
+                          >
+                            <TagIcon data-icon="inline-start" />
+                            Set type
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Dismiss type suggestion for ${article.title}`}
+                            disabled={busy}
+                            onClick={() => onDismissType(article.slug)}
+                          >
+                            <XIcon />
+                          </Button>
+                        </span>
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            ) : null}
             <OntologySuggestionsTable
               suggestions={article.suggestions}
               busy={busy}
@@ -240,6 +295,54 @@ export function OntologySuggestionsPane({
           cause instanceof Error
             ? cause.message
             : "failed to dismiss ontology suggestions",
+        );
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [busyKey, load],
+  );
+
+  const applyTypeSuggestion = useCallback(
+    async (slug: string) => {
+      if (busyKey) return;
+      setBusyKey(`${slug}:type-apply`);
+      setError(null);
+      try {
+        await fetchJson(
+          `/api/article/${encodeSlug(slug)}/ontology/type-suggestion/apply`,
+          { method: "POST" },
+        );
+        await load();
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "failed to apply suggested type",
+        );
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [busyKey, load],
+  );
+
+  const dismissTypeSuggestion = useCallback(
+    async (slug: string) => {
+      if (busyKey) return;
+      setBusyKey(`${slug}:type-dismiss`);
+      setError(null);
+      try {
+        await fetchJson(
+          `/api/article/${encodeSlug(slug)}/ontology/type-suggestion`,
+          { method: "DELETE" },
+        );
+        await load();
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "failed to dismiss suggested type",
         );
       } finally {
         setBusyKey(null);
@@ -348,6 +451,8 @@ export function OntologySuggestionsPane({
               onMerge={(slug, ids) => applySuggestions(slug, "merge", ids)}
               onDismiss={dismissSuggestions}
               onNavigate={onNavigate}
+              onApplyType={applyTypeSuggestion}
+              onDismissType={dismissTypeSuggestion}
             />
           ))}
         </div>

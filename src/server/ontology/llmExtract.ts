@@ -22,7 +22,7 @@ import { validateLlmExtraction } from "./extract";
 import { listArticleEntityFacts } from "./store";
 import { emptyExtraction, type ExtractionResult } from "./types";
 import type { OntologyVocabulary } from "./vocabulary";
-import { replaceOntologySuggestions } from "./suggestions";
+import { replaceOntologySuggestions, replaceOntologyTypeSuggestion } from "./suggestions";
 
 export interface OntologyLlmOptions {
   llm: LlmRouter;
@@ -202,6 +202,8 @@ export async function deriveLlmExtraction(db: DatabaseSync, vocab: OntologyVocab
        updated_at = excluded.updated_at`,
   ).run(article.slug, hash, vocabHash, JSON.stringify(extraction), Date.now());
   replaceOntologySuggestions(db, article.slug, rawParsed, extraction);
+  const currentType = listArticleEntityFacts(db, article.slug).entity?.entityType ?? null;
+  replaceOntologyTypeSuggestion(db, article.slug, article.displayTitle || article.title, currentType, extraction);
   options.onExtracted?.(article.slug, {
     reason,
     durationMs: Date.now() - startedAt,

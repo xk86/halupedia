@@ -9,6 +9,59 @@ import {
 } from "./store";
 import type { ExtractionResult } from "./types";
 
+export interface OntologyTypeSuggestion {
+  suggestedType: string;
+  createdAt: number;
+}
+
+/**
+ * Replace (or clear) the pending entity-type suggestion for an article, based
+ * on the extraction's entity matching the article's own title. Only written
+ * when it differs from the currently stored type — a re-affirming extraction
+ * clears any stale suggestion rather than leaving a stale one behind.
+ */
+export function replaceOntologyTypeSuggestion(
+  db: DatabaseSync,
+  slug: string,
+  articleTitle: string,
+  currentType: string | null,
+  extraction: ExtractionResult,
+): void {
+  const normalizedTitle = sanitizeFactText(articleTitle).toLowerCase();
+  const subjectEntity = extraction.entities.find(
+    (entity) => sanitizeFactText(entity.name).toLowerCase() === normalizedTitle,
+  );
+  const suggestedType = subjectEntity?.type ?? "";
+  if (!suggestedType || suggestedType === currentType) {
+    prepared(db, `DELETE FROM ontology_type_suggestions WHERE article_slug = ?`).run(slug);
+    return;
+  }
+  prepared(
+    db,
+    `INSERT INTO ontology_type_suggestions (article_slug, suggested_type, created_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(article_slug) DO UPDATE SET
+       suggested_type = excluded.suggested_type,
+       created_at = excluded.created_at`,
+  ).run(slug, suggestedType, Date.now());
+}
+
+export function getOntologyTypeSuggestion(
+  db: DatabaseSync,
+  slug: string,
+): OntologyTypeSuggestion | null {
+  const row = prepared(
+    db,
+    `SELECT suggested_type AS suggestedType, created_at AS createdAt
+     FROM ontology_type_suggestions WHERE article_slug = ?`,
+  ).get(slug) as OntologyTypeSuggestion | undefined;
+  return row ?? null;
+}
+
+export function deleteOntologyTypeSuggestion(db: DatabaseSync, slug: string): void {
+  prepared(db, `DELETE FROM ontology_type_suggestions WHERE article_slug = ?`).run(slug);
+}
+
 export interface OntologySuggestion {
   id: number;
   subject: string;
@@ -21,6 +74,7 @@ export interface ArticleOntologySuggestionGroup {
   slug: string;
   title: string;
   suggestions: Array<OntologySuggestion & { createdAt: number }>;
+  typeSuggestion: OntologyTypeSuggestion | null;
 }
 
 function text(value: unknown): string {
@@ -137,16 +191,16 @@ export function listPendingOntologySuggestionsByArticle(
   }>;
 
   const groups = new Map<string, ArticleOntologySuggestionGroup>();
-  for (const row of rows) {
-    let group = groups.get(row.articleSlug);
+  const groupFor = (slug: string, title: string): ArticleOntologySuggestionGroup => {
+    let group = groups.get(slug);
     if (!group) {
-      group = {
-        slug: row.articleSlug,
-        title: row.articleTitle,
-        suggestions: [],
-      };
-      groups.set(row.articleSlug, group);
+      group = { slug, title, suggestions: [], typeSuggestion: null };
+      groups.set(slug, group);
     }
+    return group;
+  };
+  for (const row of rows) {
+    const group = groupFor(row.articleSlug, row.articleTitle);
     group.suggestions.push({
       id: row.id,
       subject: row.subject,
@@ -156,6 +210,26 @@ export function listPendingOntologySuggestionsByArticle(
       createdAt: row.createdAt,
     });
   }
+
+  const typeRows = prepared(
+    db,
+    `SELECT t.article_slug AS articleSlug,
+            COALESCE(a.title, t.article_slug) AS articleTitle,
+            t.suggested_type AS suggestedType,
+            t.created_at AS createdAt
+       FROM ontology_type_suggestions t
+       LEFT JOIN articles a ON a.slug = t.article_slug`,
+  ).all() as Array<{
+    articleSlug: string;
+    articleTitle: string;
+    suggestedType: string;
+    createdAt: number;
+  }>;
+  for (const row of typeRows) {
+    const group = groupFor(row.articleSlug, row.articleTitle);
+    group.typeSuggestion = { suggestedType: row.suggestedType, createdAt: row.createdAt };
+  }
+
   return [...groups.values()];
 }
 

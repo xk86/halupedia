@@ -438,6 +438,49 @@ export function openDatabase(databasePath: string): DatabaseSync {
     CREATE INDEX IF NOT EXISTS idx_ontology_suggestions_article
       ON ontology_suggestions(article_slug, id);
 
+    -- Suggested entity-type change for an article's subject entity, derived from
+    -- LLM extraction disagreeing with the currently stored type (e.g. "thing"
+    -- -> "person"). One pending suggestion per article; applying or dismissing
+    -- clears the row.
+    CREATE TABLE IF NOT EXISTS ontology_type_suggestions (
+      article_slug TEXT PRIMARY KEY,
+      suggested_type TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    -- Runtime state for recurring background schedules (interval config lives in
+    -- app.toml; this just tracks when each schedule last/next fires and how it
+    -- went, for the Monitoring admin view).
+    CREATE TABLE IF NOT EXISTS scheduled_workflows (
+      id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_at INTEGER,
+      last_status TEXT,
+      last_detail TEXT,
+      next_run_at INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Long-term ontology-suggestion review queue: separate from the live
+    -- generation queue, driven by the scheduler rather than user actions.
+    -- article_rank orders the queue (newest articles processed first).
+    CREATE TABLE IF NOT EXISTS ontology_review_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      article_rank INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      enqueued_at INTEGER NOT NULL,
+      started_at INTEGER,
+      finished_at INTEGER,
+      verdict TEXT,
+      passed INTEGER,
+      failed INTEGER,
+      result_json TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_queue_status
+      ON ontology_review_queue(status, article_rank DESC);
+
     -- Records the vocabulary signature an article's ontology was last extracted
     -- under. When the live vocabulary signature differs (a predicate was added
     -- or removed), the article is stale and is re-extracted lazily on demand —

@@ -37,12 +37,17 @@ interface OntologyFact {
   confidence: number;
 }
 
+interface OntologyTypeSuggestion {
+  suggestedType: string;
+}
+
 interface OntologyPayload {
   entityType: string | null;
   facts: OntologyFact[];
   identifiers: Array<{ scheme: string; value: string }>;
   categories: string[];
   suggestions: OntologySuggestion[];
+  typeSuggestion: OntologyTypeSuggestion | null;
 }
 
 interface Predicate {
@@ -117,6 +122,7 @@ function normalizeOntologyPayload(
     identifiers: Array.isArray(payload.identifiers) ? payload.identifiers : [],
     categories: Array.isArray(payload.categories) ? payload.categories : [],
     suggestions: Array.isArray(payload.suggestions) ? payload.suggestions : [],
+    typeSuggestion: payload.typeSuggestion ?? null,
   };
 }
 
@@ -435,9 +441,49 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     [busy, apiBase],
   );
 
+  const applyTypeSuggestion = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/type-suggestion/apply`, { method: "POST" });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(b.error ?? "Could not apply suggested type");
+        return;
+      }
+      setData(
+        normalizeOntologyPayload((await res.json()) as Partial<OntologyPayload>),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, apiBase]);
+
+  const dismissTypeSuggestion = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${apiBase}/type-suggestion`, { method: "DELETE" });
+      if (res.ok) {
+        setData(
+          normalizeOntologyPayload((await res.json()) as Partial<OntologyPayload>),
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, apiBase]);
+
   if (!data) return null;
   const facts = data.facts.filter((f) => f.predicate !== "is_a");
-  if (facts.length === 0 && !editing && !data.entityType) return null;
+  if (
+    facts.length === 0 &&
+    !editing &&
+    !data.entityType &&
+    !data.typeSuggestion
+  )
+    return null;
 
   const renderObject = (fact: OntologyFact) => {
     if (!fact.objectSlug) {
@@ -764,40 +810,87 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           </div>
         ) : null}
 
-        {data.suggestions.length > 0 ? (
+        {data.suggestions.length > 0 || data.typeSuggestion ? (
           <Card size="sm" className="m-2 gap-0 py-0">
             <CardHeader className="gap-2 max-[560px]:grid-cols-1">
               <CardTitle>Ontology suggestions</CardTitle>
-              <CardAction className="flex flex-wrap items-center gap-1 max-[560px]:col-start-1 max-[560px]:row-start-2 max-[560px]:justify-self-start">
-                <Button
-                  size="xs"
-                  disabled={busy}
-                  onClick={() => applySuggestions("append")}
-                >
-                  <ListPlusIcon data-icon="inline-start" />
-                  Add all
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="xs"
-                  disabled={busy}
-                  onClick={() => applySuggestions("merge")}
-                >
-                  <GitMergeIcon data-icon="inline-start" />
-                  Merge all
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Dismiss all suggestions"
-                  disabled={busy}
-                  onClick={() => dismissSuggestions()}
-                >
-                  <XIcon />
-                </Button>
-              </CardAction>
+              {data.suggestions.length > 0 ? (
+                <CardAction className="flex flex-wrap items-center gap-1 max-[560px]:col-start-1 max-[560px]:row-start-2 max-[560px]:justify-self-start">
+                  <Button
+                    size="xs"
+                    disabled={busy}
+                    onClick={() => applySuggestions("append")}
+                  >
+                    <ListPlusIcon data-icon="inline-start" />
+                    Add all
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    disabled={busy}
+                    onClick={() => applySuggestions("merge")}
+                  >
+                    <GitMergeIcon data-icon="inline-start" />
+                    Merge all
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Dismiss all suggestions"
+                    disabled={busy}
+                    onClick={() => dismissSuggestions()}
+                  >
+                    <XIcon />
+                  </Button>
+                </CardAction>
+              ) : null}
             </CardHeader>
             <CardContent className="px-0">
+              {data.typeSuggestion ? (
+                <Table>
+                  <TableBody>
+                    <TableRow className="border-b border-panel-border max-[560px]:block">
+                      <th
+                        scope="row"
+                        className="w-[1%] px-3 py-1.5 text-left align-baseline text-xs font-medium whitespace-nowrap text-muted-foreground max-[560px]:block max-[560px]:w-full max-[560px]:pb-0 max-[560px]:whitespace-normal"
+                      >
+                        type
+                      </th>
+                      <TableCell className="px-3 py-1.5 align-baseline text-sm whitespace-normal max-[560px]:block max-[560px]:w-full">
+                        <span className="flex min-w-0 flex-wrap items-baseline gap-2">
+                          <span className="min-w-0 flex-1 break-words">
+                            {data.entityType ?? "thing"} →{" "}
+                            {data.typeSuggestion.suggestedType}
+                          </span>
+                          <Badge variant="warn" className="text-[10px]">
+                            raw
+                          </Badge>
+                          <span className="flex shrink-0 flex-wrap items-center gap-1">
+                            <Button
+                              size="xs"
+                              disabled={busy}
+                              aria-label="Set suggested type"
+                              onClick={applyTypeSuggestion}
+                            >
+                              <TagIcon data-icon="inline-start" />
+                              Set type
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label="Dismiss type suggestion"
+                              disabled={busy}
+                              onClick={dismissTypeSuggestion}
+                            >
+                              <XIcon />
+                            </Button>
+                          </span>
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              ) : null}
               <OntologySuggestionsTable
                 suggestions={data.suggestions}
                 busy={busy}

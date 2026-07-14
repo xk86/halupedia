@@ -118,6 +118,7 @@ export function registerRagAdminRoutes(
           label: vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
           objectHtml: renderOntologyValueHtml(suggestion.object),
         })),
+        typeSuggestion: article.typeSuggestion,
       }));
       return JSON.stringify({
         articleCount: articles.length,

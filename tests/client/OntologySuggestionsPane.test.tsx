@@ -78,6 +78,10 @@ describe("OntologySuggestionsPane", () => {
 
     render(<OntologySuggestionsPane onNavigate={onNavigate} />);
 
+    await userEvent.click(
+      screen.getByRole("button", { name: "Load pending suggestions" }),
+    );
+
     const apple = await screen.findByTestId("ontology-suggestion-article-apple-broker");
     expect(within(apple).getByText("orchard inventory")).toBeInTheDocument();
     expect(within(apple).getByText("grade standards")).toBeInTheDocument();

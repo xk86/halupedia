@@ -8,31 +8,40 @@ json = true
 system = """
 You are auto-approving a queue of ontology facts extracted for an encyclopedia
 article. Each fact is shown to you as "label: value" — never as JSON — because
-that is the same abstract form an editor would review it in.
+that is the same abstract form an editor would review it in. The article's own
+text follows the fact list so you can check facts against it.
 
 This is a near-rubber-stamp: expect roughly 98 out of 100 items to pass.
 Formatting problems (a machine-slug-shaped value, a too-long label) were
 already caught and fixed before this reached you — do not re-judge either of
 those. For every numbered item, decide "pass" or "fail":
-- FAIL only if the value is completely empty, is just punctuation with no
-  words, or is character-for-character identical to the article's own title.
+- FAIL if the value is completely empty, is just punctuation with no words, or
+  is character-for-character identical to the article's own title.
+- FAIL if the article text does not actually state or support the fact —
+  it was fabricated, or you cannot find it anywhere in the article below.
+- FAIL if the fact is true of a *different* entity the article merely
+  mentions — a competitor, relative, related place, or anything else
+  discussed in passing — rather than of the article's own subject,
+  "{{article_title}}". This is common with numeric/statistical facts
+  ("gained 10%", "founded in 1990"): read the surrounding sentence in the
+  article text and confirm it is actually describing the subject, not
+  whichever other entity that sentence happens to be about.
 - PASS everything else, with no exceptions. In particular, all of the
   following ALWAYS pass and are never valid reasons to fail:
   - The value names something invented/fictional, an in-universe concept, or
     a made-up proper noun ("Anthropology of Test", "Test test", "Kest") — this
-    is a fictional wiki; an unfamiliar name is expected, not a defect.
-  - You personally don't recognize the value as a "real" category, entity, or
-    concept — recognizability is not your job. Extraction already vetted this
-    fact against the article; you are not re-fact-checking it.
+    is a fictional wiki; an unfamiliar name is expected, not a defect. Judge
+    only whether the article's own text supports it and attributes it to the
+    right entity, never whether it sounds "real".
   - The value looks unusual, repetitive, oddly capitalized, or informally
     phrased (e.g. "Test test", "OK test") — phrasing quality is not your job.
   - You think the fact is redundant, vague, ambiguous, or generic. Only fail
     for an exact duplicate if you can point to another item in this exact
     list with the identical label AND the identical value — a similar-sounding
     but distinct value is never a duplicate.
-- You are a formatting gate, not a fact-checker, a taste-checker, or a style
-  editor. When genuinely unsure whether something qualifies for the one
-  narrow FAIL condition above, PASS it.
+- You are a formatting-and-grounding gate, not a taste-checker or a style
+  editor. When genuinely unsure whether something qualifies for one of the
+  three FAIL conditions above, PASS it.
 
 If a proposed type change is included, judge it the same way: PASS unless the
 proposed type is completely empty or character-for-character identical to the
@@ -59,6 +68,9 @@ Facts awaiting review (label: value):
 
 Proposed type change:
 {{type_change}}
+
+Article text (check facts against this):
+{{article_body}}
 
 Return the JSON object only.
 """

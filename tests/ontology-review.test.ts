@@ -207,7 +207,7 @@ const REVIEW_PROMPTS = {
   prompts: {
     ontology_review: {
       system: "review {{items}}",
-      user: "{{article_title}}\n{{items}}\n{{type_change}}",
+      user: "{{article_title}}\n{{items}}\n{{type_change}}\n{{article_body}}",
       model: "light",
       thinking: false,
       json: true,
@@ -357,6 +357,62 @@ test("reviewArticleSuggestions overrides a model fail whose own reason is an out
   for (const item of result.items) {
     assert.equal(item.verdict, "pass", `${item.object} should be overridden back to pass`);
     assert.equal(item.reason, "out-of-scope concern overridden");
+  }
+});
+
+test("reviewArticleSuggestions sends the article's own text to the review prompt", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "subject", "Subject", Date.now());
+  insertSuggestion(db, "subject", "Subject", "founded_by", "Jane Doe");
+
+  let capturedPrompt: string | undefined;
+  const llm: LlmRouter = {
+    async chat(_role, _system, user) {
+      capturedPrompt = user;
+      return JSON.stringify({ items: [{ index: 1, verdict: "pass", reason: "fine" }], type: null });
+    },
+    supportsVision: () => false,
+    async streamChat() {
+      return { content: "", finishReason: "stop" };
+    },
+    async embed() {
+      return [];
+    },
+    async probeConnections() {},
+  } as unknown as LlmRouter;
+
+  await reviewArticleSuggestions(db, "subject", { llm, prompts: REVIEW_PROMPTS, vocab, keyMaxWords: 6 });
+
+  // makeArticle's body is `# ${title}\n\nBody.` — confirm that reaches the
+  // model, not just the abstract label/value list.
+  assert.match(capturedPrompt ?? "", /Body\./, "the article's own text was included in the prompt");
+});
+
+test("reviewArticleSuggestions honors — does not override — a model fail grounded in the article text", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "subject", "Subject", Date.now());
+  insertSuggestion(db, "subject", "Subject", "founded_by", "Someone Fabricated");
+  insertSuggestion(db, "subject", "Subject", "based_in", "Rival Corp's Headquarters");
+
+  // These are the two legitimate content-grounding fail reasons the prompt
+  // now asks for — neither should be swallowed by the out-of-scope override,
+  // unlike the taste/format complaints in the test above.
+  const reply = JSON.stringify({
+    items: [
+      { index: 1, verdict: "fail", reason: "not stated anywhere in the article text" },
+      { index: 2, verdict: "fail", reason: "describes a different entity mentioned in passing, not the article's own subject" },
+    ],
+    type: null,
+  });
+  const result = await reviewArticleSuggestions(db, "subject", {
+    llm: stubLlm(reply),
+    prompts: REVIEW_PROMPTS,
+    vocab,
+    keyMaxWords: 6,
+  });
+
+  for (const item of result.items) {
+    assert.equal(item.verdict, "fail", `${item.object} should stay failed — this is a grounding complaint, not out-of-scope`);
   }
 });
 

@@ -4,13 +4,20 @@
  * Deterministic format checks run first and always win (an item that trips
  * one is never sent to the model). Everything still eligible is presented to
  * the model in abstract "label: value" form — never JSON — one indexed line
- * per item, and the model returns a pass/fail verdict per item plus (when
- * present) the proposed entity-type change. Passing relation suggestions are
- * merged into the ontology; a passing type change is applied. Anything that
- * fails — deterministically or by the model — is left in place for manual
- * review; nothing here ever deletes a suggestion.
+ * per item, alongside the article's own text, and the model returns a
+ * pass/fail verdict per item plus (when present) the proposed entity-type
+ * change. Beyond the format checks, the model's only job is grounding: is the
+ * fact actually stated in the article, and does it describe the article's own
+ * subject rather than some other entity the article merely mentions in
+ * passing (see the prompt's "different entity" fail condition) — it is
+ * explicitly not a taste/style/recognizability judge (see
+ * `OUT_OF_SCOPE_REASON_RE` below). Passing relation suggestions are merged
+ * into the ontology; a passing type change is applied. Anything that fails —
+ * deterministically or by the model — is left in place for manual review;
+ * nothing here ever deletes a suggestion.
  */
 import type { DatabaseSync } from "node:sqlite";
+import { getArticle } from "../db";
 import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
 import type { LlmInvocationMetadata, PromptConfig } from "../types";
@@ -135,13 +142,16 @@ function isPassVerdict(value: unknown): boolean {
 // instructions ("don't judge X") are unreliable on light local models. This
 // review is meant to be a near-rubber-stamp (expect ~98% of well-formed facts
 // to pass): format problems (slug-shape, length) are already deterministically
-// cleared before an item reaches the model, and content plausibility
+// cleared before an item reaches the model, and taste/style plausibility
 // ("is this a recognizable entity", "is this redundant/vague/unclear
-// phrasing", "is this a duplicate") is simply not this review's job — the
-// extraction step already vetted the fact against the article. A fail whose
-// own stated reason falls into either bucket is the model overstepping, not a
-// real problem: override it back to a pass rather than losing an otherwise-
-// good fact to a hallucinated gate.
+// phrasing", "is this a duplicate") is simply not this review's job.
+// Grounding — is the fact actually stated in the article, does it describe
+// the article's own subject rather than some other entity mentioned in
+// passing — IS the model's job and is deliberately excluded from this
+// override; only the taste/style/format buckets above get auto-reversed. A
+// fail whose own stated reason falls into one of those buckets is the model
+// overstepping, not a real problem: override it back to a pass rather than
+// losing an otherwise-good fact to a hallucinated gate.
 const OUT_OF_SCOPE_REASON_RE =
   /\b(slug|machine|identifier|url|too\s*long|overlong|length|redundant|duplicate|unclear|vague|ambigu\w*|generic|recogni[sz]\w*|(?:valid|real|plausible|legitimate)\s+(?:category|entity|concept|topic)|unclear\s+phrasing)\b/i;
 
@@ -230,8 +240,14 @@ export async function reviewArticleSuggestions(
     const typeChangeBlock = typeEligible
       ? `${currentType} -> ${typeSuggestion!.suggestedType}`
       : "(none)";
+    // Grounding text for the two content checks below (unsupported-by-text,
+    // misattributed-to-another-entity) — same cap `deriveLlmExtraction` uses
+    // for the extraction prompt's article body.
+    const article = getArticle(db, slug);
+    const articleBody = (article?.markdown || article?.plain_text || "").slice(0, 12000);
     const templateVars = {
       article_title: articleTitle,
+      article_body: articleBody || "(article text unavailable)",
       items: itemsBlock || "(none)",
       type_change: typeChangeBlock,
     };

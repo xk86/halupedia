@@ -9,7 +9,6 @@ import {
 import {
   AlertTriangle,
   ChevronDown,
-  GitBranch,
   LoaderCircle,
 } from "lucide-react";
 import { cn, ERROR_BOX } from "@/lib/utils";
@@ -26,7 +25,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import {
   Collapsible,
   CollapsibleContent,
@@ -85,21 +83,6 @@ function slugToTraceTitle(slug: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-interface WorkflowNode {
-  name: string;
-  kind: string;
-  description?: string;
-  conditional: boolean;
-  whenLabel?: string;
-}
-
-interface PipelineWorkflowSummary {
-  name: string;
-  description?: string;
-  summary: string;
-  nodes: WorkflowNode[];
 }
 
 interface PipelineRunSummary {
@@ -236,7 +219,6 @@ interface ActiveRun {
 }
 
 interface Props {
-  workflows: PipelineWorkflowSummary[];
   runs: PipelineRunSummary[];
   activeRuns?: ActiveRun[];
   traceEnabled: boolean;
@@ -247,7 +229,6 @@ interface Props {
 }
 
 export function PipelinesPane({
-  workflows,
   runs,
   activeRuns = [],
   traceEnabled,
@@ -728,94 +709,7 @@ export function PipelinesPane({
             : "Pipeline trace storage is disabled."}
         </p>
       )}
-
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
-        <h4 className="m-0 text-sm font-semibold">Workflows</h4>
-        <Badge variant="outline">{workflows.length} workflows</Badge>
-      </div>
-
-      <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
-        {workflows.map((workflow) => (
-          <Card key={workflow.name} size="sm">
-            <CardHeader>
-              <CardTitle className="font-mono">{workflow.name}</CardTitle>
-              <CardDescription>
-                {workflow.description ?? workflow.summary}
-              </CardDescription>
-              <CardAction>
-                <Badge variant="outline">
-                  {workflow.nodes.length}{" "}
-                  {workflow.nodes.length === 1 ? "node" : "nodes"}
-                </Badge>
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              <ol
-                className="flex flex-col"
-                data-testid="workflow-flow"
-                aria-label={`${workflow.name} workflow`}
-              >
-                {workflow.nodes.map((node, index) => (
-                  <WorkflowNodeStep
-                    key={`${node.name}:${index}`}
-                    node={node}
-                    index={index}
-                    isLast={index === workflow.nodes.length - 1}
-                  />
-                ))}
-              </ol>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </Pane>
-  );
-}
-
-function WorkflowNodeStep({
-  node,
-  index,
-  isLast,
-}: {
-  node: WorkflowNode;
-  index: number;
-  isLast: boolean;
-}) {
-  const variant =
-    node.kind === "llm"
-      ? "warn"
-      : node.kind === "write"
-        ? "destructive"
-        : node.kind === "read"
-          ? "secondary"
-          : "outline";
-  return (
-    <li className="grid grid-cols-[auto_minmax(0,1fr)] gap-2">
-      <div className="flex flex-col items-center gap-1">
-        <Badge variant="outline" aria-label={`Step ${index + 1}`}>
-          {index + 1}
-        </Badge>
-        {!isLast ? (
-          <Separator orientation="vertical" className="min-h-4 flex-1" />
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 pb-2">
-        <Badge variant={variant}>{node.kind}</Badge>
-        <span className="min-w-0 flex-1 text-xs break-words">
-          <span className="font-mono font-medium break-all">{node.name}</span>
-          <span className="text-muted-foreground">
-            {" "}
-            — {node.description ?? "No description."}
-          </span>
-        </span>
-        {node.conditional ? (
-          <Badge variant="outline">
-            <GitBranch data-icon="inline-start" />
-            {node.whenLabel ?? "conditional"}
-          </Badge>
-        ) : null}
-      </div>
-    </li>
   );
 }
 

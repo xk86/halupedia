@@ -99,7 +99,17 @@ const VERDICT_BADGE: Record<string, "secondary" | "warn" | "destructive"> = {
   fail: "destructive",
 };
 
-function QueueItemRow({ item, onNavigate }: { item: ReviewQueueItem; onNavigate: (slug: string) => void }) {
+function QueueItemRow({
+  item,
+  onNavigate,
+  dividerAbove,
+}: {
+  item: ReviewQueueItem;
+  onNavigate: (slug: string) => void;
+  /** Marks the first completed row after the pending/processing ones, so a
+   *  heavier top border separates in-flight work from finished work. */
+  dividerAbove: boolean;
+}) {
   const [open, setOpen] = useState(false);
   let detail: ReviewResultDetail | null = null;
   if (item.resultJson) {
@@ -113,7 +123,7 @@ function QueueItemRow({ item, onNavigate }: { item: ReviewQueueItem; onNavigate:
 
   return (
     <>
-      <TableRow>
+      <TableRow className={dividerAbove ? "border-t-2 border-t-foreground/25" : undefined}>
         <TableCell className="max-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
             {expandable ? (
@@ -150,6 +160,9 @@ function QueueItemRow({ item, onNavigate }: { item: ReviewQueueItem; onNavigate:
         <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
           {new Date(item.enqueuedAt).toLocaleTimeString()}
         </TableCell>
+        <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
+          {item.startedAt ? new Date(item.startedAt).toLocaleTimeString() : "—"}
+        </TableCell>
         <TableCell>
           {item.verdict ? (
             <Badge variant={VERDICT_BADGE[item.verdict] ?? "outline"}>{item.verdict}</Badge>
@@ -167,7 +180,7 @@ function QueueItemRow({ item, onNavigate }: { item: ReviewQueueItem; onNavigate:
       </TableRow>
       {expandable ? (
         <TableRow>
-          <TableCell colSpan={5} className="p-0">
+          <TableCell colSpan={6} className="p-0">
             <Collapsible open={open} onOpenChange={setOpen}>
               <CollapsibleContent>
                 <div className="flex flex-col gap-1 bg-muted/30 px-3 py-2 text-xs">
@@ -370,13 +383,19 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
                   <TableHead>Article</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Enqueued</TableHead>
+                  <TableHead>Run at</TableHead>
                   <TableHead>Verdict</TableHead>
                   <TableHead>Result</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.queue.map((item) => (
-                  <QueueItemRow key={item.id} item={item} onNavigate={onNavigate} />
+                {data.queue.map((item, index) => (
+                  <QueueItemRow
+                    key={item.id}
+                    item={item}
+                    onNavigate={onNavigate}
+                    dividerAbove={index > 0 && index === pendingCount}
+                  />
                 ))}
               </TableBody>
             </Table>

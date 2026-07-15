@@ -4,6 +4,7 @@ import { cn, ERROR_BOX } from "@/lib/utils";
 import { RuntimePane } from "./admin/panes/RuntimePane";
 import { AppConfigPane } from "./admin/panes/AppConfigPane";
 import { PipelinesPane } from "./admin/panes/PipelinesPane";
+import { WorkflowCatalogPane } from "./admin/panes/WorkflowCatalogPane";
 import { PromptModelsPane } from "./admin/panes/PromptModelsPane";
 import {
   ImageGenerationPane,
@@ -560,7 +561,6 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
             span: "full",
             content: (
               <PipelinesPane
-                workflows={pipelineWorkflows}
                 runs={pipelineRuns}
                 activeRuns={activePipelineRuns}
                 traceEnabled={pipelineTraceEnabled}
@@ -570,6 +570,11 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
                 onNavigateHome={onNavigateHome}
               />
             ),
+          },
+          {
+            id: "workflow-catalog",
+            span: "full",
+            content: <WorkflowCatalogPane workflows={pipelineWorkflows} />,
           },
         ];
       case "rag":

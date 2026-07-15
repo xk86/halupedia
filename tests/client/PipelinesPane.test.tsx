@@ -10,7 +10,6 @@ describe("PipelinesPane", () => {
   it("shows toggleable live reasoning and response views", async () => {
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[]}
         activeRuns={[
           {
@@ -96,7 +95,6 @@ describe("PipelinesPane", () => {
 
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "run-1",
@@ -291,7 +289,6 @@ describe("PipelinesPane", () => {
 
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "homepage-run",
@@ -326,69 +323,9 @@ describe("PipelinesPane", () => {
     expect(screen.getByText("Second DYK output")).toBeInTheDocument();
   });
 
-  it("shows the complete workflow graph with inline descriptions", () => {
-    render(
-      <PipelinesPane
-        workflows={[
-          {
-            name: "article.generate",
-            description: "Generate a new encyclopedia article.",
-            summary: "Generate and persist an article.",
-            nodes: [
-              {
-                name: "read.retrieve_context",
-                kind: "read",
-                description: "Retrieve related source material.",
-                conditional: false,
-              },
-              {
-                name: "llm.generate_article",
-                kind: "llm",
-                description: "Generate article Markdown.",
-                conditional: true,
-                whenLabel: "when generation is required",
-              },
-              {
-                name: "write.persist_article",
-                kind: "write",
-                description: "Persist Markdown and graph edges.",
-                conditional: false,
-              },
-            ],
-          },
-        ]}
-        runs={[]}
-        traceEnabled
-        error={null}
-        onRefresh={() => {}}
-      />,
-    );
-
-    const flow = screen.getByTestId("workflow-flow");
-    expect(flow).not.toHaveClass("overflow-x-auto");
-    expect(screen.queryByTestId("workflow-flow-track")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /article\.generate/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByText("Generate a new encyclopedia article."),
-    ).toBeVisible();
-    const nodeName = screen.getByText("read.retrieve_context");
-    const nodeDescription = screen.getByText(
-      /Retrieve related source material/,
-    );
-    expect(nodeName.parentElement).toBe(nodeDescription.parentElement);
-    expect(nodeDescription).toBeVisible();
-    expect(screen.getByText(/Generate article Markdown/)).toBeVisible();
-    expect(screen.getByText(/Persist Markdown and graph edges/)).toBeVisible();
-    expect(screen.getByText("when generation is required")).toBeVisible();
-    expect(within(flow).getAllByRole("listitem")).toHaveLength(3);
-  });
-
   it("fits run summaries to constrained screens without a wide table", () => {
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "run-mobile",
@@ -427,7 +364,6 @@ describe("PipelinesPane", () => {
   it("labels successful runs with warnings as partial in the run list", () => {
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "run-partial",
@@ -528,7 +464,6 @@ describe("PipelinesPane", () => {
 
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "run-2",
@@ -658,7 +593,6 @@ describe("PipelinesPane", () => {
 
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "run-3",
@@ -748,7 +682,6 @@ describe("PipelinesPane", () => {
 
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "legacy-run",
@@ -853,7 +786,6 @@ describe("PipelinesPane", () => {
 
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "run-3",
@@ -958,7 +890,6 @@ describe("PipelinesPane", () => {
 
     render(
       <PipelinesPane
-        workflows={[]}
         runs={[
           {
             run_id: "run-empty-refs",

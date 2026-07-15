@@ -124,18 +124,23 @@ function isPassVerdict(value: unknown): boolean {
   return typeof value === "string" && value.trim().toLowerCase() === "pass";
 }
 
-// Small/local models routinely re-fail an item over slug-shape or length even
-// after the prompt tells them those were already checked and to leave them
-// alone — negative instructions ("don't judge X") are unreliable on light
-// local models. By the time an item reaches the model it has *already* been
-// deterministically cleared on both counts (auto-humanized / under the word
-// cap), so a fail whose own stated reason is still about format is the model
-// being wrong, not a real problem: override it back to a pass rather than
-// losing an otherwise-good fact to a hallucinated gate.
-const STALE_FORMAT_REASON_RE = /\b(slug|machine|identifier|url|too\s*long|overlong|length)\b/i;
+// Small/local models routinely fail an item over concerns explicitly outside
+// its remit, no matter how bluntly the prompt forbids it — negative
+// instructions ("don't judge X") are unreliable on light local models. This
+// review is meant to be a near-rubber-stamp (expect ~98% of well-formed facts
+// to pass): format problems (slug-shape, length) are already deterministically
+// cleared before an item reaches the model, and content plausibility
+// ("is this a recognizable entity", "is this redundant/vague/unclear
+// phrasing", "is this a duplicate") is simply not this review's job — the
+// extraction step already vetted the fact against the article. A fail whose
+// own stated reason falls into either bucket is the model overstepping, not a
+// real problem: override it back to a pass rather than losing an otherwise-
+// good fact to a hallucinated gate.
+const OUT_OF_SCOPE_REASON_RE =
+  /\b(slug|machine|identifier|url|too\s*long|overlong|length|redundant|duplicate|unclear|vague|ambigu\w*|generic|recogni[sz]\w*|(?:valid|real|plausible|legitimate)\s+(?:category|entity|concept|topic)|unclear\s+phrasing)\b/i;
 
-function isStaleFormatComplaint(reason: unknown): boolean {
-  return typeof reason === "string" && STALE_FORMAT_REASON_RE.test(reason);
+function isOutOfScopeComplaint(reason: unknown): boolean {
+  return typeof reason === "string" && OUT_OF_SCOPE_REASON_RE.test(reason);
 }
 
 export async function reviewArticleSuggestions(
@@ -264,8 +269,8 @@ export async function reviewArticleSuggestions(
       const reason = typeof entry.reason === "string" ? entry.reason : "";
       if (isPassVerdict(entry.verdict)) {
         verdictByIndex.set(index, { verdict: "pass", reason });
-      } else if (isStaleFormatComplaint(reason)) {
-        verdictByIndex.set(index, { verdict: "pass", reason: "format concern already cleared" });
+      } else if (isOutOfScopeComplaint(reason)) {
+        verdictByIndex.set(index, { verdict: "pass", reason: "out-of-scope concern overridden" });
       } else {
         verdictByIndex.set(index, { verdict: "fail", reason });
       }
@@ -296,9 +301,9 @@ export async function reviewArticleSuggestions(
       if (isPassVerdict(typeEntry?.verdict)) {
         verdict = "pass";
         reason = modelReason;
-      } else if (isStaleFormatComplaint(modelReason)) {
+      } else if (isOutOfScopeComplaint(modelReason)) {
         verdict = "pass";
-        reason = "format concern already cleared";
+        reason = "out-of-scope concern overridden";
       } else {
         verdict = "fail";
         reason = modelReason;

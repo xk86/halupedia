@@ -172,17 +172,23 @@ test("reviewArticleSuggestions treats a capitalized model verdict as pass, not a
   assert.equal(result.items[0]?.verdict, "pass");
 });
 
-test("reviewArticleSuggestions overrides a model fail whose own reason is a stale format complaint", async (t) => {
+test("reviewArticleSuggestions overrides a model fail whose own reason is an out-of-scope complaint", async (t) => {
   const db = makeDb(t);
   makeArticle(db, "subject", "Subject", Date.now());
   insertSuggestion(db, "subject", "Subject", "founded_by", "Jane Doe");
+  insertSuggestion(db, "subject", "Subject", "falls_under", "Anthropology Of Test");
+  insertSuggestion(db, "subject", "Subject", "uses", "Test test");
 
-  // Small/local models sometimes ignore the "already checked, don't re-judge
-  // this" instruction and fail an item over slug-shape/length anyway. Since
-  // this item already cleared both deterministically, that fail is wrong and
-  // must not cost the fact.
+  // Small/local models routinely ignore "this isn't your job" instructions
+  // and fail items over format (already deterministically cleared) or content
+  // judgment (recognizability, redundancy) that's explicitly out of scope for
+  // this near-rubber-stamp review — none of these should cost the fact.
   const reply = JSON.stringify({
-    items: [{ index: 1, verdict: "fail", reason: "Value is not natural text (machine slug)" }],
+    items: [
+      { index: 1, verdict: "fail", reason: "Value is not natural text (machine slug)" },
+      { index: 2, verdict: "fail", reason: "Value is not a recognizable category or entity." },
+      { index: 3, verdict: "fail", reason: "Value appears to be redundant/unclear phrasing ('Test test')." },
+    ],
     type: null,
   });
   const result = await reviewArticleSuggestions(db, "subject", {
@@ -192,8 +198,10 @@ test("reviewArticleSuggestions overrides a model fail whose own reason is a stal
     keyMaxWords: 6,
   });
 
-  assert.equal(result.items[0]?.verdict, "pass");
-  assert.equal(result.items[0]?.reason, "format concern already cleared");
+  for (const item of result.items) {
+    assert.equal(item.verdict, "pass", `${item.object} should be overridden back to pass`);
+    assert.equal(item.reason, "out-of-scope concern overridden");
+  }
 });
 
 test("ontology_review.enqueue schedule tops up to the configured batch instead of skipping while partially full", async (t) => {

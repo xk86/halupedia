@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDownIcon, PlayIcon, RefreshCwIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, PlayIcon, RefreshCwIcon } from "lucide-react";
 
 import { Pane } from "../Pane";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -19,6 +20,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toWikiSegment } from "../../wikiPath";
+
+// Maps a schedule id to the app-config path its interval lives at, so the
+// interval can be edited inline here instead of only via the Config tab.
+const INTERVAL_CONFIG_PATH: Record<string, string> = {
+  "ontology_review.enqueue": "ontology_review.enqueue_interval_minutes",
+  "ontology_review.run": "ontology_review.run_interval_minutes",
+};
 
 interface ScheduleSummary {
   id: string;
@@ -98,6 +106,54 @@ const VERDICT_BADGE: Record<string, "secondary" | "warn" | "destructive"> = {
   partial: "warn",
   fail: "destructive",
 };
+
+function IntervalEditor({
+  schedule,
+  busy,
+  onSave,
+}: {
+  schedule: ScheduleSummary;
+  busy: boolean;
+  onSave: (id: string, minutes: number) => void;
+}) {
+  const [value, setValue] = useState(String(schedule.intervalMinutes));
+  // Pick up the saved value once it round-trips through a reload; don't
+  // clobber the field while the operator is mid-edit and unsaved.
+  useEffect(() => {
+    setValue(String(schedule.intervalMinutes));
+  }, [schedule.intervalMinutes]);
+
+  const parsed = Number(value);
+  const valid = value.trim() !== "" && Number.isFinite(parsed) && parsed > 0;
+  const dirty = valid && Math.floor(parsed) !== schedule.intervalMinutes;
+
+  return (
+    <div className="flex items-center gap-1">
+      <Input
+        type="number"
+        min={1}
+        step={1}
+        value={value}
+        disabled={busy}
+        onChange={(e) => setValue(e.target.value)}
+        className="h-7 w-16"
+        aria-label={`${schedule.label} interval minutes`}
+      />
+      <span className="text-xs text-muted-foreground">min</span>
+      {dirty ? (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`Save ${schedule.label} interval`}
+          disabled={busy}
+          onClick={() => onSave(schedule.id, Math.floor(parsed))}
+        >
+          <CheckIcon />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 function QueueItemRow({
   item,
@@ -283,6 +339,28 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
     [load],
   );
 
+  const saveInterval = useCallback(
+    async (id: string, minutes: number) => {
+      const path = INTERVAL_CONFIG_PATH[id];
+      if (!path) return;
+      setBusyId(id);
+      setError(null);
+      try {
+        await fetchJson("/api/admin/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ updates: [{ path, value: minutes }] }),
+        });
+        await load();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "failed to save interval");
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [load],
+  );
+
   const pendingCount = data?.queue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
 
   return (
@@ -325,7 +403,11 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
                 <TableRow key={schedule.id}>
                   <TableCell className="font-medium">{schedule.label}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    every {schedule.intervalMinutes}m
+                    <IntervalEditor
+                      schedule={schedule}
+                      busy={busyId === schedule.id}
+                      onSave={(id, minutes) => void saveInterval(id, minutes)}
+                    />
                   </TableCell>
                   <TableCell>
                     <Checkbox

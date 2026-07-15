@@ -941,7 +941,7 @@ export async function createApp(options: CreateAppOptions = {}) {
   // asset/vite-internal noise so this stays useful for actual page/API hits.
   // High-frequency admin poll endpoints whose successful requests would
   // otherwise flood the log once per second. Errors still log normally.
-  const NOISY_POLL_PATHS = new Set(["/api/admin/generation-queue", "/api/admin/llm", "/api/admin/runs", "/api/admin/pipeline/workflows", "/api/admin/pipeline/runs"]);
+  const NOISY_POLL_PATHS = new Set(["/api/admin/generation-queue", "/api/admin/llm", "/api/admin/runs", "/api/admin/pipeline/workflows", "/api/admin/pipeline/runs", "/api/admin/workflow-schedules"]);
   app.use("*", async (c, next) => {
     const { method } = c.req;
     const { pathname, search } = new URL(c.req.url);

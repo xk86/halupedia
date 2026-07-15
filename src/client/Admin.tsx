@@ -21,6 +21,7 @@ import { RagTesterPane } from "./admin/panes/RagTesterPane";
 import { OntologySuggestionsPane } from "./admin/panes/OntologySuggestionsPane";
 import { OntologyVocabularyPane } from "./admin/panes/OntologyVocabularyPane";
 import { WorkflowSchedulePane } from "./admin/panes/WorkflowSchedulePane";
+import { EncyclopediaPdfPane } from "./admin/panes/EncyclopediaPdfPane";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { LiveLlmView } from "./admin/LiveLlmViews";
@@ -109,6 +110,7 @@ const VIEW_LABELS: Record<AdminView, string> = {
   models: "Models",
   prompts: "Prompts",
   config: "Config",
+  exports: "Exports",
   articles: "Articles",
 };
 
@@ -653,6 +655,14 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
             id: "config-image-generation",
             span: "half",
             content: <ImageGenerationPane />,
+          },
+        ];
+      case "exports":
+        return [
+          {
+            id: "encyclopedia-pdf",
+            span: "full",
+            content: <EncyclopediaPdfPane />,
           },
         ];
       case "articles":

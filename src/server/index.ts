@@ -103,6 +103,7 @@ import type { ChatConfig, ImageGenerationConfig } from "./types";
 import { addTomlTable, removeTomlTableKey, setTomlTableValue } from "./tomlEdit";
 import { createConsoleLogger, type Logger } from "./logger";
 import { MaintenanceScheduler } from "./maintenance";
+import { createEncyclopediaPdfExportJobs } from "./encyclopediaPdfExportJobs";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
 import { articleSectionMarkdown, buildHaluLink, extractDisplayTitle, extractInternalLinks, extractTitle, fixSlugVisibleText, LINK_RE, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, renderInlineMarkdown, renderOntologyValueHtml, replaceArticleSection, sectionSlice, spliceProtectedSections, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
 import { getPrompt, getSharedPrompt, renderTemplate } from "./prompts";
@@ -687,6 +688,10 @@ export async function createApp(options: CreateAppOptions = {}) {
   runtime = applyImageGenerationConfig(runtime);
   const db = openDatabase(runtime.app.storage.database_path);
   const mediaDb = openMediaDatabase(options.mediaDatabasePath ?? runtime.app.images.media_database_path);
+  const encyclopediaPdfExports = createEncyclopediaPdfExportJobs({
+    articleDatabasePath: runtime.app.storage.database_path,
+    mediaDatabasePath: options.mediaDatabasePath ?? runtime.app.images.media_database_path,
+  });
   const indexResponseCache = makeVersionedCache(db);
   const mediaResponseCache = makeVersionedCache(mediaDb);
 
@@ -4276,6 +4281,34 @@ export async function createApp(options: CreateAppOptions = {}) {
       headers: {
         "Content-Type": "application/gzip",
         "Content-Disposition": `attachment; filename="${latest}"`,
+        "Content-Length": String(size),
+      },
+    });
+  });
+
+  // ── Encyclopedia PDF export ─────────────────────────────────────────────
+
+  app.get("/api/admin/encyclopedia-pdf", (c) => c.json(encyclopediaPdfExports.status()));
+
+  app.post("/api/admin/encyclopedia-pdf/:mode", (c) => {
+    const mode = c.req.param("mode");
+    if (mode !== "full" && mode !== "update") return c.json({ error: "unknown export mode" }, 400);
+    const status = encyclopediaPdfExports.start(mode);
+    if (!status) return c.json({ error: "an encyclopedia PDF export is already running" }, 409);
+    return c.json(status, 202);
+  });
+
+  app.get("/api/admin/encyclopedia-pdf/:mode/download", async (c) => {
+    const mode = c.req.param("mode");
+    if (mode !== "full" && mode !== "update") return c.json({ error: "unknown export mode" }, 400);
+    const path = encyclopediaPdfExports.outputPath(mode);
+    if (!existsSync(path)) return c.json({ error: "export not available" }, 404);
+    const { size } = await fsStat(path);
+    const stream = (await import("node:fs")).createReadStream(path);
+    return new Response(stream as any, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${basename(path)}"`,
         "Content-Length": String(size),
       },
     });

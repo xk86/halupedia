@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { loadConfig } from "../src/server/config";
-import { writeEncyclopediaPdfDump, writePdfDumpTombstone } from "../src/server/encyclopediaPdfDump";
+import { runEncyclopediaPdfDumpJob } from "../src/server/encyclopediaPdfDump";
 
 function readFlag(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -20,16 +20,11 @@ const tombstonePath = readFlag("--tombstone") ?? "output/pdf/halupedia-encyclope
 
 console.log(`PDF dump: article database ${resolve(articleDatabasePath)}`);
 console.log(`PDF dump: media database ${resolve(mediaDatabasePath)}`);
-await writeEncyclopediaPdfDump({
+await runEncyclopediaPdfDumpJob({
+  mode: "full",
   articleDatabasePath,
   mediaDatabasePath,
   outputPath,
+  tombstonePath,
   log: console.log,
 });
-const publishedAt = new Date().toISOString();
-writePdfDumpTombstone(tombstonePath, {
-  version: 1,
-  lastFullExtractionAt: publishedAt,
-  lastPublishedAt: publishedAt,
-});
-console.log(`PDF dump: wrote tombstone ${resolve(tombstonePath)}`);

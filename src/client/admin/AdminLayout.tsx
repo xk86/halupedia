@@ -17,6 +17,7 @@ export const ADMIN_VIEWS = [
   "models",
   "prompts",
   "config",
+  "exports",
   "articles",
 ] as const;
 

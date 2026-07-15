@@ -13,6 +13,7 @@ import {
   writeEncyclopediaPdfDump,
   writePdfDumpTombstone,
 } from "../src/server/encyclopediaPdfDump";
+import { createEncyclopediaPdfExportJobs } from "../src/server/encyclopediaPdfExportJobs";
 
 const TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR1er7kAAAAAElFTkSuQmCC";
 
@@ -106,3 +107,38 @@ test("encyclopedia PDF dump reads live article/sidebar/media tables and writes a
     `PDF dump: wrote ${outputPath}`,
   ]);
 });
+
+test("PDF export jobs generate off-thread and retain the full-export checkpoint", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halu-pdf-job-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const articlePath = join(root, "articles.sqlite");
+  const mediaPath = join(root, "media.sqlite");
+  const articleDb = openDatabase(articlePath);
+  const mediaDb = openMediaDatabase(mediaPath);
+  saveCurrentArticle(articleDb, "alpha", "Alpha", "# Alpha\n\nCurrent Alpha body.");
+  articleDb.close();
+  mediaDb.close();
+
+  const jobs = createEncyclopediaPdfExportJobs({ articleDatabasePath: articlePath, mediaDatabasePath: mediaPath, outputDir: join(root, "output") });
+  assert.equal(jobs.start("full")?.state, "running");
+  const complete = await waitForJob(jobs);
+  assert.equal(complete.state, "complete");
+  assert.equal(complete.articleCount, 1);
+  assert.equal(complete.downloads.full.available, true);
+
+  assert.equal(jobs.start("update")?.state, "running");
+  const update = await waitForJob(jobs);
+  assert.equal(update.state, "no_changes");
+  assert.equal(update.articleCount, 0);
+  assert.equal(update.downloads.update.available, false);
+});
+
+async function waitForJob(jobs: ReturnType<typeof createEncyclopediaPdfExportJobs>) {
+  const timeout = Date.now() + 20_000;
+  while (jobs.status().state === "running" && Date.now() < timeout) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const status = jobs.status();
+  assert.notEqual(status.state, "running", "PDF worker timed out");
+  return status;
+}

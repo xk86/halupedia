@@ -37,6 +37,25 @@ export interface PdfDumpTombstone {
   lastPublishedAt: string;
 }
 
+export type PdfDumpMode = "full" | "update";
+
+export interface RunPdfDumpJobOptions {
+  mode: PdfDumpMode;
+  articleDatabasePath: string;
+  mediaDatabasePath: string;
+  outputPath: string;
+  tombstonePath: string;
+  log?: (message: string) => void;
+}
+
+export interface PdfDumpJobResult {
+  mode: PdfDumpMode;
+  articleCount: number;
+  outputPath?: string;
+  tombstonePath: string;
+  noChanges: boolean;
+}
+
 const PAGE_MARGIN = 54;
 const TOC_LINES_PER_PAGE = 38;
 const UNICODE_FONT = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf";
@@ -157,6 +176,38 @@ export function writePdfDumpTombstone(path: string, tombstone: PdfDumpTombstone)
   const outputPath = resolve(path);
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(tombstone, null, 2)}\n`);
+}
+
+/** Shared CLI/admin worker entry point for full and incremental publications. */
+export async function runEncyclopediaPdfDumpJob(options: RunPdfDumpJobOptions): Promise<PdfDumpJobResult> {
+  const log = options.log ?? (() => {});
+  const tombstone = options.mode === "update" ? readPdfDumpTombstone(options.tombstonePath) : null;
+  const since = tombstone ? Date.parse(tombstone.lastPublishedAt) : undefined;
+  const articleCount = loadEncyclopediaPdfDump(options.articleDatabasePath, options.mediaDatabasePath, since).length;
+  if (options.mode === "update" && articleCount === 0) {
+    log(`PDF update: no article changes since ${tombstone!.lastPublishedAt}`);
+    return { mode: options.mode, articleCount, tombstonePath: resolve(options.tombstonePath), noChanges: true };
+  }
+
+  await writeEncyclopediaPdfDump({
+    articleDatabasePath: options.articleDatabasePath,
+    mediaDatabasePath: options.mediaDatabasePath,
+    outputPath: options.outputPath,
+    since,
+    log,
+  });
+  const publishedAt = new Date().toISOString();
+  writePdfDumpTombstone(options.tombstonePath, options.mode === "full"
+    ? { version: 1, lastFullExtractionAt: publishedAt, lastPublishedAt: publishedAt }
+    : { ...tombstone!, lastPublishedAt: publishedAt });
+  log(`PDF dump: wrote tombstone ${resolve(options.tombstonePath)}`);
+  return {
+    mode: options.mode,
+    articleCount,
+    outputPath: resolve(options.outputPath),
+    tombstonePath: resolve(options.tombstonePath),
+    noChanges: false,
+  };
 }
 
 function addFooter(doc: PDFKit.PDFDocument, pageNumber: number): void {

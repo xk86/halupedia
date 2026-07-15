@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckIcon, ChevronDownIcon, PlayIcon, RefreshCwIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ListPlusIcon,
+  PlayIcon,
+  RefreshCwIcon,
+  StepForwardIcon,
+} from "lucide-react";
 
 import { Pane } from "../Pane";
 import { Badge } from "@/components/ui/badge";
@@ -157,10 +164,14 @@ function IntervalEditor({
 
 function QueueItemRow({
   item,
+  runAtMs,
   onNavigate,
   dividerAbove,
 }: {
   item: ReviewQueueItem;
+  /** Actual run start for processing/done/error rows; an estimated future
+   *  time (derived from the run schedule's cadence) for pending rows. */
+  runAtMs: number | null;
   onNavigate: (slug: string) => void;
   /** Marks the first completed row after the pending/processing ones, so a
    *  heavier top border separates in-flight work from finished work. */
@@ -217,7 +228,10 @@ function QueueItemRow({
           {new Date(item.enqueuedAt).toLocaleTimeString()}
         </TableCell>
         <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
-          {item.startedAt ? new Date(item.startedAt).toLocaleTimeString() : "—"}
+          {runAtMs !== null ? new Date(runAtMs).toLocaleTimeString() : "—"}
+          {item.status === "pending" && runAtMs !== null ? (
+            <span className="ml-1 text-muted-foreground/70">(est.)</span>
+          ) : null}
         </TableCell>
         <TableCell>
           {item.verdict ? (
@@ -361,7 +375,45 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
     [load],
   );
 
+  const [runningAll, setRunningAll] = useState(false);
+  const runAllQueued = useCallback(async () => {
+    const activeCount =
+      data?.queue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
+    if (activeCount === 0) return;
+    setRunningAll(true);
+    setError(null);
+    try {
+      // Bounded by the count observed when the button was clicked — new work
+      // enqueued mid-run isn't swept up, so this can't turn into a runaway loop.
+      for (let i = 0; i < activeCount; i++) {
+        await fetchJson("/api/admin/workflow-schedules/ontology_review.run/run-now", {
+          method: "POST",
+        });
+      }
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "failed to run all queued items");
+    } finally {
+      setRunningAll(false);
+    }
+  }, [data, load]);
+
   const pendingCount = data?.queue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
+
+  // The run schedule fires at a fixed cadence, so a pending item's estimated
+  // run time is just the schedule's next-run time plus its position in the
+  // queue times the interval — the queue is already returned in run order.
+  const runSchedule = data?.schedules.find((s) => s.id === "ontology_review.run") ?? null;
+  const intervalMs = (runSchedule?.intervalMinutes ?? 5) * 60_000;
+  let pendingIndex = 0;
+  const queueWithRunAt = (data?.queue ?? []).map((item) => {
+    let runAtMs: number | null = item.startedAt;
+    if (item.status === "pending") {
+      runAtMs = runSchedule?.nextRunAt != null ? runSchedule.nextRunAt + pendingIndex * intervalMs : null;
+      pendingIndex += 1;
+    }
+    return { item, runAtMs };
+  });
 
   return (
     <Pane
@@ -370,14 +422,34 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
       description="Recurring background workflows and the long-term ontology-review queue they drive."
       count={data ? `${pendingCount} queued` : undefined}
       actions={
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Refresh workflow schedules"
-          onClick={() => void load()}
-        >
-          <RefreshCwIcon />
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={busyId === "ontology_review.enqueue" || runningAll}
+            onClick={() => void runNow("ontology_review.enqueue")}
+          >
+            <ListPlusIcon data-icon="inline-start" />
+            Queue more
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={pendingCount === 0 || runningAll || busyId !== null}
+            onClick={() => void runAllQueued()}
+          >
+            <StepForwardIcon data-icon="inline-start" />
+            {runningAll ? "Running…" : "Run all queued"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Refresh workflow schedules"
+            onClick={() => void load()}
+          >
+            <RefreshCwIcon />
+          </Button>
+        </>
       }
       wide
     >
@@ -471,10 +543,11 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.queue.map((item, index) => (
+                {queueWithRunAt.map(({ item, runAtMs }, index) => (
                   <QueueItemRow
                     key={item.id}
                     item={item}
+                    runAtMs={runAtMs}
                     onNavigate={onNavigate}
                     dividerAbove={index > 0 && index === pendingCount}
                   />

@@ -552,11 +552,6 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
       case "monitoring":
         return [
           {
-            id: "workflow-schedules",
-            span: "full",
-            content: <WorkflowSchedulePane onNavigate={onNavigate} />,
-          },
-          {
             id: "pipelines",
             span: "full",
             content: (
@@ -575,6 +570,11 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
             id: "workflow-catalog",
             span: "full",
             content: <WorkflowCatalogPane workflows={pipelineWorkflows} />,
+          },
+          {
+            id: "workflow-schedules",
+            span: "full",
+            content: <WorkflowSchedulePane onNavigate={onNavigate} />,
           },
         ];
       case "rag":

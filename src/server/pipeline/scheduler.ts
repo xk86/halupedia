@@ -36,6 +36,9 @@ export interface SchedulerDeps {
   /** Fired after each reviewed article, so the caller can record a trace row
    *  and push a live update — mirrors `onOntologyExtracted` in index.ts. */
   onReview?: (slug: string, result: OntologyReviewResult, callInfo: OntologyReviewCallInfo) => void;
+  /** Run one check synchronously at startup instead of waiting for the first
+   *  interval tick. Leave unset for anything short-lived (tests). */
+  immediateTick?: boolean;
 }
 
 interface ScheduleRunOutcome {
@@ -231,9 +234,12 @@ export function startScheduler(deps: SchedulerDeps): SchedulerController {
     }
   };
 
-  // No immediate tick on startup: a short-lived process (every test that
-  // spins up a full server) would otherwise log scheduler activity for no
-  // reason. A real server still gets its first real check within TICK_MS.
+  // A short-lived process (every test that spins up a full server) would
+  // otherwise log scheduler activity on every boot for no reason, so the
+  // immediate check is opt-in — only the real dev/prod server passes it,
+  // so a fresh boot fills the review queue right away instead of waiting up
+  // to TICK_MS.
+  if (deps.immediateTick) tick();
   const timer = setInterval(tick, TICK_MS);
   timer.unref?.();
 

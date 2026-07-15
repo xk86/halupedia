@@ -13,6 +13,7 @@ import {
   enqueueReviewTasks,
   claimNextReview,
   countActiveReviews,
+  listReviewQueue,
   reviewArticleSuggestions,
 } from "../src/server/ontology";
 import { startScheduler } from "../src/server/pipeline/scheduler";
@@ -83,6 +84,53 @@ test("enqueueReviewTasks orders newest-first and skips already-queued articles",
   // Re-enqueueing while those rows are still 'processing' must not duplicate them.
   const addedAgain = enqueueReviewTasks(db, 10);
   assert.equal(addedAgain, 0);
+});
+
+test("listReviewQueue orders active rows by article_rank (the real claim order), not raw insertion id", (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "low-rank-first", "Low Rank First", 1000);
+  makeArticle(db, "high-rank-second", "High Rank Second", 2000);
+  const now = Date.now();
+  // Inserted in the opposite order from their rank — the low-rank row gets
+  // the lower id (enqueued first), the high-rank row the higher id — the
+  // exact shape that would fool an `id DESC` sort into the wrong order.
+  prepared(
+    db,
+    `INSERT INTO ontology_review_queue (article_slug, article_rank, status, enqueued_at) VALUES (?, ?, 'pending', ?)`,
+  ).run("low-rank-first", 1000, now);
+  prepared(
+    db,
+    `INSERT INTO ontology_review_queue (article_slug, article_rank, status, enqueued_at) VALUES (?, ?, 'pending', ?)`,
+  ).run("high-rank-second", 2000, now);
+
+  const queue = listReviewQueue(db, 10);
+  assert.deepEqual(
+    queue.map((q) => q.articleSlug),
+    ["high-rank-second", "low-rank-first"],
+    "active rows follow article_rank, matching claimNextReview's real order",
+  );
+});
+
+test("listReviewQueue does not force a processing row above a higher-ranked pending row", (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "low-rank-processing", "Low Rank Processing", 1000);
+  makeArticle(db, "high-rank-pending", "High Rank Pending", 2000);
+  const now = Date.now();
+  prepared(
+    db,
+    `INSERT INTO ontology_review_queue (article_slug, article_rank, status, enqueued_at, started_at) VALUES (?, ?, 'processing', ?, ?)`,
+  ).run("low-rank-processing", 1000, now, now);
+  prepared(
+    db,
+    `INSERT INTO ontology_review_queue (article_slug, article_rank, status, enqueued_at) VALUES (?, ?, 'pending', ?)`,
+  ).run("high-rank-pending", 2000, now);
+
+  const queue = listReviewQueue(db, 10);
+  assert.deepEqual(
+    queue.map((q) => q.articleSlug),
+    ["high-rank-pending", "low-rank-processing"],
+    "a lower-ranked processing row doesn't jump ahead of a higher-ranked pending one",
+  );
 });
 
 function stubLlm(reply: string): LlmRouter {

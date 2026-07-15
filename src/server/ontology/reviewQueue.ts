@@ -126,6 +126,14 @@ export function failReview(db: DatabaseSync, id: number, error: string): void {
   ).run(Date.now(), error, id);
 }
 
+/**
+ * Active rows (pending/processing) first, in their real run order — the same
+ * `article_rank DESC, id ASC` `claimNextReview` uses, so a "processing" row
+ * never jumps ahead of a not-yet-claimed pending row it wouldn't have beaten
+ * anyway. Finished rows (done/error) follow, most recently finished first.
+ * The two groups read as one continuous timeline: active rows carry a future
+ * (estimated) run time, finished rows a past (actual) one.
+ */
 export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[] {
   return prepared(
     db,
@@ -137,8 +145,10 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
        FROM ontology_review_queue q
        LEFT JOIN articles a ON a.slug = q.article_slug
       ORDER BY
-        CASE q.status WHEN 'processing' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
-        q.id DESC
+        CASE WHEN q.status IN ('pending', 'processing') THEN 0 ELSE 1 END,
+        CASE WHEN q.status IN ('pending', 'processing') THEN q.article_rank END DESC,
+        CASE WHEN q.status IN ('pending', 'processing') THEN q.id END ASC,
+        COALESCE(q.finished_at, q.started_at, q.enqueued_at) DESC
       LIMIT ?`,
   ).all(limit) as unknown as ReviewQueueItem[];
 }

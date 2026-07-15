@@ -879,6 +879,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     getLlm: () => llm,
     getPrompts: () => runtime.prompts,
     getVocab: () => rag.vocab,
+    // Real server startup (never a short-lived test instance, which always
+    // sets skipLlmProbe) checks the queue right away rather than waiting up
+    // to TICK_MS for the first interval tick.
+    immediateTick: !options.skipLlmProbe,
     onReview: (slug, result, info) => {
       const recorder = getTraceRecorder(runtime.app.pipeline.trace);
       const runId = randomUUID();

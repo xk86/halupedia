@@ -64,7 +64,7 @@ export function createEncyclopediaPdfExportJobs(options: Options) {
       error: null,
       logs: [`PDF ${mode}: worker started`],
     };
-    // Worker threads do not reliably inherit the parent's tsx ESM loader.
+    // Supply tsx and use extension-explicit worker imports for standalone resolution.
     const worker = new Worker(new URL("./encyclopediaPdfExportWorker.ts", import.meta.url), {
       execArgv: ["--import", "tsx/esm"],
       workerData: {

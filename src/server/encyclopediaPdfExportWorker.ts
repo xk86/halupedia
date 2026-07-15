@@ -1,5 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { runEncyclopediaPdfDumpJob, type PdfDumpMode } from "./encyclopediaPdfDump";
+// Node's worker ESM resolver requires the source extension.
+import { runEncyclopediaPdfDumpJob, type PdfDumpMode } from "./encyclopediaPdfDump.ts";
 
 interface WorkerData {
   mode: PdfDumpMode;

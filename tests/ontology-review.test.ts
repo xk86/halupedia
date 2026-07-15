@@ -225,6 +225,44 @@ const REVIEW_PROMPTS = {
   shared: {},
 } as unknown as PromptConfig;
 
+test("deterministic title-equality check fails a value that truly equals the article's own title", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "subject", "The Geopolitical Failure Market", Date.now());
+  insertSuggestion(db, "subject", "The Geopolitical Failure Market", "is", "The Geopolitical Failure Market");
+
+  const result = await reviewArticleSuggestions(db, "subject", {
+    llm: stubLlm(JSON.stringify({ items: [], type: null })),
+    prompts: REVIEW_PROMPTS,
+    vocab,
+    keyMaxWords: 6,
+  });
+
+  assert.equal(result.items[0]?.verdict, "fail");
+  assert.equal(result.items[0]?.source, "deterministic");
+  assert.equal(result.items[0]?.reason, "value equals the article's own title");
+});
+
+test("deterministic title-equality check does not fail a value that only equals the fact's own extracted subject text, not the article's real title", async (t) => {
+  const db = makeDb(t);
+  // A "Today's News: <date>" digest article: the article's real title carries
+  // the "Today's News:" prefix, but the extractor recorded this fact's own
+  // `subject` as just the bare date — coincidentally identical to the value,
+  // even though neither string is the article's actual title.
+  makeArticle(db, "digest", "Today's News: March 20, 2003", Date.now());
+  insertSuggestion(db, "digest", "March 20, 2003", "occurred_on", "March 20, 2003");
+
+  const reply = JSON.stringify({ items: [{ index: 1, verdict: "pass", reason: "stated in the article" }], type: null });
+  const result = await reviewArticleSuggestions(db, "digest", {
+    llm: stubLlm(reply),
+    prompts: REVIEW_PROMPTS,
+    vocab,
+    keyMaxWords: 6,
+  });
+
+  assert.equal(result.items[0]?.source, "llm", "reached the model instead of being deterministically failed");
+  assert.equal(result.items[0]?.verdict, "pass");
+});
+
 test("reviewArticleSuggestions humanizes a machine-identifier value instead of failing it, but still fails an overlong label deterministically", async (t) => {
   const db = makeDb(t);
   makeArticle(db, "subject", "Subject", Date.now());

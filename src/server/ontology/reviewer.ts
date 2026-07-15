@@ -115,10 +115,17 @@ function deterministicRelationFail(
   suggestion: OntologySuggestion,
   label: string,
   keyMaxWords: number,
+  articleTitle: string,
 ): string | null {
   const object = suggestion.object.trim();
   if (!suggestion.subject.trim() || !label.trim() || !object) return "empty field";
-  if (object.toLowerCase() === suggestion.subject.trim().toLowerCase()) {
+  // Compare against the article's actual (authoritative) title, not the
+  // fact's own extracted `subject` text — those two aren't always the same
+  // string (a "Today's News: <date>" digest article's subject is often
+  // recorded as just the bare date, e.g. for an `occurred_on` fact), and
+  // comparing against the wrong one flags a perfectly legitimate fact as a
+  // self-reference just because two unrelated strings happen to match.
+  if (object.toLowerCase() === articleTitle.trim().toLowerCase()) {
     return "value equals the article's own title";
   }
   const wordCount = label.trim().split(/\s+/).filter(Boolean).length;
@@ -195,7 +202,7 @@ export async function reviewArticleSuggestions(
       suggestion.object = humanized;
     }
     const label = labelFor(options.vocab, suggestion.predicate);
-    const failReason = deterministicRelationFail(suggestion, label, options.keyMaxWords);
+    const failReason = deterministicRelationFail(suggestion, label, options.keyMaxWords, articleTitle);
     if (failReason) {
       items.push({
         id: suggestion.id,

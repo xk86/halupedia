@@ -356,16 +356,25 @@ export function OntologySuggestionsPane({
     setAutoMerging(true);
     setError(null);
     try {
-      // Sweep every article sequentially, merging all of its suggestions.
+      // Sweep every article sequentially, merging all of its relation
+      // suggestions and applying any pending entity-type change.
       for (const article of data.articles) {
-        await fetchJson(
-          `/api/article/${encodeSlug(article.slug)}/ontology/suggestions/merge`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-          },
-        );
+        if (article.suggestionCount > 0) {
+          await fetchJson(
+            `/api/article/${encodeSlug(article.slug)}/ontology/suggestions/merge`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            },
+          );
+        }
+        if (article.typeSuggestion) {
+          await fetchJson(
+            `/api/article/${encodeSlug(article.slug)}/ontology/type-suggestion/apply`,
+            { method: "POST" },
+          );
+        }
       }
       await load();
     } catch (cause) {

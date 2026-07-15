@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
@@ -14,6 +15,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
@@ -186,20 +188,26 @@ function AppConfigPaneComponent() {
               dirtyPaths.has(fieldPath(field)),
             );
             return (
-              <Card key={section.id} size="sm">
+              <Card
+                key={section.id}
+                size="sm"
+                className="[--card-spacing:calc(var(--spacing)*2.5)]! sm:[--card-spacing:calc(var(--spacing)*4)]!"
+              >
                 <CardHeader>
                   <CardTitle>{section.title}</CardTitle>
                   <CardDescription>{section.description}</CardDescription>
-                  <Badge variant={sectionDirty ? "default" : "outline"}>
-                    {sectionDirty
-                      ? "Unsaved"
-                      : `${section.fields.length} settings`}
-                  </Badge>
+                  <CardAction>
+                    <Badge variant={sectionDirty ? "default" : "outline"}>
+                      {sectionDirty
+                        ? "Unsaved"
+                        : `${section.fields.length} settings`}
+                    </Badge>
+                  </CardAction>
                 </CardHeader>
                 <CardContent className="min-w-0">
                   <FieldGroup
                     data-testid={`config-fields-${section.id}`}
-                    className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-x-4 gap-y-3"
+                    className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-x-4 gap-y-2 sm:gap-y-3"
                   >
                     {section.fields.map((field) => (
                       <ConfigControl
@@ -275,18 +283,20 @@ function ConfigControl({
   }
 
   return (
-    <Field className="min-w-0 gap-1.5 self-start">
-      <div className="flex min-w-0 items-center gap-2">
-        <FieldLabel className="min-w-0 text-xs" htmlFor={id}>
-          {field.label}
-        </FieldLabel>
-        {field.restartRequired ? (
-          <Badge variant="outline">Restart</Badge>
-        ) : null}
-      </div>
-      <FieldDescription className="text-xs leading-snug">
-        {field.description}
-      </FieldDescription>
+    <Field className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(8rem,42%)] items-center gap-2 self-start sm:flex sm:grid-cols-none sm:items-stretch sm:gap-1.5">
+      <FieldContent className="min-w-0 gap-0.5 sm:gap-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <FieldLabel className="min-w-0 text-xs" htmlFor={id}>
+            {field.label}
+          </FieldLabel>
+          {field.restartRequired ? (
+            <Badge variant="outline">Restart</Badge>
+          ) : null}
+        </div>
+        <FieldDescription className="text-xs leading-snug">
+          {field.description}
+        </FieldDescription>
+      </FieldContent>
       {field.kind === "select" ? (
         <Select
           value={String(value)}
@@ -325,7 +335,7 @@ function ConfigControl({
             id={id}
             className={
               field.min !== undefined && field.max !== undefined
-                ? "w-24 shrink-0"
+                ? "w-20 shrink-0 sm:w-24"
                 : undefined
             }
             type="number"

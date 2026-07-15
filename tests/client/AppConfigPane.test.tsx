@@ -125,8 +125,37 @@ describe("AppConfigPane", () => {
     const fields = await screen.findByTestId("config-fields-retrieval");
     expect(sections).toHaveClass("grid", "min-w-0", "gap-3");
     expect(sections.className).not.toContain("grid-cols-2");
-    expect(fields).toHaveClass("grid", "min-w-0", "gap-y-3");
+    expect(fields).toHaveClass("grid", "min-w-0", "gap-y-2", "sm:gap-y-3");
     expect(fields.className).toContain("auto-fit");
     expect(fields.className).toContain("min(100%,15rem)");
+  });
+
+  it("uses compact two-column controls and tighter card spacing on mobile", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(payload)),
+    );
+    render(<AppConfigPane />);
+
+    const input = await screen.findByLabelText("RAG minimum score", {
+      selector: "input",
+    });
+    const field = input.closest("[data-slot=field]");
+    const card = input.closest("[data-slot=card]");
+
+    expect(field).toHaveClass(
+      "grid",
+      "grid-cols-[minmax(0,1fr)_minmax(8rem,42%)]",
+      "sm:flex",
+    );
+    expect(card?.className).toContain(
+      "[--card-spacing:calc(var(--spacing)*2.5)]!",
+    );
+    expect(card?.className).toContain(
+      "sm:[--card-spacing:calc(var(--spacing)*4)]!",
+    );
+    expect(
+      within(card as HTMLElement).getByText("2 settings").parentElement,
+    ).toHaveAttribute("data-slot", "card-action");
   });
 });

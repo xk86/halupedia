@@ -36,7 +36,7 @@ test("encyclopedia PDF dump reads live article/sidebar/media tables and writes a
   const outputPath = join(root, "encyclopedia.pdf");
   const articleDb = openDatabase(articlePath);
   const mediaDb = openMediaDatabase(mediaPath);
-  saveCurrentArticle(articleDb, "zeta", "Zeta", "# Zeta\n\nCurrent Zeta body.");
+  saveCurrentArticle(articleDb, "zeta", "Zeta", "# Zeta\n\nSee [Alpha](ref:alpha) in the current dump.");
   saveCurrentArticle(articleDb, "alpha", "Alpha", "# Alpha\n\nCurrent Alpha body.");
   setArticleInfobox(articleDb, "alpha", { title: "Alpha", groups: [{ label: "Facts", rows: [{ label: "State", value: "Current" }] }] });
   insertMedia(mediaDb, {
@@ -76,6 +76,7 @@ test("encyclopedia PDF dump reads live article/sidebar/media tables and writes a
   const pdf = readFileSync(outputPath);
   assert.ok(pdf.subarray(0, 4).equals(Buffer.from("%PDF")));
   assert.match(pdf.toString("latin1"), /\/Outlines/);
+  assert.ok((pdf.toString("latin1").match(/\/GoTo/g) ?? []).length >= 3, "TOC and ref link have PDF destinations");
   assert.deepEqual(logs, [
     "PDF dump: loading 2 current articles",
     "PDF dump: 1/2 Alpha",

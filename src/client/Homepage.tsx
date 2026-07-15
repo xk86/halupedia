@@ -231,18 +231,22 @@ export function Homepage({ onNavigate }: Props) {
                     onClick={handleSlugClick(headline.slug ?? displayNews.slug)}
                     className="block border-b-0 text-accent hover:text-accent-hover"
                   >
-                    <span className="block font-serif text-[1.05rem] leading-snug font-semibold">
-                      {headline.text}
-                    </span>
-                    {headline.summary && (
-                      <>
-                        {" "}
-                        <span className="mt-1 block text-[0.92rem] leading-snug text-ink">
-                          {headline.summary}
-                        </span>
-                      </>
-                    )}
+                    <span
+                      className="block font-serif text-[1.05rem] leading-snug font-semibold"
+                      dangerouslySetInnerHTML={{
+                        __html: renderInlineHtml(headline.text),
+                      }}
+                    />
                   </a>
+                  {headline.summary && (
+                    <span
+                      className="mt-1 block text-[0.92rem] leading-snug text-ink"
+                      onClick={handleRenderedClick}
+                      dangerouslySetInnerHTML={{
+                        __html: renderInlineHtml(headline.summary),
+                      }}
+                    />
+                  )}
                 </li>
               ))}
             </ul>

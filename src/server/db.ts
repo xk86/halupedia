@@ -481,6 +481,28 @@ export function openDatabase(databasePath: string): DatabaseSync {
     CREATE INDEX IF NOT EXISTS idx_review_queue_status
       ON ontology_review_queue(status, article_rank DESC);
 
+    -- Long-term ontology-extraction catch-up queue: separate from the review
+    -- queue above (review depends on it — an article isn't reviewed until its
+    -- extraction is confirmed fresh) and from the synchronous extraction that
+    -- already runs inline whenever an article is generated/regenerated. This
+    -- queue exists to backfill articles that pipeline never touched (imports,
+    -- a vocabulary change that staled the whole corpus). article_rank orders
+    -- the queue (newest articles processed first).
+    CREATE TABLE IF NOT EXISTS ontology_extract_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      article_slug TEXT NOT NULL,
+      article_rank INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      enqueued_at INTEGER NOT NULL,
+      started_at INTEGER,
+      finished_at INTEGER,
+      called INTEGER,
+      reason TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_extract_queue_status
+      ON ontology_extract_queue(status, article_rank DESC);
+
     -- Records the vocabulary signature an article's ontology was last extracted
     -- under. When the live vocabulary signature differs (a predicate was added
     -- or removed), the article is stale and is re-extracted lazily on demand —

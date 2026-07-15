@@ -144,6 +144,9 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
       enqueue_batch: Math.max(1, Math.floor(app.ontology_review?.enqueue_batch ?? 10)),
       run_interval_minutes: Math.max(1, app.ontology_review?.run_interval_minutes ?? 5),
       key_max_words: Math.max(1, Math.floor(app.ontology_review?.key_max_words ?? 6)),
+      extract_enqueue_interval_minutes: Math.max(1, app.ontology_review?.extract_enqueue_interval_minutes ?? 15),
+      extract_enqueue_batch: Math.max(1, Math.floor(app.ontology_review?.extract_enqueue_batch ?? 10)),
+      extract_run_interval_minutes: Math.max(1, app.ontology_review?.extract_run_interval_minutes ?? 5),
     },
     agent: {
       enabled: app.agent?.enabled ?? true,

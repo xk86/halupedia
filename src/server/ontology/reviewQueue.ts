@@ -2,7 +2,8 @@
  * Long-term ontology-review queue: separate from the live generation queue and
  * from the per-article suggestion UI. The scheduler (`../pipeline/scheduler`)
  * enqueues articles that have pending ontology suggestions and drains them at
- * its own pace, running each through `reviewArticleSuggestions`.
+ * its own pace, running each through `reviewArticleSuggestions`. Depends on
+ * the extraction queue (`./extractQueue`) — see `enqueueReviewTasks` below.
  */
 import type { DatabaseSync } from "node:sqlite";
 import { prepared } from "../db";
@@ -46,16 +47,28 @@ export function countActiveReviews(db: DatabaseSync): number {
  * relation suggestion or a type suggestion) and aren't already queued. Newest
  * articles (by `generated_at`) get the highest rank, so the queue drains
  * latest-articles-first.
+ *
+ * Depends on extraction (`../ontology/extractQueue`): an article whose
+ * ontology signature doesn't match the current vocabulary — never extracted,
+ * or stale — is skipped, as is one with an extraction job still pending or
+ * processing. Both mean its suggestions may not reflect the article's current
+ * content/vocabulary, so review must wait for extraction to catch up first.
  */
-export function enqueueReviewTasks(db: DatabaseSync, batch: number): number {
+export function enqueueReviewTasks(db: DatabaseSync, vocabSignature: string, batch: number): number {
   if (batch <= 0) return 0;
   const rows = prepared(
     db,
     `SELECT a.slug AS slug, a.generated_at AS rank
        FROM articles a
+       LEFT JOIN article_ontology_state s ON s.article_slug = a.slug
       WHERE (
-        EXISTS (SELECT 1 FROM ontology_suggestions s WHERE s.article_slug = a.slug)
+        EXISTS (SELECT 1 FROM ontology_suggestions sg WHERE sg.article_slug = a.slug)
         OR EXISTS (SELECT 1 FROM ontology_type_suggestions t WHERE t.article_slug = a.slug)
+      )
+      AND s.signature IS NOT NULL AND s.signature = ?
+      AND NOT EXISTS (
+        SELECT 1 FROM ontology_extract_queue eq
+         WHERE eq.article_slug = a.slug AND eq.status IN ('pending', 'processing')
       )
       AND NOT EXISTS (
         SELECT 1 FROM ontology_review_queue q
@@ -63,7 +76,7 @@ export function enqueueReviewTasks(db: DatabaseSync, batch: number): number {
       )
       ORDER BY a.generated_at DESC
       LIMIT ?`,
-  ).all(batch) as Array<{ slug: string; rank: number }>;
+  ).all(vocabSignature, batch) as Array<{ slug: string; rank: number }>;
 
   const now = Date.now();
   for (const row of rows) {

@@ -346,10 +346,10 @@ export interface OllamaImageGenerationConfig {
   timeout_ms: number;
 }
 
-/** Config for the scheduled ontology-suggestion auto-review pipeline
- *  (`src/server/pipeline/scheduler.ts`). */
+/** Config for the scheduled ontology-suggestion auto-review pipeline and its
+ *  extraction-catch-up dependency (`src/server/pipeline/scheduler.ts`). */
 export interface OntologyReviewConfig {
-  /** Master switch; both schedules no-op when false. */
+  /** Master switch; all four schedules no-op when false. */
   enabled: boolean;
   /** How often the enqueue schedule tops up the review queue. */
   enqueue_interval_minutes: number;
@@ -359,6 +359,12 @@ export interface OntologyReviewConfig {
   run_interval_minutes: number;
   /** Relation labels longer than this many words auto-fail. */
   key_max_words: number;
+  /** How often the enqueue schedule tops up the extraction catch-up queue. */
+  extract_enqueue_interval_minutes: number;
+  /** Articles added per extraction enqueue pass, when the queue is empty. */
+  extract_enqueue_batch: number;
+  /** How often the run schedule claims and extracts one queued article. */
+  extract_run_interval_minutes: number;
 }
 
 export interface AppConfig {

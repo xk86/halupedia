@@ -91,7 +91,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { createRagRuntime, registerRagAdminRoutes, buildEvidenceContext, toPromptSourceArticles, DEFAULT_PROFILES, type RagRuntime } from "./rag";
-import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, listExtractQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -933,6 +933,53 @@ export async function createApp(options: CreateAppOptions = {}) {
         passed: result.passed,
         failed: result.failed,
       });
+      notifySidecar(slug, { type: "ontology", ontology: buildArticleOntologyPayload(slug) });
+    },
+    onExtract: (slug, info) => {
+      const recorder = getTraceRecorder(runtime.app.pipeline.trace);
+      const runId = randomUUID();
+      const startedAt = Date.now() - info.durationMs;
+      recorder.recordRun({
+        workflow: "ontology.auto_extract",
+        runId,
+        requestId: randomUUID(),
+        slug,
+        startedAt,
+        durationMs: info.durationMs,
+        status: info.error ? "error" : "ok",
+        nodesExecuted: 1,
+        error: info.error ? { message: info.error.message, stack: info.error.stack } : undefined,
+        origin: "scheduler",
+      });
+      recorder.recordNode({
+        workflow: "ontology.auto_extract",
+        runId,
+        nodeName: "llm.ontology_extract",
+        nodeKind: "llm",
+        startedAt,
+        durationMs: info.durationMs,
+        status: info.error ? "error" : "ok",
+        reads: [],
+        writes: [],
+        error: info.error ? { message: info.error.message, stack: info.error.stack } : undefined,
+        promptChars: info.promptChars,
+        promptText: info.promptText,
+        responseText: info.responseText,
+        llmRole: info.metadata?.requestedRole,
+        llmResolvedRole: info.metadata?.resolvedRole,
+        llmConfigKey: info.metadata?.configKey,
+        llmModel: info.metadata?.model,
+        llmBaseUrl: info.metadata?.baseUrl,
+        llmHost: info.metadata?.host,
+        llmTemperature: info.metadata?.temperature,
+        llmMaxTokens: info.metadata?.maxTokens,
+        llmTopK: info.metadata?.topK,
+        llmTopP: info.metadata?.topP,
+        llmMinP: info.metadata?.minP,
+        llmThinking: info.thinking,
+        llmJsonMode: info.jsonMode,
+      });
+      logger.info("ontology.extract_complete", { slug, reason: info.reason });
       notifySidecar(slug, { type: "ontology", ontology: buildArticleOntologyPayload(slug) });
     },
   });
@@ -3581,6 +3628,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({
       schedules: listSchedules(db, runtime.app.ontology_review),
       queue: listReviewQueue(db, 50),
+      extractQueue: listExtractQueue(db, 50),
     });
   });
 
@@ -3602,6 +3650,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json({
       schedules: listSchedules(db, runtime.app.ontology_review),
       queue: listReviewQueue(db, 50),
+      extractQueue: listExtractQueue(db, 50),
     });
   });
 

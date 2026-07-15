@@ -190,12 +190,19 @@ ontology_facts_max = 25
 # scheduler.ts): one schedule tops up a review queue with articles that have
 # pending suggestions (newest first), another drains it one article at a time,
 # merging well-formed suggestions and leaving malformed ones for manual review.
+# Review depends on extraction: an article isn't reviewed until its ontology
+# signature is confirmed current, so the extract_* settings below (a separate
+# enqueue/run pair that catches up any article extraction never touched) run
+# first in practice even though both pairs share this one enable switch.
 enabled = true
 enqueue_interval_minutes = 15
 enqueue_batch = 10
 run_interval_minutes = 5
 # Relation labels longer than this many words auto-fail the format check.
 key_max_words = 6
+extract_enqueue_interval_minutes = 15
+extract_enqueue_batch = 10
+extract_run_interval_minutes = 5
 
 [tests]
 database_path = "halupedia-testing.sqlite"

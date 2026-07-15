@@ -31,6 +31,8 @@ import { toWikiSegment } from "../../wikiPath";
 // Maps a schedule id to the app-config path its interval lives at, so the
 // interval can be edited inline here instead of only via the Config tab.
 const INTERVAL_CONFIG_PATH: Record<string, string> = {
+  "ontology_extract.enqueue": "ontology_review.extract_enqueue_interval_minutes",
+  "ontology_extract.run": "ontology_review.extract_run_interval_minutes",
   "ontology_review.enqueue": "ontology_review.enqueue_interval_minutes",
   "ontology_review.run": "ontology_review.run_interval_minutes",
 };
@@ -77,9 +79,25 @@ interface ReviewResultDetail {
   type: { suggestedType: string; verdict: "pass" | "fail"; reason: string; source: string } | null;
 }
 
+type ExtractQueueStatus = "pending" | "processing" | "done" | "error";
+
+interface ExtractQueueItem {
+  id: number;
+  articleSlug: string;
+  articleTitle: string;
+  status: ExtractQueueStatus;
+  enqueuedAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  called: boolean | null;
+  reason: string | null;
+  error: string | null;
+}
+
 interface WorkflowSchedulesPayload {
   schedules: ScheduleSummary[];
   queue: ReviewQueueItem[];
+  extractQueue: ExtractQueueItem[];
 }
 
 interface WorkflowSchedulePaneProps {
@@ -290,6 +308,59 @@ function QueueItemRow({
   );
 }
 
+const EXTRACT_STATUS_BADGE: Record<ExtractQueueStatus, "outline" | "secondary" | "default" | "destructive"> = {
+  pending: "outline",
+  processing: "default",
+  done: "secondary",
+  error: "destructive",
+};
+
+function ExtractQueueItemRow({
+  item,
+  runAtMs,
+  onNavigate,
+  dividerAbove,
+}: {
+  item: ExtractQueueItem;
+  runAtMs: number | null;
+  onNavigate: (slug: string) => void;
+  dividerAbove: boolean;
+}) {
+  return (
+    <TableRow className={dividerAbove ? "border-t-2 border-t-foreground/25" : undefined}>
+      <TableCell className="max-w-0">
+        <a
+          className="min-w-0 truncate font-medium text-[var(--link)]"
+          href={`/wiki/${toWikiSegment(item.articleTitle)}`}
+          onClick={(e) => {
+            e.preventDefault();
+            onNavigate(item.articleSlug);
+          }}
+          title={item.articleTitle}
+        >
+          {item.articleTitle}
+        </a>
+      </TableCell>
+      <TableCell>
+        <Badge variant={EXTRACT_STATUS_BADGE[item.status]}>{item.status}</Badge>
+      </TableCell>
+      <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
+        {new Date(item.enqueuedAt).toLocaleTimeString()}
+      </TableCell>
+      <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
+        {runAtMs !== null ? new Date(runAtMs).toLocaleTimeString() : "—"}
+        {item.status === "pending" && runAtMs !== null ? (
+          <span className="ml-1 text-muted-foreground/70">(est.)</span>
+        ) : null}
+      </TableCell>
+      <TableCell className="text-xs text-muted-foreground">
+        {item.error ?? item.reason ?? "—"}
+        {item.called !== null ? (item.called ? " (called)" : " (cached)") : ""}
+      </TableCell>
+    </TableRow>
+  );
+}
+
 export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) {
   const [data, setData] = useState<WorkflowSchedulesPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -377,15 +448,24 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
 
   const [runningAll, setRunningAll] = useState(false);
   const runAllQueued = useCallback(async () => {
-    const activeCount =
+    const extractCount =
+      data?.extractQueue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
+    const reviewCount =
       data?.queue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
-    if (activeCount === 0) return;
+    if (extractCount === 0 && reviewCount === 0) return;
     setRunningAll(true);
     setError(null);
     try {
-      // Bounded by the count observed when the button was clicked — new work
+      // Bounded by the counts observed when the button was clicked — new work
       // enqueued mid-run isn't swept up, so this can't turn into a runaway loop.
-      for (let i = 0; i < activeCount; i++) {
+      // Extraction drains first: review depends on it, so draining review
+      // first would just leave articles skipped until the next pass.
+      for (let i = 0; i < extractCount; i++) {
+        await fetchJson("/api/admin/workflow-schedules/ontology_extract.run/run-now", {
+          method: "POST",
+        });
+      }
+      for (let i = 0; i < reviewCount; i++) {
         await fetchJson("/api/admin/workflow-schedules/ontology_review.run/run-now", {
           method: "POST",
         });
@@ -415,19 +495,47 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
     return { item, runAtMs };
   });
 
+  const extractRunSchedule = data?.schedules.find((s) => s.id === "ontology_extract.run") ?? null;
+  const extractIntervalMs = (extractRunSchedule?.intervalMinutes ?? 5) * 60_000;
+  const extractPendingCount =
+    data?.extractQueue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
+  let extractPendingIndex = 0;
+  const extractQueueWithRunAt = (data?.extractQueue ?? []).map((item) => {
+    let runAtMs: number | null = item.startedAt;
+    if (item.status === "pending") {
+      runAtMs = extractRunSchedule?.nextRunAt != null ? extractRunSchedule.nextRunAt + extractPendingIndex * extractIntervalMs : null;
+      extractPendingIndex += 1;
+    }
+    return { item, runAtMs };
+  });
+
+  const queueMoreBoth = useCallback(async () => {
+    setBusyId("ontology_extract.enqueue");
+    setError(null);
+    try {
+      await fetchJson("/api/admin/workflow-schedules/ontology_extract.enqueue/run-now", { method: "POST" });
+      await fetchJson("/api/admin/workflow-schedules/ontology_review.enqueue/run-now", { method: "POST" });
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "failed to queue more");
+    } finally {
+      setBusyId(null);
+    }
+  }, [load]);
+
   return (
     <Pane
       id="workflow-schedules"
       title="Workflow schedules"
-      description="Recurring background workflows and the long-term ontology-review queue they drive."
-      count={data ? `${pendingCount} queued` : undefined}
+      description="Recurring background workflows and the long-term ontology-extraction and review queues they drive."
+      count={data ? `${extractPendingCount + pendingCount} queued` : undefined}
       actions={
         <>
           <Button
             variant="outline"
             size="xs"
-            disabled={busyId === "ontology_review.enqueue" || runningAll}
-            onClick={() => void runNow("ontology_review.enqueue")}
+            disabled={busyId !== null || runningAll}
+            onClick={() => void queueMoreBoth()}
           >
             <ListPlusIcon data-icon="inline-start" />
             Queue more
@@ -435,7 +543,7 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
           <Button
             variant="outline"
             size="xs"
-            disabled={pendingCount === 0 || runningAll || busyId !== null}
+            disabled={(extractPendingCount === 0 && pendingCount === 0) || runningAll || busyId !== null}
             onClick={() => void runAllQueued()}
           >
             <StepForwardIcon data-icon="inline-start" />
@@ -530,35 +638,72 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
             </TableBody>
           </Table>
 
-          {data.queue.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Article</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Enqueued</TableHead>
-                  <TableHead>Run at</TableHead>
-                  <TableHead>Verdict</TableHead>
-                  <TableHead>Result</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {queueWithRunAt.map(({ item, runAtMs }, index) => (
-                  <QueueItemRow
-                    key={item.id}
-                    item={item}
-                    runAtMs={runAtMs}
-                    onNavigate={onNavigate}
-                    dividerAbove={index > 0 && index === pendingCount}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="m-0 text-sm text-muted-foreground italic">
-              Review queue is empty.
-            </p>
-          )}
+          <div className="flex flex-col gap-1.5">
+            <h3 className="m-0 text-sm font-medium text-muted-foreground">
+              Extraction queue (runs before review)
+            </h3>
+            {data.extractQueue.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Article</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Enqueued</TableHead>
+                    <TableHead>Run at</TableHead>
+                    <TableHead>Result</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {extractQueueWithRunAt.map(({ item, runAtMs }, index) => (
+                    <ExtractQueueItemRow
+                      key={item.id}
+                      item={item}
+                      runAtMs={runAtMs}
+                      onNavigate={onNavigate}
+                      dividerAbove={index > 0 && index === extractPendingCount}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="m-0 text-sm text-muted-foreground italic">
+                Extraction queue is empty.
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <h3 className="m-0 text-sm font-medium text-muted-foreground">Review queue</h3>
+            {data.queue.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Article</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Enqueued</TableHead>
+                    <TableHead>Run at</TableHead>
+                    <TableHead>Verdict</TableHead>
+                    <TableHead>Result</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {queueWithRunAt.map(({ item, runAtMs }, index) => (
+                    <QueueItemRow
+                      key={item.id}
+                      item={item}
+                      runAtMs={runAtMs}
+                      onNavigate={onNavigate}
+                      dividerAbove={index > 0 && index === pendingCount}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="m-0 text-sm text-muted-foreground italic">
+                Review queue is empty.
+              </p>
+            )}
+          </div>
         </div>
       )}
     </Pane>

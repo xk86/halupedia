@@ -149,6 +149,20 @@ function isOutOfScopeComplaint(reason: unknown): boolean {
   return typeof reason === "string" && OUT_OF_SCOPE_REASON_RE.test(reason);
 }
 
+// The prompt's one narrow fail condition is "character-for-character
+// identical to the article's own title" — but light models routinely fail
+// this over a mere substring/containment relationship (the value is a date
+// that also appears inside a longer title, say) rather than true equality.
+// Since we can check the real strings ourselves, don't trust the model's
+// characterization: only honor a title-equality fail when the value truly is
+// the exact title, and override any other one back to a pass.
+const OWN_TITLE_REASON_RE = /\b(identical\w*|equal\w*|equiv\w*|same|match\w*)\b.{0,40}\btitle\b/i;
+
+function isFalseOwnTitleComplaint(reason: unknown, object: string, articleTitle: string): boolean {
+  if (typeof reason !== "string" || !OWN_TITLE_REASON_RE.test(reason)) return false;
+  return object.trim().toLowerCase() !== articleTitle.trim().toLowerCase();
+}
+
 export async function reviewArticleSuggestions(
   db: DatabaseSync,
   slug: string,
@@ -267,20 +281,28 @@ export async function reviewArticleSuggestions(
       jsonMode,
     };
 
-    const verdictByIndex = new Map<number, { verdict: ReviewVerdict; reason: string }>();
+    const rawByIndex = new Map<number, { verdict: unknown; reason: string }>();
     for (const raw of Array.isArray(parsed?.items) ? parsed!.items : []) {
       const entry = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
       const index = typeof entry.index === "number" ? entry.index : Number(entry.index);
       if (!Number.isInteger(index)) continue;
       const reason = typeof entry.reason === "string" ? entry.reason : "";
-      if (isPassVerdict(entry.verdict)) {
-        verdictByIndex.set(index, { verdict: "pass", reason });
-      } else if (isOutOfScopeComplaint(reason)) {
-        verdictByIndex.set(index, { verdict: "pass", reason: "out-of-scope concern overridden" });
-      } else {
-        verdictByIndex.set(index, { verdict: "fail", reason });
-      }
+      rawByIndex.set(index, { verdict: entry.verdict, reason });
     }
+    const verdictByIndex = new Map<number, { verdict: ReviewVerdict; reason: string }>();
+    eligible.forEach((entry, i) => {
+      const modelRaw = rawByIndex.get(i + 1);
+      if (!modelRaw) return;
+      if (isPassVerdict(modelRaw.verdict)) {
+        verdictByIndex.set(i + 1, { verdict: "pass", reason: modelRaw.reason });
+      } else if (isOutOfScopeComplaint(modelRaw.reason)) {
+        verdictByIndex.set(i + 1, { verdict: "pass", reason: "out-of-scope concern overridden" });
+      } else if (isFalseOwnTitleComplaint(modelRaw.reason, entry.suggestion.object, articleTitle)) {
+        verdictByIndex.set(i + 1, { verdict: "pass", reason: "title-equality complaint overridden (not actually identical)" });
+      } else {
+        verdictByIndex.set(i + 1, { verdict: "fail", reason: modelRaw.reason });
+      }
+    });
     eligible.forEach((entry, i) => {
       const modelVerdict = verdictByIndex.get(i + 1);
       items.push({

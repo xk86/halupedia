@@ -15,6 +15,9 @@ import {
   countActiveReviews,
   listReviewQueue,
   reviewArticleSuggestions,
+  enqueueExtractionTasks,
+  claimNextExtraction,
+  countActiveExtractions,
 } from "../src/server/ontology";
 import { startScheduler } from "../src/server/pipeline/scheduler";
 import type { PromptConfig } from "../src/server/types";
@@ -73,7 +76,7 @@ test("enqueueReviewTasks orders newest-first and skips already-queued articles",
     insertSuggestion(db, slug, slug, "related_to", "Something");
   }
 
-  const added = enqueueReviewTasks(db, 10);
+  const added = enqueueReviewTasks(db, vocab.signature, 10);
   assert.equal(added, 3);
   assert.equal(countActiveReviews(db), 3);
 
@@ -82,7 +85,58 @@ test("enqueueReviewTasks orders newest-first and skips already-queued articles",
   assert.equal(claimNextReview(db), null, "nothing left to claim");
 
   // Re-enqueueing while those rows are still 'processing' must not duplicate them.
-  const addedAgain = enqueueReviewTasks(db, 10);
+  const addedAgain = enqueueReviewTasks(db, vocab.signature, 10);
+  assert.equal(addedAgain, 0);
+});
+
+test("enqueueReviewTasks skips an article whose ontology extraction is stale or still in flight", (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "fresh-article", "Fresh Article", 1000);
+  makeArticle(db, "stale-article", "Stale Article", 2000);
+  makeArticle(db, "extracting-article", "Extracting Article", 3000);
+  insertSuggestion(db, "fresh-article", "Fresh Article", "related_to", "Something");
+  insertSuggestion(db, "stale-article", "Stale Article", "related_to", "Something");
+  insertSuggestion(db, "extracting-article", "Extracting Article", "related_to", "Something");
+
+  // Simulate a vocabulary change that staled this article's extraction.
+  prepared(db, `UPDATE article_ontology_state SET signature = 'old-signature' WHERE article_slug = ?`).run(
+    "stale-article",
+  );
+  // Simulate an in-flight (not yet completed) extraction job for this one.
+  prepared(
+    db,
+    `INSERT INTO ontology_extract_queue (article_slug, article_rank, status, enqueued_at) VALUES (?, ?, 'pending', ?)`,
+  ).run("extracting-article", 3000, Date.now());
+
+  const added = enqueueReviewTasks(db, vocab.signature, 10);
+  assert.equal(added, 1, "only the article with current, non-in-flight extraction is queued");
+  assert.equal(claimNextReview(db)?.articleSlug, "fresh-article");
+  assert.equal(claimNextReview(db), null, "the stale and extracting articles were not enqueued");
+});
+
+test("enqueueExtractionTasks queues only articles whose ontology signature doesn't match the current vocabulary", (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "current-article", "Current Article", 1000);
+  makeArticle(db, "never-extracted", "Never Extracted", 3000);
+  makeArticle(db, "stale-article", "Stale Article", 2000);
+  // makeArticle runs indexArticleOntology, which stamps the current signature —
+  // simulate a never-extracted article by wiping its state row, and a stale
+  // one by giving it an old signature.
+  prepared(db, `DELETE FROM article_ontology_state WHERE article_slug = ?`).run("never-extracted");
+  prepared(db, `UPDATE article_ontology_state SET signature = 'old-signature' WHERE article_slug = ?`).run(
+    "stale-article",
+  );
+
+  const added = enqueueExtractionTasks(db, vocab.signature, 10);
+  assert.equal(added, 2, "the already-current article is not queued");
+  assert.equal(countActiveExtractions(db), 2);
+
+  const order = [claimNextExtraction(db)?.articleSlug, claimNextExtraction(db)?.articleSlug];
+  assert.deepEqual(order, ["never-extracted", "stale-article"], "queue drains newest article first");
+  assert.equal(claimNextExtraction(db), null, "nothing left to claim");
+
+  // Re-enqueueing while those rows are still 'processing' must not duplicate them.
+  const addedAgain = enqueueExtractionTasks(db, vocab.signature, 10);
   assert.equal(addedAgain, 0);
 });
 
@@ -158,6 +212,15 @@ const REVIEW_PROMPTS = {
       thinking: false,
       json: true,
     },
+    // Needed by deriveLlmExtraction (the extraction queue's "run" step), not
+    // just the review one above.
+    ontology: {
+      system: "extract {{entity_types}} {{predicates}} {{existing_facts}}",
+      user: "{{requested_title}}\n{{article_body}}",
+      model: "light",
+      thinking: false,
+      json: true,
+    },
   },
   shared: {},
 } as unknown as PromptConfig;
@@ -224,6 +287,30 @@ test("reviewArticleSuggestions humanizes an underscore-joined value containing a
   assert.equal(result.items[0]?.object, "Areas Less Than 5 Percent Of Structure's Total Volume");
 });
 
+test("reviewArticleSuggestions overrides a model fail claiming title-equality when the value is only a substring of the title", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "subject", "Today's News: March 19, 2003", Date.now());
+  insertSuggestion(db, "subject", "Today's News: March 19, 2003", "occurred_on", "March 19, 2003");
+
+  // Observed model behavior: the light model fails a value merely because it
+  // overlaps with the title, even though the prompt says "character-for-
+  // character identical" and "March 19, 2003" is a strict substring, not an
+  // exact match, of "Today's News: March 19, 2003".
+  const reply = JSON.stringify({
+    items: [{ index: 1, verdict: "fail", reason: "value equals the article's own title" }],
+    type: null,
+  });
+  const result = await reviewArticleSuggestions(db, "subject", {
+    llm: stubLlm(reply),
+    prompts: REVIEW_PROMPTS,
+    vocab,
+    keyMaxWords: 6,
+  });
+
+  assert.equal(result.items[0]?.verdict, "pass");
+  assert.match(result.items[0]!.reason, /overridden/);
+});
+
 test("reviewArticleSuggestions treats a capitalized model verdict as pass, not a spurious fail", async (t) => {
   const db = makeDb(t);
   makeArticle(db, "subject", "Subject", Date.now());
@@ -282,7 +369,7 @@ test("ontology_review.enqueue schedule tops up to the configured batch instead o
     insertSuggestion(db, slug, slug, "related_to", "Something");
   }
   // Pre-seed one already-active queue row so the queue isn't empty.
-  enqueueReviewTasks(db, 1);
+  enqueueReviewTasks(db, vocab.signature, 1);
   assert.equal(countActiveReviews(db), 1);
 
   const controller = startScheduler({
@@ -294,6 +381,9 @@ test("ontology_review.enqueue schedule tops up to the configured batch instead o
       enqueue_batch: 3,
       run_interval_minutes: 5,
       key_max_words: 6,
+      extract_enqueue_interval_minutes: 15,
+      extract_enqueue_batch: 3,
+      extract_run_interval_minutes: 5,
     }),
     getLlm: () => stubLlm("{}"),
     getPrompts: () => REVIEW_PROMPTS,
@@ -303,6 +393,62 @@ test("ontology_review.enqueue schedule tops up to the configured batch instead o
 
   await controller.runNow("ontology_review.enqueue");
   assert.equal(countActiveReviews(db), 3, "tops up to the batch size instead of skipping outright");
+});
+
+test("review only picks up an article after extraction has run for it (job dependency, end to end)", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "subject", "Subject", Date.now());
+  insertSuggestion(db, "subject", "Subject", "founded_by", "Jane Doe");
+  // Stale it, as if the vocabulary changed after this article was extracted.
+  prepared(db, `UPDATE article_ontology_state SET signature = 'old-signature' WHERE article_slug = ?`).run(
+    "subject",
+  );
+
+  // The extraction "run" step re-derives suggestions from the model (see
+  // deriveLlmExtraction), replacing whatever was inserted above — reply with
+  // the same fact so it survives, matching what a real re-extraction would do
+  // for an unchanged article.
+  const extractReply = JSON.stringify({
+    entities: [
+      { name: "Subject", type: "organization" },
+      { name: "Jane Doe", type: "person" },
+    ],
+    relations: [{ subject: "Subject", predicate: "founded_by", object: "Jane Doe" }],
+    categories: [],
+  });
+
+  const controller = startScheduler({
+    db,
+    logger: noopLogger,
+    getConfig: () => ({
+      enabled: true,
+      enqueue_interval_minutes: 15,
+      enqueue_batch: 10,
+      run_interval_minutes: 5,
+      key_max_words: 6,
+      extract_enqueue_interval_minutes: 15,
+      extract_enqueue_batch: 10,
+      extract_run_interval_minutes: 5,
+    }),
+    getLlm: () => stubLlm(extractReply),
+    getPrompts: () => REVIEW_PROMPTS,
+    getVocab: () => vocab,
+  });
+  t.after(() => controller.stop());
+
+  // The article is stale, so review's enqueue must not pick it up yet.
+  await controller.runNow("ontology_review.enqueue");
+  assert.equal(countActiveReviews(db), 0, "review skips an article extraction hasn't caught up on");
+
+  // Run extraction end to end: enqueue, then drain it.
+  await controller.runNow("ontology_extract.enqueue");
+  assert.equal(countActiveExtractions(db), 1);
+  await controller.runNow("ontology_extract.run");
+  assert.equal(countActiveExtractions(db), 0, "extraction job completed");
+
+  // Now that extraction is current, review's enqueue picks the article up.
+  await controller.runNow("ontology_review.enqueue");
+  assert.equal(countActiveReviews(db), 1, "review now sees the article as eligible");
 });
 
 test("reviewArticleSuggestions merges passing items, keeps failing ones queued, and applies a passing type change", async (t) => {

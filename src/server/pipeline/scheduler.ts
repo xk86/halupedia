@@ -1,24 +1,33 @@
 /**
  * Background scheduler for long-term, recurring workflows — distinct from the
  * live generation queue (`liveRegistry.ts`), which is driven by user actions.
- * Currently drives the ontology-suggestion auto-review pipeline: one schedule
- * tops up a review queue with articles that have pending suggestions, another
- * drains it one article at a time. Both intervals (and the master enable
- * switch) are read live from `app.ontology_review` on every tick, so a config
- * change takes effect without a restart.
+ * Drives two dependent job pairs, each an enqueue/run schedule: ontology
+ * extraction catch-up first, then ontology-suggestion auto-review, which only
+ * picks up articles whose extraction is confirmed current (see
+ * `enqueueReviewTasks`). All four intervals (and the master enable switch)
+ * are read live from `app.ontology_review` on every tick, so a config change
+ * takes effect without a restart.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { prepared } from "../db";
+import { getArticle, prepared } from "../db";
 import type { LlmRouter } from "../llm";
 import type { Logger } from "../logger";
 import type { OntologyReviewConfig, PromptConfig } from "../types";
 import {
+  claimNextExtraction,
   claimNextReview,
+  completeExtraction,
   completeReview,
+  countActiveExtractions,
   countActiveReviews,
+  deriveLlmExtraction,
+  ensureArticleOntologyFresh,
+  enqueueExtractionTasks,
   enqueueReviewTasks,
+  failExtraction,
   failReview,
   reviewArticleSuggestions,
+  type OntologyExtractionCallInfo,
   type OntologyReviewCallInfo,
   type OntologyReviewResult,
   type OntologyVocabulary,
@@ -36,6 +45,9 @@ export interface SchedulerDeps {
   /** Fired after each reviewed article, so the caller can record a trace row
    *  and push a live update — mirrors `onOntologyExtracted` in index.ts. */
   onReview?: (slug: string, result: OntologyReviewResult, callInfo: OntologyReviewCallInfo) => void;
+  /** Fired after each extracted article whose extraction actually called the
+   *  model (a cache hit never fires this) — same purpose as `onReview`. */
+  onExtract?: (slug: string, callInfo: OntologyExtractionCallInfo) => void;
   /** Run one check synchronously at startup instead of waiting for the first
    *  interval tick. Leave unset for anything short-lived (tests). */
   immediateTick?: boolean;
@@ -55,6 +67,64 @@ interface ScheduleDefinition {
 
 const SCHEDULES: ScheduleDefinition[] = [
   {
+    id: "ontology_extract.enqueue",
+    label: "Ontology extraction: enqueue",
+    intervalMs: (config) => config.extract_enqueue_interval_minutes * 60_000,
+    run: async (deps) => {
+      const batch = deps.getConfig().extract_enqueue_batch;
+      const active = countActiveExtractions(deps.db);
+      const remaining = Math.max(0, batch - active);
+      if (remaining === 0) return { status: "skipped", detail: `${active} already queued (at max ${batch})` };
+      const added = enqueueExtractionTasks(deps.db, deps.getVocab().signature, remaining);
+      return {
+        status: "ok",
+        detail: added > 0 ? `enqueued ${added} article(s) (${active + added}/${batch} queued)` : "nothing to enqueue",
+      };
+    },
+  },
+  {
+    id: "ontology_extract.run",
+    label: "Ontology extraction: run",
+    intervalMs: (config) => config.extract_run_interval_minutes * 60_000,
+    run: async (deps) => {
+      const claimed = claimNextExtraction(deps.db);
+      if (!claimed) return { status: "skipped", detail: "queue empty" };
+      try {
+        const article = getArticle(deps.db, claimed.articleSlug);
+        if (!article) {
+          failExtraction(deps.db, claimed.id, "article not found");
+          return { status: "error", detail: `${claimed.articleSlug}: article not found` };
+        }
+        const vocab = deps.getVocab();
+        // Cheap deterministic pass first — this is what actually stamps the
+        // article's ontology signature current, clearing the staleness that
+        // got it queued (review's enqueue depends on that signature). The LLM
+        // pass below is the heavier catch-up `ensureArticleOntologyFresh`'s
+        // own docs describe as a background job's job.
+        ensureArticleOntologyFresh(deps.db, claimed.articleSlug, vocab);
+        let callInfo: OntologyExtractionCallInfo | undefined;
+        const outcome = await deriveLlmExtraction(deps.db, vocab, article, {
+          llm: deps.getLlm(),
+          prompts: deps.getPrompts(),
+          logger: deps.logger,
+          onExtracted: (_slug, info) => {
+            callInfo = info;
+          },
+        });
+        completeExtraction(deps.db, claimed.id, { called: outcome.called, reason: outcome.reason });
+        if (callInfo) deps.onExtract?.(claimed.articleSlug, callInfo);
+        return {
+          status: "ok",
+          detail: `${claimed.articleSlug}: ${outcome.reason}${outcome.called ? " (called)" : " (cached)"}`,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        failExtraction(deps.db, claimed.id, message);
+        return { status: "error", detail: `${claimed.articleSlug}: ${message}` };
+      }
+    },
+  },
+  {
     id: "ontology_review.enqueue",
     label: "Ontology review: enqueue",
     intervalMs: (config) => config.enqueue_interval_minutes * 60_000,
@@ -63,7 +133,7 @@ const SCHEDULES: ScheduleDefinition[] = [
       const active = countActiveReviews(deps.db);
       const remaining = Math.max(0, batch - active);
       if (remaining === 0) return { status: "skipped", detail: `${active} already queued (at max ${batch})` };
-      const added = enqueueReviewTasks(deps.db, remaining);
+      const added = enqueueReviewTasks(deps.db, deps.getVocab().signature, remaining);
       return {
         status: "ok",
         detail: added > 0 ? `enqueued ${added} article(s) (${active + added}/${batch} queued)` : "nothing to enqueue",

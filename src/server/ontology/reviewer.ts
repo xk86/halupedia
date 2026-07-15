@@ -18,6 +18,7 @@ import { getPrompt, parseJsonLoose, renderTemplate } from "../prompts";
 import {
   applyOntologySuggestions,
   listOntologySuggestions,
+  updateOntologySuggestionObject,
   type OntologySuggestion,
 } from "./suggestions";
 import {
@@ -76,11 +77,26 @@ export interface OntologyReviewOptions {
   onReviewed?: (slug: string, info: OntologyReviewCallInfo) => void;
 }
 
-// A bare machine slug/identifier leaking into a value slot instead of a
-// human-readable value — e.g. "podal-mystique" instead of "Podal Mystique".
-// Requires an actual separator so ordinary lowercase words ("unknown") don't
-// false-positive.
-const SLUG_VALUE_RE = /^[a-z0-9]+([-_][a-z0-9]+)+$/;
+// A bare machine identifier leaking into a value slot instead of a
+// human-readable value — e.g. "podal-mystique" or "podal_mystique" instead of
+// "Podal Mystique". This is NOT the same thing as a real slug (this codebase's
+// slugs are kebab-case only — see slug.ts); it also catches underscore-joined
+// "title as URL" strings a model sometimes emits. Requires an actual separator
+// so ordinary lowercase words ("unknown") don't false-positive. Auto-fixed
+// rather than failed — see `humanizeMachineString` below.
+const MACHINE_ID_RE = /^[a-z0-9]+([-_][a-z0-9]+)+$/;
+
+/** Title-cases a machine-identifier-shaped string ("podal_mystique" ->
+ *  "Podal Mystique"); returns null when `value` isn't shaped like one, so the
+ *  caller can leave ordinary text untouched. */
+function humanizeMachineString(value: string): string | null {
+  const trimmed = value.trim();
+  if (!MACHINE_ID_RE.test(trimmed)) return null;
+  return trimmed
+    .split(/[-_]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 function deterministicRelationFail(
   suggestion: OntologySuggestion,
@@ -92,7 +108,6 @@ function deterministicRelationFail(
   if (object.toLowerCase() === suggestion.subject.trim().toLowerCase()) {
     return "value equals the article's own title";
   }
-  if (SLUG_VALUE_RE.test(object)) return "value looks like a slug";
   const wordCount = label.trim().split(/\s+/).filter(Boolean).length;
   if (wordCount > keyMaxWords) return `label too long (${wordCount} words)`;
   return null;
@@ -100,6 +115,27 @@ function deterministicRelationFail(
 
 function labelFor(vocab: OntologyVocabulary, predicate: string): string {
   return vocab.predicates.get(predicate)?.label ?? predicate.replace(/_/g, " ");
+}
+
+/** The model doesn't reliably stick to lowercase "pass"/"fail" (observed:
+ *  "Pass", "PASS "); match case/whitespace-insensitively rather than treating
+ *  every non-exact-match as a spurious fail. */
+function isPassVerdict(value: unknown): boolean {
+  return typeof value === "string" && value.trim().toLowerCase() === "pass";
+}
+
+// Small/local models routinely re-fail an item over slug-shape or length even
+// after the prompt tells them those were already checked and to leave them
+// alone — negative instructions ("don't judge X") are unreliable on light
+// local models. By the time an item reaches the model it has *already* been
+// deterministically cleared on both counts (auto-humanized / under the word
+// cap), so a fail whose own stated reason is still about format is the model
+// being wrong, not a real problem: override it back to a pass rather than
+// losing an otherwise-good fact to a hallucinated gate.
+const STALE_FORMAT_REASON_RE = /\b(slug|machine|identifier|url|too\s*long|overlong|length)\b/i;
+
+function isStaleFormatComplaint(reason: unknown): boolean {
+  return typeof reason === "string" && STALE_FORMAT_REASON_RE.test(reason);
 }
 
 export async function reviewArticleSuggestions(
@@ -116,6 +152,13 @@ export async function reviewArticleSuggestions(
   const items: OntologyReviewItemResult[] = [];
   const eligible: Array<{ suggestion: OntologySuggestion; label: string }> = [];
   for (const suggestion of suggestions) {
+    // Fix a machine-identifier-shaped value in place before anything else
+    // evaluates it — a formatting artifact to repair, not a reason to fail.
+    const humanized = humanizeMachineString(suggestion.object);
+    if (humanized) {
+      updateOntologySuggestionObject(db, suggestion.id, humanized);
+      suggestion.object = humanized;
+    }
     const label = labelFor(options.vocab, suggestion.predicate);
     const failReason = deterministicRelationFail(suggestion, label, options.keyMaxWords);
     if (failReason) {
@@ -164,7 +207,6 @@ export async function reviewArticleSuggestions(
       : "(none)";
     const templateVars = {
       article_title: articleTitle,
-      key_max_words: String(options.keyMaxWords),
       items: itemsBlock || "(none)",
       type_change: typeChangeBlock,
     };
@@ -219,10 +261,14 @@ export async function reviewArticleSuggestions(
       const entry = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
       const index = typeof entry.index === "number" ? entry.index : Number(entry.index);
       if (!Number.isInteger(index)) continue;
-      verdictByIndex.set(index, {
-        verdict: entry.verdict === "pass" ? "pass" : "fail",
-        reason: typeof entry.reason === "string" ? entry.reason : "",
-      });
+      const reason = typeof entry.reason === "string" ? entry.reason : "";
+      if (isPassVerdict(entry.verdict)) {
+        verdictByIndex.set(index, { verdict: "pass", reason });
+      } else if (isStaleFormatComplaint(reason)) {
+        verdictByIndex.set(index, { verdict: "pass", reason: "format concern already cleared" });
+      } else {
+        verdictByIndex.set(index, { verdict: "fail", reason });
+      }
     }
     eligible.forEach((entry, i) => {
       const modelVerdict = verdictByIndex.get(i + 1);
@@ -239,13 +285,24 @@ export async function reviewArticleSuggestions(
     if (typeEligible) {
       const rawType = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).type : undefined;
       const typeEntry = rawType && typeof rawType === "object" ? (rawType as Record<string, unknown>) : null;
-      const verdict = typeEntry?.verdict === "pass" ? "pass" : "fail";
-      const reason =
+      const modelReason =
         typeEntry && typeof typeEntry.reason === "string"
           ? typeEntry.reason
           : callError
             ? "review call failed"
             : "no verdict returned";
+      let verdict: ReviewVerdict;
+      let reason: string;
+      if (isPassVerdict(typeEntry?.verdict)) {
+        verdict = "pass";
+        reason = modelReason;
+      } else if (isStaleFormatComplaint(modelReason)) {
+        verdict = "pass";
+        reason = "format concern already cleared";
+      } else {
+        verdict = "fail";
+        reason = modelReason;
+      }
       typeResult = { suggestedType: typeSuggestion!.suggestedType, verdict, reason, source: "llm" };
     }
   }

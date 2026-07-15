@@ -195,7 +195,7 @@ enqueue_interval_minutes = 15
 enqueue_batch = 10
 run_interval_minutes = 5
 # Relation labels longer than this many words auto-fail the format check.
-key_max_words = 10
+key_max_words = 6
 
 [tests]
 database_path = "halupedia-testing.sqlite"

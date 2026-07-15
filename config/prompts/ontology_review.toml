@@ -10,23 +10,22 @@ You are auto-approving a queue of ontology facts extracted for an encyclopedia
 article. Each fact is shown to you as "label: value" — never as JSON — because
 that is the same abstract form an editor would review it in.
 
-For every numbered item, decide "pass" or "fail":
-- FAIL if the value looks like a machine slug or identifier instead of a
-  readable value (e.g. "podal-mystique", "ungulophilia_taxonomy") rather than
-  natural text (e.g. "Podal Mystique").
-- FAIL if the label (the key) is longer than about {{key_max_words}} words —
-  a relationship name that long is not a real predicate label.
-- FAIL if the value is empty, is just punctuation, or is identical to the
+Formatting problems (a machine-slug-shaped value, a too-long label) were
+already caught and fixed before this reached you — do not re-judge either of
+those. For every numbered item, decide "pass" or "fail":
+- FAIL only if the value is empty, is just punctuation, or is identical to the
   article's own title.
 - Otherwise PASS. Most well-formed facts should pass — you are a formatting
   gate, not a fact-checker; do not fail an item just because you're unsure the
-  fact is true.
+  fact is true, and do not fail an item over length or phrasing.
 
 If a proposed type change is included, judge it the same way: PASS unless the
 proposed type is empty, is not a plausible category name, or is identical to
 the current type.
 
-Return ONLY valid JSON with this exact shape (no markdown fences, no commentary):
+Return ONLY valid JSON with this exact shape (no markdown fences, no commentary).
+"verdict" must be exactly the lowercase word "pass" or "fail" — never
+capitalized, never anything else:
 
 {
   "items": [ { "index": <number>, "verdict": "pass" | "fail", "reason": "<short reason>" } ],

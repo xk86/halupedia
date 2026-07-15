@@ -56,10 +56,15 @@ const SCHEDULES: ScheduleDefinition[] = [
     label: "Ontology review: enqueue",
     intervalMs: (config) => config.enqueue_interval_minutes * 60_000,
     run: async (deps) => {
+      const batch = deps.getConfig().enqueue_batch;
       const active = countActiveReviews(deps.db);
-      if (active > 0) return { status: "skipped", detail: `${active} already queued` };
-      const added = enqueueReviewTasks(deps.db, deps.getConfig().enqueue_batch);
-      return { status: "ok", detail: added > 0 ? `enqueued ${added} article(s)` : "nothing to enqueue" };
+      const remaining = Math.max(0, batch - active);
+      if (remaining === 0) return { status: "skipped", detail: `${active} already queued (at max ${batch})` };
+      const added = enqueueReviewTasks(deps.db, remaining);
+      return {
+        status: "ok",
+        detail: added > 0 ? `enqueued ${added} article(s) (${active + added}/${batch} queued)` : "nothing to enqueue",
+      };
     },
   },
   {
@@ -150,7 +155,16 @@ async function runSchedule(def: ScheduleDefinition, deps: SchedulerDeps): Promis
   }
   recordScheduleRun(deps.db, def.id, startedAt, outcome, def.intervalMs(deps.getConfig()));
   const event = outcome.status === "error" ? "scheduler.error" : outcome.status === "skipped" ? "scheduler.skip" : "scheduler.tick";
-  const log = outcome.status === "error" ? deps.logger.warn.bind(deps.logger) : deps.logger.info.bind(deps.logger);
+  // A "nothing to do" skip is routine and recurs every tick when the corpus
+  // is quiet — worth keeping (for /api/admin/workflow-schedules and anyone
+  // debugging), not worth an info-level line every run. Only genuine work
+  // (enqueued/reviewed something) or an error gets info/warn.
+  const log =
+    outcome.status === "error"
+      ? deps.logger.warn.bind(deps.logger)
+      : outcome.status === "skipped"
+        ? deps.logger.debug.bind(deps.logger)
+        : deps.logger.info.bind(deps.logger);
   log(event, { schedule: def.id, status: outcome.status, detail: outcome.detail, duration_ms: Date.now() - startedAt });
 }
 
@@ -217,7 +231,9 @@ export function startScheduler(deps: SchedulerDeps): SchedulerController {
     }
   };
 
-  tick();
+  // No immediate tick on startup: a short-lived process (every test that
+  // spins up a full server) would otherwise log scheduler activity for no
+  // reason. A real server still gets its first real check within TICK_MS.
   const timer = setInterval(tick, TICK_MS);
   timer.unref?.();
 

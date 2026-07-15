@@ -163,6 +163,19 @@ export function listOntologySuggestions(
   return rows.map((row) => ({ ...row, validated: row.validated === 1 }));
 }
 
+/** Overwrite a suggestion's object text in place — used by the reviewer to
+ *  humanize a machine-identifier-shaped value before it's evaluated/merged. */
+export function updateOntologySuggestionObject(
+  db: DatabaseSync,
+  id: number,
+  object: string,
+): void {
+  prepared(db, `UPDATE ontology_suggestions SET object = ? WHERE id = ?`).run(
+    object,
+    id,
+  );
+}
+
 export function listPendingOntologySuggestionsByArticle(
   db: DatabaseSync,
 ): ArticleOntologySuggestionGroup[] {

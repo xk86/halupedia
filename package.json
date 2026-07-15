@@ -30,7 +30,8 @@
     "rag:process-jobs": "node --import tsx/esm scripts/rag-process-jobs.ts",
     "generate:emoji-names": "node --import tsx/esm scripts/generate-emoji-names.ts",
     "db:slug-dupe-check": "node --import tsx/esm scripts/slug-dupe-check.ts",
-    "encyclopedia:pdf": "node --import tsx/esm scripts/export-encyclopedia-pdf.ts"
+    "encyclopedia:pdf": "node --import tsx/esm scripts/export-encyclopedia-pdf.ts",
+    "encyclopedia:pdf:update": "node --import tsx/esm scripts/export-encyclopedia-pdf-update.ts"
   },
   "dependencies": {
     "3d-force-graph": "^1.80.0",

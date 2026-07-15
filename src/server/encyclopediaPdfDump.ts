@@ -1,4 +1,4 @@
-import { existsSync, createWriteStream, mkdirSync } from "node:fs";
+import { existsSync, createWriteStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import PDFDocument from "pdfkit";
@@ -20,13 +20,21 @@ export interface PdfDumpArticle {
   markdown: string;
   infoboxJson: string | null;
   media: PdfDumpMedia[];
+  updatedAt: number;
 }
 
 export interface PdfDumpOptions {
   articleDatabasePath: string;
   mediaDatabasePath: string;
   outputPath: string;
+  since?: number;
   log?: (message: string) => void;
+}
+
+export interface PdfDumpTombstone {
+  version: 1;
+  lastFullExtractionAt: string;
+  lastPublishedAt: string;
 }
 
 const PAGE_MARGIN = 54;
@@ -56,35 +64,36 @@ function tableExists(db: DatabaseSync, name: string): boolean {
 export function loadEncyclopediaPdfDump(
   articleDatabasePath: string,
   mediaDatabasePath: string,
+  since?: number,
 ): PdfDumpArticle[] {
   const articleDb = new DatabaseSync(resolve(articleDatabasePath), { readOnly: true });
   const mediaDb = new DatabaseSync(resolve(mediaDatabasePath), { readOnly: true });
   try {
     const infoboxes = tableExists(articleDb, "article_infobox")
       ? new Map(
-          readRows<{ articleSlug: string; json: string }>(
+          readRows<{ articleSlug: string; json: string; updatedAt: number }>(
             articleDb,
-            "SELECT article_slug AS articleSlug, json FROM article_infobox",
-          ).map((row) => [row.articleSlug, row.json]),
+            "SELECT article_slug AS articleSlug, json, updated_at AS updatedAt FROM article_infobox",
+          ).map((row) => [row.articleSlug, row]),
         )
-      : new Map<string, string>();
+      : new Map<string, { articleSlug: string; json: string; updatedAt: number }>();
     const attachments = tableExists(articleDb, "article_media")
-      ? readRows<{ articleSlug: string; mediaId: string; caption: string }>(
-          articleDb,
-          `SELECT article_slug AS articleSlug, media_id AS mediaId, caption
+      ? readRows<{ articleSlug: string; mediaId: string; caption: string; updatedAt: number }>(
+        articleDb,
+        `SELECT article_slug AS articleSlug, media_id AS mediaId, caption, updated_at AS updatedAt
            FROM article_media ORDER BY article_slug ASC, ordinal ASC, id ASC`,
         )
       : [];
-    const attachmentsByArticle = new Map<string, Array<{ mediaId: string; caption: string }>>();
+    const attachmentsByArticle = new Map<string, Array<{ mediaId: string; caption: string; updatedAt: number }>>();
     for (const attachment of attachments) {
       const values = attachmentsByArticle.get(attachment.articleSlug) ?? [];
-      values.push({ mediaId: attachment.mediaId, caption: attachment.caption });
+      values.push({ mediaId: attachment.mediaId, caption: attachment.caption, updatedAt: attachment.updatedAt });
       attachmentsByArticle.set(attachment.articleSlug, values);
     }
 
-    const articles = readRows<{ slug: string; title: string; markdown: string }>(
+    const articles = readRows<{ slug: string; title: string; markdown: string; generatedAt: number }>(
       articleDb,
-      "SELECT slug, title, markdown FROM articles ORDER BY title COLLATE NOCASE ASC, slug ASC",
+      "SELECT slug, title, markdown, generated_at AS generatedAt FROM articles ORDER BY title COLLATE NOCASE ASC, slug ASC",
     );
     const mediaCache = new Map<string, Buffer | null>();
     const mediaBytes = (mediaId: string): Buffer | null => {
@@ -101,19 +110,53 @@ export function loadEncyclopediaPdfDump(
       return bytes;
     };
 
-    return articles.map((article) => ({
-      ...article,
-      infoboxJson: infoboxes.get(article.slug) ?? null,
-      media: (attachmentsByArticle.get(article.slug) ?? []).map((attachment) => ({
-        id: attachment.mediaId,
-        caption: attachment.caption,
-        bytes: mediaBytes(attachment.mediaId),
-      })),
-    }));
+    return articles
+      .map((article) => {
+        const infobox = infoboxes.get(article.slug);
+        const articleAttachments = attachmentsByArticle.get(article.slug) ?? [];
+        const updatedAt = Math.max(
+          article.generatedAt,
+          infobox?.updatedAt ?? 0,
+          ...articleAttachments.map((attachment) => attachment.updatedAt),
+        );
+        return {
+          slug: article.slug,
+          title: article.title,
+          markdown: article.markdown,
+          infoboxJson: infobox?.json ?? null,
+          media: articleAttachments.map((attachment) => ({
+            id: attachment.mediaId,
+            caption: attachment.caption,
+            bytes: mediaBytes(attachment.mediaId),
+          })),
+          updatedAt,
+        };
+      })
+      .filter((article) => since === undefined || article.updatedAt > since);
   } finally {
     articleDb.close();
     mediaDb.close();
   }
+}
+
+export function readPdfDumpTombstone(path: string): PdfDumpTombstone {
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<PdfDumpTombstone>;
+  if (
+    parsed.version !== 1 ||
+    typeof parsed.lastFullExtractionAt !== "string" ||
+    typeof parsed.lastPublishedAt !== "string" ||
+    !Number.isFinite(Date.parse(parsed.lastFullExtractionAt)) ||
+    !Number.isFinite(Date.parse(parsed.lastPublishedAt))
+  ) {
+    throw new Error(`Invalid encyclopedia PDF tombstone: ${path}`);
+  }
+  return parsed as PdfDumpTombstone;
+}
+
+export function writePdfDumpTombstone(path: string, tombstone: PdfDumpTombstone): void {
+  const outputPath = resolve(path);
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, `${JSON.stringify(tombstone, null, 2)}\n`);
 }
 
 function addFooter(doc: PDFKit.PDFDocument, pageNumber: number): void {
@@ -412,17 +455,17 @@ function writeTableOfContents(
 
 export async function writeEncyclopediaPdfDump(options: PdfDumpOptions): Promise<void> {
   const log = options.log ?? (() => {});
-  const articles = loadEncyclopediaPdfDump(options.articleDatabasePath, options.mediaDatabasePath);
+  const articles = loadEncyclopediaPdfDump(options.articleDatabasePath, options.mediaDatabasePath, options.since);
   const outputPath = resolve(options.outputPath);
   mkdirSync(dirname(outputPath), { recursive: true });
-  log(`PDF dump: loading ${articles.length} current articles`);
+  log(`PDF dump: loading ${articles.length} ${options.since === undefined ? "current" : "updated"} articles`);
 
   const doc = new PDFDocument({
     autoFirstPage: false,
     bufferPages: true,
     margin: PAGE_MARGIN,
     info: {
-      Title: "Halupedia encyclopedia dump",
+      Title: options.since === undefined ? "Halupedia encyclopedia dump" : "Halupedia encyclopedia update",
       Author: "Halupedia",
       Subject: "Current encyclopedia content export",
       Creator: "Halupedia PDF dump",
@@ -436,9 +479,9 @@ export async function writeEncyclopediaPdfDump(options: PdfDumpOptions): Promise
     .font("Helvetica-Bold")
     .fontSize(28)
     .fillColor("#111111")
-    .text("Halupedia encyclopedia dump", { align: "center" });
+    .text(options.since === undefined ? "Halupedia encyclopedia dump" : "Halupedia encyclopedia update", { align: "center" });
   doc.moveDown(1);
-  doc.font("Helvetica").fontSize(12).fillColor("#333333").text(`${articles.length} current articles`, { align: "center" });
+  doc.font("Helvetica").fontSize(12).fillColor("#333333").text(`${articles.length} ${options.since === undefined ? "current" : "updated"} articles`, { align: "center" });
   doc.moveDown(0.5);
   doc.fontSize(10).text(`Generated ${new Date().toISOString()}`, { align: "center" });
 

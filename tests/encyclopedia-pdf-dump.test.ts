@@ -7,7 +7,12 @@ import { join } from "node:path";
 import { openDatabase, saveArticle, setArticleInfobox, upsertArticleHeadlineMedia } from "../src/server/db";
 import { markdownToPlainText, renderMarkdown } from "../src/server/markdown";
 import { insertMedia, openMediaDatabase } from "../src/server/mediaDb";
-import { loadEncyclopediaPdfDump, writeEncyclopediaPdfDump } from "../src/server/encyclopediaPdfDump";
+import {
+  loadEncyclopediaPdfDump,
+  readPdfDumpTombstone,
+  writeEncyclopediaPdfDump,
+  writePdfDumpTombstone,
+} from "../src/server/encyclopediaPdfDump";
 
 const TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR1er7kAAAAAElFTkSuQmCC";
 
@@ -55,6 +60,9 @@ test("encyclopedia PDF dump reads live article/sidebar/media tables and writes a
     description: "Alpha image",
   });
   upsertArticleHeadlineMedia(articleDb, "alpha", "alpha-image", "Current caption");
+  articleDb.prepare("UPDATE articles SET generated_at = 100").run();
+  articleDb.prepare("UPDATE article_infobox SET updated_at = 200 WHERE article_slug = 'alpha'").run();
+  articleDb.prepare("UPDATE article_media SET updated_at = 300 WHERE article_slug = 'alpha'").run();
   articleDb.close();
   mediaDb.close();
 
@@ -64,6 +72,20 @@ test("encyclopedia PDF dump reads live article/sidebar/media tables and writes a
   assert.match(dump[0].infoboxJson ?? "", /Current/);
   assert.equal(dump[0].media[0].caption, "Current caption");
   assert.ok(dump[0].media[0].bytes?.length);
+  assert.deepEqual(loadEncyclopediaPdfDump(articlePath, mediaPath, 250).map((article) => article.title), ["Alpha"]);
+  assert.deepEqual(loadEncyclopediaPdfDump(articlePath, mediaPath, 300), []);
+
+  const tombstonePath = join(root, "encyclopedia.tombstone.json");
+  writePdfDumpTombstone(tombstonePath, {
+    version: 1,
+    lastFullExtractionAt: "2026-07-15T00:00:00.000Z",
+    lastPublishedAt: "2026-07-15T01:00:00.000Z",
+  });
+  assert.deepEqual(readPdfDumpTombstone(tombstonePath), {
+    version: 1,
+    lastFullExtractionAt: "2026-07-15T00:00:00.000Z",
+    lastPublishedAt: "2026-07-15T01:00:00.000Z",
+  });
 
   const logs: string[] = [];
   await writeEncyclopediaPdfDump({

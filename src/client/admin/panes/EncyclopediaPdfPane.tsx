@@ -70,7 +70,7 @@ export function EncyclopediaPdfPane() {
     <Pane
       id="encyclopedia-pdf"
       title="Encyclopedia PDF"
-      description="Generate full or incremental downloadable encyclopedia revisions in a worker thread."
+      description="Generate full or incremental downloadable encyclopedia revisions in a separate shell process."
       count={status ? STATE_LABELS[status.state] : "Loading"}
       actions={
         <Button variant="ghost" size="icon-xs" onClick={() => void refresh()} aria-label="Refresh PDF export status" title="Refresh status">
@@ -97,7 +97,7 @@ export function EncyclopediaPdfPane() {
         ))}
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
-        {running ? "The server stays responsive while the PDF worker reads and renders the encyclopedia." : status?.state === "complete" ? `${status.articleCount ?? 0} articles included in the latest ${status.mode} export.` : "A full export sets the checkpoint used by later update exports."}
+        {running ? "The server stays responsive while the PDF command reads and renders the encyclopedia." : status?.state === "complete" ? `${status.articleCount ?? 0} articles included in the latest ${status.mode} export.` : "A full export sets the checkpoint used by later update exports."}
       </p>
       {error || status?.error ? <p className="mt-2 text-xs text-destructive">{error ?? status?.error}</p> : null}
       {status?.logs.length ? (

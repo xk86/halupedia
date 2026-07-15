@@ -108,7 +108,7 @@ test("encyclopedia PDF dump reads live article/sidebar/media tables and writes a
   ]);
 });
 
-test("PDF export jobs generate off-thread and retain the full-export checkpoint", async (t) => {
+test("PDF export jobs run the package command and retain the full-export checkpoint", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "halu-pdf-job-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const articlePath = join(root, "articles.sqlite");
@@ -125,6 +125,7 @@ test("PDF export jobs generate off-thread and retain the full-export checkpoint"
   assert.equal(complete.state, "complete");
   assert.equal(complete.articleCount, 1);
   assert.equal(complete.downloads.full.available, true);
+  assert.ok(complete.logs.some((line) => line === "PDF dump: loading 1 current articles"), "command stdout is retained");
 
   assert.equal(jobs.start("update")?.state, "running");
   const update = await waitForJob(jobs);

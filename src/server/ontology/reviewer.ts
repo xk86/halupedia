@@ -81,19 +81,25 @@ export interface OntologyReviewOptions {
 // human-readable value — e.g. "podal-mystique" or "podal_mystique" instead of
 // "Podal Mystique". This is NOT the same thing as a real slug (this codebase's
 // slugs are kebab-case only — see slug.ts); it also catches underscore-joined
-// "title as URL" strings a model sometimes emits. Requires an actual separator
-// so ordinary lowercase words ("unknown") don't false-positive. Auto-fixed
-// rather than failed — see `humanizeMachineString` below.
-const MACHINE_ID_RE = /^[a-z0-9]+([-_][a-z0-9]+)+$/;
+// "title as URL" strings a model sometimes emits, whatever characters (word
+// content, apostrophes, digits, ...) happen to sit between the separators. A
+// string with any spaces is ordinary prose (a stray "-"/"_" in it is just
+// markdown/emphasis) and is left alone; only hyphen/underscore-joined,
+// space-free strings look machine-generated. Auto-fixed rather than failed —
+// see `humanizeMachineString` below.
+function looksLikeMachineId(value: string): boolean {
+  return /[-_]/.test(value) && !/\s/.test(value);
+}
 
 /** Title-cases a machine-identifier-shaped string ("podal_mystique" ->
  *  "Podal Mystique"); returns null when `value` isn't shaped like one, so the
  *  caller can leave ordinary text untouched. */
 function humanizeMachineString(value: string): string | null {
   const trimmed = value.trim();
-  if (!MACHINE_ID_RE.test(trimmed)) return null;
+  if (!looksLikeMachineId(trimmed)) return null;
   return trimmed
     .split(/[-_]+/)
+    .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 }

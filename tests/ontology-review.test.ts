@@ -203,6 +203,27 @@ test("reviewArticleSuggestions humanizes a machine-identifier value instead of f
   assert.ok(facts.some((f) => f.object === "Jane Doe Corp"));
 });
 
+test("reviewArticleSuggestions humanizes an underscore-joined value containing an apostrophe before review", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "subject", "Subject", Date.now());
+  insertSuggestion(db, "subject", "Subject", "founded_by", "areas_less_than_5_percent_of_structure's_total_volume");
+
+  const reply = JSON.stringify({ items: [{ index: 1, verdict: "pass", reason: "fine" }], type: null });
+  const result = await reviewArticleSuggestions(db, "subject", {
+    llm: stubLlm(reply),
+    prompts: REVIEW_PROMPTS,
+    vocab,
+    keyMaxWords: 6,
+  });
+
+  const objects = result.items.map((i) => i.object);
+  assert.ok(
+    !objects.some((o) => o.includes("_")),
+    "no underscored value survives into the review results",
+  );
+  assert.equal(result.items[0]?.object, "Areas Less Than 5 Percent Of Structure's Total Volume");
+});
+
 test("reviewArticleSuggestions treats a capitalized model verdict as pass, not a spurious fail", async (t) => {
   const db = makeDb(t);
   makeArticle(db, "subject", "Subject", Date.now());

@@ -20,39 +20,5 @@ user = """
 """
 
 [rules]
-include = [
-  "content_policy",
-  "canon@1",
-  "tone/no_fictional_label",
-  "tone/never_uncertain",
-]
-
-[[local_rule]]
-id = "must_search_first"
-tier = 1
-text = "You MUST call `search_articles` at least once before giving a final answer, even if the question is just a bare name or a couple of words — that is a normal search query, not a reason to skip searching. Never conclude nothing relevant exists without having actually searched for it first."
-
-[[local_rule]]
-id = "use_question_as_query"
-tier = 2
-text = "Use the research question itself (or a sharpened version of it) as the `search_articles` query. It defaults to 10 results — pass a higher `limit` (up to 25) when the topic is broad or the first pass feels thin, and a `minScore` floor when the corpus is noisy and you only want strong matches."
-
-[[local_rule]]
-id = "follow_up_tools"
-tier = 2
-text = "Follow up with `read_article` for full article text, or `get_ontology_facts` when you need an entity's complete fact list beyond what search already surfaced, to confirm details before including them."
-
-[[local_rule]]
-id = "no_duplicate_tool_calls"
-tier = 1
-text = "Do not call the same tool with the same arguments twice."
-
-[[local_rule]]
-id = "stop_when_confident"
-tier = 2
-text = "Stop once you have enough to answer confidently, or once you've searched and confirmed the corpus has nothing relevant — do not keep searching indefinitely."
-
-[[local_rule]]
-id = "return_structured_brief"
-tier = 1
-text = "Return your final answer as the structured brief: a 2-4 sentence summary grounded only in what you retrieved, a ranked list of the references you actually used (slug, title, one-line relevance note), and, if useful, a short list of standalone key facts. If nothing relevant was found, say so in the summary and return an empty reference list rather than guessing."
+categories = ["content_policy", "canon", "research_briefs"]
+rules = ["tone/no_fictional_label", "tone/never_uncertain"]

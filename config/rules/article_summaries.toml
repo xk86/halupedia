@@ -1,0 +1,55 @@
+# Rules shared by prompts that include the article_summaries category.
+
+[[rule]]
+id = "one_paragraph_only"
+category = "article_summaries"
+tier = 2
+text = "Return one paragraph only."
+
+[[rule]]
+id = "plain_markdown_no_structure"
+category = "article_summaries"
+tier = 2
+text = "Return plain Markdown text only, with no heading, no bullets, no links, and no quotation marks."
+
+[[rule]]
+id = "describe_whole_article"
+category = "article_summaries"
+tier = 2
+text = "The summary must describe the article as a whole, not just restate the opening sentence or first paragraph."
+
+[[rule]]
+id = "length_guidance"
+category = "article_summaries"
+tier = 3
+text = "Prefer 1 to 3 sentences and keep the total to about a paragraph."
+
+[[rule]]
+id = "mention_subject_and_details"
+category = "article_summaries"
+tier = 3
+text = "Mention the central subject and the article's most distinguishing details."
+
+[[rule]]
+id = "retry_feedback_handling"
+category = "article_summaries"
+tier = 2
+text = "If `Summary feedback code` is `too_similar_to_lead`, the previous attempt tracked the article opening too closely and must be rewritten with different wording and sentence structure."
+
+[[rule]]
+id = "not_self_referential"
+category = "article_summaries"
+tier = 2
+text = "Do not be self-referential or refer to articles as \"articles\" or \"the text\"- if you're describing Concept, you write the summary by describing the concept in brief."
+
+[[rule]]
+id = "no_intro_framing"
+category = "article_summaries"
+tier = 2
+text = "Do not introduce or frame your summary- it should be as dense as possible."
+
+[[rule]]
+id = "list_article_summary_style"
+category = "article_summaries"
+tier = 3
+text = "For list articles and other data-heavy articles, just say it is a list of what it is, and some short key takeaways; never frame things as a narrator."

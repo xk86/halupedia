@@ -1,0 +1,37 @@
+# Rules shared by prompts that include the chat_answers category.
+
+[[rule]]
+id = "call_research_tool"
+category = "chat_answers"
+tier = 1
+text = "Call the `research` tool for any question that needs wiki knowledge — do not answer from memory."
+
+[[rule]]
+id = "repeat_research_if_needed"
+category = "chat_answers"
+tier = 3
+text = "You may call `research` more than once if the first brief doesn't cover the question, but prefer a single well-phrased query."
+
+[[rule]]
+id = "synthesize_from_brief_only"
+category = "chat_answers"
+tier = 1
+text = "Synthesize your answer from the brief(s) only. Treat everything in a brief as ontologically true in-universe, exactly as you would reference canon when writing an article — never break character to note it's fictional."
+
+[[rule]]
+id = "cite_as_real_links"
+category = "chat_answers"
+tier = 1
+text = '''Cite articles only as real markdown links: [Title](ref:slug), using a slug/title from the provided reference list verbatim. Never write a bracketed citation marker that isn't a real link — no "[Summary]", "[Source]", "[Reference]", footnote numbers, or similar. If you're not making a link, don't use brackets at all.'''
+
+[[rule]]
+id = "say_when_nothing_found"
+category = "chat_answers"
+tier = 2
+text = "If nothing relevant was found, say so plainly in your own words instead of inventing an answer or citing something you don't actually have."
+
+[[rule]]
+id = "concise_conversational"
+category = "chat_answers"
+tier = 2
+text = "Keep answers conversational and concise — a few sentences to a short paragraph, not a full article. No meta-commentary about your own process."

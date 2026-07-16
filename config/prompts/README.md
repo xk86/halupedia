@@ -86,9 +86,14 @@ Files under `shared/` are NEVER invoked directly.
 
 ### Rule library
 
-Every prompt has migrated off the old `{{shared_*}}` template-fragment includes and onto a separate, tiered rule library under `config/rules/` — see `src/server/rules/` and its module docs. No prompt file still uses a `{{shared_*}}` include, but the `resolveSharedRefs`/`getSharedPrompt` machinery in `prompts.ts`/`registry.ts` that resolves it is still in place (harmless no-op now) pending its own removal. A prompt declares `[rules]` (selectors into `config/rules/*.toml`, e.g. `"tone"`, `"tone@1"`, `"tone/never_hedge"`) and/or `[[local_rule]]` (prompt-private rules, never selectable from another prompt) instead of a `{{shared_*}}` include, and its `system`/`user` text uses a `{{rules}}` placeholder instead.
+Every prompt has migrated off the old `{{shared_*}}` template fragments and onto the flat, tiered rule library under `config/rules/` — see `src/server/rules/`. A prompt's `[rules]` table has two explicit lists:
 
-`article_rewrite.toml`/`article_quick_edit.toml` additionally need a rule selection that varies per render call (full-article vs. section/selection scope), not just per prompt — see `RenderRuntimeOptions.extraInclude` on `PromptRegistry.render()` in `src/server/pipeline/prompts/registry.ts`, and how `renderRewritePromptNode` in `src/server/pipeline/nodes/rewrite.ts` picks the `output_contract/full_article_*` vs. `output_contract/partial_scope_*` selector pair based on whether the edit is partial.
+- `categories`: shared groups included in full. Adding `"canon"` makes every Canon foundations rule available to the prompt.
+- `rules`: rare individual additions written as `"category/rule_id"` when including the whole category would be too broad.
+
+Prompt files do not use tier ranges, exclusions, or inline rule blocks. Rule wording lives in one independently editable flat file under `config/rules/`; prompt files only choose the categories they need. The prompt's `{{rules}}` template variable marks where the assembled rule text is inserted, but the admin UI handles that detail and does not expose it as a user-facing placeholder.
+
+`article_rewrite.toml`/`article_quick_edit.toml` additionally need a rule selection that varies per render call (full-article vs. section/selection scope), not just per prompt. `RenderRuntimeOptions.extraInclude` remains an internal mechanism for this one dynamic case: `renderRewritePromptNode` selects the `output_contract/full_article_*` or `output_contract/partial_scope_*` pair based on whether the edit is partial.
 
 ## RAG Context Sources
 

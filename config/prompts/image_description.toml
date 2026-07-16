@@ -22,4 +22,5 @@ Describe this image in plain prose.
 """
 
 [rules]
-include = ["content_policy", "canon@1", "tone/no_fictional_label"]
+categories = ["content_policy", "canon"]
+rules = ["tone/no_fictional_label"]

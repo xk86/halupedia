@@ -2,7 +2,7 @@
 # shared/rewrite_scope_partial.toml. The two pairs are mutually exclusive
 # alternatives selected by whichever rewrite path is running (full article vs
 # a single section/selection) — a prompt includes exactly one pair via its
-# own `[rules].include`, so no `overrides` relationship is needed between
+# runtime rule selection, so no `overrides` relationship is needed between
 # them.
 
 [[rule]]

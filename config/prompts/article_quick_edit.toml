@@ -62,17 +62,14 @@ Use [Title](halu:slug "short description") for other internal topics.
 """
 
 [rules]
-include = [
+categories = [
   "content_policy",
   "canon",
+  "article_continuity",
   "tone",
   "formatting",
   "lists",
   "linking",
   "revision",
+  "quick_edits",
 ]
-
-[[local_rule]]
-id = "apply_edit_directly"
-tier = 1
-text = '''Apply the one-off edit instruction directly instead of narrating the change.'''

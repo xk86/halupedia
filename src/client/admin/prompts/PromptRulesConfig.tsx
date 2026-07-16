@@ -39,6 +39,9 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
   const individualRules = availableRules.filter(
     (rule) => rule.category && !selectedCategories.has(rule.category),
   );
+  const activeCategories = categories.filter((category) =>
+    selectedCategories.has(category.id),
+  );
 
   const changeCategories = (category: string, checked: boolean) => {
     const categories = checked
@@ -69,38 +72,90 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
   return (
     <FieldGroup className="gap-4">
       <Field>
-        <FieldLabel>Shared categories</FieldLabel>
-        <FieldDescription>
-          Selecting a category adds every rule in it to this prompt.
-        </FieldDescription>
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {categories.map((category) => (
-            <Field
-              key={category.id}
-              orientation="horizontal"
-              className="items-start rounded-md border border-input p-3"
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <FieldLabel>Shared categories</FieldLabel>
+            <FieldDescription>
+              Each category adds all of its rules.
+            </FieldDescription>
+          </div>
+          <Popover>
+            <PopoverTrigger
+              className={buttonVariants({ variant: "outline", size: "sm" })}
             >
-              <Checkbox
-                id={`prompt-rule-category-${category.id}`}
-                checked={selectedCategories.has(category.id)}
-                onCheckedChange={(checked) =>
-                  changeCategories(category.id, checked === true)
-                }
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <FieldLabel htmlFor={`prompt-rule-category-${category.id}`}>
-                    {category.title}
-                  </FieldLabel>
-                  <Badge variant="outline">{category.rules.length}</Badge>
-                </div>
-                <FieldDescription className="line-clamp-2">
-                  {category.description}
-                </FieldDescription>
+              <Plus data-icon="inline-start" />
+              Choose categories
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-[38rem] max-w-[90vw] gap-2 p-2"
+            >
+              <div className="grid max-h-80 gap-1 overflow-y-auto p-1 md:grid-cols-2">
+                {categories.map((category) => (
+                  <Field
+                    key={category.id}
+                    orientation="horizontal"
+                    className="items-start rounded-md p-2"
+                  >
+                    <Checkbox
+                      id={`prompt-rule-category-${category.id}`}
+                      checked={selectedCategories.has(category.id)}
+                      onCheckedChange={(checked) =>
+                        changeCategories(category.id, checked === true)
+                      }
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <FieldLabel
+                          htmlFor={`prompt-rule-category-${category.id}`}
+                        >
+                          {category.title}
+                        </FieldLabel>
+                        <Badge variant="outline">{category.rules.length}</Badge>
+                      </div>
+                      <FieldDescription className="line-clamp-2">
+                        {category.description}
+                      </FieldDescription>
+                    </div>
+                  </Field>
+                ))}
               </div>
-            </Field>
-          ))}
+            </PopoverContent>
+          </Popover>
         </div>
+        {activeCategories.length === 0 ? (
+          <p className="rounded-md border border-dashed border-input p-3 text-sm text-muted-foreground">
+            No shared categories selected.
+          </p>
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2">
+            {activeCategories.map((category) => (
+              <div
+                key={category.id}
+                className="flex min-w-0 items-start gap-2 rounded-md border border-input p-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <span className="truncate">{category.title}</span>
+                    <Badge variant="outline">{category.rules.length}</Badge>
+                  </div>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {category.description}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Remove ${category.title}`}
+                  onClick={() => changeCategories(category.id, false)}
+                >
+                  <X />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </Field>
 
       <Field>
@@ -189,9 +244,9 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
 
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-medium">Prompt-local rules</p>
+          <p className="text-sm font-medium">Prompt-only exceptions</p>
           <p className="text-xs text-muted-foreground">
-            Use only for behavior unique to this prompt.
+            Keep reusable behavior in a shared category.
           </p>
         </div>
         <Button
@@ -203,14 +258,9 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
           }
         >
           <Plus data-icon="inline-start" />
-          Add local rule
+          Add prompt-only rule
         </Button>
       </div>
-      {localRules.length === 0 ? (
-        <p className="rounded-md border border-dashed border-input p-3 text-sm text-muted-foreground">
-          No prompt-local rules.
-        </p>
-      ) : null}
       {localRules.map((rule, index) => (
         <RuleEditor
           key={`${rule.id}-${index}`}

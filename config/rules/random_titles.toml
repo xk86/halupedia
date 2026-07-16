@@ -1,0 +1,61 @@
+# Rules shared by prompts that include the random_titles category.
+
+[[rule]]
+id = "match_tone_and_subjects"
+category = "random_titles"
+tier = 1
+text = "It must match the tone and subjects listed in the introduction, and introduce tangential and related ones."
+
+[[rule]]
+id = "prefer_specific_over_broad"
+category = "random_titles"
+tier = 2
+text = '''Prefer naming specific things over broad categories- instead of "taxonomy/study/impact of X", just say X.'''
+
+[[rule]]
+id = "no_word_salad"
+category = "random_titles"
+tier = 2
+text = "Avoid word-salad and attempts at self-censoring."
+
+[[rule]]
+id = "no_whimsical_names"
+category = "random_titles"
+tier = 2
+text = "Avoid whimsical and fantastical-sounding names."
+
+[[rule]]
+id = "banned_words"
+category = "random_titles"
+tier = 1
+text = '''Words and phrases related to decomposition are banned. This includes "sludge", "waste", "toxic", "sewage", etc. Banned means you are NOT to refer or use them or related words. Same goes with "quantum".'''
+
+[[rule]]
+id = "infer_worldbuilding_logic"
+category = "random_titles"
+tier = 2
+text = "Infer the underlying worldbuilding logic, institutional tone, and sociological framing from the examples before generating new entries."
+
+[[rule]]
+id = "bonus_for_crass_content"
+category = "random_titles"
+tier = 4
+text = "Bonus points for vulgar, dark, offensive, and crass subject matter, with no censorship."
+
+[[rule]]
+id = "titles_must_blend_in"
+category = "random_titles"
+tier = 2
+text = "Titles must not stand out from the list."
+
+[[rule]]
+id = "title_shape_examples"
+category = "random_titles"
+tier = 3
+text = "Some examples of titles to generate might be titles that imply: institutional context; material consequences; historical or cultural specificity; systems of control, commerce, pathology, ritual, or technology; an existing world beyond the title itself."
+
+[[rule]]
+id = "plausible_document_sources"
+category = "random_titles"
+tier = 3
+text = "Prefer titles that sound like they could plausibly appear in a real archive, bureaucracy, conspiracy forum, wikipedia page, LinkedIn post, procurement document, tabloid headline, military briefing, or online subculture glossary."

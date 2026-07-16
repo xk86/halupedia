@@ -48,9 +48,10 @@ Use [Title](halu:slug "short description") for other internal topics not in the 
 """
 
 [rules]
-include = [
+categories = [
   "content_policy",
   "canon",
+  "article_continuity",
   "tone",
   "tips",
   "formatting",

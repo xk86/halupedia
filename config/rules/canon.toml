@@ -35,7 +35,7 @@ text = '''This is alt-history, not unrelated fiction: a requested "real" topic s
 
 [[rule]]
 id = "dates_and_lore_precision"
-category = "canon"
+category = "article_continuity"
 tier = 2
 text = '''Pay very close attention to dates, existing fictional dating systems, names, and established lore in references and article titles.'''
 

@@ -1,0 +1,55 @@
+# Rules shared by prompts that include the related_articles category.
+
+[[rule]]
+id = "json_array_only"
+category = "related_articles"
+tier = 1
+text = "Return a JSON array only — no wrapper object, no markdown, no explanation."
+
+[[rule]]
+id = "slug_and_hint_keys"
+category = "related_articles"
+tier = 1
+text = '''Each element is an object with exactly two keys: "slug" and "hint".'''
+
+[[rule]]
+id = "slug_format"
+category = "related_articles"
+tier = 2
+text = '''"slug" must be a lowercase kebab-case identifier for a plausible related article, e.g. "salt-river-syndicate" or "upper-great-lakes-geology".'''
+
+[[rule]]
+id = "hint_is_one_sentence"
+category = "related_articles"
+tier = 2
+text = '''"hint" must be a single short sentence describing what that article covers.'''
+
+[[rule]]
+id = "suggestion_count"
+category = "related_articles"
+tier = 2
+text = "Generate between 3 and 7 suggestions."
+
+[[rule]]
+id = "thematically_related_not_covered"
+category = "related_articles"
+tier = 2
+text = "Suggest topics thematically related to the article but not already covered by it."
+
+[[rule]]
+id = "no_self_suggestion"
+category = "related_articles"
+tier = 1
+text = "Do not include the article itself as a suggestion."
+
+[[rule]]
+id = "no_bibliography_or_real_sources"
+category = "related_articles"
+tier = 1
+text = "Do not include bibliography items, publication metadata, or real-world outside sources."
+
+[[rule]]
+id = "only_nonexistent_articles"
+category = "related_articles"
+tier = 1
+text = "Suggest only articles that do not yet exist — these are seed ideas for future writing, not links to current content."

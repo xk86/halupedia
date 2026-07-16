@@ -1,0 +1,79 @@
+# Rules shared by prompts that include the did_you_know category.
+
+[[rule]]
+id = "one_fact_only"
+category = "did_you_know"
+tier = 1
+text = "Return only one fact."
+
+[[rule]]
+id = "complete_did_you_know"
+category = "did_you_know"
+tier = 1
+text = '''Give one fun fact from the article that completes the sentence "Did you know...".'''
+
+[[rule]]
+id = "no_literal_prefix"
+category = "did_you_know"
+tier = 1
+text = '''Do not include "Did you know" in your response.'''
+
+[[rule]]
+id = "start_with_that"
+category = "did_you_know"
+tier = 1
+text = '''Your response MUST start with "... that".'''
+
+[[rule]]
+id = "end_with_question_mark"
+category = "did_you_know"
+tier = 1
+text = "End the fact with a question mark."
+
+[[rule]]
+id = "link_as_subject"
+category = "did_you_know"
+tier = 1
+text = "The provided Markdown link MUST appear as the grammatical subject of the sentence, embedded within the text — not prepended before it with a colon. The link IS the topic being discussed."
+
+[[rule]]
+id = "worked_examples"
+category = "did_you_know"
+tier = 3
+text = '''Good example: "... that [Silken worms](link) produce silk with a metallic sheen that defies spider silk classifications?" Bad example: "[Silken worms](link): that the silk has a metallic sheen?"'''
+
+[[rule]]
+id = "preserve_link_exactly"
+category = "did_you_know"
+tier = 1
+text = "Preserve the Markdown link exactly as provided."
+
+[[rule]]
+id = "surprising_detail"
+category = "did_you_know"
+tier = 3
+text = "Facts should highlight a surprising, amusing, or absurd detail from the article."
+
+[[rule]]
+id = "specific_over_vague"
+category = "did_you_know"
+tier = 2
+text = "Prefer specific, concrete claims over vague descriptions."
+
+[[rule]]
+id = "length_limit"
+category = "did_you_know"
+tier = 2
+text = "Keep the fact under 220 characters."
+
+[[rule]]
+id = "no_extra_output"
+category = "did_you_know"
+tier = 1
+text = "Do not add headings, bullets, JSON, code fences, commentary, or extra facts."
+
+[[rule]]
+id = "single_link_only"
+category = "did_you_know"
+tier = 1
+text = '''Do not link to any thing other than the one single link provided as "Article link".'''

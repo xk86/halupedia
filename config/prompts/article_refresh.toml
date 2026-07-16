@@ -47,77 +47,13 @@ Use [Title](halu:slug "short description") for other internal topics.
 """
 
 [rules]
-include = [
+categories = [
   "content_policy",
   "canon",
+  "article_continuity",
   "tone",
   "formatting",
   "lists",
   "linking",
+  "article_refresh",
 ]
-
-[[local_rule]]
-id = "preserve_existing_voice"
-tier = 1
-text = '''This is a structural-support pass, not a rewrite: the resulting article does not need to conform to the tone rules above. Do not rewrite passages solely to bring them into line with tone — only fix markdown/link syntax and add or improve content from retrieved context.'''
-overrides = [
-  "tone/invert_false_statements",
-  "tone/direct_quotes",
-  "tone/pseudoscience_treatment",
-  "tone/semi_wikipedian",
-  "tone/matter_of_fact",
-  "tone/no_rosy_language",
-  "tone/no_whimsy",
-  "tone/confident_plain_phrasing",
-  "tone/present_tense",
-]
-
-[[local_rule]]
-id = "never_delete_prose"
-tier = 1
-text = '''CRITICAL: Never delete or remove prose or text found in the article, especially if it seems to diverge from the style guides above — this is likely intentional. Changing the narrative structure of an article is outside of your scope.'''
-
-[[local_rule]]
-id = "preserve_structure"
-tier = 1
-text = '''Preserve the current article's title, subject, headings, and prose structure.'''
-
-[[local_rule]]
-id = "preserve_topic"
-tier = 1
-text = '''Keep the article on the same topic as the requested article title.'''
-
-[[local_rule]]
-id = "no_generic_scaffolding"
-tier = 1
-text = '''Do not restructure the article into generic scaffolding such as "Overview", "Summary", "Extracted Information", "Related Concepts", or "Conclusion".'''
-
-[[local_rule]]
-id = "context_is_optional_support"
-tier = 2
-text = '''Treat references, retrieved context, and related topics as optional link support. Ignore off-topic material, and incorporate retrieved context only where it actually improves or adds to the article.'''
-
-[[local_rule]]
-id = "link_pinned_first"
-tier = 3
-text = '''Link to pinned references where relevant; other references may be linked if they fit naturally.'''
-
-[[local_rule]]
-id = "full_article_not_diff"
-tier = 2
-text = '''Return the full refreshed article, not a diff or notes.'''
-
-[[local_rule]]
-id = "fix_markdown_syntax"
-tier = 2
-text = '''Fix markdown syntax and remove incorrect formatting.'''
-
-[[local_rule]]
-id = "fix_link_syntax"
-tier = 2
-text = '''Fix halu or ref link syntax, including errors like unmatched quotes or lone square brackets; refer to the link syntax rules above for guidance.'''
-
-[[local_rule]]
-id = "no_slug_as_anchor"
-tier = 2
-text = '''Do not put slug-names in the anchor text slots of links.'''

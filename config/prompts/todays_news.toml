@@ -74,11 +74,5 @@ Generate today's news article now.
 '''
 
 [rules]
-include = [
-  "content_policy",
-  "canon@1",
-  "tone/no_fictional_label",
-  "tone/present_tense",
-  "tone/authoritative_tone",
-  "linking",
-]
+categories = ["content_policy", "canon", "linking"]
+rules = ["tone/no_fictional_label", "tone/present_tense", "tone/authoritative_tone"]

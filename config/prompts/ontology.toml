@@ -63,4 +63,5 @@ Return the JSON object only.
 '''
 
 [rules]
-include = ["canon@1", "tone/no_fictional_label"]
+categories = ["canon"]
+rules = ["tone/no_fictional_label"]

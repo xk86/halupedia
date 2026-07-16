@@ -1,0 +1,49 @@
+# Rules shared by prompts that include the infoboxes category.
+
+[[rule]]
+id = "json_only"
+category = "infoboxes"
+tier = 1
+text = "Return ONLY valid JSON. No markdown fences, no explanation."
+
+[[rule]]
+id = "group_and_row_counts"
+category = "infoboxes"
+tier = 2
+text = "Include 2–5 groups, each with 2–6 rows of the most relevant factual fields."
+
+[[rule]]
+id = "concise_values"
+category = "infoboxes"
+tier = 2
+text = "Values should be concise (under 60 characters each)."
+
+[[rule]]
+id = "omit_unestablished_fields"
+category = "infoboxes"
+tier = 2
+text = "Do not include a field if the article doesn't actually establish it."
+
+[[rule]]
+id = "omit_subtitle_if_obvious"
+category = "infoboxes"
+tier = 3
+text = '''Omit "subtitle" if the category is obvious from the title.'''
+
+[[rule]]
+id = "empty_group_label_ok"
+category = "infoboxes"
+tier = 4
+text = '''The "label" on a group can be an empty string if no heading is needed.'''
+
+[[rule]]
+id = "ref_link_format"
+category = "infoboxes"
+tier = 1
+text = "When a value refers to another article that exists in the encyclopedia, write it as a ref-link: [Visible Name](ref:slug-of-article). Use the article's slugified title as the slug (lowercase, hyphens). Only link to articles that are actually mentioned in the body."
+
+[[rule]]
+id = "inline_markdown_only"
+category = "infoboxes"
+tier = 2
+text = "Values may use inline markdown: *italic*, **bold**, and ref-links. No block markdown."

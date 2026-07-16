@@ -29,19 +29,5 @@ Write a caption for this image as it appears in this article.
 """
 
 [rules]
-include = ["content_policy", "canon@1", "tone/no_fictional_label"]
-
-[[local_rule]]
-id = "json_only"
-tier = 1
-text = "Return ONLY valid JSON. No fences."
-
-[[local_rule]]
-id = "article_specific_angle"
-tier = 2
-text = "Caption is short, specific to this article's angle on the subject. Different articles may caption the same image differently. In-universe voice."
-
-[[local_rule]]
-id = "dont_repeat_description"
-tier = 2
-text = "Do not repeat the image description verbatim. Write a caption that fits the article's framing."
+categories = ["content_policy", "canon", "image_captions"]
+rules = ["tone/no_fictional_label"]

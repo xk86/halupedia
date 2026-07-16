@@ -558,6 +558,12 @@ export function openDatabase(databasePath: string): DatabaseSync {
   if (!hasColumn(db, "article_revisions", "headline_media_caption")) {
     db.exec(`ALTER TABLE article_revisions ADD COLUMN headline_media_caption TEXT`);
   }
+  // Lifecycle for a suggested ontology fact: 'pending' (awaiting review),
+  // 'discarded' (rejected — a settled, permanent no), or 'human_review'
+  // (auto-review couldn't decide — kept visible, exempted from re-review).
+  if (!hasColumn(db, "ontology_suggestions", "status")) {
+    db.exec(`ALTER TABLE ontology_suggestions ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
+  }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   // Serves the All Pages listing (WHERE is_disambiguation = 0 ORDER BY title
   // COLLATE NOCASE) without a full scan + sort per request.

@@ -62,12 +62,18 @@ export function deleteOntologyTypeSuggestion(db: DatabaseSync, slug: string): vo
   prepared(db, `DELETE FROM ontology_type_suggestions WHERE article_slug = ?`).run(slug);
 }
 
+/** `pending`: awaiting review. `discarded`: rejected — a settled, permanent
+ *  no, hidden from the default list. `human_review`: auto-review couldn't
+ *  decide — stays visible, but exempted from the auto-review queue. */
+export type OntologySuggestionStatus = "pending" | "discarded" | "human_review";
+
 export interface OntologySuggestion {
   id: number;
   subject: string;
   predicate: string;
   object: string;
   validated: boolean;
+  status: OntologySuggestionStatus;
 }
 
 export interface ArticleOntologySuggestionGroup {
@@ -117,6 +123,29 @@ export function replaceOntologySuggestions(
     ),
   );
 
+  // A fact a human already discarded or flagged for review has a settled
+  // status that must survive re-extraction — otherwise it silently comes
+  // back as 'pending' the next time this article's ontology is refreshed.
+  // Match on the (subject, predicate, object) triple, not row id (ids don't
+  // survive the delete-and-reinsert below).
+  const preservedStatuses = new Map<string, OntologySuggestionStatus>();
+  const settled = prepared(
+    db,
+    `SELECT subject, predicate, object, status FROM ontology_suggestions
+      WHERE article_slug = ? AND status != 'pending'`,
+  ).all(slug) as Array<{
+    subject: string;
+    predicate: string;
+    object: string;
+    status: OntologySuggestionStatus;
+  }>;
+  for (const row of settled) {
+    preservedStatuses.set(
+      `${row.subject}\0${row.predicate}\0${row.object}`,
+      row.status,
+    );
+  }
+
   prepared(db, `DELETE FROM ontology_suggestions WHERE article_slug = ?`).run(
     slug,
   );
@@ -129,21 +158,19 @@ export function replaceOntologySuggestions(
       relation.predicate === "is_a"
     )
       continue;
+    const key = `${relation.subject}\0${relation.predicate}\0${relation.object}`;
     prepared(
       db,
       `INSERT OR IGNORE INTO ontology_suggestions
-         (article_slug, subject, predicate, object, validated, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (article_slug, subject, predicate, object, validated, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       slug,
       relation.subject,
       relation.predicate,
       relation.object,
-      validatedKeys.has(
-        `${relation.subject}\0${relation.predicate}\0${relation.object}`,
-      )
-        ? 1
-        : 0,
+      validatedKeys.has(key) ? 1 : 0,
+      preservedStatuses.get(key) ?? "pending",
       now,
     );
   }
@@ -155,7 +182,7 @@ export function listOntologySuggestions(
 ): OntologySuggestion[] {
   const rows = prepared(
     db,
-    `SELECT id, subject, predicate, object, validated
+    `SELECT id, subject, predicate, object, validated, status
      FROM ontology_suggestions WHERE article_slug = ? ORDER BY id`,
   ).all(slug) as Array<
     Omit<OntologySuggestion, "validated"> & { validated: number }
@@ -188,9 +215,11 @@ export function listPendingOntologySuggestionsByArticle(
             s.predicate,
             s.object,
             s.validated,
+            s.status,
             s.created_at AS createdAt
        FROM ontology_suggestions s
        LEFT JOIN articles a ON a.slug = s.article_slug
+      WHERE s.status != 'discarded'
       ORDER BY s.article_slug COLLATE NOCASE, s.id`,
   ).all() as Array<{
     id: number;
@@ -200,6 +229,7 @@ export function listPendingOntologySuggestionsByArticle(
     predicate: string;
     object: string;
     validated: number;
+    status: OntologySuggestionStatus;
     createdAt: number;
   }>;
 
@@ -220,6 +250,7 @@ export function listPendingOntologySuggestionsByArticle(
       predicate: row.predicate,
       object: row.object,
       validated: row.validated === 1,
+      status: row.status,
       createdAt: row.createdAt,
     });
   }
@@ -269,6 +300,35 @@ export function deleteOntologySuggestions(
     );
   }
   return removed;
+}
+
+/** Sets a suggestion's status without deleting the row — used for the
+ *  Discard and Needs-review actions, both of which must survive
+ *  re-extraction (see `replaceOntologySuggestions`), unlike a hard delete. */
+export function setOntologySuggestionsStatus(
+  db: DatabaseSync,
+  slug: string,
+  status: OntologySuggestionStatus,
+  ids?: number[],
+): number {
+  if (!ids?.length) {
+    return Number(
+      prepared(
+        db,
+        `UPDATE ontology_suggestions SET status = ? WHERE article_slug = ?`,
+      ).run(status, slug).changes,
+    );
+  }
+  let updated = 0;
+  for (const id of ids) {
+    updated += Number(
+      prepared(
+        db,
+        `UPDATE ontology_suggestions SET status = ? WHERE article_slug = ? AND id = ?`,
+      ).run(status, slug, id).changes,
+    );
+  }
+  return updated;
 }
 
 export function applyOntologySuggestions(

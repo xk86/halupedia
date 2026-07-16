@@ -12,9 +12,11 @@
  * passing (see the prompt's "different entity" fail condition) — it is
  * explicitly not a taste/style/recognizability judge (see
  * `OUT_OF_SCOPE_REASON_RE` below). Passing relation suggestions are merged
- * into the ontology; a passing type change is applied. Anything that fails —
- * deterministically or by the model — is left in place for manual review;
- * nothing here ever deletes a suggestion.
+ * into the ontology; a passing type change is applied. A failure is never
+ * deleted, but it is marked settled so it stops being re-reviewed every
+ * pass: a deterministic failure (malformed, clearly invalid) is marked
+ * `discarded`; an LLM judgment-call failure is marked `human_review`
+ * (still visible for a person to decide manually).
  */
 import type { DatabaseSync } from "node:sqlite";
 import { getArticle } from "../db";
@@ -25,6 +27,7 @@ import { getPrompt, parseJsonLoose, renderTemplate } from "../prompts";
 import {
   applyOntologySuggestions,
   listOntologySuggestions,
+  setOntologySuggestionsStatus,
   updateOntologySuggestionObject,
   type OntologySuggestion,
 } from "./suggestions";
@@ -366,6 +369,18 @@ export async function reviewArticleSuggestions(
   const passedIds = items.filter((item) => item.verdict === "pass").map((item) => item.id);
   if (passedIds.length > 0) {
     applyOntologySuggestions(db, slug, "merge", passedIds);
+  }
+  const discardedIds = items
+    .filter((item) => item.verdict === "fail" && item.source === "deterministic")
+    .map((item) => item.id);
+  if (discardedIds.length > 0) {
+    setOntologySuggestionsStatus(db, slug, "discarded", discardedIds);
+  }
+  const humanReviewIds = items
+    .filter((item) => item.verdict === "fail" && item.source === "llm")
+    .map((item) => item.id);
+  if (humanReviewIds.length > 0) {
+    setOntologySuggestionsStatus(db, slug, "human_review", humanReviewIds);
   }
   if (typeResult?.verdict === "pass") {
     updateArticleEntityType(db, slug, typeResult.suggestedType);

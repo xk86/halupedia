@@ -9,10 +9,33 @@ export interface PromptMeta {
   hasModes: boolean;
 }
 
+export interface RuleSpec {
+  include: string[];
+  exclude?: string[];
+}
+
+export interface RuleDefinition {
+  id: string;
+  tier: 1 | 2 | 3 | 4;
+  text: string;
+  overrides?: string[];
+}
+
+export interface RuleCategory {
+  category: string;
+  label: string;
+  order: number;
+  rules: RuleDefinition[];
+}
+
 export interface PromptContent extends PromptMeta {
   system: string;
   user: string;
   path: string;
+  rules?: RuleSpec;
+  /** Read-only in this editor — see promptEditor.ts for why. */
+  localRules?: RuleDefinition[];
+  rulesPreview?: string;
 }
 
 export interface PromptList {

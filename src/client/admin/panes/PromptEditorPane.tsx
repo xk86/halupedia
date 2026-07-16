@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PromptEditorCard } from "../prompts/PromptEditorCard";
-import type { PromptList, PromptMeta } from "../prompts/types";
+import type { PromptList, PromptMeta, RuleCategory } from "../prompts/types";
 
 type PromptViewMode = "single" | "all";
 
@@ -43,6 +43,14 @@ function PromptEditorPaneComponent() {
   const [listError, setListError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<PromptViewMode>("single");
+  const [ruleCategories, setRuleCategories] = useState<RuleCategory[]>([]);
+
+  useEffect(() => {
+    fetch("/api/admin/rules")
+      .then((res) => (res.ok ? res.json() : { categories: [] }))
+      .then((data) => setRuleCategories(Array.isArray(data.categories) ? data.categories : []))
+      .catch(() => setRuleCategories([]));
+  }, []);
 
   const loadList = useCallback(async () => {
     setListError(null);
@@ -157,6 +165,7 @@ function PromptEditorPaneComponent() {
           <PromptEditorCard
             key={promptId(selectedPrompt)}
             prompt={selectedPrompt}
+            ruleCategories={ruleCategories}
           />
         ) : null}
 
@@ -166,7 +175,11 @@ function PromptEditorPaneComponent() {
             data-testid="all-prompt-editors"
           >
             {prompts.map((prompt) => (
-              <PromptEditorCard key={promptId(prompt)} prompt={prompt} />
+              <PromptEditorCard
+                key={promptId(prompt)}
+                prompt={prompt}
+                ruleCategories={ruleCategories}
+              />
             ))}
           </div>
         ) : null}

@@ -879,23 +879,26 @@ test("loadConfig populates a dedicated light LLM config section", () => {
 
 test("loadConfig resolves prompt manifest file references", () => {
   const { prompts } = loadConfig();
-  
+
   // Verify article prompt is loaded
   assert.ok(prompts.prompts.article);
   assert.ok(prompts.prompts.article.system);
   assert.ok(prompts.prompts.article.user);
-  
-  assert.ok(prompts.shared.shared_article_rules);
-  assert.ok(prompts.shared.shared_article_rules.system);
-  assert.equal(prompts.shared.shared_article_rules.model, undefined);
-  assert.equal(prompts.shared.shared_article_rules.thinking, undefined);
-  assert.equal(prompts.prompts.shared_article_rules, undefined);
 
+  // shared_rewrite_modes.toml is the one file remaining under config/prompts/
+  // shared/ — its [modes.*] tables feed rewriteModes, not a {{shared_x}}
+  // template include.
+  assert.ok(prompts.rewriteModes.aggressive);
+  assert.equal(prompts.prompts.shared_rewrite_modes, undefined);
+
+  // article's tone/formatting/linking/etc. rules now come from the rule
+  // library (config/rules/*.toml) via {{rules}}, not a {{shared_article_rules}}
+  // template include — verify the placeholder resolved and rule text landed.
   const articlePrompt = getPrompt(prompts, "article");
-  assert.match(articlePrompt.system, /shared_article_rules|formatting|article/i);
+  assert.match(articlePrompt.system, /Tier 1 — Never break/);
   assert.equal(articlePrompt.model, "heavy");
   assert.equal(articlePrompt.thinking, true);
-  assert.doesNotMatch(articlePrompt.system, /\{\{shared_article_rules\}\}/);
+  assert.doesNotMatch(articlePrompt.system, /\{\{rules\}\}/);
 
   // link_suggestion now draws its linking constraints from the rules library
   // (config/rules/link_selection.toml) instead of the old shared/linking_guide.toml

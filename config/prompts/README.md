@@ -27,7 +27,7 @@ Prompts use `{{variable_name}}` placeholders that are substituted at runtime. Co
 - `{{rag_context}}` - retrieved context from RAG
 - `{{link_hints}}` - incoming canonical references
 - `{{related_titles}}` - existing related Halupedia topics
-- `{{shared_article_rules}}` - expands to the full `shared_article_rules` system prompt
+- `{{rules}}` - expands to the prompt's assembled rule-library text (see "Rule library" below)
 
 ## Adding a New Prompt
 
@@ -78,16 +78,17 @@ Every prompt currently shipped in this directory. Each entry says *what* the pro
 
 ### Shared (template fragments, not invoked directly)
 
-Files under `shared/` are NEVER invoked directly. They expand inline anywhere `{{shared_*}}` appears in another prompt via `resolveSharedRefs` in `prompts.ts`.
+Files under `shared/` are NEVER invoked directly.
 
 | File | Used by |
 |---|---|
-| `shared/shared_tone.toml` | Tone rules expanded into `shared_article_rules`, `comment`, and others. |
-| `shared/shared_article_rules.toml` | Full body of formatting + link + tone rules expanded into `article`, `article_refresh`, `article_rewrite`, and `article_quick_edit`. |
-| `shared/shared_link_format.toml` | Halu + ref link syntax rules expanded into `shared_article_rules`, `todays_news`, and `link_*` prompts. |
-| `shared/shared_rewrite_modes.toml` | `{{rewrite_mode}}` blurb expanded into vibe rewrites, quick edits, and article refreshes. |
+| `shared/shared_rewrite_modes.toml` | `{{rewrite_mode}}` blurb expanded into vibe rewrites, quick edits, and article refreshes. Its `[modes.*]` tables feed `config.prompts.rewriteModes` directly — a parameterized template selected by a `mode` variable, not a set of rules to assemble, so it's out of scope for the rule-library migration below. |
 
-Prompts are being migrated off `shared/` and onto a separate, tiered rule library under `config/rules/` — see `src/server/rules/` and its `AGENTS`/module docs. A migrated prompt declares `[rules]` (selectors into `config/rules/*.toml`) and `[[local_rule]]` (prompt-private rules) instead of a `{{shared_*}}` include, and its `system`/`user` text uses a `{{rules}}` placeholder instead. As of this writing `article_summary` and most of the short JSON/utility prompts (`comment`, `did_you_know`, `image_caption`, `image_description`, `infobox`, `see_also`, `link_suggestion`, `agent_chat`, `agent_research`, `random_page`, `ontology_vocabulary_review`, `todays_news`) have migrated; the `article`/`article_refresh`/`article_rewrite`/`article_quick_edit` family (still on `shared_article_rules`/`shared_link_format`/`shared_tone`) has not.
+### Rule library
+
+Every prompt has migrated off the old `{{shared_*}}` template-fragment includes and onto a separate, tiered rule library under `config/rules/` — see `src/server/rules/` and its module docs. No prompt file still uses a `{{shared_*}}` include, but the `resolveSharedRefs`/`getSharedPrompt` machinery in `prompts.ts`/`registry.ts` that resolves it is still in place (harmless no-op now) pending its own removal. A prompt declares `[rules]` (selectors into `config/rules/*.toml`, e.g. `"tone"`, `"tone@1"`, `"tone/never_hedge"`) and/or `[[local_rule]]` (prompt-private rules, never selectable from another prompt) instead of a `{{shared_*}}` include, and its `system`/`user` text uses a `{{rules}}` placeholder instead.
+
+`article_rewrite.toml`/`article_quick_edit.toml` additionally need a rule selection that varies per render call (full-article vs. section/selection scope), not just per prompt — see `RenderRuntimeOptions.extraInclude` on `PromptRegistry.render()` in `src/server/pipeline/prompts/registry.ts`, and how `renderRewritePromptNode` in `src/server/pipeline/nodes/rewrite.ts` picks the `output_contract/full_article_*` vs. `output_contract/partial_scope_*` selector pair based on whether the edit is partial.
 
 ## RAG Context Sources
 
@@ -130,4 +131,4 @@ Ref-citation links accept two input forms but always canonicalize to one:
 | `[text](ref:slug-name)` | **Canonical / preferred** | The slug is shown directly in `{{references_list}}` next to the title so the model can copy it without tracking ordinal numbers. This is what `resolveRefLinks` outputs to stored markdown. |
 | `[text](ref:N)` | Accepted fallback | 1-based index into the reference list. Resolved into `ref:slug` at save time. Listed in `{{references_list}}` as "also reachable as ref:N" so legacy prompts and copy-paste from older articles keep working. |
 
-`formatReferencesForPrompt` renders each line as `- ref:slug → Title  (also reachable as ref:N)`. Prompts (`article.toml`, `article_refresh.toml`, `shared_link_format.toml`) call out the slug form as the default. The numeric form is kept supported but de-emphasized so the model stops having to do ordinal arithmetic.
+`formatReferencesForPrompt` renders each line as `- ref:slug → Title  (also reachable as ref:N)`. Prompts (`article.toml`, `article_refresh.toml`, and the `linking` rule category) call out the slug form as the default. The numeric form is kept supported but de-emphasized so the model stops having to do ordinal arithmetic.

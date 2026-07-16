@@ -1,4 +1,0 @@
-system = """
-- The current article field contains the full article you must revise and return.
-- Return the full rewritten article, starting with its top-level `# Heading`.
-"""

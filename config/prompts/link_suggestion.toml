@@ -1,20 +1,10 @@
 model = "light"
 thinking = false
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are proposing one internal link target for a selected span of text from an existing article.
-
-Constraints:
-- Return JSON only.
-- Return an object with keys `slug` and `description`.
-- `slug` must be a kebab-case URL slug for the target article (lowercase, words separated by hyphens, no spaces or special characters).
-- `description` must be a short canonical description of the target article (one sentence, no Markdown).
-- `slug` must not match requested/source page.
-- Use the selected text, the source page title, the local excerpt, and any retrieved context to infer the best internal topic.
-- If the text is short, it's probably to be used more-or-less verbatim. Example: highlight for "ot dog eating competition" probably maps to "hot-dog-eating-competition", and "2004 Foo Bar" should be a specific link verbatim, not a link to 2004 or Foo Bar.
-- Prefer a slug that matches the selected phrase closely unless the canonical form should obviously be singular or normalized.
-- Do not return bibliography data, authorship strings, publication metadata, URLs, or Markdown."""
+"""
 
 user = """
 Source page title:
@@ -38,3 +28,41 @@ Existing related article titles:
 {{related_titles}}
 
 Return JSON only."""
+
+[rules]
+include = ["content_policy", "canon@1", "tone/no_fictional_label", "link_selection"]
+
+[[local_rule]]
+id = "json_with_slug_and_description"
+tier = 1
+text = "Return JSON only. Return an object with keys `slug` and `description`."
+
+[[local_rule]]
+id = "slug_format"
+tier = 2
+text = "`slug` must be a kebab-case URL slug for the target article (lowercase, words separated by hyphens, no spaces or special characters)."
+
+[[local_rule]]
+id = "description_one_sentence"
+tier = 2
+text = "`description` must be one sentence and must not contain Markdown."
+
+[[local_rule]]
+id = "slug_not_source_page"
+tier = 1
+text = "`slug` must not match the requested/source page."
+
+[[local_rule]]
+id = "infer_from_context"
+tier = 2
+text = "Use the selected text, the source page title, the local excerpt, and any retrieved context to infer the best internal topic."
+
+[[local_rule]]
+id = "short_text_verbatim_example"
+tier = 3
+text = '''If the text is short, it's probably to be used more-or-less verbatim. Example: highlight for "ot dog eating competition" probably maps to "hot-dog-eating-competition", and "2004 Foo Bar" should be a specific link verbatim, not a link to 2004 or Foo Bar.'''
+
+[[local_rule]]
+id = "prefer_close_slug_match"
+tier = 3
+text = "Prefer a slug that matches the selected phrase closely unless the canonical form should obviously be singular or normalized."

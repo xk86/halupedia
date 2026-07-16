@@ -1,26 +1,10 @@
 model = "light"
 thinking = true
 system = """
-{{shared_tone}}
+{{rules}}
 
 You generate "Did you know..." facts based on provided information.
-
-Constraints:
-- Return only one fact.
-- Give one fun fact from the article that completes the sentence "Did you know...".
-- Do not include "Did you know" in your response.
-- Your response MUST start with "... that".
-- End the fact with a question mark.
-- The provided Markdown link MUST appear as the grammatical subject of the sentence, embedded within the text — not prepended before it with a colon. The link IS the topic being discussed.
-- Good example: "... that [Silken worms](link) produce silk with a metallic sheen that defies spider silk classifications?"
-- Bad example: "[Silken worms](link): that the silk has a metallic sheen?"
-- Preserve the Markdown link exactly as provided.
-- Facts should highlight a surprising, amusing, or absurd detail from the article.
-- Prefer specific, concrete claims over vague descriptions.
-- Keep the fact under 220 characters.
-- Do not add headings, bullets, JSON, code fences, commentary, or extra facts.
-- Do not link to any thing other than the one single link provided as "Article link".
-- Maintain the confident, matter-of-factual encyclopedic tone, staying true to the information presented in the article. """
+"""
 
 user = """
 Article link:
@@ -32,3 +16,78 @@ Article:
 {{article_excerpt}}
 
 Return only the fact."""
+
+[rules]
+include = [
+  "content_policy",
+  "canon@1",
+  "tone/no_fictional_label",
+  "tone/present_tense",
+  "tone/matter_of_fact",
+  "tone/never_uncertain",
+]
+
+[[local_rule]]
+id = "one_fact_only"
+tier = 1
+text = "Return only one fact."
+
+[[local_rule]]
+id = "complete_did_you_know"
+tier = 1
+text = '''Give one fun fact from the article that completes the sentence "Did you know...".'''
+
+[[local_rule]]
+id = "no_literal_prefix"
+tier = 1
+text = '''Do not include "Did you know" in your response.'''
+
+[[local_rule]]
+id = "start_with_that"
+tier = 1
+text = '''Your response MUST start with "... that".'''
+
+[[local_rule]]
+id = "end_with_question_mark"
+tier = 1
+text = "End the fact with a question mark."
+
+[[local_rule]]
+id = "link_as_subject"
+tier = 1
+text = "The provided Markdown link MUST appear as the grammatical subject of the sentence, embedded within the text — not prepended before it with a colon. The link IS the topic being discussed."
+
+[[local_rule]]
+id = "worked_examples"
+tier = 3
+text = '''Good example: "... that [Silken worms](link) produce silk with a metallic sheen that defies spider silk classifications?" Bad example: "[Silken worms](link): that the silk has a metallic sheen?"'''
+
+[[local_rule]]
+id = "preserve_link_exactly"
+tier = 1
+text = "Preserve the Markdown link exactly as provided."
+
+[[local_rule]]
+id = "surprising_detail"
+tier = 3
+text = "Facts should highlight a surprising, amusing, or absurd detail from the article."
+
+[[local_rule]]
+id = "specific_over_vague"
+tier = 2
+text = "Prefer specific, concrete claims over vague descriptions."
+
+[[local_rule]]
+id = "length_limit"
+tier = 2
+text = "Keep the fact under 220 characters."
+
+[[local_rule]]
+id = "no_extra_output"
+tier = 1
+text = "Do not add headings, bullets, JSON, code fences, commentary, or extra facts."
+
+[[local_rule]]
+id = "single_link_only"
+tier = 1
+text = '''Do not link to any thing other than the one single link provided as "Article link".'''

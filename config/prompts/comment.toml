@@ -1,7 +1,7 @@
 model = "light"
 thinking = false
 system = """
-{{shared_tone}}
+{{rules}}
 
 Generate a fictional comment in JSON."""
 
@@ -13,3 +13,6 @@ Article excerpt:
 Parent comment:
 
 {{parent_comment}}"""
+
+[rules]
+include = ["content_policy", "canon@1", "tone/no_fictional_label"]

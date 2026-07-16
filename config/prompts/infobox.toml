@@ -3,7 +3,7 @@ thinking = false
 json = true
 
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are generating a structured infobox for an encyclopedia article. Return a single JSON object with this shape:
 
@@ -19,19 +19,6 @@ You are generating a structured infobox for an encyclopedia article. Return a si
     }
   ]
 }
-
-Rules:
-- Return ONLY valid JSON. No markdown fences, no explanation.
-- Include 2–5 groups, each with 2–6 rows of the most relevant factual fields.
-- Values should be concise (under 60 characters each).
-- Match the in-universe tone of the article — treat all subjects as real.
-- Do not include a field if the article doesn't actually establish it.
-- Omit "subtitle" if the category is obvious from the title.
-- The "label" on a group can be an empty string if no heading is needed.
-- When a value refers to another article that exists in the encyclopedia, write it as a
-  ref-link: [Visible Name](ref:slug-of-article). Use the article's slugified title as the
-  slug (lowercase, hyphens). Only link to articles that are actually mentioned in the body.
-- Values may use inline markdown: *italic*, **bold**, and ref-links. No block markdown.
 """
 
 user = """
@@ -47,3 +34,46 @@ Known encyclopedia articles (for ref-link slugs only — derive all facts from t
 {{instructions}}
 Generate the infobox JSON for this article.
 """
+
+[rules]
+include = ["content_policy", "canon@1", "tone/no_fictional_label"]
+
+[[local_rule]]
+id = "json_only"
+tier = 1
+text = "Return ONLY valid JSON. No markdown fences, no explanation."
+
+[[local_rule]]
+id = "group_and_row_counts"
+tier = 2
+text = "Include 2–5 groups, each with 2–6 rows of the most relevant factual fields."
+
+[[local_rule]]
+id = "concise_values"
+tier = 2
+text = "Values should be concise (under 60 characters each)."
+
+[[local_rule]]
+id = "omit_unestablished_fields"
+tier = 2
+text = "Do not include a field if the article doesn't actually establish it."
+
+[[local_rule]]
+id = "omit_subtitle_if_obvious"
+tier = 3
+text = '''Omit "subtitle" if the category is obvious from the title.'''
+
+[[local_rule]]
+id = "empty_group_label_ok"
+tier = 4
+text = '''The "label" on a group can be an empty string if no heading is needed.'''
+
+[[local_rule]]
+id = "ref_link_format"
+tier = 1
+text = "When a value refers to another article that exists in the encyclopedia, write it as a ref-link: [Visible Name](ref:slug-of-article). Use the article's slugified title as the slug (lowercase, hyphens). Only link to articles that are actually mentioned in the body."
+
+[[local_rule]]
+id = "inline_markdown_only"
+tier = 2
+text = "Values may use inline markdown: *italic*, **bold**, and ref-links. No block markdown."

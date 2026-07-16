@@ -86,7 +86,8 @@ Files under `shared/` are NEVER invoked directly. They expand inline anywhere `{
 | `shared/shared_article_rules.toml` | Full body of formatting + link + tone rules expanded into `article`, `article_refresh`, `article_rewrite`, and `article_quick_edit`. |
 | `shared/shared_link_format.toml` | Halu + ref link syntax rules expanded into `shared_article_rules`, `todays_news`, and `link_*` prompts. |
 | `shared/shared_rewrite_modes.toml` | `{{rewrite_mode}}` blurb expanded into vibe rewrites, quick edits, and article refreshes. |
-| `shared/linking_guide.toml` | Reference material expanded into selection-edit prompts. |
+
+Prompts are being migrated off `shared/` and onto a separate, tiered rule library under `config/rules/` — see `src/server/rules/` and its `AGENTS`/module docs. A migrated prompt declares `[rules]` (selectors into `config/rules/*.toml`) and `[[local_rule]]` (prompt-private rules) instead of a `{{shared_*}}` include, and its `system`/`user` text uses a `{{rules}}` placeholder instead. As of this writing `article_summary` and most of the short JSON/utility prompts (`comment`, `did_you_know`, `image_caption`, `image_description`, `infobox`, `see_also`, `link_suggestion`, `agent_chat`, `agent_research`, `random_page`, `ontology_vocabulary_review`, `todays_news`) have migrated; the `article`/`article_refresh`/`article_rewrite`/`article_quick_edit` family (still on `shared_article_rules`/`shared_link_format`/`shared_tone`) has not.
 
 ## RAG Context Sources
 

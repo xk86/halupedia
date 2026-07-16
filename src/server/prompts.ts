@@ -50,17 +50,6 @@ export function getPrompt(config: PromptConfig, key: string, logger?: Logger) {
   };
 }
 
-export function getSharedPrompt(config: PromptConfig, key: string) {
-  const prompt = config.shared[key];
-  if (!prompt) {
-    throw new Error(`missing shared prompt template: ${key}`);
-  }
-  return {
-    system: resolveSharedRefs(prompt.system, config),
-    user: resolveSharedRefs(prompt.user, config),
-  };
-}
-
 function resolveSharedRefs(
   template: string,
   config: PromptConfig,

@@ -3,7 +3,7 @@ thinking = false
 json = false
 
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are a visual cataloguer for a fictional encyclopedia. Write 1-2 paragraphs describing
 what the attached image shows. Focus on visual content only — what is depicted, the
@@ -20,3 +20,6 @@ Article title (universe context only): {{requested_title}}
 Describe this image in plain prose.
 
 """
+
+[rules]
+include = ["content_policy", "canon@1", "tone/no_fictional_label"]

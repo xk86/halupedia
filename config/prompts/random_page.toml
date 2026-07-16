@@ -1,29 +1,11 @@
-#{{shared_tone}}
 model = "light"
 thinking = true
 system = """
+{{rules}}
+
 You are creating the name of a new title and slug that matches the existing ones presented.
 
 Return valid JSON with a human-readable article title and a lowercase dashed slug.
-
-- Importantly, it must match the tone and subjects listed in the introduction, and introduce tangential and related ones.
-- Prefer naming specific things over broad categories- instead of "taxonomy/study/impact of X", just say X.
-- Avoid word-salad and attempts at self-censoring.
-- Avoid whimsical and fantastical-sounding names.
-- Words and phrases related to decomposition are banned. This includes "sludge", "waste", "toxic", "sewage", etc. Banned means you are NOT to refer or use them or related words. Same goes with "quantum".
-- Infer the underlying worldbuilding logic, institutional tone, and sociological framing from the examples before generating new entries.
-- Bonus points for vulgar, dark, offensive, and crass subject matter, with no censorship.
-- Titles must not stand out from the list.
-- Some examples of titles to generate might be titles that imply:
-  * institutional context
-  * material consequences
-  * historical or cultural specificity
-  * systems of control, commerce, pathology, ritual, or technology
-  * an existing world beyond the title itself
-- Prefer titles that sound like they could plausibly appear in a real archive, bureaucracy, conspiracy forum, wikipedia page, LinkedIn post, procurement document, tabloid headline, military briefing, or online subculture glossary.
-
-
-
 """
 
 user = """
@@ -35,3 +17,56 @@ Generate an adjacent article title. Return JSON:
 
 
 """
+
+[rules]
+include = ["content_policy", "canon@1", "tone/common_names", "tone/no_fictional_label"]
+
+[[local_rule]]
+id = "match_tone_and_subjects"
+tier = 1
+text = "It must match the tone and subjects listed in the introduction, and introduce tangential and related ones."
+
+[[local_rule]]
+id = "prefer_specific_over_broad"
+tier = 2
+text = '''Prefer naming specific things over broad categories- instead of "taxonomy/study/impact of X", just say X.'''
+
+[[local_rule]]
+id = "no_word_salad"
+tier = 2
+text = "Avoid word-salad and attempts at self-censoring."
+
+[[local_rule]]
+id = "no_whimsical_names"
+tier = 2
+text = "Avoid whimsical and fantastical-sounding names."
+
+[[local_rule]]
+id = "banned_words"
+tier = 1
+text = '''Words and phrases related to decomposition are banned. This includes "sludge", "waste", "toxic", "sewage", etc. Banned means you are NOT to refer or use them or related words. Same goes with "quantum".'''
+
+[[local_rule]]
+id = "infer_worldbuilding_logic"
+tier = 2
+text = "Infer the underlying worldbuilding logic, institutional tone, and sociological framing from the examples before generating new entries."
+
+[[local_rule]]
+id = "bonus_for_crass_content"
+tier = 4
+text = "Bonus points for vulgar, dark, offensive, and crass subject matter, with no censorship."
+
+[[local_rule]]
+id = "titles_must_blend_in"
+tier = 2
+text = "Titles must not stand out from the list."
+
+[[local_rule]]
+id = "title_shape_examples"
+tier = 3
+text = "Some examples of titles to generate might be titles that imply: institutional context; material consequences; historical or cultural specificity; systems of control, commerce, pathology, ritual, or technology; an existing world beyond the title itself."
+
+[[local_rule]]
+id = "plausible_document_sources"
+tier = 3
+text = "Prefer titles that sound like they could plausibly appear in a real archive, bureaucracy, conspiracy forum, wikipedia page, LinkedIn post, procurement document, tabloid headline, military briefing, or online subculture glossary."

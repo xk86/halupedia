@@ -1,20 +1,10 @@
 model = "light"
 thinking = false
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are generating See Also suggestions for a wiki article.
-
-Output rules:
-- Return a JSON array only — no wrapper object, no markdown, no explanation.
-- Each element is an object with exactly two keys: "slug" and "hint".
-- "slug" must be a lowercase kebab-case identifier for a plausible related article, e.g. "salt-river-syndicate" or "upper-great-lakes-geology".
-- "hint" must be a single short sentence describing what that article covers.
-- Generate between 3 and 7 suggestions.
-- Suggest topics thematically related to the article but not already covered by it.
-- Do not include the article itself as a suggestion.
-- Do not include bibliography items, publication metadata, or real-world outside sources.
-- Suggest only articles that do not yet exist — these are seed ideas for future writing, not links to current content."""
+"""
 
 user = """
 Current article title: {{requested_title}}
@@ -23,3 +13,51 @@ Article summary:
 {{article_summary}}
 
 Return a JSON array of {slug, hint} objects only."""
+
+[rules]
+include = ["content_policy", "canon@1", "tone/no_fictional_label"]
+
+[[local_rule]]
+id = "json_array_only"
+tier = 1
+text = "Return a JSON array only — no wrapper object, no markdown, no explanation."
+
+[[local_rule]]
+id = "slug_and_hint_keys"
+tier = 1
+text = '''Each element is an object with exactly two keys: "slug" and "hint".'''
+
+[[local_rule]]
+id = "slug_format"
+tier = 2
+text = '''"slug" must be a lowercase kebab-case identifier for a plausible related article, e.g. "salt-river-syndicate" or "upper-great-lakes-geology".'''
+
+[[local_rule]]
+id = "hint_is_one_sentence"
+tier = 2
+text = '''"hint" must be a single short sentence describing what that article covers.'''
+
+[[local_rule]]
+id = "suggestion_count"
+tier = 2
+text = "Generate between 3 and 7 suggestions."
+
+[[local_rule]]
+id = "thematically_related_not_covered"
+tier = 2
+text = "Suggest topics thematically related to the article but not already covered by it."
+
+[[local_rule]]
+id = "no_self_suggestion"
+tier = 1
+text = "Do not include the article itself as a suggestion."
+
+[[local_rule]]
+id = "no_bibliography_or_real_sources"
+tier = 1
+text = "Do not include bibliography items, publication metadata, or real-world outside sources."
+
+[[local_rule]]
+id = "only_nonexistent_articles"
+tier = 1
+text = "Suggest only articles that do not yet exist — these are seed ideas for future writing, not links to current content."

@@ -111,11 +111,6 @@ const RUNNABLE_PROMPT_USAGE: Record<string, PromptUsage> = {
 };
 
 const SHARED_PROMPT_USAGE: Record<string, PromptUsage> = {
-  linking_guide: {
-    description:
-      "Shared constraints for choosing compact, canonical internal-link targets.",
-    usedBy: ["article.link_suggestion"],
-  },
   rewrite_scope_full: {
     description: "Shared output contract for full-article rewrites.",
     usedBy: ["article.rewrite"],

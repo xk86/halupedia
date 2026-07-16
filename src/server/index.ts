@@ -106,7 +106,7 @@ import { MaintenanceScheduler } from "./maintenance";
 import { createEncyclopediaPdfExportJobs } from "./encyclopediaPdfExportJobs";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
 import { articleSectionMarkdown, buildHaluLink, extractDisplayTitle, extractInternalLinks, extractTitle, fixSlugVisibleText, LINK_RE, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, renderInlineMarkdown, renderOntologyValueHtml, replaceArticleSection, sectionSlice, spliceProtectedSections, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
-import { getPrompt, getSharedPrompt, renderTemplate } from "./prompts";
+import { getPrompt, renderTemplate } from "./prompts";
 import { formatRagContextForPrompt } from "./retrieval";
 import { isSlugForm, isSlugStyleWikiSegment, legacySlugify, normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToRequestedTitle, wikiSegmentToTitle } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
@@ -558,12 +558,6 @@ async function ensureHomepageCache(deps: PipelineDeps): Promise<HomepagePayload>
   return payload as HomepagePayload;
 }
 
-function buildLinkedPromptSystem(promptConfig: ReturnType<typeof loadConfig>["prompts"], key: string): string {
-  const guide = getSharedPrompt(promptConfig, "linking_guide");
-  const prompt = getPrompt(promptConfig, key);
-  return `${guide.system.trim()}\n\n${prompt.system.trim()}`;
-}
-
 function stripSelectionDecorators(text: string): string {
   return normalizeSelectionText(text)
     .replace(/\s*\([^)]*\)\s*/g, " ")
@@ -615,7 +609,7 @@ async function generateLinkSuggestion(llm: LlmRouter, promptConfig: ReturnType<t
   const role = prompt.model ?? "heavy";
   const raw = await llm.chat(
     role,
-    buildLinkedPromptSystem(promptConfig, "link_suggestion"),
+    prompt.system,
     renderTemplate(prompt.user, {
       slug: slugify(requestedTitle),
       requested_title: requestedTitle,

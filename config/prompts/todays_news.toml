@@ -1,9 +1,7 @@
 model = "heavy"
 thinking = true
 system = '''
-{{shared_tone}}
-
-{{shared_link_format}}
+{{rules}}
 
 You write the daily front-page news digest for this fictional encyclopedia's world.
 
@@ -74,3 +72,13 @@ Continuity and world-state lore packet for this edition:
 
 Generate today's news article now.
 '''
+
+[rules]
+include = [
+  "content_policy",
+  "canon@1",
+  "tone/no_fictional_label",
+  "tone/present_tense",
+  "tone/authoritative_tone",
+  "linking",
+]

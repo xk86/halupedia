@@ -48,7 +48,7 @@ import {
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
 import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
-import { getPrompt, getSharedPrompt, parseJsonLoose, stripJsonFences } from "../src/server/prompts";
+import { getPrompt, parseJsonLoose, stripJsonFences } from "../src/server/prompts";
 import { replaceTomlTripleQuoted } from "../src/server/promptEditor";
 import { parse as parseToml } from "smol-toml";
 import {
@@ -890,7 +890,6 @@ test("loadConfig resolves prompt manifest file references", () => {
   assert.equal(prompts.shared.shared_article_rules.model, undefined);
   assert.equal(prompts.shared.shared_article_rules.thinking, undefined);
   assert.equal(prompts.prompts.shared_article_rules, undefined);
-  assert.equal(prompts.prompts.linking_guide, undefined);
 
   const articlePrompt = getPrompt(prompts, "article");
   assert.match(articlePrompt.system, /shared_article_rules|formatting|article/i);
@@ -898,8 +897,11 @@ test("loadConfig resolves prompt manifest file references", () => {
   assert.equal(articlePrompt.thinking, true);
   assert.doesNotMatch(articlePrompt.system, /\{\{shared_article_rules\}\}/);
 
-  const linkingGuide = getSharedPrompt(prompts, "linking_guide");
-  assert.match(linkingGuide.system, /Shared linking rules/);
+  // link_suggestion now draws its linking constraints from the rules library
+  // (config/rules/link_selection.toml) instead of the old shared/linking_guide.toml
+  // + getSharedPrompt concatenation.
+  const linkSuggestionPrompt = getPrompt(prompts, "link_suggestion");
+  assert.match(linkSuggestionPrompt.system, /description for a new entry/i);
 });
 
 test("summarizeRetrievedSource returns truncated chunk content directly", () => {

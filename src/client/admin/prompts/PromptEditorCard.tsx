@@ -34,65 +34,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { PromptRulesConfig } from "./PromptRulesConfig";
+import { RulesPreview } from "./RulesPreview";
 import type {
   PromptContent,
   PromptMeta,
   PromptRevision,
   RuleCategory,
+  RuleDefinition,
   RuleSpec,
 } from "./types";
-
-const TIER_LABEL: Record<number, string> = {
-  1: "Never break",
-  2: "Required",
-  3: "Default",
-  4: "Suggested",
-};
-
-/** Whole-category selectors this prompt's include list currently contains,
- *  in the order categories appear in the library. Finer-grained selectors
- *  (e.g. "tone/never_hedge", "canon@1") are left as-is when their category
- *  isn't toggled, but toggling a category on/off in this editor normalizes
- *  it to (or removes) the whole-category form — per-rule editing isn't
- *  supported by this picker yet. */
-function categoryMatch(sel: string, category: string): boolean {
-  return sel === category || sel.startsWith(`${category}/`) || sel.startsWith(`${category}@`);
-}
-
-function categoriesIncluded(rules: RuleSpec | undefined, categories: RuleCategory[]): Set<string> {
-  const included = new Set<string>();
-  if (!rules) return included;
-  for (const cat of categories) {
-    if (rules.include.some((sel) => categoryMatch(sel, cat.id))) included.add(cat.id);
-  }
-  return included;
-}
-
-/** Build a save-ready RuleSpec: categories whose selection state didn't
- *  change from baseline keep their exact original selectors (which may be
- *  finer-grained than the whole category, e.g. "tone/never_hedge"); a newly
- *  checked category is added in whole-category form; an unchecked category
- *  has all of its selectors removed. exclude passes through unchanged —
- *  this picker doesn't edit it. */
-function buildRulesSpec(
-  baseline: RuleSpec,
-  selected: Set<string>,
-  categories: RuleCategory[],
-): RuleSpec {
-  const baselineIncluded = categoriesIncluded(baseline, categories);
-  let include = [...baseline.include];
-  for (const cat of categories) {
-    const was = baselineIncluded.has(cat.id);
-    const is = selected.has(cat.id);
-    if (was && !is) {
-      include = include.filter((sel) => !categoryMatch(sel, cat.id));
-    } else if (!was && is) {
-      include = [...include, cat.id];
-    }
-  }
-  return { include, ...(baseline.exclude ? { exclude: baseline.exclude } : {}) };
-}
 
 const SOURCE_BADGE: Record<
   string,
@@ -117,9 +68,11 @@ const BASE_IMAGE_PRESET: ImagePromptOption = {
 function PromptEditorCardComponent({
   prompt,
   ruleCategories,
+  ruleDefinitions,
 }: {
   prompt: PromptMeta;
   ruleCategories: RuleCategory[];
+  ruleDefinitions: RuleDefinition[];
 }) {
   const [content, setContent] = useState<PromptContent | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -149,24 +102,24 @@ function PromptEditorCardComponent({
     BASE_IMAGE_PRESET.key,
   );
 
-  const [selectedRuleCategories, setSelectedRuleCategories] = useState<Set<string> | null>(null);
-  const [rulesPreview, setRulesPreview] = useState("");
-  const [previewLoading, setPreviewLoading] = useState(false);
-  // The as-loaded [rules] spec, for building a save payload that keeps
-  // untouched categories' exact original selectors (e.g. "tone/never_hedge"
-  // or "canon@1") instead of normalizing everything to whole-category form.
-  const rulesBaselineSpecRef = useRef<RuleSpec | null>(null);
-  const rulesBaselineSetRef = useRef<Set<string> | null>(null);
-  const rulesPreviewBaselineRef = useRef("");
-  const previewRequestRef = useRef(0);
+  const [ruleSpec, setRuleSpec] = useState<RuleSpec>({ include: [] });
+  const [localRules, setLocalRules] = useState<RuleDefinition[]>([]);
+  const ruleConfigBaselineRef = useRef<{
+    rules: RuleSpec;
+    localRules: RuleDefinition[];
+  } | null>(null);
 
-  const hasRules = content?.rules !== undefined;
+  const hasRules = Boolean(
+    content &&
+    (content.rules !== undefined ||
+      content.localRules?.length ||
+      system.includes("{{rules}}") ||
+      user.includes("{{rules}}")),
+  );
   const rulesDirty =
-    hasRules &&
-    selectedRuleCategories !== null &&
-    rulesBaselineSetRef.current !== null &&
-    (selectedRuleCategories.size !== rulesBaselineSetRef.current.size ||
-      [...selectedRuleCategories].some((c) => !rulesBaselineSetRef.current!.has(c)));
+    ruleConfigBaselineRef.current !== null &&
+    JSON.stringify({ rules: ruleSpec, localRules }) !==
+      JSON.stringify(ruleConfigBaselineRef.current);
 
   const isDirty =
     baselineRef.current !== null &&
@@ -178,21 +131,20 @@ function PromptEditorCardComponent({
   const editingCustomImagePreset =
     isImagePrompt && selectedPresetKey !== BASE_IMAGE_PRESET.key;
 
-  const applyContent = useCallback(
-    (data: PromptContent) => {
-      setContent(data);
-      setSystem(data.system);
-      setUser(data.user);
-      baselineRef.current = { system: data.system, user: data.user };
-      const included = categoriesIncluded(data.rules, ruleCategories);
-      setSelectedRuleCategories(data.rules ? included : null);
-      rulesBaselineSetRef.current = data.rules ? included : null;
-      rulesBaselineSpecRef.current = data.rules ?? null;
-      rulesPreviewBaselineRef.current = data.rulesPreview ?? "";
-      setRulesPreview(data.rulesPreview ?? "");
-    },
-    [ruleCategories],
-  );
+  const applyContent = useCallback((data: PromptContent) => {
+    setContent(data);
+    setSystem(data.system);
+    setUser(data.user);
+    baselineRef.current = { system: data.system, user: data.user };
+    const nextRules = data.rules ?? { include: [] };
+    const nextLocalRules = data.localRules ?? [];
+    setRuleSpec(nextRules);
+    setLocalRules(nextLocalRules);
+    ruleConfigBaselineRef.current = {
+      rules: nextRules,
+      localRules: nextLocalRules,
+    };
+  }, []);
 
   const normalizePresetContent = useCallback(
     (data: PromptContent): PromptContent => ({
@@ -320,9 +272,7 @@ function PromptEditorCardComponent({
     setSaveError(null);
     try {
       const rulesToSave =
-        !editingCustomImagePreset && rulesBaselineSpecRef.current && selectedRuleCategories
-          ? buildRulesSpec(rulesBaselineSpecRef.current, selectedRuleCategories, ruleCategories)
-          : undefined;
+        !editingCustomImagePreset && hasRules ? ruleSpec : undefined;
       const res = await fetch(
         editingCustomImagePreset
           ? `/api/admin/article-image-prompts/${encodeURIComponent(selectedPresetKey)}`
@@ -334,6 +284,7 @@ function PromptEditorCardComponent({
             system,
             user,
             ...(rulesToSave ? { rules: rulesToSave } : {}),
+            ...(!editingCustomImagePreset && hasRules ? { localRules } : {}),
           }),
         },
       );
@@ -345,9 +296,7 @@ function PromptEditorCardComponent({
       setSaveMsg("Saved — runtime reloaded.");
       baselineRef.current = { system, user };
       if (rulesToSave) {
-        rulesBaselineSpecRef.current = rulesToSave;
-        rulesBaselineSetRef.current = new Set(selectedRuleCategories);
-        rulesPreviewBaselineRef.current = rulesPreview;
+        ruleConfigBaselineRef.current = { rules: rulesToSave, localRules };
       }
       setPreviewingId(null);
       if (data.prompt) {
@@ -367,10 +316,10 @@ function PromptEditorCardComponent({
     normalizePresetContent,
     prompt.key,
     prompt.scope,
-    ruleCategories,
-    rulesPreview,
+    hasRules,
+    localRules,
+    ruleSpec,
     selectedPresetKey,
-    selectedRuleCategories,
     system,
     user,
   ]);
@@ -379,45 +328,14 @@ function PromptEditorCardComponent({
     if (!baselineRef.current) return;
     setSystem(baselineRef.current.system);
     setUser(baselineRef.current.user);
-    setSelectedRuleCategories(rulesBaselineSetRef.current);
-    setRulesPreview(rulesPreviewBaselineRef.current);
+    if (ruleConfigBaselineRef.current) {
+      setRuleSpec(ruleConfigBaselineRef.current.rules);
+      setLocalRules(ruleConfigBaselineRef.current.localRules);
+    }
     setSaveMsg(null);
     setSaveError(null);
     setPreviewingId(null);
   }, []);
-
-  const handleToggleCategory = useCallback(
-    (category: string, checked: boolean) => {
-      setSaveMsg(null);
-      setSelectedRuleCategories((prev) => {
-        const next = new Set(prev ?? []);
-        if (checked) next.add(category);
-        else next.delete(category);
-
-        if (rulesBaselineSpecRef.current) {
-          const spec = buildRulesSpec(rulesBaselineSpecRef.current, next, ruleCategories);
-          const requestId = ++previewRequestRef.current;
-          setPreviewLoading(true);
-          fetch("/api/admin/rules/preview", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(spec),
-          })
-            .then((res) => (res.ok ? res.json() : null))
-            .then((data) => {
-              if (previewRequestRef.current !== requestId) return;
-              if (data?.text !== undefined) setRulesPreview(data.text);
-            })
-            .catch(() => {})
-            .finally(() => {
-              if (previewRequestRef.current === requestId) setPreviewLoading(false);
-            });
-        }
-        return next;
-      });
-    },
-    [ruleCategories],
-  );
 
   const handleReload = useCallback(() => {
     if (editingCustomImagePreset) {
@@ -684,49 +602,23 @@ function PromptEditorCardComponent({
             {hasRules ? (
               <Field>
                 <FieldLabel>Rules ({"{{rules}}"} placeholder)</FieldLabel>
-                <div className="flex flex-col gap-1">
-                  {ruleCategories.map((cat) => (
-                    <label
-                      key={cat.id}
-                      className="flex items-start gap-2 text-sm"
-                      title={[
-                        cat.description,
-                        ...cat.rules.map((r) => `[${TIER_LABEL[r.tier]}] ${r.text}`),
-                      ].join("\n")}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedRuleCategories?.has(cat.id) ?? false}
-                        onChange={(e) => handleToggleCategory(cat.id, e.target.checked)}
-                        className="mt-1"
-                      />
-                      <span>
-                        <span className="font-mono">{cat.id}</span>
-                        <span className="text-muted-foreground">
-                          {" "}
-                          — {cat.title} ({cat.rules.length} rules)
-                        </span>
-                        {cat.description ? (
-                          <span className="block text-xs text-muted-foreground">
-                            {cat.description}
-                          </span>
-                        ) : null}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                <FieldDescription>
-                  Whole-category selection only — a category checked here
-                  replaces any finer-grained selectors (e.g.{" "}
-                  <span className="font-mono">tone/never_hedge</span>) this
-                  prompt had for it. Local rules ([[local_rule]]) aren't
-                  editable here yet.
-                </FieldDescription>
-                <Textarea
-                  readOnly
-                  value={previewLoading ? "Loading preview…" : rulesPreview}
-                  className="min-h-32 font-mono text-xs"
-                  aria-label={`${prompt.key} assembled rules preview`}
+                <PromptRulesConfig
+                  rules={ruleSpec}
+                  localRules={localRules}
+                  categories={ruleCategories}
+                  availableRules={ruleDefinitions}
+                  onChange={(nextRules, nextLocalRules) => {
+                    setRuleSpec(nextRules);
+                    setLocalRules(nextLocalRules);
+                    setSaveMsg(null);
+                  }}
+                />
+                <RulesPreview
+                  prompt={prompt}
+                  system={system}
+                  user={user}
+                  rules={ruleSpec}
+                  localRules={localRules}
                 />
               </Field>
             ) : null}

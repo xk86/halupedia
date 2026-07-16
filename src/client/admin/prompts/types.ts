@@ -16,9 +16,16 @@ export interface RuleSpec {
 
 export interface RuleDefinition {
   id: string;
+  category?: string;
   tier: 1 | 2 | 3 | 4;
   text: string;
   overrides?: string[];
+  examples?: RuleExample[];
+}
+
+export interface RuleExample {
+  description: string;
+  text: string;
 }
 
 export interface RuleCategory {
@@ -34,9 +41,13 @@ export interface PromptContent extends PromptMeta {
   user: string;
   path: string;
   rules?: RuleSpec;
-  /** Read-only in this editor — see promptEditor.ts for why. */
   localRules?: RuleDefinition[];
   rulesPreview?: string;
+}
+
+export interface RuleLibraryPayload {
+  categories: RuleCategory[];
+  rules: RuleDefinition[];
 }
 
 export interface PromptList {

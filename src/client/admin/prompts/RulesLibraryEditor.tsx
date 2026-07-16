@@ -1,0 +1,216 @@
+import { memo, useEffect, useMemo, useState } from "react";
+import { Plus } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { FieldError } from "@/components/ui/field";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CategoryEditor } from "./CategoryEditor";
+import { RuleEditor } from "./RuleEditor";
+import type { RuleCategory, RuleDefinition } from "./types";
+
+export const RulesLibraryEditor = memo(function RulesLibraryEditor({
+  categories,
+  rules,
+  onSaved,
+}: {
+  categories: RuleCategory[];
+  rules: RuleDefinition[];
+  onSaved: (categories: RuleCategory[], rules: RuleDefinition[]) => void;
+}) {
+  const [draftCategories, setDraftCategories] = useState(categories);
+  const [draftRules, setDraftRules] = useState(rules);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const dirty = useMemo(
+    () =>
+      JSON.stringify([draftCategories, draftRules]) !==
+      JSON.stringify([categories, rules]),
+    [categories, draftCategories, draftRules, rules],
+  );
+
+  useEffect(() => {
+    setDraftCategories(categories);
+    setDraftRules(rules);
+  }, [categories, rules]);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/admin/rules/library", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          categories: draftCategories.map(
+            ({ rules: _rules, ...category }) => category,
+          ),
+          rules: draftRules,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(data.error ?? `error ${response.status}`);
+      const nextCategories = (data.categories ?? []).map(
+        (category: RuleCategory) => ({ ...category, rules: [] }),
+      );
+      setDraftCategories(nextCategories);
+      setDraftRules(data.rules ?? []);
+      onSaved(nextCategories, data.rules ?? []);
+      setMessage("Rule library saved — runtime reloaded.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>Rule library</CardTitle>
+        <CardDescription>
+          Edit shared categories, rules, overrides, and structured examples.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="rules">
+          <TabsList>
+            <TabsTrigger value="rules">
+              Rules <Badge variant="secondary">{draftRules.length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="categories">
+              Categories{" "}
+              <Badge variant="secondary">{draftCategories.length}</Badge>
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="rules" className="flex flex-col gap-3 pt-2">
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setDraftRules((current) => [
+                    ...current,
+                    {
+                      id: "",
+                      category: draftCategories[0]?.id,
+                      tier: 2,
+                      text: "",
+                    },
+                  ])
+                }
+              >
+                <Plus data-icon="inline-start" />
+                Add rule
+              </Button>
+            </div>
+            {draftRules.map((rule, index) => (
+              <RuleEditor
+                key={`${rule.category}-${rule.id}-${index}`}
+                rule={rule}
+                categories={draftCategories}
+                availableRules={draftRules}
+                onChange={(next) =>
+                  setDraftRules((current) =>
+                    current.map((item, itemIndex) =>
+                      itemIndex === index ? next : item,
+                    ),
+                  )
+                }
+                onDelete={() =>
+                  setDraftRules((current) =>
+                    current.filter((_, itemIndex) => itemIndex !== index),
+                  )
+                }
+              />
+            ))}
+          </TabsContent>
+          <TabsContent value="categories" className="flex flex-col gap-2 pt-2">
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setDraftCategories((current) => [
+                    ...current,
+                    {
+                      id: "",
+                      title: "",
+                      description: "",
+                      order: current.length * 10,
+                      rules: [],
+                    },
+                  ])
+                }
+              >
+                <Plus data-icon="inline-start" />
+                Add category
+              </Button>
+            </div>
+            {draftCategories.map((category, index) => (
+              <CategoryEditor
+                key={`${category.id}-${index}`}
+                category={category}
+                onChange={(next) => {
+                  setDraftCategories((current) =>
+                    current.map((item, itemIndex) =>
+                      itemIndex === index ? next : item,
+                    ),
+                  );
+                  if (next.id !== category.id) {
+                    setDraftRules((current) =>
+                      current.map((rule) =>
+                        rule.category === category.id
+                          ? { ...rule, category: next.id }
+                          : rule,
+                      ),
+                    );
+                  }
+                }}
+                onDelete={() => {
+                  setDraftCategories((current) =>
+                    current.filter((_, itemIndex) => itemIndex !== index),
+                  );
+                  setDraftRules((current) =>
+                    current.filter((rule) => rule.category !== category.id),
+                  );
+                }}
+              />
+            ))}
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+      <CardFooter className="flex-wrap gap-2 border-t">
+        <Button type="button" onClick={save} disabled={!dirty || saving}>
+          {saving ? "Saving…" : "Save rule library"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!dirty || saving}
+          onClick={() => {
+            setDraftCategories(categories);
+            setDraftRules(rules);
+            setError(null);
+          }}
+        >
+          Reset
+        </Button>
+        {message ? <span className="text-sm">{message}</span> : null}
+        {error ? <FieldError>{error}</FieldError> : null}
+      </CardFooter>
+    </Card>
+  );
+});

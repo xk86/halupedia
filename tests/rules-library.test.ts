@@ -232,6 +232,7 @@ test("the real config/rules directory has the expected categories", () => {
     "linking",
     "lists",
     "output_contract",
+    "revision",
     "tips",
     "tone",
   ];

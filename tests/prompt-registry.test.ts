@@ -1,41 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRuleLibrary, parseRuleCategoryFile } from "../src/server/rules/library";
+import { buildRuleLibrary, parseRuleFile } from "../src/server/rules/library";
 import { buildPromptRegistry } from "../src/server/pipeline/prompts/registry";
 import type { PromptConfig } from "../src/server/types";
 
 function makeConfig(): PromptConfig {
-  const output_contract = parseRuleCategoryFile(
-    `
-label = "Output contract"
-order = 50
-
+  const cats = [
+    { id: "output_contract", title: "Output contract", description: "Response shape.", order: 50 },
+    { id: "tone", title: "Tone rules", description: "Voice and phrasing.", order: 20 },
+  ];
+  const rules = parseRuleFile(`
 [[rule]]
 id = "full_input"
+category = "output_contract"
 tier = 1
 text = "The current article field contains the full article."
 
 [[rule]]
 id = "partial_input"
+category = "output_contract"
 tier = 1
 text = "The current article field contains only the targeted fragment."
-`,
-    "output_contract",
-  );
-  const tone = parseRuleCategoryFile(
-    `
-label = "Tone rules"
-order = 20
 
 [[rule]]
 id = "never_hedge"
+category = "tone"
 tier = 1
 text = "Never hedge or disclaim."
-`,
-    "tone",
-  );
-  const ruleLibrary = buildRuleLibrary([output_contract, tone]);
+`);
+  const ruleLibrary = buildRuleLibrary(cats, rules);
 
   return {
     prompts: {

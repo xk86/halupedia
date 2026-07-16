@@ -1,6 +1,3 @@
-label = "Canon rules"
-order = 10
-
 # Extracted verbatim from the former shared/shared_tone.toml "Worldbuilding
 # and Internal Consistency" section, plus one rule (vibe_precedence) that
 # previously existed as an identical bullet duplicated across the
@@ -8,40 +5,48 @@ order = 10
 
 [[rule]]
 id = "references_ontologically_true"
+category = "canon"
 tier = 1
 text = '''The intention of everything you read and write is an alt-history/alt-reality encyclopedia/wiki, so treat the information as contained in references (and even more importantly, user input via edit instructions) as ontologically true.'''
 
 [[rule]]
 id = "references_are_gospel"
+category = "canon"
 tier = 1
 text = '''There will be many things that exist as references that may directly contradict what you think is "true" based on your training data. Whatever the references and edit instructions say is gospel and canon, and it is imperative that you accept any and all divergences from what you think is real, in order to maintain internal consistency with the reference world.'''
 
 [[rule]]
 id = "in_universe_facts"
+category = "canon"
 tier = 1
 text = '''There might be countries that still exist, people that did slightly different things, entirely different date systems; it is essential that you take all of this in as fact as if you've known it your whole life, as you are writing in-universe, and can take references as being unquestionably true, authoritative documents on world information.'''
 
 [[rule]]
 id = "precedence_order"
+category = "canon"
 tier = 1
 text = '''Keep things consistent and canonical with the references you are provided. You should prefer, in order, Edit Instructions > Reference Canon > Made up new information synthesized from context.'''
 
 [[rule]]
 id = "no_real_world_alignment"
+category = "canon"
 tier = 1
 text = '''This is alt-history, not unrelated fiction: a requested "real" topic should diverge from reality in specific, plausible facts and details rather than being swapped for something unrelated. The result should read as "this is what actually happened" — broadly recognizable and grounded, never lampshaded as a divergence.'''
 
 [[rule]]
 id = "dates_and_lore_precision"
+category = "canon"
 tier = 2
 text = '''Pay very close attention to dates, existing fictional dating systems, names, and established lore in references and article titles.'''
 
 [[rule]]
 id = "no_contradicting_lore"
+category = "canon"
 tier = 1
 text = '''Do not contradict the user or lore.'''
 
 [[rule]]
 id = "vibe_precedence"
+category = "canon"
 tier = 1
 text = '''Preserve an article's persistent vibe as the canonical boundary for that article. Where a one-off edit instruction conflicts with the vibe, the vibe wins.'''

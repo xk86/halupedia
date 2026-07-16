@@ -2,14 +2,22 @@
  * Rule library types.
  *
  * A "rule" is a single Markdown bullet plus metadata: how hard it is to break
- * (`tier`) and, optionally, which other rule(s) it supersedes when both are
- * selected for the same prompt (`overrides`). Rules live in category files
- * under `config/rules/*.toml` and are addressed globally as `category/id`.
+ * (`tier`), which category it belongs to (`category`, e.g. "tone",
+ * "formatting" — see `categories.toml`), and, optionally, which other rule(s)
+ * it supersedes when both are selected for the same prompt (`overrides`).
+ * Library rules live in `config/rules/*.toml` and are addressed globally as
+ * `category/id`. Category is an explicit field on each rule, not derived
+ * from which file it happens to live in — `config/rules/categories.toml` is
+ * the catalog of valid category ids, with the plain title/description a UI
+ * (the admin rule picker) shows for each.
  *
- * Tier is "how hard is this rule" — 1 never breaks, 4 is a suggestion.
- * `overrides` is a separate axis — "which rule does this one replace" — so a
- * normal-strength rule (e.g. a per-article vibe rule) can still displace a
- * tier-2 default without being demoted to a suggestion itself.
+ * Tier is "how hard is this rule" — 1 never breaks, 4 is a suggestion. It is
+ * a separate axis from category: category is "what kind of concern is this"
+ * (tone vs. formatting vs. linking), tier is "how strictly must it be obeyed".
+ * `overrides` is a third, separate axis — "which rule does this one
+ * replace" — so a normal-strength rule (e.g. a per-article vibe rule) can
+ * still displace a tier-2 default without being demoted to a suggestion
+ * itself.
  */
 
 export type RuleTier = 1 | 2 | 3 | 4;
@@ -25,10 +33,32 @@ export const TIER_LABELS: Record<RuleTier, string> = {
   4: "Tier 4 — Suggested",
 };
 
-/** A single rule as authored in a category TOML file (or inline as a
- *  prompt-local rule). Not yet qualified with a category/ref. */
+/** One entry from `config/rules/categories.toml`'s `[[category]]` array —
+ *  the catalog of valid category ids plus the plain title/description a UI
+ *  shows for each. */
+export interface CategoryDef {
+  /** Lowercase snake_case id — what a rule's own `category` field and a
+   *  selector's `category` segment refer to. */
+  id: string;
+  /** Plain display name, e.g. "Tone rules". */
+  title: string;
+  /** One or two sentences explaining what kind of concern this category
+   *  covers — shown in the admin rule picker. */
+  description: string;
+  /** Secondary sort key: within the same tier, lower `order` sorts first. */
+  order: number;
+}
+
+/** A single rule as authored in a rule TOML file (or inline as a
+ *  prompt-local rule). Not yet qualified with a ref.
+ *
+ *  `category` is required for a library rule (validated against
+ *  `categories.toml` at load time) but optional for a prompt-local or
+ *  runtime (vibe) rule — those get a synthetic default category assigned by
+ *  `assembleRules` if omitted, since they aren't part of the shared catalog. */
 export interface RuleDef {
   id: string;
+  category?: string;
   tier: RuleTier;
   /** Markdown bullet body — no leading "- ", no trailing newline. */
   text: string;
@@ -37,14 +67,9 @@ export interface RuleDef {
   overrides?: string[];
 }
 
-/** One `config/rules/<category>.toml` file after parsing. */
-export interface RuleCategoryFile {
-  /** Filename stem; also the category id used in refs and selectors. */
-  category: string;
-  /** Display label, e.g. "Tone rules", "Formatting helpers". */
-  label: string;
-  /** Secondary sort key: within the same tier, lower `order` sorts first. */
-  order: number;
+/** One category from `categories.toml`, plus every library rule declaring
+ *  that category (via its own `category` field, from any rule file). */
+export interface RuleCategory extends CategoryDef {
   rules: RuleDef[];
 }
 
@@ -55,7 +80,7 @@ export interface ResolvedRule extends RuleDef {
   /** "category/id" — globally unique. */
   ref: string;
   category: string;
-  categoryLabel: string;
+  categoryTitle: string;
   categoryOrder: number;
   source: RuleSource;
   /** Stable index for tie-breaking sort order within tier+category. */
@@ -63,7 +88,7 @@ export interface ResolvedRule extends RuleDef {
 }
 
 export interface RuleLibrary {
-  categories: Map<string, RuleCategoryFile>;
+  categories: Map<string, RuleCategory>;
   rulesByRef: Map<string, ResolvedRule>;
 }
 

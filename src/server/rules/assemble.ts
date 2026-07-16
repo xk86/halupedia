@@ -16,8 +16,7 @@ import type {
 /** A prompt-local rule, or a per-article (vibe) rule supplied at render time.
  *  Neither lives in the static library; both are merged in at assembly. */
 export interface RuntimeRuleInput extends RuleDef {
-  category?: string;
-  categoryLabel?: string;
+  categoryTitle?: string;
 }
 
 export interface AssembleOptions {
@@ -40,7 +39,7 @@ function qualifyRuntimeRule(
   opts: {
     source: "local" | "runtime";
     defaultCategory: string;
-    defaultCategoryLabel: string;
+    defaultCategoryTitle: string;
     defaultOrder: number;
     namespace?: string;
     sequence: number;
@@ -53,7 +52,7 @@ function qualifyRuntimeRule(
     id,
     ref: `${category}/${id}`,
     category,
-    categoryLabel: rule.categoryLabel ?? opts.defaultCategoryLabel,
+    categoryTitle: rule.categoryTitle ?? opts.defaultCategoryTitle,
     categoryOrder: opts.defaultOrder,
     source: opts.source,
     sequence: opts.sequence,
@@ -87,7 +86,7 @@ export function assembleRules(
     const qualified = qualifyRuntimeRule(rule, {
       source: "local",
       defaultCategory: "local",
-      defaultCategoryLabel: "This prompt",
+      defaultCategoryTitle: "This prompt",
       defaultOrder: LOCAL_CATEGORY_ORDER,
       namespace: options.promptKey,
       sequence: sequence++,
@@ -98,7 +97,7 @@ export function assembleRules(
     const qualified = qualifyRuntimeRule(rule, {
       source: "runtime",
       defaultCategory: "vibe",
-      defaultCategoryLabel: "Article vibe",
+      defaultCategoryTitle: "Article vibe",
       defaultOrder: RUNTIME_CATEGORY_ORDER,
       sequence: sequence++,
     });

@@ -4361,8 +4361,9 @@ export async function createApp(options: CreateAppOptions = {}) {
     const categories = [...runtime.prompts.ruleLibrary.categories.values()]
       .sort((a, b) => a.order - b.order)
       .map((cat) => ({
-        category: cat.category,
-        label: cat.label,
+        id: cat.id,
+        title: cat.title,
+        description: cat.description,
         order: cat.order,
         rules: cat.rules,
       }));

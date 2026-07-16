@@ -64,7 +64,7 @@ function categoriesIncluded(rules: RuleSpec | undefined, categories: RuleCategor
   const included = new Set<string>();
   if (!rules) return included;
   for (const cat of categories) {
-    if (rules.include.some((sel) => categoryMatch(sel, cat.category))) included.add(cat.category);
+    if (rules.include.some((sel) => categoryMatch(sel, cat.id))) included.add(cat.id);
   }
   return included;
 }
@@ -83,12 +83,12 @@ function buildRulesSpec(
   const baselineIncluded = categoriesIncluded(baseline, categories);
   let include = [...baseline.include];
   for (const cat of categories) {
-    const was = baselineIncluded.has(cat.category);
-    const is = selected.has(cat.category);
+    const was = baselineIncluded.has(cat.id);
+    const is = selected.has(cat.id);
     if (was && !is) {
-      include = include.filter((sel) => !categoryMatch(sel, cat.category));
+      include = include.filter((sel) => !categoryMatch(sel, cat.id));
     } else if (!was && is) {
-      include = [...include, cat.category];
+      include = [...include, cat.id];
     }
   }
   return { include, ...(baseline.exclude ? { exclude: baseline.exclude } : {}) };
@@ -687,24 +687,30 @@ function PromptEditorCardComponent({
                 <div className="flex flex-col gap-1">
                   {ruleCategories.map((cat) => (
                     <label
-                      key={cat.category}
+                      key={cat.id}
                       className="flex items-start gap-2 text-sm"
-                      title={cat.rules
-                        .map((r) => `[${TIER_LABEL[r.tier]}] ${r.text}`)
-                        .join("\n")}
+                      title={[
+                        cat.description,
+                        ...cat.rules.map((r) => `[${TIER_LABEL[r.tier]}] ${r.text}`),
+                      ].join("\n")}
                     >
                       <input
                         type="checkbox"
-                        checked={selectedRuleCategories?.has(cat.category) ?? false}
-                        onChange={(e) => handleToggleCategory(cat.category, e.target.checked)}
+                        checked={selectedRuleCategories?.has(cat.id) ?? false}
+                        onChange={(e) => handleToggleCategory(cat.id, e.target.checked)}
                         className="mt-1"
                       />
                       <span>
-                        <span className="font-mono">{cat.category}</span>
+                        <span className="font-mono">{cat.id}</span>
                         <span className="text-muted-foreground">
                           {" "}
-                          — {cat.label} ({cat.rules.length} rules)
+                          — {cat.title} ({cat.rules.length} rules)
                         </span>
+                        {cat.description ? (
+                          <span className="block text-xs text-muted-foreground">
+                            {cat.description}
+                          </span>
+                        ) : null}
                       </span>
                     </label>
                   ))}

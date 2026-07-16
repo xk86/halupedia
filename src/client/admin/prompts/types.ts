@@ -22,8 +22,9 @@ export interface RuleDefinition {
 }
 
 export interface RuleCategory {
-  category: string;
-  label: string;
+  id: string;
+  title: string;
+  description: string;
   order: number;
   rules: RuleDefinition[];
 }

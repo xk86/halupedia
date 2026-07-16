@@ -1,0 +1,65 @@
+# Central catalog of rule categories: identity, display title, and
+# description for UI use (see PromptEditorCard's rule picker). A rule in any
+# other config/rules/*.toml file declares which of these ids it belongs to
+# via its own `category = "..."` field — file placement is just an authoring
+# convenience now, not what determines a rule's category.
+
+[[category]]
+id = "content_policy"
+title = "Content policy"
+description = "What kinds of subject matter and phrasing are in bounds for this fictional encyclopedia — preserving intent, not sanitizing or moralizing."
+order = 5
+
+[[category]]
+id = "canon"
+title = "Canon rules"
+description = "World-consistency: treating references and edit instructions as in-universe fact, precedence between sources, and never aligning with real-world reality."
+order = 10
+
+[[category]]
+id = "tone"
+title = "Tone rules"
+description = "Voice and phrasing — confident, matter-of-fact, never hedging or lampshading, encyclopedic rather than narrated."
+order = 20
+
+[[category]]
+id = "formatting"
+title = "Formatting helpers"
+description = "Markdown structure and output-shape constraints: headings, bolding, forbidden sections, no raw HTML, exact-output-only."
+order = 30
+
+[[category]]
+id = "lists"
+title = "List article rules"
+description = "Conventions specific to list-style articles (\"List of...\") — opening sentence, bullet vs. numbered, entry brevity."
+order = 35
+
+[[category]]
+id = "linking"
+title = "Linking rules"
+description = "How halu: and ref: links are placed and formatted inside article prose — embedding, casing, slugs, hidden hints."
+order = 40
+
+[[category]]
+id = "link_selection"
+title = "Link selection rules"
+description = "Choosing a compact, canonical hidden description for a new link target — a separate concern from where/how a link is placed."
+order = 45
+
+[[category]]
+id = "output_contract"
+title = "Output contract"
+description = "Full-article vs. section/selection scope: what the current-article input contains and what shape the response must take."
+order = 50
+
+[[category]]
+id = "revision"
+title = "Revision rules"
+description = "Constraints specific to editing an existing article in place — treat the result as if it always existed, no hedging transitions, no lampshading the change."
+order = 52
+
+[[category]]
+id = "tips"
+title = "Tips and tricks"
+description = "Optional stylistic suggestions for injecting intrigue — lowest tier, never a requirement."
+order = 90

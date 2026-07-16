@@ -1,69 +1,62 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRuleLibrary, parseRuleCategoryFile } from "../src/server/rules/library";
+import { buildRuleLibrary, parseRuleFile } from "../src/server/rules/library";
 import { assembleRules } from "../src/server/rules/assemble";
 import { parseSelector, resolveSelectors, RuleSelectorError } from "../src/server/rules/selector";
-import type { RuleLibrary } from "../src/server/rules/types";
+import type { CategoryDef, RuleLibrary } from "../src/server/rules/types";
+
+const CATS: CategoryDef[] = [
+  { id: "tone", title: "Tone rules", description: "Voice and phrasing.", order: 20 },
+  { id: "canon", title: "Canon rules", description: "World consistency.", order: 10 },
+  { id: "formatting", title: "Formatting helpers", description: "Output shape.", order: 30 },
+];
 
 function makeLibrary(): RuleLibrary {
-  const tone = parseRuleCategoryFile(
-    `
-label = "Tone rules"
-order = 20
-
+  const rules = parseRuleFile(`
 [[rule]]
 id = "never_hedge"
+category = "tone"
 tier = 1
 text = "Never hedge or disclaim."
 
 [[rule]]
 id = "confident"
+category = "tone"
 tier = 2
 text = "Be confident and plain."
 
 [[rule]]
 id = "no_whimsy"
+category = "tone"
 tier = 3
 text = "Avoid whimsical prose."
-`,
-    "tone",
-  );
-  const canon = parseRuleCategoryFile(
-    `
-label = "Canon rules"
-order = 10
 
 [[rule]]
 id = "references_are_gospel"
+category = "canon"
 tier = 1
 text = "References and edit instructions are gospel."
 
 [[rule]]
 id = "vibe_wins"
+category = "canon"
 tier = 1
 text = "Where the vibe conflicts with a default, the vibe wins."
-`,
-    "canon",
-  );
-  const formatting = parseRuleCategoryFile(
-    `
-label = "Formatting helpers"
-order = 30
 
 [[rule]]
 id = "single_h1"
+category = "formatting"
 tier = 2
 text = "Begin with a single level-1 heading."
 
 [[rule]]
 id = "no_footnotes"
+category = "formatting"
 tier = 2
 text = "Do not use footnotes."
-`,
-    "formatting",
-  );
-  return buildRuleLibrary([tone, canon, formatting]);
+`);
+  return buildRuleLibrary(CATS, rules);
 }
 
 // ─── selector parsing ───────────────────────────────────────────────────────
@@ -260,45 +253,43 @@ test("assembleRules allows a runtime rule to override a library default", () => 
 // ─── override resolution ────────────────────────────────────────────────────
 
 test("assembleRules drops a rule superseded by another included rule's overrides", () => {
-  const tone = parseRuleCategoryFile(
-    `
+  const rules = parseRuleFile(`
 [[rule]]
 id = "base"
+category = "tone"
 tier = 2
 text = "Base rule."
 
 [[rule]]
 id = "stronger"
+category = "tone"
 tier = 2
 text = "Stronger rule."
 overrides = ["tone/base"]
-`,
-    "tone",
-  );
-  const library = buildRuleLibrary([tone]);
+`);
+  const library = buildRuleLibrary(CATS, rules);
   const result = assembleRules(library, { include: ["tone"] });
   assert.deepEqual(result.included.map((r) => r.ref), ["tone/stronger"]);
   assert.deepEqual(result.dropped, [{ ref: "tone/base", supersededBy: "tone/stronger" }]);
 });
 
 test("assembleRules records a conflict (keeps both) for a mutual override pair", () => {
-  const tone = parseRuleCategoryFile(
-    `
+  const rules = parseRuleFile(`
 [[rule]]
 id = "a"
+category = "tone"
 tier = 1
 text = "A wins."
 overrides = ["tone/b"]
 
 [[rule]]
 id = "b"
+category = "tone"
 tier = 1
 text = "B wins."
 overrides = ["tone/a"]
-`,
-    "tone",
-  );
-  const library = buildRuleLibrary([tone]);
+`);
+  const library = buildRuleLibrary(CATS, rules);
   const result = assembleRules(library, { include: ["tone"] });
   assert.deepEqual(result.included.map((r) => r.ref).sort(), ["tone/a", "tone/b"]);
   assert.equal(result.dropped.length, 0);
@@ -307,22 +298,21 @@ overrides = ["tone/a"]
 });
 
 test("assembleRules override does not affect a rule not selected into this prompt", () => {
-  const tone = parseRuleCategoryFile(
-    `
+  const rules = parseRuleFile(`
 [[rule]]
 id = "base"
+category = "tone"
 tier = 2
 text = "Base rule."
 
 [[rule]]
 id = "stronger"
+category = "tone"
 tier = 2
 text = "Stronger rule."
 overrides = ["tone/base"]
-`,
-    "tone",
-  );
-  const library = buildRuleLibrary([tone]);
+`);
+  const library = buildRuleLibrary(CATS, rules);
   // Only "base" selected — "stronger" (and its override) never enters the set.
   const result = assembleRules(library, { include: ["tone/base"] });
   assert.deepEqual(result.included.map((r) => r.ref), ["tone/base"]);

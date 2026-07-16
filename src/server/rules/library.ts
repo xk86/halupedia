@@ -1,59 +1,74 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { parse } from "smol-toml";
 import type { Logger } from "../logger";
-import type { RuleCategoryFile, RuleDef, RuleLibrary, RuleTier } from "./types";
+import type { CategoryDef, ResolvedRule, RuleCategory, RuleDef, RuleLibrary, RuleTier } from "./types";
 import { RULE_TIERS } from "./types";
 
 const CATEGORY_RE = /^[a-z][a-z0-9_]*$/;
 const ID_RE = /^[a-z][a-z0-9_]*$/;
 const REF_RE = /^[a-z][a-z0-9_]*\/[a-z][a-z0-9_]*$/;
+const CATEGORIES_FILE = "categories.toml";
 
 export class RuleLibraryError extends Error {}
 
 /**
- * Parse one category TOML file's already-loaded content into a
- * `RuleCategoryFile`. Pure — does no filesystem IO — so it can be unit
+ * Parse `config/rules/categories.toml`'s `[[category]]` array into
+ * `CategoryDef[]` — the catalog of valid category ids plus the plain
+ * title/description a UI shows for each. Pure — no filesystem IO.
+ */
+export function parseCategoriesFile(source: string): CategoryDef[] {
+  const raw = parse(source) as {
+    category?: Array<{ id?: string; title?: string; description?: string; order?: number }>;
+  };
+  const seen = new Set<string>();
+  return (raw.category ?? []).map((entry, index) => {
+    const id = entry.id;
+    if (typeof id !== "string" || !CATEGORY_RE.test(id)) {
+      throw new RuleLibraryError(
+        `categories.toml: category at index ${index} has an invalid or missing id`,
+      );
+    }
+    if (seen.has(id)) {
+      throw new RuleLibraryError(`categories.toml: duplicate category id '${id}'`);
+    }
+    seen.add(id);
+    const title = typeof entry.title === "string" && entry.title.trim() ? entry.title : id;
+    const description = typeof entry.description === "string" ? entry.description.trim() : "";
+    const order = typeof entry.order === "number" ? entry.order : 0;
+    return { id, title, description, order };
+  });
+}
+
+/**
+ * Parse one rule TOML file's already-loaded content into `RuleDef[]`. Each
+ * `[[rule]]` entry declares its own `category` — this function has no
+ * knowledge of the category catalog, so it validates the field's *shape*
+ * (lowercase snake_case) but not that it's a real, declared category; that
+ * cross-check happens once in `buildRuleLibrary`, which has both the rules
+ * and the catalog in hand. Pure — no filesystem IO — so it can be unit
  * tested with in-memory TOML strings the same way `tomlEdit.ts` is.
  */
-export function parseRuleCategoryFile(
-  source: string,
-  category: string,
-): RuleCategoryFile {
-  if (!CATEGORY_RE.test(category)) {
-    throw new RuleLibraryError(
-      `rule category '${category}' must be lowercase snake_case`,
-    );
-  }
+export function parseRuleFile(source: string): RuleDef[] {
   const raw = parse(source) as {
-    label?: string;
-    order?: number;
     rule?: Array<{
       id?: string;
+      category?: string;
       tier?: number;
       text?: string;
       overrides?: string[];
     }>;
   };
 
-  const label = typeof raw.label === "string" && raw.label.trim() ? raw.label : category;
-  const order = typeof raw.order === "number" ? raw.order : 0;
-
-  const seenIds = new Set<string>();
-  const rules: RuleDef[] = (raw.rule ?? []).map((entry, index) => {
+  return (raw.rule ?? []).map((entry, index) => {
     const id = entry.id;
     if (typeof id !== "string" || !ID_RE.test(id)) {
-      throw new RuleLibraryError(
-        `rule category '${category}': rule at index ${index} has an invalid or missing id`,
-      );
+      throw new RuleLibraryError(`rule at index ${index} has an invalid or missing id`);
     }
-    if (seenIds.has(id)) {
-      throw new RuleLibraryError(
-        `rule category '${category}': duplicate rule id '${id}'`,
-      );
+    const category = entry.category;
+    if (typeof category !== "string" || !CATEGORY_RE.test(category)) {
+      throw new RuleLibraryError(`rule '${id}': missing or invalid category`);
     }
-    seenIds.add(id);
-
     if (!RULE_TIERS.includes(entry.tier as RuleTier)) {
       throw new RuleLibraryError(
         `rule '${category}/${id}': tier must be one of ${RULE_TIERS.join(", ")}, got ${JSON.stringify(entry.tier)}`,
@@ -77,45 +92,56 @@ export function parseRuleCategoryFile(
     }
     return {
       id,
+      category,
       tier: entry.tier as RuleTier,
       text,
       ...(overrides && overrides.length > 0 ? { overrides } : {}),
     };
   });
-
-  return { category, label, order, rules };
 }
 
 /**
- * Merge parsed category files into a `RuleLibrary`, validating that every
- * `overrides` ref points to a rule that actually exists somewhere in the
- * library and that the override graph has no cycles. This is a *load-time*
- * check across the whole static library — cross-file forward references
- * (a rule in `tone.toml` overriding one in `canon.toml`) are expected and
- * fine; only dangling refs and cycles are errors.
+ * Merge a category catalog and a flat list of rules (each declaring its own
+ * `category`) into a `RuleLibrary`, validating that every rule's category is
+ * a real, declared one, every `overrides` ref points to a rule that actually
+ * exists, and the override graph has no cycles. This is a *load-time* check
+ * across the whole static library — cross-file forward references (a rule
+ * authored in one file overriding one authored in another) are expected and
+ * fine; only unknown categories, dangling refs, and cycles are errors.
  */
-export function buildRuleLibrary(categoryFiles: RuleCategoryFile[]): RuleLibrary {
-  const categories = new Map<string, RuleCategoryFile>();
-  const rulesByRef = new Map<string, import("./types").ResolvedRule>();
+export function buildRuleLibrary(categoryDefs: CategoryDef[], rules: RuleDef[]): RuleLibrary {
+  const categories = new Map<string, RuleCategory>();
+  for (const def of categoryDefs) {
+    if (categories.has(def.id)) {
+      throw new RuleLibraryError(`duplicate category id '${def.id}'`);
+    }
+    categories.set(def.id, { ...def, rules: [] });
+  }
 
+  const rulesByRef = new Map<string, ResolvedRule>();
   let sequence = 0;
-  for (const file of categoryFiles) {
-    if (categories.has(file.category)) {
-      throw new RuleLibraryError(`duplicate rule category '${file.category}'`);
+  for (const rule of rules) {
+    const category = categories.get(rule.category!);
+    if (!category) {
+      throw new RuleLibraryError(
+        `rule '${rule.category}/${rule.id}': unknown category '${rule.category}' — declare it in categories.toml`,
+      );
     }
-    categories.set(file.category, file);
-    for (const rule of file.rules) {
-      const ref = `${file.category}/${rule.id}`;
-      rulesByRef.set(ref, {
-        ...rule,
-        ref,
-        category: file.category,
-        categoryLabel: file.label,
-        categoryOrder: file.order,
-        source: "library",
-        sequence: sequence++,
-      });
+    const ref = `${rule.category}/${rule.id}`;
+    if (rulesByRef.has(ref)) {
+      throw new RuleLibraryError(`duplicate rule id '${ref}'`);
     }
+    const resolved: ResolvedRule = {
+      ...rule,
+      category: rule.category!,
+      ref,
+      categoryTitle: category.title,
+      categoryOrder: category.order,
+      source: "library",
+      sequence: sequence++,
+    };
+    rulesByRef.set(ref, resolved);
+    category.rules.push(rule);
   }
 
   // Dangling override refs.
@@ -164,21 +190,33 @@ export function buildRuleLibrary(categoryFiles: RuleCategoryFile[]): RuleLibrary
   return { categories, rulesByRef };
 }
 
-/** Load every `*.toml` file in `dir` as a rule category and build the library.
- *  Filename (minus extension) becomes the category id, matching the existing
- *  prompt-loading convention in `config.ts`. */
+/**
+ * Load `categories.toml` plus every other `*.toml` file in `dir` (each
+ * containing `[[rule]]` entries that declare their own `category`) and build
+ * the library. Filename no longer determines category — any rule file may
+ * contain rules for any declared category — but the existing convention of
+ * one file per category is kept for authoring ergonomics.
+ */
 export function loadRuleLibrary(dir: string, logger?: Logger): RuleLibrary {
   const files = existsSync(dir)
     ? readdirSync(dir).filter((f) => f.endsWith(".toml")).sort()
     : [];
-  const categoryFiles = files.map((file) => {
-    const category = basename(file, ".toml");
-    const source = readFileSync(resolve(dir, file), "utf8");
-    return parseRuleCategoryFile(source, category);
-  });
-  const library = buildRuleLibrary(categoryFiles);
+
+  const categoriesFile = files.includes(CATEGORIES_FILE) ? CATEGORIES_FILE : undefined;
+  if (files.length > 0 && !categoriesFile) {
+    throw new RuleLibraryError(`${dir}: missing ${CATEGORIES_FILE}`);
+  }
+  const categoryDefs = categoriesFile
+    ? parseCategoriesFile(readFileSync(resolve(dir, categoriesFile), "utf8"))
+    : [];
+
+  const rules = files
+    .filter((f) => f !== CATEGORIES_FILE)
+    .flatMap((file) => parseRuleFile(readFileSync(resolve(dir, file), "utf8")));
+
+  const library = buildRuleLibrary(categoryDefs, rules);
   logger?.info("rules.library_loaded", {
-    categories: categoryFiles.length,
+    categories: categoryDefs.length,
     rules: library.rulesByRef.size,
   });
   return library;

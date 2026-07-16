@@ -1,6 +1,6 @@
 model = "heavy"
 thinking = true
-system = """
+system = '''
 {{shared_tone}}
 
 {{shared_link_format}}
@@ -14,7 +14,7 @@ documented news, but invented daily events must follow from the active condition
 the packet.
 If prior Today's News articles appear in the lore packet, treat them as lower-weight
 continuity notes. Do not let generated news recursively dominate the next edition when ordinary
-articles provide stronger canon.
+articles provide stronger canon. If an event mentioned has ended or took place on a date prior to today's date, do not include it as if it were still happening- it happened in the past. Do not erroneously continuously reference events that happened on a single day in the past as if they were unresolved, unless it is exactly that day, and the type of event allows for it.
 
 This is world news. The edition should read like a global wire report for the whole fictional
 world, not a national paper for one country. A headline can focus on one place only when the
@@ -26,6 +26,7 @@ Constraints:
 - Use this common format:
   - H1 title.
 - A short dateline paragraph naming the world date.
+- All links to articles must be formatted as proper md links according to the linking format guide.
 - A "## Headlines" section with 4 to 6 bullet headlines.
 - A "## Briefs" section with one `### Headline text` subheading per headline followed by one paragraph of brief copy.
 - A "## Travel & Infrastructure" section with advisories for routes, ports, transit, public works, portals, orbital corridors, or equivalent canon infrastructure.
@@ -40,17 +41,23 @@ Constraints:
 - Do not include a "## Context" section, source explanation section, editor notes, or lore-rationale section in the article.
 - Put the strongest, most visual, most broadcast-reportable story first. The homepage image will depict that top headline.
 - Treat the daily story mix as global: include cross-border, planetary, interregional, institutional, trade, climate, infrastructure, or cosmological effects when the lore supports them.
-- If a source says a condition lasts for a duration, has aftermath, blocks travel, changes climate, disrupts infrastructure, creates legal obligations, or otherwise alters public life, the headlines must account for those active effects when the world date falls inside or near that period.
+- If a source says a condition lasts for a duration, has aftermath, blocks travel, changes climate, disrupts infrastructure, creates legal obligations, or otherwise alters public life, the headlines must account for those active effects when the world date falls inside or near that period. Do not linger on events that have ended as if they are still happening. 
+- If something happened on day 4 of a month and it is now day 8, the event is in the past and should not be considered an ongoing event or story.
 - Prefer dated sources over unrelated recent articles. Use RAG world-state matches to infer active background conditions.
+- Do not reference events that have not happened yet. If an article has a year or date in it, do not reference it unless it is less than or equal to the current day. If the year is 6, and an article takes place in the year 27, it hasn't happened yet, and should be ignored. If a date an article is about is the current day, month, and (except for recurring events when it's not applicable) year, you may (and probably should) reference it.
+- Don't linger on recent events if it is many days past the duration of the event; if an event has finished and passed, do not mention it.
 - Do not write headlines that contradict active world conditions in the packet. For example, if the lore packet indicates the sun is blocked, ordinary outdoor headlines must reflect darkness, ash, emergency lighting, rationing, or the relevant adaptation.
+- Link to relevant internal topics with halu: or ref: links when useful, including hidden hints for halu links. A link looks like a normal markdown link, with a slug indicator. Do not wrap it. Correct link format example: [This is a title](ref:this-is-the-slug) 
 - Headline and brief links should point to normal encyclopedia topics, not one-off generated news-story pages.
 - Do not claim an invented event is directly documented by a source unless the source article says so.
 - Do not add JSON, code fences, editor notes, source lists, or out-of-world commentary.
-"""
+'''
 
-user = """
+user = '''
 Requested title:
 {{news_title}}
+
+Only reference events that take place on or before this date:
 
 World date:
 {{world_date}}
@@ -65,4 +72,5 @@ Lore packet source count: {{lore_source_count}}
 Continuity and world-state lore packet for this edition:
 {{source_articles}}
 
-Generate today's news article now."""
+Generate today's news article now.
+'''

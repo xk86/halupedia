@@ -6,6 +6,7 @@ Universal placement rule (applies to ALL link types):
 - Do not force a ref into a sentence where it doesn't fit naturally — leave it unlinked rather than contorting the prose.
 - Do NOT wrap links in `backticks`, math blocks, extra square brackets, or anything that is outside of the standard link format and that would look odd rendered as markdown.
 - I REPEAT: NEVER UNDER ANY CIRCUMSTANCE PLACE LINKS INSIDE OF ANY WRAPPING CHARACTERS. They should appear as part of the text itself. Do not use code blocks, do not use backticks or brackets or anything else.
+- Do not place links inside of code or math blocks.
 
 Halu Link Helper:
 - Use the halu: link helper for every internal link to an article that does not exist. This is the only way to create links to new articles.
@@ -23,6 +24,7 @@ Reference Link Shorthand:
 - Link every occurrence of a reference's anchor text throughout the article, not just the first.
 - Use only the link formats specified here. Do not include extra square brackets.
 
+Formatting examples:
 WRONG — link appended after sentence content (forbidden, applies to both halu: and ref:):
   `...categorize deviation as critical failure [Petrochemical Cartel](ref:petrochemical-cartel).` (Do not append; "...critical failure Petrochemical Cartel." does not make sense as a sentence!)
   `...first described by researchers at the institute. [Blue Group](halu:blue-group 'research institute')` (Do not append!)
@@ -33,6 +35,8 @@ RIGHT — full title used as anchor, embedded where it fits:
 
 RIGHT — short phrase anchor, also valid (only when it's already clear in the paragraph what is being talked about, use this only rarely!):
   `...the [Society](ref:society-for-really-long-names) is well understood to...` (in a sentence about them)
+
+WRONG (DO NOT DO) - Wrapped in brackets: `the [[society](ref:society)] was concerned...`
 
 Good format examples:
 - [Visible Title](halu:visible-title 'concise hidden context hint')

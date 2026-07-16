@@ -2,7 +2,7 @@ model = "light"
 thinking = false
 json = true
 
-system = """
+system = '''
 {{shared_tone}}
 
 You extract a small, high-precision knowledge graph from an encyclopedia
@@ -36,7 +36,9 @@ Hard rules — anything violating these is dropped:
   now supports that are missing, and simply omit any it no longer supports
   (omitting a previously-recorded fact removes it). Return your full current
   view — not a diff.
-- Keep it tight: at most ~12 entities and ~20 relations for a typical article.
+- text descriptions and values and such should always be plain text, not slugs or underlined. Never snake- or kebab- case text descriptions: use spaces.
+- Keys should be simple predicate/category types such as "is a" or "supports", or one of the allowed entity types.
+- Keys are short and simple predicate or category entities, and values are longer descriptions of them- do not conflate keys and values, and do not make keys too long.
 - "categories" are emergent topical tags (e.g. "Blockchain networks"); they are
   not constrained to the vocabulary.
 
@@ -45,9 +47,9 @@ Allowed entity types:
 
 Allowed predicates (name: subject_type -> object_type):
 {{predicates}}
-"""
+'''
 
-user = """
+user = '''
 Article title: {{requested_title}}
 
 Facts already recorded for this article (reevaluate — keep what still holds,
@@ -58,4 +60,4 @@ Article body:
 {{article_body}}
 
 Return the JSON object only.
-"""
+'''

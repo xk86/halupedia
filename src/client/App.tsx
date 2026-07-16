@@ -2932,6 +2932,7 @@ export function App() {
             query={headerSearchDraft}
             onQueryChange={setHeaderSearchDraft}
             placeholder="Search the register..."
+            spellCheck
             leading={{
               // The typed text doubles as a literal title to forward, so
               // punctuation a slug can't carry — the colon in "Rat: Eating

@@ -1010,6 +1010,7 @@ describe("App", () => {
     render(<App />);
 
     const input = screen.getByPlaceholderText("Search the register...");
+    expect(input).toHaveAttribute("spellcheck", "true");
     await userEvent.type(input, "wiki/Archive_scouts");
     await userEvent.click(screen.getByRole("button", { name: "Go" }));
 

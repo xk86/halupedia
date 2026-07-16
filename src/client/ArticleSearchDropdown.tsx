@@ -31,6 +31,7 @@ interface ArticleSearchDropdownProps {
   onPick: (s: Suggestion) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  spellCheck?: boolean;
   inputType?: "search" | "text";
   /** Extra classes for the relative wrapper (e.g. flex sizing). */
   wrapClassName?: string;
@@ -52,6 +53,7 @@ export function ArticleSearchDropdown({
   onPick,
   placeholder,
   autoFocus,
+  spellCheck,
   inputType = "search",
   wrapClassName,
   inputClassName,
@@ -71,6 +73,7 @@ export function ArticleSearchDropdown({
         placeholder={placeholder}
         value={query}
         autoFocus={autoFocus}
+        spellCheck={spellCheck}
         onChange={(e) => {
           onQueryChange(e.target.value);
           setOpen(true);

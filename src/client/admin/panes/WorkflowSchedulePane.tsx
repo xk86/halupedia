@@ -26,12 +26,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { toWikiSegment } from "../../wikiPath";
 
 // Maps a schedule id to the app-config path its interval lives at, so the
 // interval can be edited inline here instead of only via the Config tab.
 const INTERVAL_CONFIG_PATH: Record<string, string> = {
-  "ontology_extract.enqueue": "ontology_review.extract_enqueue_interval_minutes",
+  "ontology_extract.enqueue":
+    "ontology_review.extract_enqueue_interval_minutes",
   "ontology_extract.run": "ontology_review.extract_run_interval_minutes",
   "ontology_review.enqueue": "ontology_review.enqueue_interval_minutes",
   "ontology_review.run": "ontology_review.run_interval_minutes",
@@ -76,7 +78,12 @@ interface ReviewResultItem {
 
 interface ReviewResultDetail {
   items: ReviewResultItem[];
-  type: { suggestedType: string; verdict: "pass" | "fail"; reason: string; source: string } | null;
+  type: {
+    suggestedType: string;
+    verdict: "pass" | "fail";
+    reason: string;
+    source: string;
+  } | null;
 }
 
 type ExtractQueueStatus = "pending" | "processing" | "done" | "error";
@@ -106,20 +113,52 @@ interface WorkflowSchedulePaneProps {
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
-  const payload = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(payload.error || `request failed (${res.status})`);
+  const payload = (await res.json().catch(() => ({}))) as T & {
+    error?: string;
+  };
+  if (!res.ok)
+    throw new Error(payload.error || `request failed (${res.status})`);
   return payload;
 }
 
-function formatRelative(ms: number | null, now: number, suffix: string): string {
+function formatRelative(
+  ms: number | null,
+  now: number,
+  suffix: string,
+): string {
   if (ms === null) return "—";
   const deltaSec = Math.round((ms - now) / 1000);
   const abs = Math.abs(deltaSec);
-  const unit = abs < 60 ? `${abs}s` : abs < 3600 ? `${Math.round(abs / 60)}m` : `${Math.round(abs / 3600)}h`;
+  const unit =
+    abs < 60
+      ? `${abs}s`
+      : abs < 3600
+        ? `${Math.round(abs / 60)}m`
+        : `${Math.round(abs / 3600)}h`;
   return deltaSec <= 0 ? `${unit} ago` : `in ${unit} ${suffix}`;
 }
 
-const STATUS_BADGE: Record<ReviewQueueStatus, "outline" | "secondary" | "default" | "destructive"> = {
+function formatQueueTime(ms: number | null): string {
+  if (ms === null) return "—";
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatElapsed(start: number, end: number): string {
+  const seconds = Math.max(0, Math.round((end - start) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}
+
+const STATUS_BADGE: Record<
+  ReviewQueueStatus,
+  "outline" | "secondary" | "default" | "destructive"
+> = {
   pending: "outline",
   processing: "default",
   done: "secondary",
@@ -131,6 +170,120 @@ const VERDICT_BADGE: Record<string, "secondary" | "warn" | "destructive"> = {
   partial: "warn",
   fail: "destructive",
 };
+
+function QueueArticle({
+  id,
+  slug,
+  title,
+  onNavigate,
+  detailControl,
+}: {
+  id: number;
+  slug: string;
+  title: string;
+  onNavigate: (slug: string) => void;
+  detailControl?: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      {detailControl}
+      <div className="min-w-0 flex-1">
+        <a
+          className="block truncate font-medium text-[var(--link)]"
+          href={`/wiki/${toWikiSegment(title)}`}
+          onClick={(event) => {
+            event.preventDefault();
+            onNavigate(slug);
+          }}
+          title={title}
+        >
+          {title}
+        </a>
+        <span className="block truncate font-mono text-[0.68rem] text-muted-foreground">
+          #{id} · {slug}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function QueueTiming({
+  enqueuedAt,
+  runAtMs,
+  finishedAt,
+  estimated,
+}: {
+  enqueuedAt: number;
+  runAtMs: number | null;
+  finishedAt: number | null;
+  estimated: boolean;
+}) {
+  const wait = runAtMs !== null ? formatElapsed(enqueuedAt, runAtMs) : null;
+  const runtime =
+    runAtMs !== null && finishedAt !== null
+      ? formatElapsed(runAtMs, finishedAt)
+      : null;
+
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 font-mono text-[0.68rem] leading-tight text-muted-foreground tabular-nums">
+      <span
+        className="truncate"
+        title={`Enqueued ${new Date(enqueuedAt).toLocaleString()}`}
+      >
+        queued {formatQueueTime(enqueuedAt)}
+      </span>
+      <span
+        className="truncate"
+        title={
+          runAtMs === null
+            ? undefined
+            : `${estimated ? "Estimated run" : "Started"} ${new Date(runAtMs).toLocaleString()}`
+        }
+      >
+        {estimated ? "est." : "started"} {formatQueueTime(runAtMs)}
+        {wait ? ` · wait ${wait}` : ""}
+      </span>
+      {finishedAt !== null ? (
+        <span
+          className="truncate"
+          title={`Finished ${new Date(finishedAt).toLocaleString()}`}
+        >
+          finished {formatQueueTime(finishedAt)}
+          {runtime ? ` · ran ${runtime}` : ""}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function QueueSectionHeader({
+  title,
+  note,
+  total,
+  pending,
+}: {
+  title: string;
+  note?: string;
+  total: number;
+  pending: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex min-w-0 items-baseline gap-2">
+        <h3 className="m-0 text-sm font-medium">{title}</h3>
+        {note ? (
+          <span className="truncate text-xs text-muted-foreground">{note}</span>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Badge variant="outline">{total} rows</Badge>
+        <Badge variant={pending > 0 ? "default" : "secondary"}>
+          {pending} open
+        </Badge>
+      </div>
+    </div>
+  );
+}
 
 function IntervalEditor({
   schedule,
@@ -204,98 +357,135 @@ function QueueItemRow({
       detail = null;
     }
   }
-  const expandable = Boolean(detail && (detail.items.length > 0 || detail.type));
+  const expandable = Boolean(
+    detail && (detail.items.length > 0 || detail.type),
+  );
 
   return (
     <>
-      <TableRow className={dividerAbove ? "border-t-2 border-t-foreground/25" : undefined}>
-        <TableCell className="max-w-0">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {expandable ? (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={open ? "Collapse details" : "Expand details"}
-                onClick={() => setOpen((v) => !v)}
-                className="size-5 shrink-0"
-              >
-                <ChevronDownIcon
-                  className={open ? "" : "-rotate-90"}
-                />
-              </Button>
-            ) : (
-              <span className="inline-block size-5 shrink-0" />
-            )}
-            <a
-              className="min-w-0 truncate font-medium text-[var(--link)]"
-              href={`/wiki/${toWikiSegment(item.articleTitle)}`}
-              onClick={(e) => {
-                e.preventDefault();
-                onNavigate(item.articleSlug);
-              }}
-              title={item.articleTitle}
-            >
-              {item.articleTitle}
-            </a>
-          </div>
+      <TableRow
+        className={
+          dividerAbove ? "border-t-2 border-t-foreground/25" : undefined
+        }
+      >
+        <TableCell className="min-w-0">
+          <QueueArticle
+            id={item.id}
+            slug={item.articleSlug}
+            title={item.articleTitle}
+            onNavigate={onNavigate}
+            detailControl={
+              expandable ? (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={open ? "Collapse details" : "Expand details"}
+                  onClick={() => setOpen((v) => !v)}
+                >
+                  <ChevronDownIcon className={cn(!open && "-rotate-90")} />
+                </Button>
+              ) : undefined
+            }
+          />
         </TableCell>
         <TableCell>
           <Badge variant={STATUS_BADGE[item.status]}>{item.status}</Badge>
         </TableCell>
-        <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
-          {new Date(item.enqueuedAt).toLocaleTimeString()}
+        <TableCell className="min-w-0">
+          <QueueTiming
+            enqueuedAt={item.enqueuedAt}
+            runAtMs={runAtMs}
+            finishedAt={item.finishedAt}
+            estimated={item.status === "pending" && runAtMs !== null}
+          />
         </TableCell>
-        <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
-          {runAtMs !== null ? new Date(runAtMs).toLocaleTimeString() : "—"}
-          {item.status === "pending" && runAtMs !== null ? (
-            <span className="ml-1 text-muted-foreground/70">(est.)</span>
-          ) : null}
-        </TableCell>
-        <TableCell>
-          {item.verdict ? (
-            <Badge variant={VERDICT_BADGE[item.verdict] ?? "outline"}>{item.verdict}</Badge>
-          ) : (
-            "—"
-          )}
-        </TableCell>
-        <TableCell className="text-xs text-muted-foreground">
-          {item.passed !== null || item.failed !== null
-            ? `${item.passed ?? 0} passed · ${item.failed ?? 0} failed`
-            : item.error
-              ? item.error
-              : "—"}
+        <TableCell className="min-w-0">
+          <div className="flex min-w-0 flex-col items-start gap-0.5">
+            <div className="flex items-center gap-1">
+              {item.verdict ? (
+                <Badge variant={VERDICT_BADGE[item.verdict] ?? "outline"}>
+                  {item.verdict}
+                </Badge>
+              ) : null}
+              {item.passed !== null ? (
+                <span className="text-xs text-muted-foreground">
+                  {item.passed} passed
+                </span>
+              ) : null}
+              {item.failed !== null ? (
+                <span className="text-xs text-muted-foreground">
+                  {item.failed} failed
+                </span>
+              ) : null}
+            </div>
+            {item.error ? (
+              <span
+                className="block max-w-full truncate text-xs text-destructive"
+                title={item.error}
+              >
+                {item.error}
+              </span>
+            ) : null}
+            {!item.verdict &&
+            item.passed === null &&
+            item.failed === null &&
+            !item.error
+              ? "—"
+              : null}
+          </div>
         </TableCell>
       </TableRow>
       {expandable ? (
         <TableRow>
-          <TableCell colSpan={6} className="p-0">
+          <TableCell colSpan={4} className="p-0">
             <Collapsible open={open} onOpenChange={setOpen}>
               <CollapsibleContent>
                 <div className="flex flex-col gap-1 bg-muted/30 px-3 py-2 text-xs">
                   {detail!.items.map((result) => (
-                    <div key={result.id} className="flex flex-wrap items-baseline gap-2">
+                    <div
+                      key={result.id}
+                      className="flex flex-wrap items-baseline gap-2"
+                    >
                       <Badge
-                        variant={result.verdict === "pass" ? "secondary" : "destructive"}
-                        className="text-[10px]"
+                        variant={
+                          result.verdict === "pass"
+                            ? "secondary"
+                            : "destructive"
+                        }
                       >
                         {result.verdict}
                       </Badge>
-                      <span className="font-medium text-muted-foreground">{result.label}:</span>
-                      <span className="min-w-0 flex-1 truncate">{result.object}</span>
-                      <span className="text-muted-foreground">{result.reason}</span>
+                      <span className="font-medium text-muted-foreground">
+                        {result.label}:
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {result.object}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {result.reason}
+                      </span>
                     </div>
                   ))}
                   {detail!.type ? (
                     <div className="flex flex-wrap items-baseline gap-2">
                       <Badge
-                        variant={detail!.type.verdict === "pass" ? "secondary" : "destructive"}
-                        className="text-[10px]"
+                        variant={
+                          detail!.type.verdict === "pass"
+                            ? "secondary"
+                            : "destructive"
+                        }
                       >
                         {detail!.type.verdict}
                       </Badge>
-                      <span className="font-medium text-muted-foreground">type:</span>
-                      <span className="min-w-0 flex-1 truncate">→ {detail!.type.suggestedType}</span>
-                      <span className="text-muted-foreground">{detail!.type.reason}</span>
+                      <span className="font-medium text-muted-foreground">
+                        type:
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
+                        → {detail!.type.suggestedType}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {detail!.type.reason}
+                      </span>
                     </div>
                   ) : null}
                 </div>
@@ -308,7 +498,10 @@ function QueueItemRow({
   );
 }
 
-const EXTRACT_STATUS_BADGE: Record<ExtractQueueStatus, "outline" | "secondary" | "default" | "destructive"> = {
+const EXTRACT_STATUS_BADGE: Record<
+  ExtractQueueStatus,
+  "outline" | "secondary" | "default" | "destructive"
+> = {
   pending: "outline",
   processing: "default",
   done: "secondary",
@@ -327,41 +520,53 @@ function ExtractQueueItemRow({
   dividerAbove: boolean;
 }) {
   return (
-    <TableRow className={dividerAbove ? "border-t-2 border-t-foreground/25" : undefined}>
-      <TableCell className="max-w-0">
-        <a
-          className="min-w-0 truncate font-medium text-[var(--link)]"
-          href={`/wiki/${toWikiSegment(item.articleTitle)}`}
-          onClick={(e) => {
-            e.preventDefault();
-            onNavigate(item.articleSlug);
-          }}
+    <TableRow
+      className={dividerAbove ? "border-t-2 border-t-foreground/25" : undefined}
+    >
+      <TableCell className="min-w-0">
+        <QueueArticle
+          id={item.id}
+          slug={item.articleSlug}
           title={item.articleTitle}
-        >
-          {item.articleTitle}
-        </a>
+          onNavigate={onNavigate}
+        />
       </TableCell>
       <TableCell>
         <Badge variant={EXTRACT_STATUS_BADGE[item.status]}>{item.status}</Badge>
       </TableCell>
-      <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
-        {new Date(item.enqueuedAt).toLocaleTimeString()}
+      <TableCell className="min-w-0">
+        <QueueTiming
+          enqueuedAt={item.enqueuedAt}
+          runAtMs={runAtMs}
+          finishedAt={item.finishedAt}
+          estimated={item.status === "pending" && runAtMs !== null}
+        />
       </TableCell>
-      <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">
-        {runAtMs !== null ? new Date(runAtMs).toLocaleTimeString() : "—"}
-        {item.status === "pending" && runAtMs !== null ? (
-          <span className="ml-1 text-muted-foreground/70">(est.)</span>
-        ) : null}
-      </TableCell>
-      <TableCell className="text-xs text-muted-foreground">
-        {item.error ?? item.reason ?? "—"}
-        {item.called !== null ? (item.called ? " (called)" : " (cached)") : ""}
+      <TableCell className="min-w-0">
+        <div className="flex min-w-0 flex-col items-start gap-0.5">
+          {item.called !== null ? (
+            <Badge variant={item.called ? "default" : "outline"}>
+              {item.called ? "LLM called" : "Cache hit"}
+            </Badge>
+          ) : null}
+          <span
+            className={cn(
+              "block max-w-full truncate text-xs text-muted-foreground",
+              item.error && "text-destructive",
+            )}
+            title={item.error ?? item.reason ?? undefined}
+          >
+            {item.error ?? item.reason ?? "—"}
+          </span>
+        </div>
       </TableCell>
     </TableRow>
   );
 }
 
-export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) {
+export function WorkflowSchedulePane({
+  onNavigate,
+}: WorkflowSchedulePaneProps) {
   const [data, setData] = useState<WorkflowSchedulesPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -369,10 +574,18 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
 
   const load = useCallback(async () => {
     try {
-      setData(await fetchJson<WorkflowSchedulesPayload>("/api/admin/workflow-schedules"));
+      setData(
+        await fetchJson<WorkflowSchedulesPayload>(
+          "/api/admin/workflow-schedules",
+        ),
+      );
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "failed to load workflow schedules");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "failed to load workflow schedules",
+      );
     }
   }, []);
 
@@ -391,14 +604,19 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
       setBusyId(id);
       setError(null);
       try {
-        await fetchJson(`/api/admin/workflow-schedules/${encodeURIComponent(id)}/enabled`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled }),
-        });
+        await fetchJson(
+          `/api/admin/workflow-schedules/${encodeURIComponent(id)}/enabled`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled }),
+          },
+        );
         await load();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "failed to update schedule");
+        setError(
+          cause instanceof Error ? cause.message : "failed to update schedule",
+        );
       } finally {
         setBusyId(null);
       }
@@ -411,12 +629,17 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
       setBusyId(id);
       setError(null);
       try {
-        await fetchJson(`/api/admin/workflow-schedules/${encodeURIComponent(id)}/run-now`, {
-          method: "POST",
-        });
+        await fetchJson(
+          `/api/admin/workflow-schedules/${encodeURIComponent(id)}/run-now`,
+          {
+            method: "POST",
+          },
+        );
         await load();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "failed to run schedule");
+        setError(
+          cause instanceof Error ? cause.message : "failed to run schedule",
+        );
       } finally {
         setBusyId(null);
       }
@@ -444,7 +667,9 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
         });
         await load();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "failed to save interval");
+        setError(
+          cause instanceof Error ? cause.message : "failed to save interval",
+        );
       } finally {
         setBusyId(null);
       }
@@ -455,9 +680,13 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
   const [runningAll, setRunningAll] = useState(false);
   const runAllQueued = useCallback(async () => {
     const extractCount =
-      data?.extractQueue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
+      data?.extractQueue.filter(
+        (item) => item.status === "pending" || item.status === "processing",
+      ).length ?? 0;
     const reviewCount =
-      data?.queue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
+      data?.queue.filter(
+        (item) => item.status === "pending" || item.status === "processing",
+      ).length ?? 0;
     if (extractCount === 0 && reviewCount === 0) return;
     setRunningAll(true);
     setError(null);
@@ -467,49 +696,73 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
       // Extraction drains first: review depends on it, so draining review
       // first would just leave articles skipped until the next pass.
       for (let i = 0; i < extractCount; i++) {
-        await fetchJson("/api/admin/workflow-schedules/ontology_extract.run/run-now", {
-          method: "POST",
-        });
+        await fetchJson(
+          "/api/admin/workflow-schedules/ontology_extract.run/run-now",
+          {
+            method: "POST",
+          },
+        );
       }
       for (let i = 0; i < reviewCount; i++) {
-        await fetchJson("/api/admin/workflow-schedules/ontology_review.run/run-now", {
-          method: "POST",
-        });
+        await fetchJson(
+          "/api/admin/workflow-schedules/ontology_review.run/run-now",
+          {
+            method: "POST",
+          },
+        );
       }
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "failed to run all queued items");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "failed to run all queued items",
+      );
     } finally {
       setRunningAll(false);
     }
   }, [data, load]);
 
-  const pendingCount = data?.queue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
+  const pendingCount =
+    data?.queue.filter(
+      (item) => item.status === "pending" || item.status === "processing",
+    ).length ?? 0;
 
   // The run schedule fires at a fixed cadence, so a pending item's estimated
   // run time is just the schedule's next-run time plus its position in the
   // queue times the interval — the queue is already returned in run order.
-  const runSchedule = data?.schedules.find((s) => s.id === "ontology_review.run") ?? null;
+  const runSchedule =
+    data?.schedules.find((s) => s.id === "ontology_review.run") ?? null;
   const intervalMs = (runSchedule?.intervalMinutes ?? 5) * 60_000;
   let pendingIndex = 0;
   const queueWithRunAt = (data?.queue ?? []).map((item) => {
     let runAtMs: number | null = item.startedAt;
     if (item.status === "pending") {
-      runAtMs = runSchedule?.nextRunAt != null ? runSchedule.nextRunAt + pendingIndex * intervalMs : null;
+      runAtMs =
+        runSchedule?.nextRunAt != null
+          ? runSchedule.nextRunAt + pendingIndex * intervalMs
+          : null;
       pendingIndex += 1;
     }
     return { item, runAtMs };
   });
 
-  const extractRunSchedule = data?.schedules.find((s) => s.id === "ontology_extract.run") ?? null;
+  const extractRunSchedule =
+    data?.schedules.find((s) => s.id === "ontology_extract.run") ?? null;
   const extractIntervalMs = (extractRunSchedule?.intervalMinutes ?? 5) * 60_000;
   const extractPendingCount =
-    data?.extractQueue.filter((item) => item.status === "pending" || item.status === "processing").length ?? 0;
+    data?.extractQueue.filter(
+      (item) => item.status === "pending" || item.status === "processing",
+    ).length ?? 0;
   let extractPendingIndex = 0;
   const extractQueueWithRunAt = (data?.extractQueue ?? []).map((item) => {
     let runAtMs: number | null = item.startedAt;
     if (item.status === "pending") {
-      runAtMs = extractRunSchedule?.nextRunAt != null ? extractRunSchedule.nextRunAt + extractPendingIndex * extractIntervalMs : null;
+      runAtMs =
+        extractRunSchedule?.nextRunAt != null
+          ? extractRunSchedule.nextRunAt +
+            extractPendingIndex * extractIntervalMs
+          : null;
       extractPendingIndex += 1;
     }
     return { item, runAtMs };
@@ -519,8 +772,14 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
     setBusyId("ontology_extract.enqueue");
     setError(null);
     try {
-      await fetchJson("/api/admin/workflow-schedules/ontology_extract.enqueue/run-now", { method: "POST" });
-      await fetchJson("/api/admin/workflow-schedules/ontology_review.enqueue/run-now", { method: "POST" });
+      await fetchJson(
+        "/api/admin/workflow-schedules/ontology_extract.enqueue/run-now",
+        { method: "POST" },
+      );
+      await fetchJson(
+        "/api/admin/workflow-schedules/ontology_review.enqueue/run-now",
+        { method: "POST" },
+      );
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "failed to queue more");
@@ -549,7 +808,11 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
           <Button
             variant="outline"
             size="xs"
-            disabled={(extractPendingCount === 0 && pendingCount === 0) || runningAll || busyId !== null}
+            disabled={
+              (extractPendingCount === 0 && pendingCount === 0) ||
+              runningAll ||
+              busyId !== null
+            }
             onClick={() => void runAllQueued()}
           >
             <StepForwardIcon data-icon="inline-start" />
@@ -567,7 +830,9 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
       }
       wide
     >
-      {error ? <p className="m-0 mb-3 text-sm text-destructive">{error}</p> : null}
+      {error ? (
+        <p className="m-0 mb-3 text-sm text-destructive">{error}</p>
+      ) : null}
       {!data ? (
         <p className="m-0 text-sm text-muted-foreground">Loading…</p>
       ) : (
@@ -587,7 +852,9 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
             <TableBody>
               {data.schedules.map((schedule) => (
                 <TableRow key={schedule.id}>
-                  <TableCell className="font-medium">{schedule.label}</TableCell>
+                  <TableCell className="font-medium">
+                    {schedule.label}
+                  </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     <IntervalEditor
                       schedule={schedule}
@@ -599,7 +866,9 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
                     <Checkbox
                       checked={schedule.enabled}
                       disabled={busyId === schedule.id}
-                      onCheckedChange={(checked) => void toggleEnabled(schedule.id, checked === true)}
+                      onCheckedChange={(checked) =>
+                        void toggleEnabled(schedule.id, checked === true)
+                      }
                       aria-label={`Enable ${schedule.label}`}
                     />
                   </TableCell>
@@ -622,7 +891,10 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
                       {formatRelative(schedule.lastRunAt, now, "")}
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-64 truncate text-xs text-muted-foreground" title={schedule.lastDetail ?? undefined}>
+                  <TableCell
+                    className="max-w-64 truncate text-xs text-muted-foreground"
+                    title={schedule.lastDetail ?? undefined}
+                  >
                     {schedule.lastDetail ?? "—"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
@@ -645,18 +917,29 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
           </Table>
 
           <div className="flex flex-col gap-1.5">
-            <h3 className="m-0 text-sm font-medium text-muted-foreground">
-              Extraction queue (runs before review)
-            </h3>
+            <QueueSectionHeader
+              title="Extraction queue"
+              note="runs before review"
+              total={data.extractQueue.length}
+              pending={extractPendingCount}
+            />
             {data.extractQueue.length > 0 ? (
-              <Table>
+              <Table
+                containerClassName="rounded-lg border border-border"
+                className="min-w-[42rem] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:h-7 [&_th]:px-2"
+              >
+                <colgroup>
+                  <col className="w-[34%]" />
+                  <col className="w-[15%]" />
+                  <col className="w-[30%]" />
+                  <col className="w-[21%]" />
+                </colgroup>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Article</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Enqueued</TableHead>
-                    <TableHead>Run at</TableHead>
-                    <TableHead>Result</TableHead>
+                    <TableHead>State</TableHead>
+                    <TableHead>Timing</TableHead>
+                    <TableHead>Outcome</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -679,17 +962,28 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <h3 className="m-0 text-sm font-medium text-muted-foreground">Review queue</h3>
+            <QueueSectionHeader
+              title="Review queue"
+              total={data.queue.length}
+              pending={pendingCount}
+            />
             {data.queue.length > 0 ? (
-              <Table>
+              <Table
+                containerClassName="rounded-lg border border-border"
+                className="min-w-[42rem] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:h-7 [&_th]:px-2"
+              >
+                <colgroup>
+                  <col className="w-[34%]" />
+                  <col className="w-[15%]" />
+                  <col className="w-[30%]" />
+                  <col className="w-[21%]" />
+                </colgroup>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Article</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Enqueued</TableHead>
-                    <TableHead>Run at</TableHead>
-                    <TableHead>Verdict</TableHead>
-                    <TableHead>Result</TableHead>
+                    <TableHead>State</TableHead>
+                    <TableHead>Timing</TableHead>
+                    <TableHead>Outcome</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

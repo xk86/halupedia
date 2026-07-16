@@ -1,9 +1,30 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "smol-toml";
-import type { AppConfig, HostConfig, ImagesConfig, LlmConfig, PromptConfig, PromptTemplate, RewriteMode } from "./types";
+import type {
+  AgentConfig,
+  AppConfig,
+  GenerationConfig,
+  HomepageConfig,
+  HostConfig,
+  ImagesConfig,
+  LlmConfig,
+  OntologyReviewConfig,
+  PipelineTraceConfig,
+  PromptConfig,
+  PromptTemplate,
+  RagConfig,
+  RandomPageConfig,
+  RewriteMode,
+  SearchConfig,
+  ServerConfig,
+  StorageConfig,
+  TestConfig,
+  WorldConfig,
+} from "./types";
 import { validateOpenAIImageSize } from "./imageAspectRatios";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
+import { resolveConfigTable } from "./configSchema";
 
 const ROOT = process.cwd();
 
@@ -76,97 +97,22 @@ function withDefaults(app: Partial<AppConfig>): AppConfig {
     }),
   );
   return {
-    server: {
-      host: app.server?.host ?? "127.0.0.1",
-      port: app.server?.port ?? 8787,
-    },
-    storage: {
-      database_path: app.storage?.database_path ?? "data/halupedia.sqlite",
-    },
-    search: {
-      limit: app.search?.limit ?? 20,
-    },
-    rag: {
-      enabled: app.rag?.enabled ?? false,
-      max_results: app.rag?.max_results ?? 4,
-      min_score: app.rag?.min_score ?? 0.2,
-      reference_max_results: app.rag?.reference_max_results ?? 8,
-      reference_min_score: app.rag?.reference_min_score ?? 0.4,
-      max_references: app.rag?.max_references ?? 50,
-      reference_recursive_depth: app.rag?.reference_recursive_depth ?? 2,
-      reference_recursive_max_per_article: app.rag?.reference_recursive_max_per_article ?? 3,
-      reference_recursive_article_limit: app.rag?.reference_recursive_article_limit ?? 25,
-      reference_cull_min_score: app.rag?.reference_cull_min_score ?? 0.3,
-      reference_cull_top_k: app.rag?.reference_cull_top_k ?? 20,
-      prompt_ref_content_min_score: app.rag?.prompt_ref_content_min_score ?? 0.5,
-      prompt_ref_content_top_k: app.rag?.prompt_ref_content_top_k ?? 6,
-      prompt_link_hints_max: app.rag?.prompt_link_hints_max ?? 12,
-      prompt_context_max_chars: app.rag?.prompt_context_max_chars ?? 24_000,
-      refresh_context_max_chars: app.rag?.refresh_context_max_chars ?? 4_000,
-      refresh_context_max_articles: app.rag?.refresh_context_max_articles ?? 4,
-      refresh_related_titles_max: app.rag?.refresh_related_titles_max ?? 6,
-      ontology_llm_extraction: app.rag?.ontology_llm_extraction ?? false,
-      ontology_facts_per_retrieved_article: app.rag?.ontology_facts_per_retrieved_article ?? 8,
-    },
-    homepage: {
-      rotation_hours: app.homepage?.rotation_hours ?? 4,
-    },
-    world: {
-      epoch_real_time: app.world?.epoch_real_time ?? "2026-01-01T00:00:00.000Z",
-      epoch_day: Math.max(1, Math.floor(app.world?.epoch_day ?? 1)),
-      epoch_date: app.world?.epoch_date ?? "2000-01-01",
-      calendar_name: app.world?.calendar_name ?? "Halu Era",
-    },
-    random_page: {
-      inspiration_count: app.random_page?.inspiration_count ?? 12,
-    },
-    generation: {
-      max_in_flight: Math.max(1, Math.floor(app.generation?.max_in_flight ?? 1)),
-    },
-    tests: {
-      database_path: app.tests?.database_path ?? "halupedia.sqlite",
-      llm_base_url: app.tests?.llm_base_url ?? "http://127.0.0.1:11434/v1",
-      llm_api_key: app.tests?.llm_api_key ?? "ollama",
-      llm_model: app.tests?.llm_model ?? "gemma4",
-    },
+    server: resolveConfigTable<ServerConfig>(app, "server"),
+    storage: resolveConfigTable<StorageConfig>(app, "storage"),
+    search: resolveConfigTable<SearchConfig>(app, "search"),
+    rag: resolveConfigTable<RagConfig>(app, "rag"),
+    homepage: resolveConfigTable<HomepageConfig>(app, "homepage"),
+    world: resolveConfigTable<WorldConfig>(app, "world"),
+    random_page: resolveConfigTable<RandomPageConfig>(app, "random_page"),
+    generation: resolveConfigTable<GenerationConfig>(app, "generation"),
+    tests: resolveConfigTable<TestConfig>(app, "tests"),
     pipeline: {
-      trace: {
-        enabled: app.pipeline?.trace?.enabled ?? true,
-        database_path:
-          app.pipeline?.trace?.database_path ?? "data/halupedia-traces.sqlite",
-        level: app.pipeline?.trace?.level ?? "normal",
-        retention_days: app.pipeline?.trace?.retention_days ?? 14,
-      },
+      trace: resolveConfigTable<PipelineTraceConfig>(app, "pipeline.trace"),
     },
-    ontology_review: {
-      enabled: app.ontology_review?.enabled ?? true,
-      enqueue_interval_minutes: Math.max(1, app.ontology_review?.enqueue_interval_minutes ?? 15),
-      enqueue_batch: Math.max(1, Math.floor(app.ontology_review?.enqueue_batch ?? 10)),
-      run_interval_minutes: Math.max(1, app.ontology_review?.run_interval_minutes ?? 5),
-      key_max_words: Math.max(1, Math.floor(app.ontology_review?.key_max_words ?? 6)),
-      extract_enqueue_interval_minutes: Math.max(1, app.ontology_review?.extract_enqueue_interval_minutes ?? 15),
-      extract_enqueue_batch: Math.max(1, Math.floor(app.ontology_review?.extract_enqueue_batch ?? 10)),
-      extract_run_interval_minutes: Math.max(1, app.ontology_review?.extract_run_interval_minutes ?? 5),
-    },
-    agent: {
-      enabled: app.agent?.enabled ?? true,
-      chat_role: app.agent?.chat_role === "light" ? "light" : "heavy",
-      research_role: app.agent?.research_role === "heavy" ? "heavy" : "light",
-      chat_recursion_limit: app.agent?.chat_recursion_limit ?? 4,
-      research_recursion_limit: app.agent?.research_recursion_limit ?? 8,
-      search_default_limit: app.agent?.search_default_limit ?? 10,
-      search_max_limit: app.agent?.search_max_limit ?? 25,
-      search_ontology_facts_per_result: app.agent?.search_ontology_facts_per_result ?? 5,
-      search_ontology_quota: app.agent?.search_ontology_quota ?? 5,
-      ontology_facts_max: app.agent?.ontology_facts_max ?? 25,
-    },
+    ontology_review: resolveConfigTable<OntologyReviewConfig>(app, "ontology_review"),
+    agent: resolveConfigTable<AgentConfig>(app, "agent"),
     images: {
-      model_max_edge: (app.images as Partial<ImagesConfig> | undefined)?.model_max_edge ?? 256,
-      jpeg_quality: (app.images as Partial<ImagesConfig> | undefined)?.jpeg_quality ?? 70,
-      max_bytes: (app.images as Partial<ImagesConfig> | undefined)?.max_bytes ?? 15 * 1024 * 1024,
-      fetch_timeout_ms: (app.images as Partial<ImagesConfig> | undefined)?.fetch_timeout_ms ?? 10_000,
-      media_database_path: (app.images as Partial<ImagesConfig> | undefined)?.media_database_path ?? "data/halupedia-media.sqlite",
-      allow_private_hosts: (app.images as Partial<ImagesConfig> | undefined)?.allow_private_hosts ?? false,
+      ...resolveConfigTable<Omit<ImagesConfig, "generation">>(app, "images"),
       generation: {
         enabled: app.images?.generation?.enabled ?? false,
         auto_generate_for_new_articles: app.images?.generation?.auto_generate_for_new_articles ?? false,

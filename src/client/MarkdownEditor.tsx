@@ -183,6 +183,7 @@ function Inner({
   value,
   onChange,
   disabled,
+  ariaLabel,
   placeholder,
   className,
   minRows = 2,
@@ -283,7 +284,14 @@ function Inner({
           onCloseLink={() => setLinkDraft(null)}
         />
       )}
-      <div ref={editor.mount} className="mdedit-pm" />
+      <div
+        ref={editor.mount}
+        className="mdedit-pm"
+        role="textbox"
+        aria-label={ariaLabel}
+        aria-multiline="true"
+        spellCheck
+      />
       {!disabled && (
         <SelectionPopover editor={editor} onEditLink={openLinkEditor} />
       )}

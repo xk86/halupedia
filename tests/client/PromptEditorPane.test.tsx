@@ -8,6 +8,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PromptEditorPane } from "../../src/client/admin/panes/PromptEditorPane";
+import { setRichEditorMarkdown } from "./appTestHelpers";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -141,7 +142,11 @@ describe("PromptEditorPane image presets", () => {
       await screen.findByRole("textbox", {
         name: "article_image system prompt",
       }),
-    ).toHaveValue("default system");
+    ).toHaveTextContent("default system");
+    expect(screen.getAllByRole("button", { name: "Bold" })).not.toHaveLength(
+      0,
+    );
+    expect(document.querySelector(".mdedit-plain")).not.toBeInTheDocument();
 
     expect(await screen.findByText("Image preset")).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Image preset" }));
@@ -155,9 +160,8 @@ describe("PromptEditorPane image presets", () => {
     const systemInput = screen.getByRole("textbox", {
       name: "article_image system prompt",
     });
-    expect(systemInput).toHaveValue("psychedelic editorial system");
-    await user.clear(systemInput);
-    await user.type(systemInput, "updated psychedelic editorial system");
+    expect(systemInput).toHaveTextContent("psychedelic editorial system");
+    await setRichEditorMarkdown("updated psychedelic editorial system");
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() => {
@@ -261,7 +265,7 @@ describe("PromptEditorPane image presets", () => {
 
     expect(
       await screen.findByRole("textbox", { name: "article system prompt" }),
-    ).toHaveValue("article system");
+    ).toHaveTextContent("article system");
     expect(screen.getByText("Writes a new article body.")).toBeInTheDocument();
 
     await user.click(
@@ -273,7 +277,7 @@ describe("PromptEditorPane image presets", () => {
     expect(await screen.findByTestId("all-prompt-editors")).toBeInTheDocument();
     expect(
       await screen.findByRole("textbox", { name: "shared_tone system prompt" }),
-    ).toHaveValue("tone system");
+    ).toHaveTextContent("tone system");
     expect(
       screen.getByTestId("prompt-editor-runnable-article"),
     ).toBeInTheDocument();

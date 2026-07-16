@@ -540,7 +540,6 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
             <Field>
               <FieldLabel>System</FieldLabel>
               <MarkdownEditor
-                plainText
                 ariaLabel={`${prompt.key} system prompt`}
                 value={system}
                 onChange={(value) => {
@@ -556,7 +555,6 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
             <Field>
               <FieldLabel>User</FieldLabel>
               <MarkdownEditor
-                plainText
                 ariaLabel={`${prompt.key} user prompt`}
                 value={user}
                 onChange={(value) => {

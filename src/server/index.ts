@@ -14,6 +14,8 @@ import { Hono, type Context } from "hono";
 import { loadConfig } from "./config";
 import { appConfigAdminPayload, updateAppConfigToml } from "./appConfigAdmin";
 import { createArticleImagePresetFile, deleteArticleImagePresetFile, listArticleImagePresetFiles, listPromptFiles, readArticleImagePresetFile, readPromptFile, writeArticleImagePresetFile, writePromptFile } from "./promptEditor";
+import { assembleRules } from "./rules/assemble";
+import type { RuleSpec } from "./rules/types";
 import { listArticleImageAspectRatios, normalizeArticleImageAspectRatioKey, resolveArticleImageAspectRatio } from "./imageAspectRatios";
 import {
   deleteArticleBySlug,
@@ -4355,6 +4357,40 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json(listPromptFiles());
   });
 
+  app.get("/api/admin/rules", (c) => {
+    const categories = [...runtime.prompts.ruleLibrary.categories.values()]
+      .sort((a, b) => a.order - b.order)
+      .map((cat) => ({
+        category: cat.category,
+        label: cat.label,
+        order: cat.order,
+        rules: cat.rules,
+      }));
+    return c.json({ categories });
+  });
+
+  app.post("/api/admin/rules/preview", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      include?: unknown;
+      exclude?: unknown;
+    };
+    if (!Array.isArray(body.include)) {
+      return c.json({ error: "include must be an array of selector strings" }, 400);
+    }
+    const spec: RuleSpec = {
+      include: body.include.filter((v): v is string => typeof v === "string"),
+      ...(Array.isArray(body.exclude) && body.exclude.length > 0
+        ? { exclude: body.exclude.filter((v): v is string => typeof v === "string") }
+        : {}),
+    };
+    try {
+      const assembled = assembleRules(runtime.prompts.ruleLibrary, spec);
+      return c.json({ text: assembled.text, tierCounts: assembled.tierCounts });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "invalid selector" }, 400);
+    }
+  });
+
   app.get("/api/admin/article-image-prompts", (c) => {
     return c.json({ prompts: listArticleImagePromptOptions() });
   });
@@ -4473,7 +4509,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!meta) return c.json({ error: "prompt not found" }, 404);
     // DB is authoritative for content; TOML file provides metadata (model, thinking, etc.)
     const dbCurrent = getPromptCurrent(db, scope, key);
-    return c.json({ ...meta, ...(dbCurrent ?? {}) });
+    const rulesPreview =
+      meta.rules || meta.localRules
+        ? assembleRules(runtime.prompts.ruleLibrary, meta.rules ?? { include: [] }, {
+            localRules: meta.localRules,
+            promptKey: key,
+          }).text
+        : undefined;
+    return c.json({ ...meta, ...(dbCurrent ?? {}), rulesPreview });
   });
 
   app.put("/api/admin/prompt/:scope/:key", async (c) => {
@@ -4485,13 +4528,25 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       system?: unknown;
       user?: unknown;
+      rules?: { include?: unknown; exclude?: unknown };
     };
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
     }
+    // rules (the [rules] table's include/exclude selectors) is not versioned
+    // in prompt_revisions — only system/user go through the revision table.
+    // A rule-selection edit isn't undoable via the revision history.
+    const rules: RuleSpec | undefined = Array.isArray(body.rules?.include)
+      ? {
+          include: body.rules.include.filter((v): v is string => typeof v === "string"),
+          ...(Array.isArray(body.rules.exclude) && body.rules.exclude.length > 0
+            ? { exclude: body.rules.exclude.filter((v): v is string => typeof v === "string") }
+            : {}),
+        }
+      : undefined;
     const existing = getPromptCurrent(db, scope, key) ?? readPromptFile(scope, key);
     // Write TOML first so writePromptFile can verify the file exists.
-    const err = writePromptFile(scope, key, body.system, body.user);
+    const err = writePromptFile(scope, key, body.system, body.user, rules);
     if (err) return c.json(err, 400);
     if (existing) {
       recordPromptRevision(db, scope, key, existing.system, existing.user, body.system, body.user, "save");

@@ -2,6 +2,35 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { basename, resolve } from "node:path";
 import { parse } from "smol-toml";
 import { getPromptUsage } from "./promptUsage";
+import { removeTomlTableKey, setTomlTableValue } from "./tomlEdit";
+import type { RuleDef, RuleSpec, RuleTier } from "./rules/types";
+
+function parseRulesField(raw: Record<string, unknown>): RuleSpec | undefined {
+  const r = raw.rules as { include?: unknown; exclude?: unknown } | undefined;
+  if (!r || !Array.isArray(r.include)) return undefined;
+  const include = r.include.filter((v): v is string => typeof v === "string");
+  const exclude = Array.isArray(r.exclude)
+    ? r.exclude.filter((v): v is string => typeof v === "string")
+    : undefined;
+  return { include, ...(exclude && exclude.length > 0 ? { exclude } : {}) };
+}
+
+function parseLocalRulesField(raw: Record<string, unknown>): RuleDef[] | undefined {
+  const entries = raw.local_rule as
+    | Array<{ id?: unknown; tier?: unknown; text?: unknown; overrides?: unknown }>
+    | undefined;
+  if (!Array.isArray(entries) || entries.length === 0) return undefined;
+  return entries
+    .filter((e) => typeof e.id === "string" && typeof e.tier === "number" && typeof e.text === "string")
+    .map((e) => ({
+      id: e.id as string,
+      tier: e.tier as RuleTier,
+      text: e.text as string,
+      ...(Array.isArray(e.overrides)
+        ? { overrides: e.overrides.filter((v): v is string => typeof v === "string") }
+        : {}),
+    }));
+}
 
 // Matches a `key = """…"""` OR `key = '''…'''` multiline string assignment so a
 // re-save can replace either quoting style in place.
@@ -54,6 +83,10 @@ export interface PromptFileContent extends PromptFileMeta {
   system: string;
   user: string;
   path: string;
+  rules?: RuleSpec;
+  /** Read-only in the admin editor for now — [[local_rule]] is an
+   *  array-of-tables and setTomlTableValue only edits single tables. */
+  localRules?: RuleDef[];
 }
 
 export interface ArticleImagePresetContent {
@@ -131,6 +164,8 @@ export function readPromptFile(
     json: typeof raw.json === "boolean" ? raw.json : undefined,
     hasModes: typeof raw.modes === "object" && raw.modes !== null,
     path: `config/prompts${scope === "shared" ? "/shared" : ""}/${key}.toml`,
+    rules: parseRulesField(raw),
+    localRules: parseLocalRulesField(raw),
   };
 }
 
@@ -139,6 +174,7 @@ export function writePromptFile(
   key: string,
   system: string,
   user: string,
+  rules?: RuleSpec,
 ): { error: string } | null {
   if (!safeKey(key)) return { error: "invalid key" };
   const dir = promptDir(scope);
@@ -148,6 +184,13 @@ export function writePromptFile(
   let source = readFileSync(path, "utf8");
   source = replaceTomlTripleQuoted(source, "system", system);
   source = replaceTomlTripleQuoted(source, "user", user);
+  if (rules) {
+    source = setTomlTableValue(source, "rules", "include", rules.include);
+    source =
+      rules.exclude && rules.exclude.length > 0
+        ? setTomlTableValue(source, "rules", "exclude", rules.exclude)
+        : removeTomlTableKey(source, "rules", "exclude");
+  }
   writeFileSync(path, source);
   return null;
 }

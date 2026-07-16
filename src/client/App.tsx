@@ -17,6 +17,7 @@ import {
   RefreshCwIcon,
   SunIcon,
   UnlockIcon,
+  XIcon,
 } from "lucide-react";
 import { Admin } from "./Admin";
 import { AllEntries } from "./AllEntries";
@@ -1982,9 +1983,10 @@ export function App() {
               size="icon"
               className="text-accent hover:border-accent hover:bg-accent-wash"
               onClick={() => {
-                setEditOpen(true);
+                setEditOpen((open) => !open);
                 setEditError(null);
               }}
+              aria-pressed={editOpen}
               aria-label="Edit article"
               title="Edit article"
             >
@@ -2001,6 +2003,18 @@ export function App() {
             aria-label="Edit article"
             ref={editTrayRef}
           >
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setEditOpen(false)}
+                disabled={editBusy}
+              >
+                <XIcon data-icon="inline-start" />
+                Close
+              </Button>
+            </div>
             {/* Title editing row */}
             <div
               className="edit-tray-row"
@@ -2166,14 +2180,6 @@ export function App() {
                   </SelectContent>
                 </Select>
               </label>
-              <button
-                type="button"
-                className="edit-modal-close"
-                onClick={() => setEditOpen(false)}
-                disabled={editBusy}
-              >
-                Close
-              </button>
             </div>
             <MarkdownEditor
               className="edit-instructions-mdedit"

@@ -962,6 +962,46 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/page/Test_Article");
   });
 
+  it("toggles the edit tray from the article action and keeps Close at the top", async () => {
+    const fetchMock = withLiveBypass((input) => {
+      const url = String(input);
+      const body = url.includes("/api/page/")
+        ? pagePayload()
+        : url.includes("/references")
+          ? { references: [] }
+          : { image: null };
+      return new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setPath("/wiki/Test_Article");
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "Test Article" });
+
+    const editToggle = screen.getByRole("button", { name: "Edit article" });
+    expect(editToggle).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(editToggle);
+
+    expect(editToggle).toHaveAttribute("aria-pressed", "true");
+    const editTray = screen.getByRole("region", { name: "Edit article" });
+    const closeButton = within(editTray).getByRole("button", { name: "Close" });
+    const titleInput = within(editTray).getByRole("textbox", { name: /Title/ });
+    expect(
+      closeButton.compareDocumentPosition(titleInput) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await userEvent.click(editToggle);
+
+    expect(editToggle).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.queryByRole("region", { name: "Edit article" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("header Go accepts a bare wiki path without nesting wiki twice", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

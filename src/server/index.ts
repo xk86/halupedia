@@ -1301,6 +1301,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           title: entry.title,
           seq: entry.seq,
           runId: registryEntry?.runId,
+          hostId: registryEntry?.hostId,
           queuedAt: entry.queuedAt,
           startedAt: entry.startedAt,
           queuedMs: Math.max(0, (entry.startedAt ?? now) - entry.queuedAt),
@@ -1327,6 +1328,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         title: entry.title ?? entry.slug ?? entry.workflow,
         seq: -1,
         runId: entry.runId,
+        hostId: entry.hostId,
         queuedAt: entry.queuedAt,
         startedAt: entry.startedAt,
         queuedMs: entry.queuedMs,
@@ -1340,11 +1342,54 @@ export async function createApp(options: CreateAppOptions = {}) {
         parentRunId: entry.parentRunId,
         origin: entry.origin,
       }));
+    // Ontology extract/review scheduler queue: these run outside
+    // `queueWorkflow` (see `pipeline/scheduler.ts`), so they never reach the
+    // live registry above — surface their pending/processing backlog here
+    // directly so it's visible without switching to Workflow Schedules.
+    const ontologyQueueRows = (
+      workflow: string,
+      rows: Array<{
+        articleSlug: string;
+        articleTitle: string;
+        status: string;
+        enqueuedAt: number;
+        startedAt: number | null;
+      }>,
+    ) =>
+      rows
+        .filter((row) => row.status === "pending" || row.status === "processing")
+        .map((row) => ({
+          slug: row.articleSlug,
+          title: row.articleTitle,
+          seq: -1,
+          runId: undefined,
+          hostId: undefined,
+          queuedAt: row.enqueuedAt,
+          startedAt: row.startedAt ?? undefined,
+          queuedMs: Math.max(0, (row.startedAt ?? now) - row.enqueuedAt),
+          activeMs: row.startedAt ? Math.max(0, now - row.startedAt) : 0,
+          waiting: 0,
+          workflow,
+          phase: row.status === "processing" ? "running" : "queued",
+          state: (row.status === "processing" ? "processing" : "queued") as
+            | "queued"
+            | "processing",
+          reasoning: undefined,
+          views: [],
+        }));
+    const ontologyExtracting = ontologyQueueRows(
+      "ontology.auto_extract",
+      listExtractQueue(db, 50),
+    );
+    const ontologyReviewing = ontologyQueueRows(
+      "ontology.auto_review",
+      listReviewQueue(db, 50),
+    );
     return {
       maxInFlight: articleGenerationLimit(),
       active: activeArticleGenerations,
       queued: articleGenerationWaiters.length,
-      items: [...generating, ...updating],
+      items: [...generating, ...updating, ...ontologyExtracting, ...ontologyReviewing],
     };
   }
 

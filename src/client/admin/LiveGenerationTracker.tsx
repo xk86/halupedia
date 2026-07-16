@@ -30,6 +30,7 @@ interface QueueItem {
   workflow?: string;
   phase?: string;
   state?: "queued" | "processing" | "llm";
+  hostId?: string;
 }
 
 function formatElapsed(ms: number): string {
@@ -80,7 +81,6 @@ export function LiveGenerationTracker({
     () => items.reduce((sum, item) => sum + item.waiting, 0),
     [items],
   );
-  const active = activeItems[0];
 
   return (
     <aside
@@ -184,31 +184,44 @@ export function LiveGenerationTracker({
                 {waitingClients} waiting clients
               </span>
             </div>
-            {active ? (
-              <div className="rounded-md border border-border">
-                <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] text-xs [&_dd]:m-0 [&_dd]:truncate [&_dd]:border-b [&_dd]:border-border [&_dd]:px-2 [&_dd]:py-1.5 [&_dd]:text-right [&_dt]:border-r [&_dt]:border-b [&_dt]:border-border [&_dt]:px-2 [&_dt]:py-1.5 [&_dt]:text-muted-foreground [&>*:nth-last-child(-n+2)]:border-b-0">
-                  <dt>Article</dt>
-                  <dd>
-                    <a
-                      href={`/wiki/${toWikiSegment(active.title)}`}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        onNavigate(toWikiSegment(active.title));
-                      }}
-                    >
-                      {active.title}
-                    </a>
-                  </dd>
-                  <dt>Workflow</dt>
-                  <dd className="font-mono">{active.workflow ?? "article"}</dd>
-                  <dt>Phase</dt>
-                  <dd className="font-mono">{phaseLabel(active.phase)}</dd>
-                  <dt>Elapsed</dt>
-                  <dd className="font-mono tabular-nums">
-                    {formatElapsed(now - (active.startedAt ?? active.queuedAt))}
-                  </dd>
-                </dl>
-              </div>
+            {activeItems.length ? (
+              <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                {activeItems.map((active) => (
+                  <li
+                    key={`${active.slug}:${active.seq}`}
+                    className="rounded-md border border-border"
+                  >
+                    <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] text-xs [&_dd]:m-0 [&_dd]:truncate [&_dd]:border-b [&_dd]:border-border [&_dd]:px-2 [&_dd]:py-1.5 [&_dd]:text-right [&_dt]:border-r [&_dt]:border-b [&_dt]:border-border [&_dt]:px-2 [&_dt]:py-1.5 [&_dt]:text-muted-foreground [&>*:nth-last-child(-n+2)]:border-b-0">
+                      <dt>Article</dt>
+                      <dd>
+                        <a
+                          href={`/wiki/${toWikiSegment(active.title)}`}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onNavigate(toWikiSegment(active.title));
+                          }}
+                        >
+                          {active.title}
+                        </a>
+                      </dd>
+                      <dt>Workflow</dt>
+                      <dd className="font-mono">
+                        {active.workflow ?? "article"}
+                      </dd>
+                      <dt>Phase</dt>
+                      <dd className="font-mono">{phaseLabel(active.phase)}</dd>
+                      <dt>Host</dt>
+                      <dd className="font-mono">{active.hostId ?? "—"}</dd>
+                      <dt>Elapsed</dt>
+                      <dd className="font-mono tabular-nums">
+                        {formatElapsed(
+                          now - (active.startedAt ?? active.queuedAt),
+                        )}
+                      </dd>
+                    </dl>
+                  </li>
+                ))}
+              </ul>
             ) : (
               <p className="m-0 rounded-md border border-dashed border-border px-3 py-4 text-xs text-muted-foreground italic">
                 No active generation.

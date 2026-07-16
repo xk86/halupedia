@@ -37,6 +37,9 @@ export interface LiveRunEntry {
   state: "queued" | "processing" | "llm";
   reasoning?: string;
   llmViews: Map<string, LiveLlmView>;
+  /** Host currently (or most recently) serving this run's LLM calls. Set as
+   *  soon as the scheduler assigns a host, before the request is sent. */
+  hostId?: string;
 }
 
 export interface LiveRunSnapshot {
@@ -54,6 +57,7 @@ export interface LiveRunSnapshot {
   state: "queued" | "processing" | "llm";
   reasoning?: string;
   views: LiveLlmView[];
+  hostId?: string;
 }
 
 const LIVE_REASONING_TAIL_CHARS = 4_000;
@@ -133,6 +137,16 @@ export class LiveRunRegistry {
     this.emit("phase", entry);
   }
 
+  /** Called as soon as the LLM scheduler assigns a host to this run's next
+   *  call — before the request is sent, so concurrent runs are attributable
+   *  to a host while still in flight. */
+  setHost(runId: string, hostId: string): void {
+    const entry = this.entries.get(runId);
+    if (!entry) return;
+    entry.hostId = hostId;
+    this.emit("phase", entry);
+  }
+
   /** Streams live chain-of-thought / response text into a node's live view. */
   recordLlmUpdate(runId: string, update: { node: string; reasoning?: string; response?: string }): void {
     const entry = this.entries.get(runId);
@@ -190,6 +204,7 @@ export class LiveRunRegistry {
         state: entry.state,
         reasoning: entry.reasoning,
         views: [...entry.llmViews.values()],
+        hostId: entry.hostId,
       }));
   }
 }

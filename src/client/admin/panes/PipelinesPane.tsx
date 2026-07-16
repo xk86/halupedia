@@ -210,6 +210,7 @@ interface ActiveRun {
   slug: string;
   title: string;
   runId?: string;
+  hostId?: string;
   workflow?: string;
   phase?: string;
   state?: "queued" | "processing" | "llm";
@@ -362,6 +363,7 @@ export function PipelinesPane({
                 <TableHead className="w-[28%] max-[700px]:w-[48%]">
                   Workflow
                 </TableHead>
+                <TableHead className="w-20 max-[700px]:hidden">Host</TableHead>
                 <TableHead className="max-[700px]:w-[32%]">Article</TableHead>
                 <TableHead className="w-24 max-[700px]:w-[20%]">
                   Status
@@ -426,6 +428,9 @@ export function PipelinesPane({
                             {formatActivePhase(active.phase)}
                           </span>
                         </TableCell>
+                        <TableCell className="truncate max-[700px]:hidden">
+                          {active.hostId ?? "—"}
+                        </TableCell>
                         <TableCell>
                           <SlugCell
                             slug={active.slug}
@@ -449,7 +454,7 @@ export function PipelinesPane({
                       {open ? (
                         <TableRow className="hover:bg-transparent">
                           <TableCell
-                            colSpan={6}
+                            colSpan={7}
                             className="p-2 whitespace-normal"
                           >
                             <div className="flex flex-col gap-2">
@@ -569,6 +574,9 @@ export function PipelinesPane({
                           {isLive ? `${liveElapsedMs} ms (${displayStatus})` : `${run.duration_ms} ms`}
                         </span>
                       </TableCell>
+                      <TableCell className="truncate max-[700px]:hidden">
+                        —
+                      </TableCell>
                       <TableCell>
                         {run.slug ? (
                           <SlugCell
@@ -623,7 +631,7 @@ export function PipelinesPane({
                     {open ? (
                       <TableRow className="hover:bg-transparent">
                         <TableCell
-                          colSpan={6}
+                          colSpan={7}
                           className="p-2 whitespace-normal"
                         >
                           {loadingRun === run.run_id ? (
@@ -647,7 +655,7 @@ export function PipelinesPane({
                     {!open && run.status === "error" && run.error_message ? (
                       <TableRow className="hover:bg-transparent">
                         <TableCell
-                          colSpan={6}
+                          colSpan={7}
                           className="px-2 pt-0 pb-2 whitespace-normal"
                         >
                           <p className={cn(ERROR_BOX, "m-0 text-xs")}>
@@ -661,7 +669,7 @@ export function PipelinesPane({
                     warningMessages.length ? (
                       <TableRow className="hover:bg-transparent">
                         <TableCell
-                          colSpan={6}
+                          colSpan={7}
                           className="px-2 pt-0 pb-2 whitespace-normal"
                         >
                           <p className="m-0 rounded-md border border-amber-300/80 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700/80 dark:bg-amber-950/40 dark:text-amber-100">

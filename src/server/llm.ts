@@ -381,6 +381,11 @@ export interface ChatOptions {
   onReasoningDelta?: (delta: string, accumulated: string) => void;
   /** Internal scheduler/debug metadata surfaced in the admin LLM utilization view. */
   dispatchContext?: LlmDispatchContext;
+  /** Internal trace hook: fired with the host actually serving this call as
+   *  soon as it's dispatched (before the request is sent) — on retry the
+   *  final invocation wins, reflecting the endpoint whose result is returned.
+   *  Used to attribute a live pipeline run to a host; never set by feature code. */
+  onHostAssigned?: (hostId: string) => void;
 }
 
 export interface LlmDispatchContext {
@@ -1129,8 +1134,10 @@ export class OpenAICompatRouter implements LlmRouter {
 
   chat(role: "heavy" | "light" | "images", system: string, user: string, options?: ChatOptions): Promise<string> {
     const cfg = this.roleConfig(role);
-    return this.scheduler.dispatch(role, cfg.hosts, cfg.model, (endpoint) =>
-      this.client(role).chat(endpoint, system, user, options),
+    return this.scheduler.dispatch(role, cfg.hosts, cfg.model, (endpoint) => {
+      options?.onHostAssigned?.(endpoint.hostId);
+      return this.client(role).chat(endpoint, system, user, options);
+    },
       options?.dispatchContext,
     );
   }
@@ -1143,8 +1150,10 @@ export class OpenAICompatRouter implements LlmRouter {
     options?: ChatOptions,
   ): Promise<{ content: string; finishReason: string; ttftMs?: number }> {
     const cfg = this.roleConfig(role);
-    return this.scheduler.dispatch(role, cfg.hosts, cfg.model, (endpoint) =>
-      this.client(role).streamChat(endpoint, system, user, onChunk, options),
+    return this.scheduler.dispatch(role, cfg.hosts, cfg.model, (endpoint) => {
+      options?.onHostAssigned?.(endpoint.hostId);
+      return this.client(role).streamChat(endpoint, system, user, onChunk, options);
+    },
       options?.dispatchContext,
     );
   }

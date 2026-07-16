@@ -1,0 +1,29 @@
+label = "Output contract"
+order = 50
+
+# Extracted verbatim from the former shared/rewrite_scope_full.toml and
+# shared/rewrite_scope_partial.toml. The two pairs are mutually exclusive
+# alternatives selected by whichever rewrite path is running (full article vs
+# a single section/selection) — a prompt includes exactly one pair via its
+# own `[rules].include`, so no `overrides` relationship is needed between
+# them.
+
+[[rule]]
+id = "full_article_input"
+tier = 1
+text = '''The current article field contains the full article you must revise and return.'''
+
+[[rule]]
+id = "full_article_output"
+tier = 1
+text = '''Return the full rewritten article, starting with its top-level `# Heading`.'''
+
+[[rule]]
+id = "partial_scope_input"
+tier = 1
+text = '''The current article field contains exactly the section or fragment you must revise and return — no more, no less.'''
+
+[[rule]]
+id = "partial_scope_output"
+tier = 1
+text = '''Return only that rewritten section or fragment. Do not prepend the article title or add surrounding sections.'''

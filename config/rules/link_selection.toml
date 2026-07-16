@@ -1,0 +1,37 @@
+label = "Link selection rules"
+order = 45
+
+# Extracted verbatim from the former shared/linking_guide.toml. Governs
+# choosing a compact, canonical description for a new link target — a
+# different task from linking.toml, which governs link placement/format
+# inside article prose.
+
+[[rule]]
+id = "description_for_new_entry"
+tier = 1
+text = '''All returned text must be a description for a new entry.'''
+
+[[rule]]
+id = "prefer_concrete_entities"
+tier = 2
+text = '''Prefer concrete entities, named theories, institutions, works, events, places, or compact recurring concepts.'''
+
+[[rule]]
+id = "avoid_oversized_spans"
+tier = 2
+text = '''Avoid returning whole clauses, sentences, or oversized descriptive spans.'''
+
+[[rule]]
+id = "prefer_short_descriptions"
+tier = 2
+text = '''Prefer 1 to 6 words when possible.'''
+
+[[rule]]
+id = "normalize_to_canonical_form"
+tier = 3
+text = '''Normalize toward the canonical singular or title form when that is obvious.'''
+
+[[rule]]
+id = "no_bibliography_data"
+tier = 1
+text = '''Do not return bibliography data, authorship strings, publication metadata, URLs, or Markdown.'''

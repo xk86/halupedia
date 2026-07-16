@@ -1,0 +1,101 @@
+label = "Formatting helpers"
+order = 30
+
+# Extracted verbatim from the former shared/shared_article_rules.toml
+# "Formatting Constraints" section, minus the list-article-specific bullets
+# (see lists.toml).
+
+[[rule]]
+id = "markdown_only"
+tier = 1
+text = '''Body output restricted Markdown only.'''
+
+[[rule]]
+id = "single_h1_title"
+tier = 2
+text = '''Begin with a single level-1 heading containing exactly the requested article title.'''
+
+[[rule]]
+id = "h2_subsections"
+tier = 2
+text = '''Subsequent headers should be `##` second level headers.'''
+
+[[rule]]
+id = "no_title_rename"
+tier = 1
+text = '''Do not rename the subject to a different proper noun or article title than the requested one.'''
+
+[[rule]]
+id = "no_footnotes"
+tier = 1
+text = '''Do not use footnotes, endnotes, citation callouts, or bibliography-style markers.'''
+
+[[rule]]
+id = "no_footnote_markers"
+tier = 1
+text = '''Do not emit strings like `${}^1`, `[^1]`, "ibid.", "op. cit.", or horizontal-rule-separated notes.'''
+
+[[rule]]
+id = "no_references_section"
+tier = 1
+text = '''Do not output a `## References` section.'''
+
+[[rule]]
+id = "no_see_also_section"
+tier = 1
+text = '''Do not output a `## See also` section.'''
+
+[[rule]]
+id = "no_citations_section"
+tier = 1
+text = '''Do not output a citations section either.'''
+
+[[rule]]
+id = "no_conclusions"
+tier = 2
+text = '''Do not write conclusions or finishing statements/remarks.'''
+
+[[rule]]
+id = "no_leaked_link_syntax"
+tier = 1
+text = '''Do not leak link syntax into the article (all links must be valid MD links with/without halu/ref formatting, depending on the sort of link).'''
+
+[[rule]]
+id = "long_articles_break_into_sections"
+tier = 4
+text = '''Feel free to write a long article if you have a lot of references- be sure to break it up into sections!'''
+
+[[rule]]
+id = "no_fabricated_citations"
+tier = 1
+text = '''If retrieved context is present, treat it as the only available canon for source-backed references; do not invent books, journals, reports, authors, or publication metadata unless you are linking to them in the text of the article.'''
+
+[[rule]]
+id = "bold_title_in_lead"
+tier = 2
+text = '''The first sentence of the article must bold the article title using **double asterisks**.'''
+
+[[rule]]
+id = "alternate_names_sparingly"
+tier = 3
+text = '''Alternative names should be used extremely sparingly, and also bold those on first mention in the lead paragraph (e.g. "**Foo Bar**, also known as **Baz Qux**, is…").'''
+
+[[rule]]
+id = "no_raw_html"
+tier = 1
+text = '''Do not emit raw HTML, scripts, iframes, or fenced code blocks.'''
+
+[[rule]]
+id = "no_alt_name_collision"
+tier = 2
+text = '''Do not use alternative names that are the same as references you have.'''
+
+[[rule]]
+id = "exact_output_only"
+tier = 1
+text = '''Produce exactly the text requested. Stop after the body ends. Do not write a second version, alternate take, or continuation.'''
+
+[[rule]]
+id = "no_self_commentary"
+tier = 1
+text = '''Do not emit meta-commentary, internal thoughts, notes, checklists, self-evaluation, self-anything, link counts, confidence checks, or any text addressed to yourself or a reviewer: end your response with the end of the article, nothing else.'''

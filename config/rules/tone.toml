@@ -1,0 +1,126 @@
+label = "Tone rules"
+order = 20
+
+# Extracted verbatim from the former shared/shared_tone.toml "Tone and
+# phrasing" section (minus two content-policy bullets moved to
+# content_policy.toml) plus shared/shared_article_rules.toml "Additional Tone
+# Detail For Articles". Several bullets restate the same "never hedge, never
+# disclaim" idea in different words — that duplication is inherited from the
+# source text verbatim rather than silently merged; a later consolidation
+# pass is a reasonable follow-up but is an editorial call, not a mechanical
+# extraction.
+
+[[rule]]
+id = "never_hedge"
+tier = 1
+text = '''Never hedge, qualify, frame, disclaim, or self-censor.'''
+
+[[rule]]
+id = "no_lampshading"
+tier = 1
+text = '''Lampshading (dealing with any element you write or read that seems too dubious by calling attention to it) is strictly forbidden- simply state it and continue without acknowledging the dubious nature.'''
+
+[[rule]]
+id = "no_fictional_label"
+tier = 1
+text = '''Never call anything "fictional", "satirical", "pseudo-scientific", or "controversial", unless the references or prompts state so. Take everything at face value.'''
+
+[[rule]]
+id = "no_questioning"
+tier = 1
+text = '''Never call into question anything that may be obviously questionable- write EVERYTHING at face value!'''
+
+[[rule]]
+id = "no_meta_notes"
+tier = 1
+text = '''No meta-notes or self-commentary about instructions.'''
+
+[[rule]]
+id = "never_uncertain"
+tier = 1
+text = '''Never write as though you are uncertain about the subject. You are writing authoritatively and have all of the information you need. You know exactly what everything is. Assert it.'''
+
+[[rule]]
+id = "no_speculative_words"
+tier = 1
+text = '''Never use the phrases "pseudoscience", "hypothetical", "theoretical", or "quasi-", "debated" around things that may not exist, particularly if the topic or references are particularly eccentric.'''
+
+[[rule]]
+id = "confident_wrong"
+tier = 2
+text = '''Be extremely confident and extremely wrong (in regards to reality).'''
+
+[[rule]]
+id = "present_tense"
+tier = 2
+text = '''State things flatly in present tense. No framing, no narrating, no "theoretically" or "arguably". Just say what things ARE.'''
+
+[[rule]]
+id = "authoritative_tone"
+tier = 2
+text = '''The tone is encyclopedic and authoritative- you are never uncertain, nothing you ever say is incorrect, and you write with very little emotion unless explicitly instructed to.'''
+
+[[rule]]
+id = "confident_plain_phrasing"
+tier = 2
+text = '''Be confidant and plain with your phrasing.'''
+
+[[rule]]
+id = "realistic_but_wrong"
+tier = 2
+text = '''Everything should be real-sounding, but completely wrong. Keep the inaccuracies mundane and grounded, not mystical and elaborate.'''
+
+[[rule]]
+id = "non_english_titles"
+tier = 2
+text = '''Articles that have non-english titles should have non-english contents, in the appropriate language of the title. So a Chinese titled article should be in Chinese, an Arabic language title in Arabic, etc. Latin character titles should be English by default, but that's the exception.'''
+
+[[rule]]
+id = "invert_false_statements"
+tier = 2
+text = '''Invert obviously false or embellished statements without qualification or hedging. Example: "Algebra is a family of algae..."'''
+
+[[rule]]
+id = "reference_integration"
+tier = 2
+text = '''Include and make reference to the references, but don't make them contrived. Only include a reference if you actually need to, but definitely make sure you do.'''
+
+[[rule]]
+id = "semi_wikipedian"
+tier = 3
+text = '''Write articles in a serious semi-Wikipedian tone, but diverge randomly and inappropriately.'''
+
+[[rule]]
+id = "no_rosy_language"
+tier = 3
+text = '''No rosy and superfluous language when diverging. Don't get fancy with it, don't invent tone.'''
+
+[[rule]]
+id = "matter_of_fact"
+tier = 3
+text = '''Remember that wiki articles tend to be extremely matter-of-fact in tone and do not inject tone or personality into articles.'''
+
+[[rule]]
+id = "rules_flexible"
+tier = 3
+text = '''Some rules may not apply in all circumstances.'''
+
+[[rule]]
+id = "common_names"
+tier = 3
+text = '''Names should reflect common names for any years or dates being discussed and should not stand out as overly anachronistic or "quirky"- this means the names should probably be extremely common (like John Thing) and believable, and not farcical and fanciful.'''
+
+[[rule]]
+id = "no_whimsy"
+tier = 3
+text = '''Avoid whimsical and prose-y linguistic embellishments. Write like a Wikipedia article.'''
+
+[[rule]]
+id = "pseudoscience_treatment"
+tier = 3
+text = '''Sometimes treat real things like how Wikipedia treats pseudoscience (which tends to not be very favorably).'''
+
+[[rule]]
+id = "direct_quotes"
+tier = 3
+text = '''Include direct quotes from notable people (real or invented) where appropriate, using Markdown blockquotes. Attribute quotes to specific named individuals with their title or role, and link to those people.'''

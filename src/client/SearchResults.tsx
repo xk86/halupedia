@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ERROR_BOX } from "@/lib/utils";
+import { MarkdownEditor } from "./MarkdownEditor";
 import { toWikiSegment } from "./wikiPath";
 
 /** Section heading with an optional count badge. */
@@ -217,12 +218,12 @@ export function SearchResults({ q, onNavigate, onSearch }: Props) {
           </div>
           {vibeOpen && (
             <div className="mt-[0.6em] flex flex-col gap-[0.5em]">
-              <textarea
-                className="min-h-[5rem] w-full rounded-md bg-panel-surface px-[0.6em] py-[0.45em] font-serif text-[0.95rem] [border:1px_solid_var(--rule)]"
+              <MarkdownEditor
+                ariaLabel="New article vibe"
                 placeholder="Canonical vibe for this new article: the rules, constraints, and facts it must follow. Treated as ground truth — never RAG'd."
                 value={vibeDraft}
-                onChange={(e) => setVibeDraft(e.target.value)}
-                maxLength={20000}
+                onChange={setVibeDraft}
+                minRows={5}
                 disabled={creating}
               />
               <div>

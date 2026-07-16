@@ -87,4 +87,36 @@ describe("SearchResults", () => {
 
     expect(onSearch).toHaveBeenCalledWith("lantern guild");
   });
+
+  it("uses the shared rich markdown editor for a new article vibe", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            query: "Foobar",
+            results: [],
+            suggestions: [],
+            existing_count: 0,
+            hallucinated_count: 0,
+            rate_limited: false,
+            retry_after: null,
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+
+    render(
+      <SearchResults q="Foobar" onNavigate={vi.fn()} onSearch={vi.fn()} />,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /create with a vibe/i }),
+    );
+
+    expect(screen.getByRole("button", { name: "Bold" })).toBeInTheDocument();
+    expect(document.querySelector(".mdedit-pm")).toBeInTheDocument();
+    expect(document.querySelector(".mdedit-plain")).not.toBeInTheDocument();
+  });
 });

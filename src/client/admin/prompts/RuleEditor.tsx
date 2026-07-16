@@ -1,15 +1,13 @@
 import { memo } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { MarkdownEditor } from "../../MarkdownEditor";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,6 +19,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import type { RuleCategory, RuleDefinition } from "./types";
 import { slugifyRuleId } from "./ruleUtils";
 
@@ -155,41 +158,59 @@ export const RuleEditor = memo(function RuleEditor({
         </Field>
 
         {overrideOptions.length > 0 ? (
-          <FieldSet>
-            <FieldLegend variant="label">Overrides</FieldLegend>
-            <FieldDescription>
-              Rules superseded when both are selected.
-            </FieldDescription>
-            <div className="grid max-h-36 gap-2 overflow-y-auto rounded-md border border-input p-2 md:grid-cols-2">
-              {overrideOptions.map((candidate) => {
-                const ref = `${candidate.category}/${candidate.id}`;
-                return (
-                  <Field key={ref} orientation="horizontal">
-                    <Checkbox
-                      id={`override-${rule.id}-${ref}`}
-                      checked={rule.overrides?.includes(ref) ?? false}
-                      onCheckedChange={(checked) =>
-                        onChange({
-                          ...rule,
-                          overrides: checked
-                            ? [...(rule.overrides ?? []), ref]
-                            : (rule.overrides ?? []).filter(
-                                (value) => value !== ref,
-                              ),
-                        })
-                      }
-                    />
-                    <FieldLabel
-                      htmlFor={`override-${rule.id}-${ref}`}
-                      className="font-mono text-xs font-normal"
-                    >
-                      {ref}
-                    </FieldLabel>
-                  </Field>
-                );
-              })}
-            </div>
-          </FieldSet>
+          <Field>
+            <FieldLabel>Overrides</FieldLabel>
+            <Popover>
+              <PopoverTrigger
+                className={buttonVariants({
+                  variant: "secondary",
+                  className: "w-full justify-between font-normal",
+                })}
+              >
+                Choose rules
+                <span className="font-mono text-xs text-muted-foreground">
+                  {rule.overrides?.length ?? 0} selected
+                </span>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[32rem] max-w-[90vw] gap-2 p-2"
+              >
+                <FieldDescription>
+                  Rules superseded when both are selected.
+                </FieldDescription>
+                <div className="grid max-h-64 gap-2 overflow-y-auto p-1 md:grid-cols-2">
+                  {overrideOptions.map((candidate) => {
+                    const ref = `${candidate.category}/${candidate.id}`;
+                    return (
+                      <Field key={ref} orientation="horizontal">
+                        <Checkbox
+                          id={`override-${rule.id}-${ref}`}
+                          checked={rule.overrides?.includes(ref) ?? false}
+                          onCheckedChange={(checked) =>
+                            onChange({
+                              ...rule,
+                              overrides: checked
+                                ? [...(rule.overrides ?? []), ref]
+                                : (rule.overrides ?? []).filter(
+                                    (value) => value !== ref,
+                                  ),
+                            })
+                          }
+                        />
+                        <FieldLabel
+                          htmlFor={`override-${rule.id}-${ref}`}
+                          className="font-mono text-xs font-normal"
+                        >
+                          {ref}
+                        </FieldLabel>
+                      </Field>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </Field>
         ) : null}
 
         <Separator />

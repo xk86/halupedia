@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -144,13 +144,10 @@ function PromptEditorPaneComponent() {
 
         <Collapsible>
           <CollapsibleTrigger
-            render={
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-between"
-              />
-            }
+            className={buttonVariants({
+              variant: "secondary",
+              className: "w-full justify-between",
+            })}
           >
             Shared rule library
             <Badge variant="secondary">

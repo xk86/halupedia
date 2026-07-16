@@ -12,6 +12,14 @@ import {
 } from "@/components/ui/card";
 import { FieldError } from "@/components/ui/field";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CategoryEditor } from "./CategoryEditor";
 import { RuleEditor } from "./RuleEditor";
 import type { RuleCategory, RuleDefinition } from "./types";
@@ -30,6 +38,9 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState(
+    categories[0]?.id ?? "",
+  );
   const dirty = useMemo(
     () =>
       JSON.stringify([draftCategories, draftRules]) !==
@@ -40,7 +51,17 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
   useEffect(() => {
     setDraftCategories(categories);
     setDraftRules(rules);
+    setSelectedCategory((current) =>
+      categories.some((category) => category.id === current)
+        ? current
+        : (categories[0]?.id ?? ""),
+    );
   }, [categories, rules]);
+
+  const visibleRules = useMemo(
+    () => draftRules.filter((rule) => rule.category === selectedCategory),
+    [draftRules, selectedCategory],
+  );
 
   const save = async () => {
     setSaving(true);
@@ -94,7 +115,36 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
             </TabsTrigger>
           </TabsList>
           <TabsContent value="rules" className="flex flex-col gap-3 pt-2">
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Select
+                value={selectedCategory}
+                onValueChange={(value) => setSelectedCategory(String(value))}
+                items={Object.fromEntries(
+                  draftCategories.map((category) => [
+                    category.id,
+                    category.title,
+                  ]),
+                )}
+              >
+                <SelectTrigger aria-label="Rule category" className="min-w-56">
+                  <SelectValue placeholder="Rule category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {draftCategories.map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.title} (
+                        {
+                          draftRules.filter(
+                            (rule) => rule.category === category.id,
+                          ).length
+                        }
+                        )
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               <Button
                 type="button"
                 variant="outline"
@@ -104,7 +154,7 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
                     ...current,
                     {
                       id: "",
-                      category: draftCategories[0]?.id,
+                      category: selectedCategory || draftCategories[0]?.id,
                       tier: 2,
                       text: "",
                     },
@@ -115,26 +165,29 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
                 Add rule
               </Button>
             </div>
-            {draftRules.map((rule, index) => (
-              <RuleEditor
-                key={`${rule.category}-${rule.id}-${index}`}
-                rule={rule}
-                categories={draftCategories}
-                availableRules={draftRules}
-                onChange={(next) =>
-                  setDraftRules((current) =>
-                    current.map((item, itemIndex) =>
-                      itemIndex === index ? next : item,
-                    ),
-                  )
-                }
-                onDelete={() =>
-                  setDraftRules((current) =>
-                    current.filter((_, itemIndex) => itemIndex !== index),
-                  )
-                }
-              />
-            ))}
+            {visibleRules.map((rule) => {
+              const index = draftRules.indexOf(rule);
+              return (
+                <RuleEditor
+                  key={`${rule.category}-${rule.id}-${index}`}
+                  rule={rule}
+                  categories={draftCategories}
+                  availableRules={draftRules}
+                  onChange={(next) =>
+                    setDraftRules((current) =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? next : item,
+                      ),
+                    )
+                  }
+                  onDelete={() =>
+                    setDraftRules((current) =>
+                      current.filter((_, itemIndex) => itemIndex !== index),
+                    )
+                  }
+                />
+              );
+            })}
           </TabsContent>
           <TabsContent value="categories" className="flex flex-col gap-2 pt-2">
             <div className="flex justify-end">

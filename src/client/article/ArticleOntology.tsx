@@ -93,6 +93,7 @@ interface OntologySuggestion {
   object: string;
   objectHtml?: string;
   validated: boolean;
+  status: "pending" | "discarded" | "human_review";
 }
 
 function RenderedInlineMarkdown({ html }: { html: string }) {
@@ -418,7 +419,7 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
     [busy, apiBase],
   );
 
-  const dismissSuggestions = useCallback(
+  const discardSuggestions = useCallback(
     async (id?: number) => {
       if (busy) return;
       setBusy(true);
@@ -427,6 +428,30 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
           ? `${apiBase}/suggestions/${id}`
           : `${apiBase}/suggestions`;
         const res = await fetch(url, { method: "DELETE" });
+        if (res.ok) {
+          setData(
+            normalizeOntologyPayload(
+              (await res.json()) as Partial<OntologyPayload>,
+            ),
+          );
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, apiBase],
+  );
+
+  const markNeedsReview = useCallback(
+    async (id: number) => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        const res = await fetch(`${apiBase}/suggestions/human-review`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [id] }),
+        });
         if (res.ok) {
           setData(
             normalizeOntologyPayload(
@@ -836,9 +861,9 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="Dismiss all suggestions"
+                    aria-label="Discard all suggestions"
                     disabled={busy}
-                    onClick={() => dismissSuggestions()}
+                    onClick={() => discardSuggestions()}
                   >
                     <XIcon />
                   </Button>
@@ -896,7 +921,8 @@ export function ArticleOntology({ slug, onNavigate }: ArticleOntologyProps) {
                 busy={busy}
                 onAppend={(id) => applySuggestions("append", [id])}
                 onMerge={(id) => applySuggestions("merge", [id])}
-                onDismiss={(id) => dismissSuggestions(id)}
+                onDiscard={(id) => discardSuggestions(id)}
+                onNeedsReview={(id) => markNeedsReview(id)}
               />
             </CardContent>
           </Card>

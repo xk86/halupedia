@@ -81,7 +81,8 @@ function ArticleSuggestionGroup({
   busy,
   onAppend,
   onMerge,
-  onDismiss,
+  onDiscard,
+  onNeedsReview,
   onNavigate,
   onApplyType,
   onDismissType,
@@ -90,7 +91,8 @@ function ArticleSuggestionGroup({
   busy: boolean;
   onAppend: (slug: string, ids?: number[]) => void;
   onMerge: (slug: string, ids?: number[]) => void;
-  onDismiss: (slug: string, id?: number) => void;
+  onDiscard: (slug: string, id?: number) => void;
+  onNeedsReview: (slug: string, id: number) => void;
   onNavigate: (slug: string) => void;
   onApplyType: (slug: string) => void;
   onDismissType: (slug: string) => void;
@@ -155,9 +157,9 @@ function ArticleSuggestionGroup({
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label={`Dismiss all for ${article.title}`}
+              aria-label={`Discard all for ${article.title}`}
               disabled={busy}
-              onClick={() => onDismiss(article.slug)}
+              onClick={() => onDiscard(article.slug)}
             >
               <XIcon />
             </Button>
@@ -215,7 +217,8 @@ function ArticleSuggestionGroup({
               busy={busy}
               onAppend={(id) => onAppend(article.slug, [id])}
               onMerge={(id) => onMerge(article.slug, [id])}
-              onDismiss={(id) => onDismiss(article.slug, id)}
+              onDiscard={(id) => onDiscard(article.slug, id)}
+              onNeedsReview={(id) => onNeedsReview(article.slug, id)}
             />
           </CardContent>
         </CollapsibleContent>
@@ -278,10 +281,10 @@ export function OntologySuggestionsPane({
     [busyKey, load],
   );
 
-  const dismissSuggestions = useCallback(
+  const discardSuggestions = useCallback(
     async (slug: string, id?: number) => {
       if (busyKey) return;
-      setBusyKey(`${slug}:dismiss:${id ?? "all"}`);
+      setBusyKey(`${slug}:discard:${id ?? "all"}`);
       setError(null);
       try {
         const suffix = id ? `/${id}` : "";
@@ -294,7 +297,35 @@ export function OntologySuggestionsPane({
         setError(
           cause instanceof Error
             ? cause.message
-            : "failed to dismiss ontology suggestions",
+            : "failed to discard ontology suggestions",
+        );
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [busyKey, load],
+  );
+
+  const markNeedsReview = useCallback(
+    async (slug: string, id: number) => {
+      if (busyKey) return;
+      setBusyKey(`${slug}:needs-review:${id}`);
+      setError(null);
+      try {
+        await fetchJson(
+          `/api/article/${encodeSlug(slug)}/ontology/suggestions/human-review`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: [id] }),
+          },
+        );
+        await load();
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "failed to mark suggestion for human review",
         );
       } finally {
         setBusyKey(null);
@@ -458,7 +489,8 @@ export function OntologySuggestionsPane({
               busy={busy}
               onAppend={(slug, ids) => applySuggestions(slug, "append", ids)}
               onMerge={(slug, ids) => applySuggestions(slug, "merge", ids)}
-              onDismiss={dismissSuggestions}
+              onDiscard={discardSuggestions}
+              onNeedsReview={markNeedsReview}
               onNavigate={onNavigate}
               onApplyType={applyTypeSuggestion}
               onDismissType={dismissTypeSuggestion}

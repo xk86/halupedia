@@ -94,7 +94,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { createRagRuntime, registerRagAdminRoutes, buildEvidenceContext, toPromptSourceArticles, DEFAULT_PROFILES, type RagRuntime } from "./rag";
-import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, listExtractQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, setOntologySuggestionsStatus, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, listExtractQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -5083,11 +5083,13 @@ export async function createApp(options: CreateAppOptions = {}) {
       })),
       identifiers,
       categories,
-      suggestions: listOntologySuggestions(db, slug).map((suggestion) => ({
-        ...suggestion,
-        label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
-        objectHtml: renderOntologyValueHtml(suggestion.object),
-      })),
+      suggestions: listOntologySuggestions(db, slug)
+        .filter((suggestion) => suggestion.status !== "discarded")
+        .map((suggestion) => ({
+          ...suggestion,
+          label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
+          objectHtml: renderOntologyValueHtml(suggestion.object),
+        })),
       typeSuggestion: getOntologyTypeSuggestion(db, slug),
     };
   }
@@ -5353,18 +5355,38 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.post("/api/article/:slug/ontology/suggestions/append", (c) => runOntologySuggestionAction(c, "append"));
   app.post("/api/article/:slug/ontology/suggestions/merge", (c) => runOntologySuggestionAction(c, "merge"));
+
+  async function ontologySuggestionIdsFromBody(c: Context): Promise<number[] | undefined> {
+    const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+    return Array.isArray(body.ids)
+      ? body.ids.filter((id): id is number => Number.isInteger(id) && id > 0)
+      : undefined;
+  }
+
+  // Discard: a settled rejection. Kept as a row (status='discarded') rather
+  // than deleted, so it doesn't silently reappear after the article's
+  // ontology is re-extracted — see `replaceOntologySuggestions`.
   app.delete("/api/article/:slug/ontology/suggestions/:id", (c) => {
     const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "invalid suggestion id" }, 400);
-    deleteOntologySuggestions(db, article.slug, [id]);
+    setOntologySuggestionsStatus(db, article.slug, "discarded", [id]);
     return c.json(buildArticleOntologyPayload(article.slug));
   });
   app.delete("/api/article/:slug/ontology/suggestions", (c) => {
     const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
-    deleteOntologySuggestions(db, article.slug);
+    setOntologySuggestionsStatus(db, article.slug, "discarded");
+    return c.json(buildArticleOntologyPayload(article.slug));
+  });
+  // Needs review: stays visible, but exempted from the auto-review scheduler
+  // queue (see `enqueueReviewTasks`'s `status = 'pending'` filter).
+  app.post("/api/article/:slug/ontology/suggestions/human-review", async (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const ids = await ontologySuggestionIdsFromBody(c);
+    setOntologySuggestionsStatus(db, article.slug, "human_review", ids);
     return c.json(buildArticleOntologyPayload(article.slug));
   });
 

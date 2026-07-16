@@ -188,7 +188,12 @@ export async function reviewArticleSuggestions(
   slug: string,
   options: OntologyReviewOptions,
 ): Promise<OntologyReviewResult> {
-  const suggestions = listOntologySuggestions(db, slug);
+  // Only re-evaluate suggestions still awaiting a verdict — a discarded or
+  // human_review fact is already settled and must not be re-sent to the
+  // model just because this article has other, still-pending suggestions.
+  const suggestions = listOntologySuggestions(db, slug).filter(
+    (suggestion) => suggestion.status === "pending",
+  );
   const typeSuggestion = getOntologyTypeSuggestion(db, slug);
   const { entity } = listArticleEntityFacts(db, slug);
   const currentType = entity?.entityType ?? "thing";

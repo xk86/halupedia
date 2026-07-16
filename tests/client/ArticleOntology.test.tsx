@@ -19,11 +19,12 @@ const payload = {
     label: "causes",
     object: "structural change",
     validated: true,
+    status: "pending",
   }],
 };
 
 describe("ArticleOntology suggestions", () => {
-  it("reloads persisted suggestions and exposes per-row add, merge, and dismiss actions", async () => {
+  it("reloads persisted suggestions and exposes per-row add, merge, needs-review, and discard actions", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (!init?.method) return new Response(JSON.stringify(payload), { status: 200 });
@@ -38,7 +39,10 @@ describe("ArticleOntology suggestions", () => {
     expect(await screen.findByText("structural change")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add causes" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Merge causes" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Dismiss causes" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Mark causes for human review" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard causes" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Merge causes" }));
     await waitFor(() => {
@@ -50,6 +54,36 @@ describe("ArticleOntology suggestions", () => {
         }),
       );
     });
+  });
+
+  it("marks a suggestion for human review instead of deleting it", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init?.method) return new Response(JSON.stringify(payload), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          ...payload,
+          suggestions: [{ ...payload.suggestions[0], status: "human_review" }],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ArticleOntology slug="subject" onNavigate={() => undefined} />);
+
+    await screen.findByText("structural change");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Mark causes for human review" }),
+    );
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        "/api/article/subject/ontology/suggestions/human-review",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ ids: [7] }),
+        }),
+      );
+    });
+    expect(await screen.findByText("needs review")).toBeInTheDocument();
   });
 
   it("does not blank when inference returns the legacy preview shape", async () => {

@@ -1,4 +1,4 @@
-import { GitMergeIcon, ListPlusIcon, XIcon } from "lucide-react";
+import { EyeIcon, GitMergeIcon, ListPlusIcon, XIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ export interface OntologySuggestionView {
   object: string;
   objectHtml?: string;
   validated: boolean;
+  status: "pending" | "discarded" | "human_review";
 }
 
 interface OntologySuggestionsTableProps {
@@ -18,7 +19,8 @@ interface OntologySuggestionsTableProps {
   busy?: boolean;
   onAppend: (id: number) => void;
   onMerge: (id: number) => void;
-  onDismiss: (id: number) => void;
+  onDiscard: (id: number) => void;
+  onNeedsReview: (id: number) => void;
 }
 
 function RenderedInlineMarkdown({ html }: { html: string }) {
@@ -35,7 +37,8 @@ export function OntologySuggestionsTable({
   busy = false,
   onAppend,
   onMerge,
-  onDismiss,
+  onDiscard,
+  onNeedsReview,
 }: OntologySuggestionsTableProps) {
   return (
     <Table>
@@ -61,10 +64,20 @@ export function OntologySuggestionsTable({
                   )}
                 </span>
                 <Badge
-                  variant={suggestion.validated ? "secondary" : "warn"}
+                  variant={
+                    suggestion.status === "human_review"
+                      ? "outline"
+                      : suggestion.validated
+                        ? "secondary"
+                        : "warn"
+                  }
                   className="text-[10px]"
                 >
-                  {suggestion.validated ? "validated" : "raw"}
+                  {suggestion.status === "human_review"
+                    ? "needs review"
+                    : suggestion.validated
+                      ? "validated"
+                      : "raw"}
                 </Badge>
                 <span className="flex shrink-0 flex-wrap items-center gap-1">
                   <Button
@@ -88,9 +101,18 @@ export function OntologySuggestionsTable({
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    aria-label={`Dismiss ${suggestion.label}`}
+                    aria-label={`Mark ${suggestion.label} for human review`}
                     disabled={busy}
-                    onClick={() => onDismiss(suggestion.id)}
+                    onClick={() => onNeedsReview(suggestion.id)}
+                  >
+                    <EyeIcon />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`Discard ${suggestion.label}`}
+                    disabled={busy}
+                    onClick={() => onDiscard(suggestion.id)}
                   >
                     <XIcon />
                   </Button>

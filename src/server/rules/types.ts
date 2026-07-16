@@ -62,9 +62,18 @@ export interface RuleDef {
   tier: RuleTier;
   /** Markdown bullet body — no leading "- ", no trailing newline. */
   text: string;
+  /** Structured worked examples rendered as explanatory nested blockquotes. */
+  examples?: RuleExample[];
   /** Fully-qualified refs ("category/id") this rule supersedes when both
    *  would otherwise be included in the same assembled prompt. */
   overrides?: string[];
+}
+
+export interface RuleExample {
+  /** Condition or context that explains when the example applies. */
+  description: string;
+  /** Quoted Markdown example body. */
+  text: string;
 }
 
 /** One category from `categories.toml`, plus every library rule declaring

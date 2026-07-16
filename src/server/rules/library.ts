@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "smol-toml";
 import type { Logger } from "../logger";
-import type { CategoryDef, ResolvedRule, RuleCategory, RuleDef, RuleLibrary, RuleTier } from "./types";
+import type { CategoryDef, ResolvedRule, RuleCategory, RuleDef, RuleExample, RuleLibrary, RuleTier } from "./types";
 import { RULE_TIERS } from "./types";
 
 const CATEGORY_RE = /^[a-z][a-z0-9_]*$/;
@@ -57,6 +57,7 @@ export function parseRuleFile(source: string): RuleDef[] {
       tier?: number;
       text?: string;
       overrides?: string[];
+      examples?: Array<{ description?: string; text?: string }>;
     }>;
   };
 
@@ -90,14 +91,39 @@ export function parseRuleFile(source: string): RuleDef[] {
         }
       }
     }
+    const examples = parseRuleExamples(entry.examples, `rule '${category}/${id}'`);
     return {
       id,
       category,
       tier: entry.tier as RuleTier,
       text,
+      ...(examples ? { examples } : {}),
       ...(overrides && overrides.length > 0 ? { overrides } : {}),
     };
   });
+}
+
+export function parseRuleExamples(
+  entries: unknown,
+  context: string,
+): RuleExample[] | undefined {
+  if (entries === undefined) return undefined;
+  if (!Array.isArray(entries)) {
+    throw new RuleLibraryError(`${context}: examples must be an array`);
+  }
+  const examples = entries.map((entry, index) => {
+    const value = entry as { description?: unknown; text?: unknown };
+    const description = typeof value?.description === "string" ? value.description.trim() : "";
+    const text = typeof value?.text === "string" ? value.text.trim() : "";
+    if (!description) {
+      throw new RuleLibraryError(`${context}: example at index ${index} has an empty description`);
+    }
+    if (!text) {
+      throw new RuleLibraryError(`${context}: example at index ${index} has empty text`);
+    }
+    return { description, text };
+  });
+  return examples.length > 0 ? examples : undefined;
 }
 
 /**

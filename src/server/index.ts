@@ -15,7 +15,8 @@ import { loadConfig } from "./config";
 import { appConfigAdminPayload, updateAppConfigToml } from "./appConfigAdmin";
 import { createArticleImagePresetFile, deleteArticleImagePresetFile, listArticleImagePresetFiles, listPromptFiles, readArticleImagePresetFile, readPromptFile, writeArticleImagePresetFile, writePromptFile } from "./promptEditor";
 import { assembleRules } from "./rules/assemble";
-import type { RuleSpec } from "./rules/types";
+import { readRuleAdminState, writeRuleAdminState } from "./rules/admin";
+import type { CategoryDef, RuleDef, RuleSpec } from "./rules/types";
 import { listArticleImageAspectRatios, normalizeArticleImageAspectRatioKey, resolveArticleImageAspectRatio } from "./imageAspectRatios";
 import {
   deleteArticleBySlug,
@@ -4367,7 +4368,27 @@ export async function createApp(options: CreateAppOptions = {}) {
         order: cat.order,
         rules: cat.rules,
       }));
-    return c.json({ categories });
+    return c.json({ categories, rules: [...runtime.prompts.ruleLibrary.rulesByRef.values()].map(({ ref: _ref, categoryTitle: _title, categoryOrder: _order, source: _source, sequence: _sequence, ...rule }) => rule) });
+  });
+
+  app.put("/api/admin/rules/library", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      categories?: unknown;
+      rules?: unknown;
+    };
+    if (!Array.isArray(body.categories) || !Array.isArray(body.rules)) {
+      return c.json({ error: "categories and rules must be arrays" }, 400);
+    }
+    try {
+      writeRuleAdminState({
+        categories: body.categories as CategoryDef[],
+        rules: body.rules as RuleDef[],
+      });
+      await reloadRuntime();
+      return c.json({ ok: true, ...readRuleAdminState() });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "invalid rule library" }, 400);
+    }
   });
 
   app.post("/api/admin/rules/preview", async (c) => {
@@ -4530,6 +4551,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       system?: unknown;
       user?: unknown;
       rules?: { include?: unknown; exclude?: unknown };
+      localRules?: unknown;
     };
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
@@ -4545,9 +4567,10 @@ export async function createApp(options: CreateAppOptions = {}) {
             : {}),
         }
       : undefined;
+    const localRules = Array.isArray(body.localRules) ? (body.localRules as RuleDef[]) : undefined;
     const existing = getPromptCurrent(db, scope, key) ?? readPromptFile(scope, key);
     // Write TOML first so writePromptFile can verify the file exists.
-    const err = writePromptFile(scope, key, body.system, body.user, rules);
+    const err = writePromptFile(scope, key, body.system, body.user, rules, localRules);
     if (err) return c.json(err, 400);
     if (existing) {
       recordPromptRevision(db, scope, key, existing.system, existing.user, body.system, body.user, "save");
@@ -4559,6 +4582,47 @@ export async function createApp(options: CreateAppOptions = {}) {
       ok: true,
       prompt: meta ? { ...meta, system: body.system, user: body.user } : null,
     });
+  });
+
+  app.post("/api/admin/prompt/:scope/:key/preview", async (c) => {
+    const scope = c.req.param("scope");
+    if (scope !== "runnable" && scope !== "shared") {
+      return c.json({ error: "scope must be runnable or shared" }, 400);
+    }
+    const key = c.req.param("key");
+    if (!readPromptFile(scope, key)) return c.json({ error: "prompt not found" }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      system?: unknown;
+      user?: unknown;
+      rules?: { include?: unknown; exclude?: unknown };
+      localRules?: unknown;
+    };
+    if (typeof body.system !== "string" || typeof body.user !== "string") {
+      return c.json({ error: "system and user must be strings" }, 400);
+    }
+    const spec: RuleSpec = {
+      include: Array.isArray(body.rules?.include)
+        ? body.rules.include.filter((value): value is string => typeof value === "string")
+        : [],
+      ...(Array.isArray(body.rules?.exclude) && body.rules.exclude.length > 0
+        ? { exclude: body.rules.exclude.filter((value): value is string => typeof value === "string") }
+        : {}),
+    };
+    try {
+      const assembled = assembleRules(runtime.prompts.ruleLibrary, spec, {
+        localRules: Array.isArray(body.localRules) ? (body.localRules as RuleDef[]) : undefined,
+        promptKey: key,
+      });
+      const system = body.system.replaceAll("{{rules}}", assembled.text);
+      const user = body.user.replaceAll("{{rules}}", assembled.text);
+      return c.json({
+        text: `# System\n\n${system}\n\n# User\n\n${user}`,
+        rulesText: assembled.text,
+        tierCounts: assembled.tierCounts,
+      });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "preview failed" }, 400);
+    }
   });
 
   app.get("/api/admin/prompt/:scope/:key/revisions", (c) => {

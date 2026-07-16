@@ -72,6 +72,30 @@ overrides = ["canon/vague"]
   ]);
 });
 
+test("parseRuleFile parses structured worked examples", () => {
+  const rules = parseRuleFile(`
+[[rule]]
+id = "worked"
+category = "tone"
+tier = 2
+text = "Use the requested voice."
+
+[[rule.examples]]
+description = "When the prose is too hesitant"
+text = "State the conclusion directly."
+`);
+  assert.deepEqual(rules[0]?.examples, [
+    { description: "When the prose is too hesitant", text: "State the conclusion directly." },
+  ]);
+});
+
+test("parseRuleFile rejects incomplete worked examples", () => {
+  assert.throws(
+    () => parseRuleFile(`[[rule]]\nid = "a"\ncategory = "tone"\ntier = 1\ntext = "x"\n[[rule.examples]]\ndescription = ""\ntext = "y"`),
+    /empty description/,
+  );
+});
+
 test("parseRuleFile rejects a missing/invalid rule id", () => {
   assert.throws(
     () => parseRuleFile(`[[rule]]\ncategory = "tone"\ntier = 1\ntext = "x"`),

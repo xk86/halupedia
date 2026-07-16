@@ -169,13 +169,27 @@ export function formatRulesMarkdown(rules: readonly ResolvedRule[]): string {
   for (const tier of [1, 2, 3, 4] as const) {
     const tierRules = rules.filter((rule) => rule.tier === tier);
     if (tierRules.length === 0) continue;
-    const bullets = tierRules.map((rule) => `- ${rule.text}`).join("\n");
+    const bullets = tierRules.map(formatRuleMarkdown).join("\n");
     sections.push(`## ${TIER_LABELS[tier]}\n${bullets}`);
   }
   return sections.join("\n\n");
 }
 
+function formatRuleMarkdown(rule: ResolvedRule): string {
+  const lines = [`- ${rule.text}`];
+  for (const example of rule.examples ?? []) {
+    lines.push(`  > **Example — ${example.description}**`, "  >");
+    for (const line of example.text.split("\n")) lines.push(`  > ${line}`);
+  }
+  return lines.join("\n");
+}
+
 function hashRuleSet(rules: readonly ResolvedRule[]): string {
-  const payload = rules.map((rule) => ({ ref: rule.ref, tier: rule.tier, text: rule.text }));
+  const payload = rules.map((rule) => ({
+    ref: rule.ref,
+    tier: rule.tier,
+    text: rule.text,
+    examples: rule.examples ?? [],
+  }));
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
 }

@@ -51,3 +51,28 @@ test("writePromptFile removes exclude when omitted on a later save", (t) => {
   const after = readPromptFile("runnable", TEST_KEY);
   assert.deepEqual(after?.rules, { include: ["tone"] });
 });
+
+test("writePromptFile replaces local rules and structured examples", (t) => {
+  t.after(cleanup);
+  writeFileSync(
+    TEST_PATH,
+    `system = """{{rules}}"""\nuser = """u"""\n\n[[local_rule]]\nid = "old"\ntier = 1\ntext = "Old."\n`,
+  );
+  const err = writePromptFile("runnable", TEST_KEY, "{{rules}}", "u", { include: [] }, [
+    {
+      id: "new_rule",
+      tier: 2,
+      text: "New rule.",
+      examples: [{ description: "When testing", text: "A multiline\nexample." }],
+    },
+  ]);
+  assert.equal(err, null);
+  assert.deepEqual(readPromptFile("runnable", TEST_KEY)?.localRules, [
+    {
+      id: "new_rule",
+      tier: 2,
+      text: "New rule.",
+      examples: [{ description: "When testing", text: "A multiline\nexample." }],
+    },
+  ]);
+});

@@ -137,6 +137,23 @@ test("assembleRules composes rules tier-major, tier 1 first", () => {
   assert.match(result.text, /- Never hedge or disclaim\./);
 });
 
+test("assembleRules renders structured examples as nested blockquotes", () => {
+  const rules = parseRuleFile(`
+[[rule]]
+id = "worked"
+category = "tone"
+tier = 2
+text = "Use direct prose."
+
+[[rule.examples]]
+description = "When revising a hedge"
+text = "The council approved the measure."
+`);
+  const result = assembleRules(buildRuleLibrary(CATS, rules), { include: ["tone"] });
+  assert.match(result.text, /- Use direct prose\.\n  > \*\*Example — When revising a hedge\*\*/);
+  assert.match(result.text, /  > The council approved the measure\./);
+});
+
 test("assembleRules sorts within a tier by category order", () => {
   const library = makeLibrary();
   // formatting (order 30) and canon (order 10) both have tier-2 or tier-1

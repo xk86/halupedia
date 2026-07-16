@@ -2,8 +2,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { basename, resolve } from "node:path";
 import { parse } from "smol-toml";
 import { getPromptUsage } from "./promptUsage";
-import { removeTomlTableKey, setTomlTableValue } from "./tomlEdit";
+import { removeTomlTableKey, replaceTomlArrayTables, setTomlTableValue } from "./tomlEdit";
 import type { RuleDef, RuleSpec, RuleTier } from "./rules/types";
+import { parseRuleExamples } from "./rules/library";
 
 function parseRulesField(raw: Record<string, unknown>): RuleSpec | undefined {
   const r = raw.rules as { include?: unknown; exclude?: unknown } | undefined;
@@ -17,19 +18,23 @@ function parseRulesField(raw: Record<string, unknown>): RuleSpec | undefined {
 
 function parseLocalRulesField(raw: Record<string, unknown>): RuleDef[] | undefined {
   const entries = raw.local_rule as
-    | Array<{ id?: unknown; tier?: unknown; text?: unknown; overrides?: unknown }>
+    | Array<{ id?: unknown; tier?: unknown; text?: unknown; overrides?: unknown; examples?: unknown }>
     | undefined;
   if (!Array.isArray(entries) || entries.length === 0) return undefined;
   return entries
     .filter((e) => typeof e.id === "string" && typeof e.tier === "number" && typeof e.text === "string")
-    .map((e) => ({
-      id: e.id as string,
-      tier: e.tier as RuleTier,
-      text: e.text as string,
-      ...(Array.isArray(e.overrides)
-        ? { overrides: e.overrides.filter((v): v is string => typeof v === "string") }
-        : {}),
-    }));
+    .map((e) => {
+      const examples = parseRuleExamples(e.examples, `local_rule '${String(e.id)}'`);
+      return {
+        id: e.id as string,
+        tier: e.tier as RuleTier,
+        text: (e.text as string).trim(),
+        ...(examples ? { examples } : {}),
+        ...(Array.isArray(e.overrides)
+          ? { overrides: e.overrides.filter((v): v is string => typeof v === "string") }
+          : {}),
+      };
+    });
 }
 
 // Matches a `key = """…"""` OR `key = '''…'''` multiline string assignment so a
@@ -84,8 +89,6 @@ export interface PromptFileContent extends PromptFileMeta {
   user: string;
   path: string;
   rules?: RuleSpec;
-  /** Read-only in the admin editor for now — [[local_rule]] is an
-   *  array-of-tables and setTomlTableValue only edits single tables. */
   localRules?: RuleDef[];
 }
 
@@ -175,6 +178,7 @@ export function writePromptFile(
   system: string,
   user: string,
   rules?: RuleSpec,
+  localRules?: RuleDef[],
 ): { error: string } | null {
   if (!safeKey(key)) return { error: "invalid key" };
   const dir = promptDir(scope);
@@ -191,8 +195,32 @@ export function writePromptFile(
         ? setTomlTableValue(source, "rules", "exclude", rules.exclude)
         : removeTomlTableKey(source, "rules", "exclude");
   }
+  if (localRules) {
+    source = replaceTomlArrayTables(source, "local_rule", localRules.map(renderLocalRuleToml));
+  }
   writeFileSync(path, source);
   return null;
+}
+
+function renderLocalRuleToml(rule: RuleDef): string {
+  const lines = [
+    "[[local_rule]]",
+    `id = ${JSON.stringify(rule.id)}`,
+    `tier = ${rule.tier}`,
+    `text = ${tomlMultilineValue(rule.text)}`,
+  ];
+  if (rule.overrides?.length) {
+    lines.push(`overrides = [${rule.overrides.map((ref) => JSON.stringify(ref)).join(", ")}]`);
+  }
+  for (const example of rule.examples ?? []) {
+    lines.push(
+      "",
+      "[[local_rule.examples]]",
+      `description = ${JSON.stringify(example.description)}`,
+      `text = ${tomlMultilineValue(example.text)}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 function readTomlPromptContent(path: string, key: string, displayPath: string): Omit<ArticleImagePresetContent, "label"> {

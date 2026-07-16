@@ -25,7 +25,7 @@ import type {
 import { validateOpenAIImageSize } from "./imageAspectRatios";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
 import { resolveConfigTable } from "./configSchema";
-import { loadRuleLibrary } from "./rules/library";
+import { loadRuleLibrary, parseRuleExamples } from "./rules/library";
 import { RULE_TIERS, type RuleDef, type RuleSpec, type RuleTier } from "./rules/types";
 
 const ROOT = process.cwd();
@@ -43,7 +43,7 @@ function readToml<T>(path: string): T {
  *  fail loudly at startup, not silently render as an empty bullet. */
 function parseLocalRules(
   key: string,
-  entries: Array<{ id?: string; tier?: number; text?: string; overrides?: string[] }> | undefined,
+  entries: Array<{ id?: string; tier?: number; text?: string; overrides?: string[]; examples?: unknown }> | undefined,
 ): RuleDef[] | undefined {
   if (!entries || entries.length === 0) return undefined;
   return entries.map((entry) => {
@@ -62,10 +62,12 @@ function parseLocalRules(
     const overrides = Array.isArray(entry.overrides)
       ? entry.overrides.filter((ref): ref is string => typeof ref === "string")
       : undefined;
+    const examples = parseRuleExamples(entry.examples, `prompt '${key}': local_rule '${entry.id}'`);
     return {
       id: entry.id,
       tier: entry.tier as RuleTier,
       text,
+      ...(examples ? { examples } : {}),
       ...(overrides && overrides.length > 0 ? { overrides } : {}),
     };
   });
@@ -87,7 +89,7 @@ function loadPromptFiles(dir: string, runnable: boolean) {
       json?: boolean;
       modes?: Record<string, RewriteMode>;
       rules?: { include?: string[]; exclude?: string[] };
-      local_rule?: Array<{ id?: string; tier?: number; text?: string; overrides?: string[] }>;
+      local_rule?: Array<{ id?: string; tier?: number; text?: string; overrides?: string[]; examples?: unknown }>;
     };
     const rules: RuleSpec | undefined = raw.rules
       ? {

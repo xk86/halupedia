@@ -60,7 +60,8 @@ function qualifyRuntimeRule(
 }
 
 /**
- * Assemble one prompt's rule set: resolve `spec.include`/`spec.exclude`
+ * Assemble one prompt's rule set: resolve its shared categories and individual
+ * rules, then apply any legacy exclusions
  * against the static library, merge in local and runtime (vibe) rules, drop
  * any rule superseded by another included rule's `overrides`, then sort
  * tier-major (tier 1 first) and render as Markdown.
@@ -77,7 +78,11 @@ export function assembleRules(
   options: AssembleOptions = {},
 ): AssembledRules {
   const resolved = new Map<string, ResolvedRule>();
-  for (const rule of resolveSelectors(library, spec.include)) {
+  for (const rule of resolveSelectors(library, [
+    ...(spec.categories ?? []),
+    ...(spec.rules ?? []),
+    ...(spec.include ?? []),
+  ])) {
     resolved.set(rule.ref, rule);
   }
 

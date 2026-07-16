@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseSelectorList,
+  humanizeRuleId,
   slugifyRuleId,
 } from "../../src/client/admin/prompts/ruleUtils";
 
@@ -11,9 +11,7 @@ describe("rules editor utilities", () => {
     );
   });
 
-  it("parses comma and newline separated selectors", () => {
-    expect(
-      parseSelectorList("tone, canon@1-2\nformatting/no_raw_html"),
-    ).toEqual(["tone", "canon@1-2", "formatting/no_raw_html"]);
+  it("turns stored rule ids into human-readable names", () => {
+    expect(humanizeRuleId("no_fictional_label")).toBe("No fictional label");
   });
 });

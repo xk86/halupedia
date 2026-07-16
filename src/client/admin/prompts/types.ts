@@ -10,8 +10,8 @@ export interface PromptMeta {
 }
 
 export interface RuleSpec {
-  include: string[];
-  exclude?: string[];
+  categories: string[];
+  rules?: string[];
 }
 
 export interface RuleDefinition {

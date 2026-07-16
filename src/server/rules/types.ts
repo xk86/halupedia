@@ -103,8 +103,13 @@ export interface RuleLibrary {
 
 /** A prompt's rule selection, as declared in its own TOML under `[rules]`. */
 export interface RuleSpec {
-  /** Selector strings: "category", "category@N", "category@N-M", "category/id". */
-  include: string[];
+  /** Whole shared categories included by this prompt. */
+  categories?: string[];
+  /** Rare individual shared rules, addressed as "category/id". */
+  rules?: string[];
+  /** Internal/legacy selectors. New prompt config never writes this field. */
+  include?: string[];
+  /** Legacy selector exclusions. Read for compatibility; never written by the editor. */
   exclude?: string[];
 }
 

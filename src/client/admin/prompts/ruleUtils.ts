@@ -6,9 +6,7 @@ export function slugifyRuleId(value: string): string {
     .slice(0, 64);
 }
 
-export function parseSelectorList(value: string): string[] {
-  return value
-    .split(/[\s,]+/)
-    .map((selector) => selector.trim())
-    .filter(Boolean);
+export function humanizeRuleId(value: string): string {
+  const words = value.replaceAll("_", " ").trim();
+  return words ? `${words[0].toUpperCase()}${words.slice(1)}` : "Untitled rule";
 }

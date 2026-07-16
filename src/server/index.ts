@@ -4393,16 +4393,16 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.post("/api/admin/rules/preview", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
-      include?: unknown;
-      exclude?: unknown;
+      categories?: unknown;
+      rules?: unknown;
     };
-    if (!Array.isArray(body.include)) {
-      return c.json({ error: "include must be an array of selector strings" }, 400);
+    if (!Array.isArray(body.categories)) {
+      return c.json({ error: "categories must be an array of category names" }, 400);
     }
     const spec: RuleSpec = {
-      include: body.include.filter((v): v is string => typeof v === "string"),
-      ...(Array.isArray(body.exclude) && body.exclude.length > 0
-        ? { exclude: body.exclude.filter((v): v is string => typeof v === "string") }
+      categories: body.categories.filter((v): v is string => typeof v === "string"),
+      ...(Array.isArray(body.rules) && body.rules.length > 0
+        ? { rules: body.rules.filter((v): v is string => typeof v === "string") }
         : {}),
     };
     try {
@@ -4533,7 +4533,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     const dbCurrent = getPromptCurrent(db, scope, key);
     const rulesPreview =
       meta.rules || meta.localRules
-        ? assembleRules(runtime.prompts.ruleLibrary, meta.rules ?? { include: [] }, {
+        ? assembleRules(runtime.prompts.ruleLibrary, meta.rules ?? { categories: [] }, {
             localRules: meta.localRules,
             promptKey: key,
           }).text
@@ -4550,20 +4550,20 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       system?: unknown;
       user?: unknown;
-      rules?: { include?: unknown; exclude?: unknown };
+      rules?: { categories?: unknown; rules?: unknown };
       localRules?: unknown;
     };
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
     }
-    // rules (the [rules] table's include/exclude selectors) is not versioned
+    // Shared rule selection is not versioned
     // in prompt_revisions — only system/user go through the revision table.
     // A rule-selection edit isn't undoable via the revision history.
-    const rules: RuleSpec | undefined = Array.isArray(body.rules?.include)
+    const rules: RuleSpec | undefined = Array.isArray(body.rules?.categories)
       ? {
-          include: body.rules.include.filter((v): v is string => typeof v === "string"),
-          ...(Array.isArray(body.rules.exclude) && body.rules.exclude.length > 0
-            ? { exclude: body.rules.exclude.filter((v): v is string => typeof v === "string") }
+          categories: body.rules.categories.filter((v): v is string => typeof v === "string"),
+          ...(Array.isArray(body.rules.rules) && body.rules.rules.length > 0
+            ? { rules: body.rules.rules.filter((v): v is string => typeof v === "string") }
             : {}),
         }
       : undefined;
@@ -4594,18 +4594,18 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       system?: unknown;
       user?: unknown;
-      rules?: { include?: unknown; exclude?: unknown };
+      rules?: { categories?: unknown; rules?: unknown };
       localRules?: unknown;
     };
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
     }
     const spec: RuleSpec = {
-      include: Array.isArray(body.rules?.include)
-        ? body.rules.include.filter((value): value is string => typeof value === "string")
+      categories: Array.isArray(body.rules?.categories)
+        ? body.rules.categories.filter((value): value is string => typeof value === "string")
         : [],
-      ...(Array.isArray(body.rules?.exclude) && body.rules.exclude.length > 0
-        ? { exclude: body.rules.exclude.filter((value): value is string => typeof value === "string") }
+      ...(Array.isArray(body.rules?.rules) && body.rules.rules.length > 0
+        ? { rules: body.rules.rules.filter((value): value is string => typeof value === "string") }
         : {}),
     };
     try {

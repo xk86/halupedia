@@ -67,7 +67,7 @@ export const RulesPreview = memo(function RulesPreview({
         <div>
           <p className="text-sm font-medium">Assembled prompt preview</p>
           <p className="text-xs text-muted-foreground">
-            System and user framing with every {"{{rules}}"} expansion applied.
+            Final system and user text with the selected rules inserted.
           </p>
         </div>
         <div className="flex flex-wrap gap-1">

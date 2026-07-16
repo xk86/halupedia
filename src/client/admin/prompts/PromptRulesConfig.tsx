@@ -1,16 +1,22 @@
 import { memo } from "react";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Plus, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { RuleEditor } from "./RuleEditor";
 import type { RuleCategory, RuleDefinition, RuleSpec } from "./types";
-import { parseSelectorList } from "./ruleUtils";
+import { humanizeRuleId } from "./ruleUtils";
 
 export const PromptRulesConfig = memo(function PromptRulesConfig({
   rules,
@@ -25,56 +31,167 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
   availableRules: RuleDefinition[];
   onChange: (rules: RuleSpec, localRules: RuleDefinition[]) => void;
 }) {
+  const selectedCategories = new Set(rules.categories);
+  const selectedRules = new Set(rules.rules ?? []);
+  const categoryTitles = new Map(
+    categories.map((category) => [category.id, category.title]),
+  );
+  const individualRules = availableRules.filter(
+    (rule) => rule.category && !selectedCategories.has(rule.category),
+  );
+
+  const changeCategories = (category: string, checked: boolean) => {
+    const categories = checked
+      ? [...rules.categories, category]
+      : rules.categories.filter((value) => value !== category);
+    const remainingRules = (rules.rules ?? []).filter(
+      (ref) => !checked || !ref.startsWith(`${category}/`),
+    );
+    onChange(
+      {
+        categories,
+        ...(remainingRules.length ? { rules: remainingRules } : {}),
+      },
+      localRules,
+    );
+  };
+
+  const changeRule = (ref: string, checked: boolean) => {
+    const next = checked
+      ? [...(rules.rules ?? []), ref]
+      : (rules.rules ?? []).filter((value) => value !== ref);
+    onChange(
+      { categories: rules.categories, ...(next.length ? { rules: next } : {}) },
+      localRules,
+    );
+  };
+
   return (
     <FieldGroup className="gap-4">
-      <div className="grid gap-3 md:grid-cols-2">
-        <Field>
-          <FieldLabel htmlFor="rules-include">Include selectors</FieldLabel>
-          <Textarea
-            id="rules-include"
-            value={rules.include.join("\n")}
-            onChange={(event) =>
-              onChange(
-                { ...rules, include: parseSelectorList(event.target.value) },
-                localRules,
-              )
-            }
-            className="min-h-24 font-mono text-xs"
-            placeholder={"tone\ncanon@1-2\nformatting/no_raw_html"}
-          />
-          <FieldDescription>
-            One selector per line: category, tier range, or category/rule.
-          </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="rules-exclude">Exclude selectors</FieldLabel>
-          <Textarea
-            id="rules-exclude"
-            value={(rules.exclude ?? []).join("\n")}
-            onChange={(event) => {
-              const exclude = parseSelectorList(event.target.value);
-              onChange(
-                {
-                  include: rules.include,
-                  ...(exclude.length ? { exclude } : {}),
-                },
-                localRules,
+      <Field>
+        <FieldLabel>Shared categories</FieldLabel>
+        <FieldDescription>
+          Selecting a category adds every rule in it to this prompt.
+        </FieldDescription>
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {categories.map((category) => (
+            <Field
+              key={category.id}
+              orientation="horizontal"
+              className="items-start rounded-md border border-input p-3"
+            >
+              <Checkbox
+                id={`prompt-rule-category-${category.id}`}
+                checked={selectedCategories.has(category.id)}
+                onCheckedChange={(checked) =>
+                  changeCategories(category.id, checked === true)
+                }
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <FieldLabel htmlFor={`prompt-rule-category-${category.id}`}>
+                    {category.title}
+                  </FieldLabel>
+                  <Badge variant="outline">{category.rules.length}</Badge>
+                </div>
+                <FieldDescription className="line-clamp-2">
+                  {category.description}
+                </FieldDescription>
+              </div>
+            </Field>
+          ))}
+        </div>
+      </Field>
+
+      <Field>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <FieldLabel>Individual shared rules</FieldLabel>
+            <FieldDescription>
+              Use only when the whole category would be too broad.
+            </FieldDescription>
+          </div>
+          <Popover>
+            <PopoverTrigger
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              <Plus data-icon="inline-start" />
+              Choose rules
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-[34rem] max-w-[90vw] gap-2 p-2"
+            >
+              <div className="grid max-h-72 gap-1 overflow-y-auto p-1 md:grid-cols-2">
+                {individualRules.map((rule) => {
+                  const ref = `${rule.category}/${rule.id}`;
+                  return (
+                    <Field key={ref} orientation="horizontal" className="p-1">
+                      <Checkbox
+                        id={`prompt-rule-${ref}`}
+                        checked={selectedRules.has(ref)}
+                        onCheckedChange={(checked) =>
+                          changeRule(ref, checked === true)
+                        }
+                      />
+                      <FieldLabel
+                        htmlFor={`prompt-rule-${ref}`}
+                        className="min-w-0 font-normal"
+                      >
+                        <span className="block truncate">
+                          {humanizeRuleId(rule.id)}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {categoryTitles.get(rule.category ?? "") ??
+                            "Shared rule"}
+                        </span>
+                      </FieldLabel>
+                    </Field>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+        {(rules.rules ?? []).length === 0 ? (
+          <p className="rounded-md border border-dashed border-input p-3 text-sm text-muted-foreground">
+            No individual rules. This prompt uses whole categories only.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {(rules.rules ?? []).map((ref) => {
+              const rule = availableRules.find(
+                (candidate) => `${candidate.category}/${candidate.id}` === ref,
               );
-            }}
-            className="min-h-24 font-mono text-xs"
-            placeholder="tone/no_whimsy"
-          />
-          <FieldDescription>
-            Resolved after includes. Leave empty for no exclusions.
-          </FieldDescription>
-        </Field>
-      </div>
+              return (
+                <div
+                  key={ref}
+                  className="flex items-center gap-1 rounded-md border border-input py-1 pr-1 pl-2 text-sm"
+                >
+                  <span>
+                    {humanizeRuleId(rule?.id ?? ref.split("/").at(-1) ?? ref)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={`Remove ${humanizeRuleId(rule?.id ?? ref)}`}
+                    onClick={() => changeRule(ref, false)}
+                  >
+                    <X />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Field>
 
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">Prompt-local rules</p>
           <p className="text-xs text-muted-foreground">
-            Stored as [[local_rule]] and available only to this prompt.
+            Use only for behavior unique to this prompt.
           </p>
         </div>
         <Button

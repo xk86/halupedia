@@ -25,7 +25,7 @@ export function getPrompt(config: PromptConfig, key: string, logger?: Logger) {
   let rulesText = "";
   let rulesTrace: RulesPromptTrace | undefined;
   if (prompt.rules || prompt.localRules) {
-    const assembled = assembleRules(config.ruleLibrary, prompt.rules ?? { include: [] }, {
+    const assembled = assembleRules(config.ruleLibrary, prompt.rules ?? { categories: [] }, {
       localRules: prompt.localRules,
       promptKey: key,
     });

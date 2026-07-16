@@ -88,12 +88,34 @@ function loadPromptFiles(dir: string, runnable: boolean) {
       thinking?: boolean;
       json?: boolean;
       modes?: Record<string, RewriteMode>;
-      rules?: { include?: string[]; exclude?: string[] };
+      rules?: {
+        categories?: string[];
+        rules?: string[];
+        include?: string[];
+        exclude?: string[];
+      };
       local_rule?: Array<{ id?: string; tier?: number; text?: string; overrides?: string[]; examples?: unknown }>;
     };
     const rules: RuleSpec | undefined = raw.rules
       ? {
-          include: Array.isArray(raw.rules.include) ? raw.rules.include : [],
+          categories: Array.isArray(raw.rules.categories)
+            ? raw.rules.categories
+            : (raw.rules.include ?? []).filter(
+                (value) => !value.includes("/") && !value.includes("@"),
+              ),
+          ...((Array.isArray(raw.rules.rules)
+            ? raw.rules.rules
+            : (raw.rules.include ?? []).filter(
+                (value) => value.includes("/") || value.includes("@"),
+              )).length > 0
+            ? {
+                rules: Array.isArray(raw.rules.rules)
+                  ? raw.rules.rules
+                  : (raw.rules.include ?? []).filter(
+                      (value) => value.includes("/") || value.includes("@"),
+                    ),
+              }
+            : {}),
           ...(Array.isArray(raw.rules.exclude) && raw.rules.exclude.length > 0
             ? { exclude: raw.rules.exclude }
             : {}),

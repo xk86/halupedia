@@ -23,33 +23,42 @@ test("readPromptFile parses rules and local_rule; writePromptFile round-trips a 
   );
 
   const before = readPromptFile("runnable", TEST_KEY);
-  assert.deepEqual(before?.rules, { include: ["tone"] });
+  assert.deepEqual(before?.rules, { categories: ["tone"] });
   assert.deepEqual(before?.localRules, [{ id: "x", tier: 2, text: "Do the thing." }]);
 
   const err = writePromptFile("runnable", TEST_KEY, "{{rules}}", "u", {
-    include: ["tone", "canon"],
-    exclude: ["tone/no_whimsy"],
+    categories: ["tone", "canon"],
+    rules: ["formatting/no_raw_html"],
   });
   assert.equal(err, null);
 
   const after = readPromptFile("runnable", TEST_KEY);
-  assert.deepEqual(after?.rules, { include: ["tone", "canon"], exclude: ["tone/no_whimsy"] });
+  assert.deepEqual(after?.rules, {
+    categories: ["tone", "canon"],
+    rules: ["formatting/no_raw_html"],
+  });
   // local_rule is untouched by a rules-only write.
   assert.deepEqual(after?.localRules, [{ id: "x", tier: 2, text: "Do the thing." }]);
 });
 
-test("writePromptFile removes exclude when omitted on a later save", (t) => {
+test("writePromptFile migrates legacy selectors to category and rule lists", (t) => {
   t.after(cleanup);
   writeFileSync(
     TEST_PATH,
     `system = """s"""\nuser = """u"""\n\n[rules]\ninclude = ["tone"]\nexclude = ["tone/no_whimsy"]\n`,
   );
 
-  const err = writePromptFile("runnable", TEST_KEY, "s", "u", { include: ["tone"] });
+  const err = writePromptFile("runnable", TEST_KEY, "s", "u", {
+    categories: ["tone"],
+    rules: ["formatting/no_raw_html"],
+  });
   assert.equal(err, null);
 
   const after = readPromptFile("runnable", TEST_KEY);
-  assert.deepEqual(after?.rules, { include: ["tone"] });
+  assert.deepEqual(after?.rules, {
+    categories: ["tone"],
+    rules: ["formatting/no_raw_html"],
+  });
 });
 
 test("writePromptFile replaces local rules and structured examples", (t) => {
@@ -58,7 +67,7 @@ test("writePromptFile replaces local rules and structured examples", (t) => {
     TEST_PATH,
     `system = """{{rules}}"""\nuser = """u"""\n\n[[local_rule]]\nid = "old"\ntier = 1\ntext = "Old."\n`,
   );
-  const err = writePromptFile("runnable", TEST_KEY, "{{rules}}", "u", { include: [] }, [
+  const err = writePromptFile("runnable", TEST_KEY, "{{rules}}", "u", { categories: [] }, [
     {
       id: "new_rule",
       tier: 2,

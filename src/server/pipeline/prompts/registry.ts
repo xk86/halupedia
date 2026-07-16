@@ -44,8 +44,8 @@ export interface PromptEntry {
 }
 
 export interface RenderRuntimeOptions {
-  /** Extra rule selectors resolved together with the prompt's static
-   *  `[rules].include` in one combined `assembleRules` pass — for rules
+  /** Extra internal rule selectors resolved together with the prompt's static
+   *  category/rule selection in one combined `assembleRules` pass — for rules
    *  that vary per render call (e.g. full vs. partial rewrite scope) rather
    *  than per prompt. Runs override/dedupe resolution and produces one
    *  unified `rulesTrace` across the static and per-call rules, instead of
@@ -92,7 +92,7 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
     let rulesTrace: RulesPromptTrace | undefined;
     let rulesHash: string | undefined;
     if (prompt.rules || prompt.localRules) {
-      const assembled = assembleRules(config.ruleLibrary, prompt.rules ?? { include: [] }, {
+      const assembled = assembleRules(config.ruleLibrary, prompt.rules ?? { categories: [] }, {
         localRules: prompt.localRules,
         promptKey: key,
       });
@@ -141,7 +141,12 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
       if (runtimeOptions?.extraInclude?.length) {
         const prompt = config.prompts[key];
         const spec = {
-          include: [...(prompt?.rules?.include ?? []), ...runtimeOptions.extraInclude],
+          categories: prompt?.rules?.categories ?? [],
+          rules: [
+            ...(prompt?.rules?.rules ?? []),
+            ...(prompt?.rules?.include ?? []),
+            ...runtimeOptions.extraInclude,
+          ],
           exclude: prompt?.rules?.exclude,
         };
         const assembled = assembleRules(config.ruleLibrary, spec, {

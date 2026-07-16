@@ -102,7 +102,7 @@ function PromptEditorCardComponent({
     BASE_IMAGE_PRESET.key,
   );
 
-  const [ruleSpec, setRuleSpec] = useState<RuleSpec>({ include: [] });
+  const [ruleSpec, setRuleSpec] = useState<RuleSpec>({ categories: [] });
   const [localRules, setLocalRules] = useState<RuleDefinition[]>([]);
   const ruleConfigBaselineRef = useRef<{
     rules: RuleSpec;
@@ -136,7 +136,7 @@ function PromptEditorCardComponent({
     setSystem(data.system);
     setUser(data.user);
     baselineRef.current = { system: data.system, user: data.user };
-    const nextRules = data.rules ?? { include: [] };
+    const nextRules = data.rules ?? { categories: [] };
     const nextLocalRules = data.localRules ?? [];
     setRuleSpec(nextRules);
     setLocalRules(nextLocalRules);
@@ -601,7 +601,7 @@ function PromptEditorCardComponent({
 
             {hasRules ? (
               <Field>
-                <FieldLabel>Rules ({"{{rules}}"} placeholder)</FieldLabel>
+                <FieldLabel>Shared rule sets</FieldLabel>
                 <PromptRulesConfig
                   rules={ruleSpec}
                   localRules={localRules}

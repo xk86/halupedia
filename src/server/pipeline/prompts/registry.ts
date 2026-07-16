@@ -75,7 +75,13 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
   const entries = new Map<string, PromptEntry>();
 
   for (const [key, prompt] of Object.entries(config.prompts)) {
-    const baseResolved = resolveSharedRefs(prompt, config);
+    const baseResolved: PromptTemplate = {
+      system: prompt.system,
+      user: prompt.user,
+      model: prompt.model,
+      thinking: prompt.thinking,
+      json: prompt.json,
+    };
     let resolved = baseResolved;
 
     // Most prompts' `[rules]`/local rules don't vary by render-time
@@ -198,30 +204,6 @@ function interpolate(
     const v = variables[key];
     if (v == null) return "";
     return typeof v === "string" ? v : String(v);
-  });
-}
-
-function resolveSharedRefs(
-  prompt: PromptTemplate,
-  config: PromptConfig,
-  depth = 0,
-): PromptTemplate {
-  if (depth > 4) return prompt;
-  const next: PromptTemplate = {
-    system: substituteShared(prompt.system, config),
-    user: substituteShared(prompt.user, config),
-    model: prompt.model,
-    thinking: prompt.thinking,
-    json: prompt.json,
-  };
-  if (next.system === prompt.system && next.user === prompt.user) return next;
-  return resolveSharedRefs(next, config, depth + 1);
-}
-
-function substituteShared(text: string, config: PromptConfig): string {
-  return text.replace(TEMPLATE_RE, (match, ref: string) => {
-    const shared = config.shared[ref];
-    return shared ? shared.system : match;
   });
 }
 

@@ -41,28 +41,13 @@ export function getPrompt(config: PromptConfig, key: string, logger?: Logger) {
   }
 
   return {
-    system: resolveSharedRefs(prompt.system, config).replace(RULES_PLACEHOLDER_RE, rulesText),
-    user: resolveSharedRefs(prompt.user, config).replace(RULES_PLACEHOLDER_RE, rulesText),
+    system: prompt.system.replace(RULES_PLACEHOLDER_RE, rulesText),
+    user: prompt.user.replace(RULES_PLACEHOLDER_RE, rulesText),
     model: prompt.model ?? "heavy",
     thinking: prompt.thinking ?? false,
     json: prompt.json ?? false,
     rulesTrace,
   };
-}
-
-function resolveSharedRefs(
-  template: string,
-  config: PromptConfig,
-  depth = 0,
-): string {
-  if (depth > 4) return template;
-  const resolved = template.replace(TEMPLATE_RE, (match, ref: string) => {
-    const shared = config.shared[ref];
-    return shared ? shared.system : match;
-  });
-  return resolved !== template
-    ? resolveSharedRefs(resolved, config, depth + 1)
-    : resolved;
 }
 
 export function renderTemplate(

@@ -78,7 +78,15 @@ class RewriteLlmClient implements LlmRouter {
   }
 
   private isArticleOp(system: string, user: string): boolean {
-    return system.includes("Rewrite") || system.includes("Refresh") || user.includes("---body");
+    // "Current article:" is structural template text shared by the
+    // article_refresh/article_rewrite/article_quick_edit user prompts —
+    // stable regardless of rule-library wording, unlike a literal
+    // "Rewrite"/"Refresh" match against prose that now lives in config/rules.
+    return (
+      system.includes("Rewrite") ||
+      user.includes("Current article:") ||
+      user.includes("---body")
+    );
   }
 
   async chat(_r: "heavy" | "light", system: string, user: string): Promise<string> {

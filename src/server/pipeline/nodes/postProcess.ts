@@ -327,7 +327,7 @@ export const regenerateSummaryNode = defineNode({
   description:
     "Regenerate article summary via article_summary prompt (light model preferred).",
   reads: ["finalArticleBody", "canonicalTitle", "input"] as const,
-  writes: ["articleSummary"] as const,
+  writes: ["articleSummary", "rulesPromptTrace"] as const,
   async run({ finalArticleBody, canonicalTitle, input }, deps: PipelineDeps) {
     const body = finalArticleBody ?? "";
     if (!body) return { articleSummary: "" };
@@ -365,9 +365,9 @@ export const regenerateSummaryNode = defineNode({
         },
         { thinking: rendered.thinking, jsonMode: rendered.json },
       );
-      return { articleSummary: raw.trim() };
+      return { articleSummary: raw.trim(), rulesPromptTrace: rendered.rulesTrace };
     } catch {
-      return { articleSummary: summaryMarkdownFromArticle(body) };
+      return { articleSummary: summaryMarkdownFromArticle(body), rulesPromptTrace: rendered.rulesTrace };
     }
   },
 });

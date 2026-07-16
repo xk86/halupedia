@@ -483,8 +483,8 @@ function formatRecentEditHistoryForPrompt(revisions: ReturnType<typeof listArtic
     .join("\n");
 }
 
-async function generateArticleSummary(llm: LlmRouter, promptConfig: ReturnType<typeof loadConfig>["prompts"], requestedTitle: string, articleMarkdown: string): Promise<string> {
-  const prompt = getPrompt(promptConfig, "article_summary");
+async function generateArticleSummary(llm: LlmRouter, promptConfig: ReturnType<typeof loadConfig>["prompts"], requestedTitle: string, articleMarkdown: string, logger?: Logger): Promise<string> {
+  const prompt = getPrompt(promptConfig, "article_summary", logger);
   const role = prompt.model ?? "heavy";
   const currentArticle = stripTopLevelSections(articleMarkdown, ["References", "See also"]).slice(0, 12000);
   let previousSummary = "(none)";
@@ -1372,7 +1372,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     trackGeneration(
       (async () => {
         indexArticleNow(slug);
-        const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, title, markdown).catch(() => summaryMarkdownFromArticle(markdown));
+        const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, title, markdown, logger).catch(() => summaryMarkdownFromArticle(markdown));
         updateArticleSummary(db, slug, summaryMarkdown, {
           updateRevisionGeneratedAt: generatedAt,
         });

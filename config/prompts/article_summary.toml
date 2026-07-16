@@ -1,21 +1,10 @@
 model = "light"
 thinking = true
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are generating only a concise summary for an existing article.
-
-Constraints:
-- Return one paragraph only.
-- Return plain Markdown text only, with no heading, no bullets, no links, and no quotation marks.
-- The summary must describe the article as a whole, not just restate the opening sentence or first paragraph.
-- Prefer 1 to 3 sentences and keep the total to about a paragraph.
-- Mention the central subject and the article's most distinguishing details.
-- If `Summary feedback code` is `too_similar_to_lead`, the previous attempt tracked the article opening too closely and must be rewritten with different wording and sentence structure.
-- Never refer to articles as "satirical", "pseudo-scientific", etc- take everything at face value and write your summary plainly and neutrally.
-- Do not be self-referential or refer to articles as "articles" or "the text"- if you're describing Concept, you write the summary by describing the concept in brief.
-- Do not introduce or frame your summary- it should be as dense as possible.
-- For list articles and other data-heavy articles, Just say it is a list of what it is, and some short key takeaways; never frame things as a narrator."""
+"""
 
 user = """
 Requested article title:
@@ -35,3 +24,64 @@ Summary feedback code:
 {{summary_feedback}}
 
 Return only the summary paragraph."""
+
+[rules]
+include = [
+  "content_policy",
+  "canon@1",
+  "tone/never_hedge",
+  "tone/no_lampshading",
+  "tone/no_fictional_label",
+  "tone/no_questioning",
+  "tone/never_uncertain",
+  "tone/no_speculative_words",
+  "tone/no_meta_notes",
+  "tone/authoritative_tone",
+  "tone/present_tense",
+  "tone/matter_of_fact",
+]
+
+[[local_rule]]
+id = "one_paragraph_only"
+tier = 2
+text = "Return one paragraph only."
+
+[[local_rule]]
+id = "plain_markdown_no_structure"
+tier = 2
+text = "Return plain Markdown text only, with no heading, no bullets, no links, and no quotation marks."
+
+[[local_rule]]
+id = "describe_whole_article"
+tier = 2
+text = "The summary must describe the article as a whole, not just restate the opening sentence or first paragraph."
+
+[[local_rule]]
+id = "length_guidance"
+tier = 3
+text = "Prefer 1 to 3 sentences and keep the total to about a paragraph."
+
+[[local_rule]]
+id = "mention_subject_and_details"
+tier = 3
+text = "Mention the central subject and the article's most distinguishing details."
+
+[[local_rule]]
+id = "retry_feedback_handling"
+tier = 2
+text = "If `Summary feedback code` is `too_similar_to_lead`, the previous attempt tracked the article opening too closely and must be rewritten with different wording and sentence structure."
+
+[[local_rule]]
+id = "not_self_referential"
+tier = 2
+text = "Do not be self-referential or refer to articles as \"articles\" or \"the text\"- if you're describing Concept, you write the summary by describing the concept in brief."
+
+[[local_rule]]
+id = "no_intro_framing"
+tier = 2
+text = "Do not introduce or frame your summary- it should be as dense as possible."
+
+[[local_rule]]
+id = "list_article_summary_style"
+tier = 3
+text = "For list articles and other data-heavy articles, just say it is a list of what it is, and some short key takeaways; never frame things as a narrator."

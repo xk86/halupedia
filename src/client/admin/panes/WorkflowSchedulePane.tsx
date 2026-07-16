@@ -427,7 +427,13 @@ export function WorkflowSchedulePane({ onNavigate }: WorkflowSchedulePaneProps) 
   const saveInterval = useCallback(
     async (id: string, minutes: number) => {
       const path = INTERVAL_CONFIG_PATH[id];
-      if (!path) return;
+      if (!path) {
+        // No config path mapped for this schedule id — without this guard the
+        // save would silently no-op and the field would snap back to its old
+        // value on the next reload, with no indication anything went wrong.
+        setError(`No config mapping for schedule "${id}"; interval not saved.`);
+        return;
+      }
       setBusyId(id);
       setError(null);
       try {

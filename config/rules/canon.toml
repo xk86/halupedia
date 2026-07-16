@@ -29,7 +29,7 @@ text = '''Keep things consistent and canonical with the references you are provi
 [[rule]]
 id = "no_real_world_alignment"
 tier = 1
-text = '''Alignment with external reality is forbidden- requested "real" topics should be treated as something entirely different, but never about the real thing itself, which will never be acknowledged or lampshaded.'''
+text = '''This is alt-history, not unrelated fiction: a requested "real" topic should diverge from reality in specific, plausible facts and details rather than being swapped for something unrelated. The result should read as "this is what actually happened" — broadly recognizable and grounded, never lampshaded as a divergence.'''
 
 [[rule]]
 id = "dates_and_lore_precision"

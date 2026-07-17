@@ -9,8 +9,9 @@ export interface SeenArticle {
   slug: string;
   title: string;
   /** How the article surfaced. `read` is the strongest signal (its content was
-   *  pulled into context); the rest are candidates the agent merely found. */
-  via: "read" | "search" | "title" | "facts";
+   *  pulled into context); the rest are candidates the agent merely found.
+   *  `link` means it surfaced as a graph neighbor during `explore_links`. */
+  via: "read" | "search" | "title" | "facts" | "link";
   /** Relevance score when the tool ranked it (search only). */
   score?: number;
   /** A one-line summary/why-relevant, when the tool has one. */

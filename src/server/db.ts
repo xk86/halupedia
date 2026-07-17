@@ -2843,6 +2843,40 @@ export interface OutboundLinkHint {
   hint: string;
 }
 
+export interface OutboundLink {
+  targetSlug: string;
+  targetTitle: string;
+  /** Hidden in-canon hint recorded at link time — the "why this connects"
+   *  seed. Empty string when the link carried no hint. */
+  hint: string;
+  /** False for links whose target article hasn't been written yet — the
+   *  unexpanded canon threads that make the best rabbitholes. */
+  exists: boolean;
+}
+
+/**
+ * All distinct outbound links from an article — written or not — for agentic
+ * graph traversal. Unlike `listOutboundLinkHints` (which is scoped to hinted
+ * links for RAG), this returns every target so the research agent can walk the
+ * whole neighborhood, with written targets surfaced first.
+ */
+export function listOutboundLinks(db: DatabaseSync, slug: string, limit: number): OutboundLink[] {
+  const rows = prepared(
+    db,
+    `SELECT l.target_slug AS targetSlug,
+            COALESCE(a.title, l.target_slug) AS targetTitle,
+            COALESCE(MAX(l.hidden_hint), '') AS hint,
+            CASE WHEN a.slug IS NULL THEN 0 ELSE 1 END AS existsFlag
+     FROM article_links l
+     LEFT JOIN articles a ON a.slug = l.target_slug
+     WHERE l.source_slug = ?
+     GROUP BY l.target_slug
+     ORDER BY existsFlag DESC, MAX(l.created_at) DESC
+     LIMIT ?`,
+  ).all(slug, limit) as unknown as Array<Omit<OutboundLink, "exists"> & { existsFlag: number }>;
+  return rows.map(({ existsFlag, ...rest }) => ({ ...rest, exists: existsFlag === 1 }));
+}
+
 /**
  * Distinct outbound links from an article with the target's title and the
  * hidden hint recorded at link time. Feeds `link_hint` RAG documents.

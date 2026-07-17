@@ -4,6 +4,7 @@ import { createSearchArticlesTool } from "./searchArticles";
 import { createReadArticleTool } from "./readArticle";
 import { createGetOntologyFactsTool } from "./ontologyFacts";
 import { createFindArticlesByTitleTool } from "./findArticlesByTitle";
+import { createExploreLinksTool } from "./exploreLinks";
 
 export type { AgentToolContext } from "./context";
 
@@ -16,5 +17,6 @@ export function createResearchTools(
     createReadArticleTool(ctx),
     createGetOntologyFactsTool(ctx),
     createFindArticlesByTitleTool(ctx),
+    createExploreLinksTool(ctx),
   ];
 }

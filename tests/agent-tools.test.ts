@@ -11,7 +11,9 @@ import { createSearchArticlesTool } from "../src/server/agent/tools/searchArticl
 import { createReadArticleTool } from "../src/server/agent/tools/readArticle";
 import { createGetOntologyFactsTool } from "../src/server/agent/tools/ontologyFacts";
 import { createFindArticlesByTitleTool } from "../src/server/agent/tools/findArticlesByTitle";
+import { createExploreLinksTool } from "../src/server/agent/tools/exploreLinks";
 import type { AgentToolContext } from "../src/server/agent/tools/context";
+import type { SeenArticle } from "../src/server/agent/tools/context";
 
 function makeDb(t: { after: (fn: () => void) => void }) {
   const root = mkdtempSync(join(tmpdir(), "halu-agent-tools-"));
@@ -262,4 +264,65 @@ test("get_ontology_facts reports an unrecorded entity plainly", async (t) => {
   const factsTool = createGetOntologyFactsTool(ctx);
   const output = await factsTool.invoke({ slug: "no-such-entity" });
   assert.match(output as string, /No structured facts/i);
+});
+
+function saveStub(db: ReturnType<typeof makeDb>, slug: string, title: string, links: Array<{ targetSlug: string; visibleLabel: string; hiddenHint: string }>) {
+  saveArticle(
+    db,
+    {
+      slug,
+      canonicalSlug: slug,
+      title,
+      markdown: `# ${title}\n\nBody.`,
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "",
+      generated_at: Date.now(),
+    },
+    links,
+    [],
+    {},
+  );
+}
+
+test("explore_links returns outbound links, unwritten threads, and backlinks", async (t) => {
+  const db = makeDb(t);
+  // alpha links out to beta (written) and gamma (never written, a thread).
+  saveStub(db, "alpha", "Alpha", [
+    { targetSlug: "beta", visibleLabel: "Beta", hiddenHint: "Beta funds Alpha" },
+    { targetSlug: "gamma", visibleLabel: "Gamma", hiddenHint: "Gamma is Alpha's rival" },
+  ]);
+  // beta exists and links back to alpha — a backlink.
+  saveStub(db, "beta", "Beta", [
+    { targetSlug: "alpha", visibleLabel: "Alpha", hiddenHint: "" },
+  ]);
+
+  const seen: SeenArticle[] = [];
+  const ctx: AgentToolContext = { db, rag: undefined as never, onArticleSeen: (a) => seen.push(a) };
+  const exploreTool = createExploreLinksTool(ctx);
+  const output = (await exploreTool.invoke({ slug: "alpha" })) as string;
+
+  // Outbound: written target with hint, unwritten target flagged as a thread.
+  assert.match(output, /Links out to:/);
+  assert.match(output, /Beta \(slug: beta\).*Beta funds Alpha/);
+  // Unwritten target has no article row, so its label falls back to the slug.
+  assert.match(output, /gamma \(slug: gamma\) \[not yet written[^\]]*\].*Gamma is Alpha's rival/);
+  // Backlink from beta.
+  assert.match(output, /Linked to from:/);
+  assert.match(output, /Beta \(slug: beta\)/);
+
+  // Only the written neighbour (beta) is recorded as a reference candidate —
+  // gamma is unwritten, so it never becomes a source. beta surfaces both as an
+  // outbound link and a backlink; every sighting is tagged `via: "link"`.
+  const seenSlugs = [...new Set(seen.map((s) => s.slug))];
+  assert.deepEqual(seenSlugs, ["beta"]);
+  assert.ok(seen.every((s) => s.via === "link"));
+});
+
+test("explore_links reports a missing slug plainly", async (t) => {
+  const db = makeDb(t);
+  const ctx: AgentToolContext = { db, rag: undefined as never };
+  const exploreTool = createExploreLinksTool(ctx);
+  const output = (await exploreTool.invoke({ slug: "does-not-exist" })) as string;
+  assert.match(output, /No article found/i);
 });

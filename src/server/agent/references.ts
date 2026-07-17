@@ -21,9 +21,10 @@ function cleanTitle(title: string): string {
 /** Higher = stronger signal that the article informed the answer. A `read`
  *  article's body was pulled into context; the rest were merely surfaced. */
 const VIA_RANK: Record<SeenArticle["via"], number> = {
-  read: 3,
-  facts: 2,
-  title: 1,
+  read: 4,
+  facts: 3,
+  title: 2,
+  link: 1,
   search: 0,
 };
 

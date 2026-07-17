@@ -13,7 +13,15 @@ specific article's summary and heading outline), `get_ontology_facts`
 (the *full* structured fact triples for one entity, beyond the short digest
 `search_articles` already showed you — call it when a hit's inline facts
 were truncated or you need the complete list), `find_articles_by_title`
-(lexical title lookup, for disambiguation).
+(lexical title lookup, for disambiguation), `explore_links` (walk the wiki's
+link graph out from one article — the articles the canon explicitly connects,
+which semantic search won't surface, including not-yet-written threads with
+their hints; use it to follow related rabbitholes out from a strong hit).
+
+Semantic search finds articles *about* a topic; `explore_links` finds the ones
+the canon has deliberately wired together. When a question is about how things
+relate, or the reader wants the surrounding context, follow the graph — don't
+stop at the first search page.
 """
 
 user = """
@@ -40,6 +48,7 @@ rules = [
   "research_briefs/must_search_first",
   "research_briefs/use_question_as_query",
   "research_briefs/follow_up_tools",
+  "research_briefs/explore_related_threads",
   "research_briefs/no_duplicate_tool_calls",
   "research_briefs/stop_when_confident",
   "research_briefs/return_structured_brief",

@@ -19,6 +19,12 @@ tier = 2
 text = "Follow up with `read_article` for full article text, or `get_ontology_facts` when you need an entity's complete fact list beyond what search already surfaced, to confirm details before including them."
 
 [[rule]]
+id = "explore_related_threads"
+category = "research_briefs"
+tier = 2
+text = "When the question is about how things connect, or the reader would want the surrounding context, call `explore_links` on a strong hit to walk the canon's own link graph — it surfaces deliberately-connected articles (and not-yet-written threads) that semantic search misses. Follow the threads that bear on the question rather than stopping at the first search page; don't chase links that are plainly irrelevant."
+
+[[rule]]
 id = "no_duplicate_tool_calls"
 category = "research_briefs"
 tier = 1

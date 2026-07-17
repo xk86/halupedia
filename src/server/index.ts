@@ -4413,7 +4413,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         order: cat.order,
         rules: cat.rules,
       }));
-    return c.json({ categories, rules: [...runtime.prompts.ruleLibrary.rulesByRef.values()].map(({ ref: _ref, categoryTitle: _title, categoryOrder: _order, source: _source, sequence: _sequence, ...rule }) => rule) });
+    return c.json({ categories, rules: [...runtime.prompts.ruleLibrary.rulesByRef.values()].map(({ ref: _ref, categoryTitle: _title, categoryDescription: _description, categoryOrder: _order, source: _source, sequence: _sequence, ...rule }) => rule) });
   });
 
   app.put("/api/admin/rules/library", async (c) => {

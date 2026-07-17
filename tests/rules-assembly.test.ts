@@ -2,8 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildRuleLibrary, parseRuleFile } from "../src/server/rules/library";
-import { assembleRules } from "../src/server/rules/assemble";
-import { parseSelector, resolveSelectors, RuleSelectorError } from "../src/server/rules/selector";
+import { assembleRules, RuleSelectorError } from "../src/server/rules/assemble";
 import type { CategoryDef, RuleLibrary } from "../src/server/rules/types";
 
 const CATS: CategoryDef[] = [
@@ -58,74 +57,6 @@ text = "Do not use footnotes."
 `);
   return buildRuleLibrary(CATS, rules);
 }
-
-// selector.ts is retained for now (unused by assembleRules as of the
-// include/exclude removal) but still independently tested here.
-
-// ─── selector parsing ───────────────────────────────────────────────────────
-
-test("parseSelector parses a bare category selector", () => {
-  assert.deepEqual(parseSelector("tone"), { category: "tone" });
-});
-
-test("parseSelector parses a single-tier selector", () => {
-  assert.deepEqual(parseSelector("tone@1"), { category: "tone", tierMin: 1, tierMax: 1 });
-});
-
-test("parseSelector parses a tier-range selector", () => {
-  assert.deepEqual(parseSelector("tone@1-2"), { category: "tone", tierMin: 1, tierMax: 2 });
-});
-
-test("parseSelector parses a single-rule selector", () => {
-  assert.deepEqual(parseSelector("tone/confident"), { category: "tone", id: "confident" });
-});
-
-test("parseSelector rejects a descending tier range", () => {
-  assert.throws(() => parseSelector("tone@3-1"), RuleSelectorError);
-});
-
-test("parseSelector rejects garbage", () => {
-  assert.throws(() => parseSelector("Tone!!"), RuleSelectorError);
-});
-
-// ─── selector resolution ────────────────────────────────────────────────────
-
-test("resolveSelectors resolves a whole category", () => {
-  const library = makeLibrary();
-  const rules = resolveSelectors(library, ["canon"]);
-  assert.deepEqual(
-    rules.map((r) => r.ref).sort(),
-    ["canon/references_are_gospel", "canon/vibe_wins"],
-  );
-});
-
-test("resolveSelectors resolves a single tier within a category", () => {
-  const library = makeLibrary();
-  const rules = resolveSelectors(library, ["tone@2"]);
-  assert.deepEqual(rules.map((r) => r.ref), ["tone/confident"]);
-});
-
-test("resolveSelectors resolves a single rule", () => {
-  const library = makeLibrary();
-  const rules = resolveSelectors(library, ["tone/no_whimsy"]);
-  assert.deepEqual(rules.map((r) => r.ref), ["tone/no_whimsy"]);
-});
-
-test("resolveSelectors dedupes overlapping selectors", () => {
-  const library = makeLibrary();
-  const rules = resolveSelectors(library, ["tone", "tone/confident"]);
-  assert.equal(rules.length, 3);
-});
-
-test("resolveSelectors throws on an unknown category", () => {
-  const library = makeLibrary();
-  assert.throws(() => resolveSelectors(library, ["nonexistent"]), /unknown rule category/);
-});
-
-test("resolveSelectors throws on an unknown rule id", () => {
-  const library = makeLibrary();
-  assert.throws(() => resolveSelectors(library, ["tone/nope"]), /unknown rule 'tone\/nope'/);
-});
 
 // ─── assembleRules: basic composition ───────────────────────────────────────
 
@@ -240,6 +171,106 @@ test("assembleRules reports per-tier counts", () => {
     ],
   });
   assert.deepEqual(result.tierCounts, { 1: 3, 2: 3, 3: 1, 4: 0 });
+});
+
+// ─── wildcard and exclusion selectors ───────────────────────────────────────
+
+test("a category wildcard selects every rule in that category", () => {
+  const library = makeLibrary();
+  const result = assembleRules(library, { categories: ["canon"], rules: ["canon/*"] });
+  assert.deepEqual(
+    result.included.map((r) => r.ref).sort(),
+    ["canon/references_are_gospel", "canon/vibe_wins"],
+  );
+});
+
+test("a category wildcard requires its category to be imported", () => {
+  const library = makeLibrary();
+  assert.throws(
+    () => assembleRules(library, { categories: ["tone"], rules: ["canon/*"] }),
+    /requires imported category 'canon'/,
+  );
+});
+
+test("'*' in categories imports every namespace in the library", () => {
+  const library = makeLibrary();
+  const result = assembleRules(library, { categories: ["*"], rules: ["canon/*", "formatting/*"] });
+  assert.deepEqual(
+    result.included.map((r) => r.ref).sort(),
+    ["canon/references_are_gospel", "canon/vibe_wins", "formatting/no_footnotes", "formatting/single_h1"],
+  );
+});
+
+test("a '!' selector excludes one rule from a wildcard-selected set", () => {
+  const library = makeLibrary();
+  const result = assembleRules(library, {
+    categories: ["tone"],
+    rules: ["tone/*", "!tone/no_whimsy"],
+  });
+  assert.doesNotMatch(result.text, /whimsical/);
+  assert.match(result.text, /Never hedge/);
+  assert.equal(result.included.length, 2);
+});
+
+test("a '!' wildcard excludes every rule in a category", () => {
+  const library = makeLibrary();
+  const result = assembleRules(library, {
+    categories: ["tone", "canon"],
+    rules: ["tone/*", "canon/*", "!canon/*"],
+  });
+  assert.deepEqual(result.included.map((r) => r.category), ["tone", "tone", "tone"]);
+});
+
+test("excluding a rule that inclusion never selected is an error, not a no-op", () => {
+  const library = makeLibrary();
+  assert.throws(
+    () =>
+      assembleRules(library, {
+        categories: ["tone", "canon"],
+        rules: ["tone/never_hedge", "!canon/vibe_wins"],
+      }),
+    /excluded rule 'canon\/vibe_wins' was not included by any selector/,
+  );
+});
+
+test("exclusion order in the rules list doesn't matter — it always applies after inclusion", () => {
+  const library = makeLibrary();
+  const result = assembleRules(library, {
+    categories: ["tone"],
+    rules: ["!tone/no_whimsy", "tone/*"],
+  });
+  assert.equal(result.included.length, 2);
+  assert.doesNotMatch(result.text, /whimsical/);
+});
+
+test("an invalid rule selector string is rejected", () => {
+  const library = makeLibrary();
+  assert.throws(
+    () => assembleRules(library, { categories: ["tone"], rules: ["Tone!!"] }),
+    RuleSelectorError,
+  );
+});
+
+// ─── category descriptions in assembled text ────────────────────────────────
+
+test("assembled text includes each category's title and description once per tier group", () => {
+  const library = makeLibrary();
+  const result = assembleRules(library, {
+    categories: ["tone", "canon"],
+    rules: ["tone/never_hedge", "canon/references_are_gospel"],
+  });
+  assert.match(result.text, /\*\*Canon rules\*\* — World consistency\./);
+  assert.match(result.text, /\*\*Tone rules\*\* — Voice and phrasing\./);
+});
+
+test("a local rule's category heading uses its synthetic description", () => {
+  const library = makeLibrary();
+  const result = assembleRules(
+    library,
+    { categories: [], rules: [] },
+    { promptKey: "p", localRules: [{ id: "x", tier: 1, text: "Local rule text." }] },
+  );
+  assert.match(result.text, /\*\*This prompt\*\* — Rules authored only for this prompt/);
 });
 
 // ─── local + runtime (vibe) rules ───────────────────────────────────────────

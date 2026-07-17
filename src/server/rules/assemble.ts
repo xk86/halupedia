@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { RuleSelectorError } from "./selector";
 import { TIER_LABELS } from "./types";
 import type {
   AssembledRuleEntry,
@@ -13,10 +12,76 @@ import type {
   RuleTier,
 } from "./types";
 
+export class RuleSelectorError extends Error {}
+
 /** A prompt-local rule, or a per-article (vibe) rule supplied at render time.
  *  Neither lives in the static library; both are merged in at assembly. */
 export interface RuntimeRuleInput extends RuleDef {
   categoryTitle?: string;
+  categoryDescription?: string;
+}
+
+/** Parses one `rules` entry: `"category/id"`, `"category/*"`, or either
+ *  prefixed with `!` to exclude. See `RuleSpec` for the full syntax. */
+const RULE_SELECTOR_RE = /^(!)?([a-z][a-z0-9_]*)\/(\*|[a-z][a-z0-9_]*)$/;
+
+interface ParsedRuleSelector {
+  raw: string;
+  exclude: boolean;
+  category: string;
+  /** "*" for a whole-category wildcard, otherwise a single rule id. */
+  id: string;
+}
+
+function parseRuleSelector(raw: string): ParsedRuleSelector {
+  const match = RULE_SELECTOR_RE.exec(raw);
+  if (!match) {
+    throw new RuleSelectorError(
+      `invalid rule selector '${raw}' — expected "category/id", "category/*", or either prefixed with "!"`,
+    );
+  }
+  const [, bang, category, id] = match;
+  return { raw, exclude: !!bang, category: category!, id: id! };
+}
+
+/** Every rule a selector's category+id addresses, checked against the
+ *  imported-namespace set. Throws on an unknown category/rule, exactly as
+ *  before — a typo in a selector should fail loudly at load time. */
+function expandRuleSelector(
+  library: RuleLibrary,
+  importedCategories: Set<string>,
+  parsed: ParsedRuleSelector,
+): ResolvedRule[] {
+  if (!importedCategories.has(parsed.category)) {
+    throw new RuleSelectorError(
+      `selected rule '${parsed.raw}' requires imported category '${parsed.category}'`,
+    );
+  }
+  if (parsed.id === "*") {
+    const category = library.categories.get(parsed.category);
+    if (!category) {
+      throw new RuleSelectorError(`unknown imported rule category '${parsed.category}'`);
+    }
+    return category.rules.map((rule) => library.rulesByRef.get(`${parsed.category}/${rule.id}`)!);
+  }
+  const ref = `${parsed.category}/${parsed.id}`;
+  const rule = library.rulesByRef.get(ref);
+  if (!rule) throw new RuleSelectorError(`unknown selected rule '${ref}'`);
+  return [rule];
+}
+
+/** `categories` imports namespaces a rule may be selected from; `"*"`
+ *  imports every namespace in the library. */
+function resolveImportedCategories(library: RuleLibrary, categories: string[]): Set<string> {
+  if (categories.includes("*")) {
+    return new Set(library.categories.keys());
+  }
+  for (const category of categories) {
+    if (!library.categories.has(category)) {
+      throw new RuleSelectorError(`unknown imported rule category '${category}'`);
+    }
+  }
+  return new Set(categories);
 }
 
 export interface AssembleOptions {
@@ -33,6 +98,9 @@ export interface AssembleOptions {
 
 const LOCAL_CATEGORY_ORDER = 9_000;
 const RUNTIME_CATEGORY_ORDER = 9_500;
+const LOCAL_CATEGORY_DESCRIPTION = "Rules authored only for this prompt, not shared with any other.";
+const RUNTIME_CATEGORY_DESCRIPTION =
+  "This article's own worldbuilding rules, layered on top of the shared defaults.";
 
 function qualifyRuntimeRule(
   rule: RuntimeRuleInput,
@@ -40,6 +108,7 @@ function qualifyRuntimeRule(
     source: "local" | "runtime";
     defaultCategory: string;
     defaultCategoryTitle: string;
+    defaultCategoryDescription: string;
     defaultOrder: number;
     namespace?: string;
     sequence: number;
@@ -53,6 +122,7 @@ function qualifyRuntimeRule(
     ref: `${category}/${id}`,
     category,
     categoryTitle: rule.categoryTitle ?? opts.defaultCategoryTitle,
+    categoryDescription: rule.categoryDescription ?? opts.defaultCategoryDescription,
     categoryOrder: opts.defaultOrder,
     source: opts.source,
     sequence: opts.sequence,
@@ -61,10 +131,12 @@ function qualifyRuntimeRule(
 
 /**
  * Assemble one prompt's rule set. `categories` imports namespaces but does not
- * select their rules; every authored shared rule must be explicitly listed in
- * `rules`, resolved against the static library. Merge in local and runtime
- * (vibe) rules, drop any rule superseded by another included rule's
- * `overrides`, then sort tier-major (tier 1 first) and render as Markdown.
+ * select their rules; `rules` selects from imported namespaces via pathlike
+ * selectors (single rule, whole-category wildcard, or either negated to
+ * exclude — see `RuleSpec`), resolved against the static library. Merge in
+ * local and runtime (vibe) rules, drop any rule superseded by another
+ * included rule's `overrides`, then sort tier-major (tier 1 first) and render
+ * as Markdown.
  *
  * Override resolution is a single pass over the combined set — it is not
  * transitive. A rule can only drop a rule that is directly named in its own
@@ -78,21 +150,19 @@ export function assembleRules(
   options: AssembleOptions = {},
 ): AssembledRules {
   const resolved = new Map<string, ResolvedRule>();
-  const importedCategories = new Set(spec.categories ?? []);
-  for (const category of importedCategories) {
-    if (!library.categories.has(category)) {
-      throw new RuleSelectorError(`unknown imported rule category '${category}'`);
-    }
+  const importedCategories = resolveImportedCategories(library, spec.categories ?? []);
+
+  const includeSelectors: ParsedRuleSelector[] = [];
+  const excludeSelectors: ParsedRuleSelector[] = [];
+  for (const raw of spec.rules ?? []) {
+    const parsed = parseRuleSelector(raw);
+    (parsed.exclude ? excludeSelectors : includeSelectors).push(parsed);
   }
-  for (const ref of spec.rules ?? []) {
-    const rule = library.rulesByRef.get(ref);
-    if (!rule) throw new RuleSelectorError(`unknown selected rule '${ref}'`);
-    if (!importedCategories.has(rule.category)) {
-      throw new RuleSelectorError(
-        `selected rule '${ref}' requires imported category '${rule.category}'`,
-      );
+
+  for (const parsed of includeSelectors) {
+    for (const rule of expandRuleSelector(library, importedCategories, parsed)) {
+      resolved.set(rule.ref, rule);
     }
-    resolved.set(rule.ref, rule);
   }
 
   let sequence = 100_000;
@@ -101,6 +171,7 @@ export function assembleRules(
       source: "local",
       defaultCategory: "local",
       defaultCategoryTitle: "This prompt",
+      defaultCategoryDescription: LOCAL_CATEGORY_DESCRIPTION,
       defaultOrder: LOCAL_CATEGORY_ORDER,
       namespace: options.promptKey,
       sequence: sequence++,
@@ -112,10 +183,26 @@ export function assembleRules(
       source: "runtime",
       defaultCategory: "vibe",
       defaultCategoryTitle: "Article vibe",
+      defaultCategoryDescription: RUNTIME_CATEGORY_DESCRIPTION,
       defaultOrder: RUNTIME_CATEGORY_ORDER,
       sequence: sequence++,
     });
     resolved.set(qualified.ref, qualified);
+  }
+
+  // Exclusions apply after every inclusion (static + local + runtime) is
+  // resolved, regardless of where in the `rules` list the "!" entry sits.
+  // Excluding a rule inclusion never selected is an error, not a no-op — a
+  // stale or typo'd exclusion should fail loudly rather than silently do
+  // nothing.
+  for (const parsed of excludeSelectors) {
+    for (const rule of expandRuleSelector(library, importedCategories, parsed)) {
+      if (!resolved.delete(rule.ref)) {
+        throw new RuleSelectorError(
+          `excluded rule '${rule.ref}' was not included by any selector`,
+        );
+      }
+    }
   }
 
   const dropSet = new Map<string, string>();
@@ -171,14 +258,32 @@ export function assembleRules(
   };
 }
 
-/** Render already-sorted, already-filtered rules as tier-major Markdown. */
+/**
+ * Render already-sorted, already-filtered rules as tier-major Markdown. Within
+ * each tier, rules are already grouped by category (sorted by categoryOrder
+ * upstream) — each new category group gets a heading naming the category and
+ * its one-line description, so the model knows what a group of rules is
+ * scoped to before reading the bullets themselves.
+ */
 export function formatRulesMarkdown(rules: readonly ResolvedRule[]): string {
   const sections: string[] = [];
   for (const tier of [1, 2, 3, 4] as const) {
     const tierRules = rules.filter((rule) => rule.tier === tier);
     if (tierRules.length === 0) continue;
-    const bullets = tierRules.map(formatRuleMarkdown).join("\n");
-    sections.push(`## ${TIER_LABELS[tier]}\n${bullets}`);
+    const lines: string[] = [];
+    let lastCategory: string | undefined;
+    for (const rule of tierRules) {
+      if (rule.category !== lastCategory) {
+        lastCategory = rule.category;
+        lines.push(
+          rule.categoryDescription
+            ? `**${rule.categoryTitle}** — ${rule.categoryDescription}`
+            : `**${rule.categoryTitle}**`,
+        );
+      }
+      lines.push(formatRuleMarkdown(rule));
+    }
+    sections.push(`## ${TIER_LABELS[tier]}\n${lines.join("\n")}`);
   }
   return sections.join("\n\n");
 }

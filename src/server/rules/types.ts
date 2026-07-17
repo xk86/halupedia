@@ -90,6 +90,10 @@ export interface ResolvedRule extends RuleDef {
   ref: string;
   category: string;
   categoryTitle: string;
+  /** One or two sentences on what kind of concern this category covers —
+   *  rendered as a heading above the category's rules in the assembled
+   *  prompt text so the model knows what a group of rules is scoped to. */
+  categoryDescription: string;
   categoryOrder: number;
   source: RuleSource;
   /** Stable index for tie-breaking sort order within tier+category. */
@@ -101,11 +105,25 @@ export interface RuleLibrary {
   rulesByRef: Map<string, ResolvedRule>;
 }
 
-/** A prompt's rule selection, as declared in its own TOML under `[rules]`. */
+/**
+ * A prompt's rule selection, as declared in its own TOML under `[rules]`.
+ *
+ * `categories` imports namespaces a rule may be selected from — it does not
+ * select any rules itself. `"*"` imports every namespace in the library.
+ *
+ * `rules` entries are pathlike selectors resolved against imported
+ * categories only:
+ *   - `"category/id"`  -> exactly one rule
+ *   - `"category/*"`   -> every rule in that category
+ *   - `"!category/id"` -> remove one rule from the set assembled so far
+ *   - `"!category/*"`  -> remove every rule in that category
+ * Exclusion selectors are resolved after every inclusion selector,
+ * regardless of list order, and it is an error to exclude a rule that
+ * inclusion never selected — a stale or typo'd exclusion should fail loudly,
+ * not silently no-op.
+ */
 export interface RuleSpec {
-  /** Shared namespaces this prompt may select rules from. Imports no rules itself. */
   categories?: string[];
-  /** Explicitly enabled shared rules, addressed as "category/id". */
   rules?: string[];
 }
 

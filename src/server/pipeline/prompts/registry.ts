@@ -140,8 +140,16 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
       let templateHash = entry.hash;
       if (runtimeOptions?.extraInclude?.length) {
         const prompt = config.prompts[key];
+        // extraInclude selectors are an internal mechanism, not authored in
+        // the prompt's own TOML, so they aren't limited to the categories the
+        // prompt statically imports — auto-import whichever categories they
+        // reference (a prompt's own `rules` selectors still enforce the
+        // static import gate).
+        const extraCategories = runtimeOptions.extraInclude.map(
+          (ref) => ref.replace(/^!/, "").split("/")[0]!,
+        );
         const spec = {
-          categories: prompt?.rules?.categories ?? [],
+          categories: [...new Set([...(prompt?.rules?.categories ?? []), ...extraCategories])],
           rules: [...(prompt?.rules?.rules ?? []), ...runtimeOptions.extraInclude],
         };
         const assembled = assembleRules(config.ruleLibrary, spec, {

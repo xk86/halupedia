@@ -162,6 +162,7 @@ export function buildRuleLibrary(categoryDefs: CategoryDef[], rules: RuleDef[]):
       category: rule.category!,
       ref,
       categoryTitle: category.title,
+      categoryDescription: category.description,
       categoryOrder: category.order,
       source: "library",
       sequence: sequence++,

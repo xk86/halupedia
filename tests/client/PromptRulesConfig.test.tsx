@@ -50,11 +50,13 @@ describe("PromptRulesConfig", () => {
     );
 
     expect(screen.getByText("Canon foundations")).toBeInTheDocument();
+    expect(screen.queryByText("Content policy")).not.toBeInTheDocument();
     expect(screen.queryByText(/canon@/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole("combobox", { name: "Add category" }));
     await user.click(
-      screen.getByRole("checkbox", { name: "Import Content policy" }),
+      await screen.findByRole("option", { name: "Content policy" }),
     );
 
     expect(onChange).toHaveBeenCalledWith({
@@ -102,7 +104,10 @@ describe("PromptRulesConfig", () => {
       <PromptRulesConfig
         rules={{
           categories: ["canon", "content_policy"],
-          rules: ["canon/references_are_gospel", "content_policy/preserve_intent"],
+          rules: [
+            "canon/references_are_gospel",
+            "content_policy/preserve_intent",
+          ],
         }}
         categories={categories}
         onChange={onChange}
@@ -110,7 +115,7 @@ describe("PromptRulesConfig", () => {
     );
 
     await user.click(
-      screen.getByRole("checkbox", { name: "Import Canon foundations" }),
+      screen.getByRole("button", { name: "Remove Canon foundations" }),
     );
 
     expect(onChange).toHaveBeenCalledWith({

@@ -1,6 +1,7 @@
 import { memo, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
@@ -14,6 +15,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { humanizeRuleId } from "./ruleUtils";
 import type { RuleCategory } from "./types";
@@ -21,19 +23,16 @@ import type { RuleCategory } from "./types";
 export const PromptRuleCategorySelector = memo(
   function PromptRuleCategorySelector({
     category,
-    imported,
     selectedRules,
-    onImportChange,
+    onRemove,
     onRuleChange,
   }: {
     category: RuleCategory;
-    imported: boolean;
     selectedRules: Set<string>;
-    onImportChange: (checked: boolean) => void;
+    onRemove: () => void;
     onRuleChange: (ref: string, checked: boolean) => void;
   }) {
     const [open, setOpen] = useState(false);
-    const importId = `prompt-rule-category-${category.id}`;
     const selectedCount = category.rules.filter((rule) =>
       selectedRules.has(`${category.id}/${rule.id}`),
     ).length;
@@ -42,30 +41,15 @@ export const PromptRuleCategorySelector = memo(
       <Collapsible
         open={open}
         onOpenChange={setOpen}
-        data-imported={imported}
         className={cn(
-          "rounded-md border border-input transition-opacity",
-          !imported && "opacity-50",
+          "self-start rounded-md border border-input",
+          open && "md:col-span-2",
         )}
       >
-        <div className="flex items-start gap-3 p-3">
-          <Checkbox
-            id={importId}
-            checked={imported}
-            onCheckedChange={(checked) => {
-              const nextImported = checked === true;
-              if (nextImported) setOpen(true);
-              onImportChange(nextImported);
-            }}
-          />
-          <FieldContent className="min-w-0">
-            <FieldLabel
-              htmlFor={importId}
-              aria-label={`Import ${category.title}`}
-            >
-              {category.title}
-            </FieldLabel>
-            <FieldDescription className="line-clamp-2">
+        <div className="flex items-start gap-2 p-2">
+          <FieldContent className="min-w-0 gap-0">
+            <FieldLabel>{category.title}</FieldLabel>
+            <FieldDescription className="truncate">
               {category.description}
             </FieldDescription>
           </FieldContent>
@@ -73,19 +57,31 @@ export const PromptRuleCategorySelector = memo(
             {selectedCount} / {category.rules.length}
           </Badge>
           <CollapsibleTrigger
-            type="button"
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "icon-xs" }),
+              "group/trigger",
+            )}
             aria-label={`${open ? "Collapse" : "Expand"} ${category.title} rules`}
-            className="group/trigger -m-1 cursor-pointer rounded-md p-1 hover:bg-muted"
           >
             <ChevronDown
               aria-hidden
-              className="size-4 transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
+              className="transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
             />
           </CollapsibleTrigger>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Remove ${category.title}`}
+            onClick={onRemove}
+          >
+            <X />
+          </Button>
         </div>
 
         <CollapsibleContent>
-          <FieldGroup className="gap-1 border-t border-input p-2">
+          <Separator />
+          <FieldGroup className="grid gap-0 p-1 md:grid-cols-2">
             {category.rules.map((rule) => {
               const ref = `${category.id}/${rule.id}`;
               const selected = selectedRules.has(ref);
@@ -95,17 +91,15 @@ export const PromptRuleCategorySelector = memo(
                 <Field
                   key={ref}
                   orientation="horizontal"
-                  data-disabled={!imported}
                   data-selected={selected}
                   className={cn(
-                    "items-start rounded-md p-2 transition-opacity hover:bg-muted/50",
+                    "items-start rounded-md p-1.5 transition-opacity hover:bg-muted/50",
                     !selected && "opacity-50",
                   )}
                 >
                   <Checkbox
                     id={ruleId}
                     checked={selected}
-                    disabled={!imported}
                     onCheckedChange={(checked) =>
                       onRuleChange(ref, checked === true)
                     }
@@ -117,7 +111,9 @@ export const PromptRuleCategorySelector = memo(
                       </FieldLabel>
                       <Badge variant="outline">Tier {rule.tier}</Badge>
                     </div>
-                    <FieldDescription>{rule.text}</FieldDescription>
+                    <FieldDescription className="line-clamp-2">
+                      {rule.text}
+                    </FieldDescription>
                   </FieldContent>
                 </Field>
               );

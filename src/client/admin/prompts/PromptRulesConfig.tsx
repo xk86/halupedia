@@ -1,10 +1,20 @@
 import { memo } from "react";
+import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PromptRuleCategorySelector } from "./PromptRuleCategorySelector";
 import type { RuleCategory, RuleSpec } from "./types";
 
@@ -19,6 +29,12 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
 }) {
   const importedCategories = new Set(rules.categories);
   const selectedRules = new Set(rules.rules ?? []);
+  const activeCategories = categories.filter((category) =>
+    importedCategories.has(category.id),
+  );
+  const availableCategories = categories.filter(
+    (category) => !importedCategories.has(category.id),
+  );
 
   const changeCategory = (category: string, checked: boolean) => {
     const nextCategories = checked
@@ -26,9 +42,7 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
       : rules.categories.filter((value) => value !== category);
     const nextRules = checked
       ? (rules.rules ?? [])
-      : (rules.rules ?? []).filter(
-          (ref) => !ref.startsWith(`${category}/`),
-        );
+      : (rules.rules ?? []).filter((ref) => !ref.startsWith(`${category}/`));
 
     onChange({
       categories: nextCategories,
@@ -49,7 +63,7 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
 
   return (
     <FieldGroup className="gap-3">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <FieldLabel>Rule namespaces</FieldLabel>
           <FieldDescription>
@@ -57,26 +71,69 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
             uses.
           </FieldDescription>
         </div>
-        <Badge variant="secondary" className="shrink-0">
-          {rules.categories.length} imported · {(rules.rules ?? []).length}{" "}
-          enabled
-        </Badge>
+        <div className="flex flex-wrap items-center justify-end gap-2 self-end">
+          <Badge variant="secondary">
+            {rules.categories.length} imported · {(rules.rules ?? []).length}{" "}
+            enabled
+          </Badge>
+          <Select
+            value={null}
+            onValueChange={(category) => {
+              if (category) changeCategory(String(category), true);
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              aria-label="Add category"
+              data-testid="add-rule-category"
+              disabled={availableCategories.length === 0}
+            >
+              <Plus data-icon="inline-start" />
+              <SelectValue
+                placeholder={
+                  availableCategories.length === 0
+                    ? "All categories added"
+                    : "Add category"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent
+              align="end"
+              alignItemWithTrigger={false}
+              className="max-h-72"
+            >
+              <SelectGroup>
+                <SelectLabel>Add rule namespace</SelectLabel>
+                {availableCategories.map((category) => {
+                  return (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.title}
+                    </SelectItem>
+                  );
+                })}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <FieldGroup className="gap-2">
-        {categories.map((category) => (
-          <PromptRuleCategorySelector
-            key={category.id}
-            category={category}
-            imported={importedCategories.has(category.id)}
-            selectedRules={selectedRules}
-            onImportChange={(checked) =>
-              changeCategory(category.id, checked)
-            }
-            onRuleChange={changeRule}
-          />
-        ))}
-      </FieldGroup>
+      {activeCategories.length === 0 ? (
+        <FieldDescription className="rounded-md border border-dashed border-input p-2">
+          No rule namespaces imported. Add a category to expose its rules.
+        </FieldDescription>
+      ) : (
+        <FieldGroup className="grid items-start gap-2 md:grid-cols-2">
+          {activeCategories.map((category) => (
+            <PromptRuleCategorySelector
+              key={category.id}
+              category={category}
+              selectedRules={selectedRules}
+              onRemove={() => changeCategory(category.id, false)}
+              onRuleChange={changeRule}
+            />
+          ))}
+        </FieldGroup>
+      )}
     </FieldGroup>
   );
 });

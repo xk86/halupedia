@@ -40,3 +40,14 @@ This document defines the two primary internal link formats used within the Halu
 | **Contains Hints?** | Yes (via ) | No (target is the article itself) |
 | **LLM usage** | Suggesting new connections | Cinting known information |
 | **Format Example** | `[Apple](halu:apple "A fruit")` | `[Apple](ref:apple)` |
+
+## Reference Link Canonical Form
+
+Ref-citation links accept two input forms but always canonicalize to one:
+
+| Input form | Status | Notes |
+|---|---|---|
+| `[text](ref:slug-name)` | **Canonical / preferred** | The slug is shown directly in `{{references_list}}` next to the title so the model can copy it without tracking ordinal numbers. This is what `resolveRefLinks` outputs to stored markdown. |
+| `[text](ref:N)` | Accepted fallback | 1-based index into the reference list. Resolved into `ref:slug` at save time. Listed in `{{references_list}}` as "also reachable as ref:N" so legacy prompts and copy-paste from older articles keep working. |
+
+`formatReferencesForPrompt` renders each line as `- ref:slug → Title  (also reachable as ref:N)`. Prompts (`article.toml`, `article_refresh.toml`, and the `linking` rule category) call out the slug form as the default. The numeric form is kept supported but de-emphasized so the model stops having to do ordinal arithmetic.

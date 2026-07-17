@@ -2,6 +2,8 @@
 
 Each `.toml` file in this directory defines a single prompt template. The filename (minus `.toml`) becomes the prompt key used in code (e.g., `article_refresh.toml` -> key `article_refresh`).
 
+Headline-image style presets are a separate, differently-shaped config living in [`config/image_presets/`](../image_presets/) — they aren't prompts by the definition below (no `system`/`user` pair loaded by this directory's scanner) and have their own admin editor.
+
 ## File Structure
 
 ```toml
@@ -24,116 +26,47 @@ Prompts use `{{variable_name}}` placeholders that are substituted at runtime. Co
 
 - `{{requested_title}}` - the article title being generated/edited
 - `{{current_article}}` - existing article content (for refresh/rewrite)
-- `{{rag_context}}` - retrieved context from RAG
+- `{{rag_context}}` - retrieved context from RAG (provenance details: [docs/rag-context-provenance.md](../../docs/rag-context-provenance.md))
 - `{{link_hints}}` - incoming canonical references
 - `{{related_titles}}` - existing related Halupedia topics
 - `{{rules}}` - expands to the prompt's assembled rule-library text (see "Rule library" below)
 
 ## Adding a New Prompt
 
-Create `config/prompts/my_prompt.toml` with `system` and `user` keys. It will be automatically loaded and accessible as `prompts.prompts.my_prompt` in server code.
+Create `config/prompts/my_prompt.toml` with `system` and `user` keys. It will be automatically loaded and accessible as `prompts.prompts.my_prompt` in server code. Register a human-readable description and call sites in `src/server/promptUsage.ts` so the admin Prompts pane and catalog below aren't stuck saying "user-defined prompt with no registered runtime description."
 
 ## Prompt Catalog
 
-Every prompt currently shipped in this directory. Each entry says *what* the prompt asks the model to produce, *where* in the code it gets invoked, and *why* the system needs it.
+`src/server/promptUsage.ts` is the single source of truth for what each prompt does and where it's called from — every prompt key maps to a `description` and a `usedBy` list of call sites. That file is read directly by the admin **Prompts** pane, so browsing prompts there always reflects the current, live mapping rather than a hand-maintained copy that can drift out of sync with it (as this table once did).
 
-### Article-body prompts (`heavy` model, streaming)
+A few prompts are worth calling out because their names collide or their status is easy to misread:
 
-| File | Invoked at | Purpose |
-|---|---|---|
-| `article.toml` | `index.ts` — `buildArticleBody` (page generation path) | Initial generation of a brand-new article from a requested title + RAG context. Streams Markdown that becomes the article body. |
-| `article_refresh.toml` | `index.ts` — `/api/article/:slug/refresh-context` handler | Re-write an existing article using newly-retrieved RAG context. Keeps the same topic, fixes link/ref syntax, and reincorporates current sources. |
-| `article_rewrite.toml` | `index.ts` — `/api/article/:slug/rewrite` handler | Vibe-only rewrite. Conforms the article to its persistent canonical vibe without receiving one-off edit instructions. |
-| `article_quick_edit.toml` | `index.ts` — `/api/article/:slug/rewrite` handler | One-off instructed rewrite. Applies `edit_instructions` once while preserving the persistent article vibe. |
+- **`link_selection.toml` (prompt) vs. `link_selection` (rule category).** The *prompt* file is legacy and unused (`promptUsage.ts` lists it with `usedBy: []` — anchor-text selection for the highlight-to-link flow is bounded code, not an LLM call). The *rule category* of the same name, in `config/rules/link_selection.toml`, is unrelated and very much live: it's imported by `link_suggestion.toml` to govern picking a compact canonical description for a new link target. Same name, two different things — don't infer one's status from the other.
+- **`link_recheck.toml`, `link_repair.toml`, `comment.toml`** are likewise retained-but-unused legacy prompts (`promptUsage.ts` says so explicitly for each).
+- **`shared/shared_rewrite_modes.toml`** is never invoked directly — see "Shared" below.
 
-### Post-processing & analysis (`heavy` or `light`)
+## Shared
 
-| File | Invoked at | Purpose |
-|---|---|---|
-| `see_also.toml` | `index.ts` — `postProcessArticle` (background after generation) | Generate the algorithmic "See also" sidecar — related-topic suggestions that may or may not exist yet in the DB. |
-| `link_recheck.toml` | `index.ts` — `verifyLinkQuality` (after generation) | Asks the model to inspect generated halu links for plausibility and suggest fixes. Skipped when there are no links. |
-| `link_repair.toml` | `index.ts` — link-repair pass during generation/refresh | Fixes broken or malformed link syntax in the generated body (unmatched quotes, bracket mistakes, etc). |
-| `article_summary.toml` | `index.ts` — admin summary regeneration; `summarizeRetrievedSource` | Produce or refresh the one-paragraph article summary stored in `articles.summary_markdown` and shown in backlinks/refs. |
+Files under `shared/` are never invoked directly. Currently just `shared_rewrite_modes.toml`: its `system`/`user` are empty, and it exists only to carry a `[modes.*]` table through the prompt loader — those tables feed `config.prompts.rewriteModes` directly (selected by a `mode` variable in `article_refresh`/`article_rewrite`/`article_quick_edit`), not a set of rules to assemble.
 
-### Selection-edit (highlight → add link) prompts (`light` model usually)
+## Rule library
 
-| File | Invoked at | Purpose |
-|---|---|---|
-| `link_selection.toml` | deprecated / unused | Selection refinement is bounded code in `/api/article/:slug/add-link`; do not call an LLM to choose anchor text. |
-| `link_suggestion.toml` | `index.ts` — `generateLinkSuggestion` (called from `/api/article/:slug/add-link`) | Given a bounded selection + surrounding excerpt, returns `{slug, description}` JSON used to build the `[label](halu:slug "hint")` wrap. |
+Every prompt's `[rules]` table has two lists:
 
-### Homepage / discovery (`light` model)
+- `categories`: imported shared namespaces (`config/rules/*.toml`, cataloged in `config/rules/categories.toml`). Importing `"canon"` makes canon rules *available* for selection — it does not enable any rule by itself. `categories = ["*"]` imports every namespace in the library.
+- `rules`: pathlike selectors resolved against imported categories:
+  - `"category/id"` — exactly one rule
+  - `"category/*"` — every rule currently in that category (and any added to it later)
+  - either prefixed with `"!"` to exclude, e.g. `"!linking/min_five_internal_links"` after a `"linking/*"` wildcard
 
-| File | Invoked at | Purpose |
-|---|---|---|
-| `did_you_know.toml` | `index.ts` — `generateDykFact` (homepage maintenance) | Generates a single "Did you know…" fact rotated on the homepage; output is forced to link back to its source article. |
-| `random_page.toml` | `index.ts` — `/api/random` handler | Generates a brand-new random article slug+title pair to seed exploration when the random-page button is used. |
+Exclusion selectors always resolve after every inclusion selector regardless of list order, and excluding a rule that inclusion never selected is a load-time error rather than a silent no-op — a stale or typo'd exclusion should fail loudly.
 
-### Comment system (`light` model)
+A rule can only be selected when its category is imported. There are no tier-range selectors (`category@2`) or bare-category selectors (`category` alone meaning "all of it") — a bare category name in `categories` only imports the namespace; use `category/*` in `rules` to actually select everything in it.
 
-| File | Invoked at | Purpose |
-|---|---|---|
-| `identity.toml` | `comments.ts` — `generateIdentity` | Manufactures a fictional commenter (display name + username) when a new pseudo-user is needed for the local comment system. |
-| `comment.toml` | `comments.ts` — comment generation | Produces a fictional reply comment in JSON, optionally responding to a parent comment. |
+The assembled `{{rules}}` text is tier-major (hardest-to-break rules first). Within a tier, each category's rules are preceded by a heading naming the category and its one-line description from `categories.toml`, so the model has context on what a group of rules is scoped to rather than reading a flat bullet list.
 
-### Shared (template fragments, not invoked directly)
+`article_rewrite.toml`/`article_quick_edit.toml` additionally need a rule selection that varies per render call (full-article vs. section/selection scope), not just per prompt. `RenderRuntimeOptions.extraInclude` is an internal mechanism for this one dynamic case, used only from `renderRewritePromptNode`: it selects the `output_contract/full_article_*` or `output_contract/partial_scope_*` pair based on whether the edit is partial, and auto-imports whichever categories those selectors reference (since it's an internal call, not prompt-authored TOML, it isn't limited to the categories the prompt statically imports).
 
-Files under `shared/` are NEVER invoked directly.
+### Admin editor caveat
 
-| File | Used by |
-|---|---|
-| `shared/shared_rewrite_modes.toml` | `{{rewrite_mode}}` blurb expanded into vibe rewrites, quick edits, and article refreshes. Its `[modes.*]` tables feed `config.prompts.rewriteModes` directly — a parameterized template selected by a `mode` variable, not a set of rules to assemble, so it's out of scope for the rule-library migration below. |
-
-### Rule library
-
-Every prompt has migrated off the old `{{shared_*}}` template fragments and onto the flat, tiered rule library under `config/rules/` — see `src/server/rules/`. A prompt's `[rules]` table has two explicit lists:
-
-- `categories`: imported shared namespaces. Adding `"canon"` makes Canon foundations rules available for selection but does not enable any rule by itself.
-- `rules`: the explicit `"category/rule_id"` entries enabled for this prompt. A rule can only be selected when its category is imported.
-
-Prompt files do not use tier ranges, exclusions, or inline rule blocks. Rule wording lives in one independently editable flat file under `config/rules/`; prompt files import namespaces and explicitly list the rules they need. The prompt's `{{rules}}` template variable marks where the assembled rule text is inserted, but the admin UI handles that detail and does not expose it as a user-facing placeholder.
-
-`article_rewrite.toml`/`article_quick_edit.toml` additionally need a rule selection that varies per render call (full-article vs. section/selection scope), not just per prompt. `RenderRuntimeOptions.extraInclude` remains an internal mechanism for this one dynamic case: `renderRewritePromptNode` selects the `output_contract/full_article_*` or `output_contract/partial_scope_*` pair based on whether the edit is partial.
-
-## RAG Context Sources
-
-Article-body prompts (`article`, `article_refresh`, `article_rewrite`, `article_quick_edit`) get THREE distinct streams of context. Each has its own provenance and is exposed under its own template variable so the model never has to guess where a fact came from. Logs use matching names so prompt-context provenance is traceable end-to-end.
-
-| Template variable | Source table | Helper / function | What it is |
-|---|---|---|---|
-| `{{link_hints}}` | `article_links` | `listIncomingHints` → `formatIncomingHintsForPrompt` | Halu-style link templates from articles that link TO the target. Each line is `[label](halu:source-slug "hidden_hint")`. The `hidden_hint` is canon written by past generations — the strongest "what does the rest of the wiki already say about me" signal. |
-| `{{rag_context}}` | LanceDB `rag_text_documents` | profile-based `rag.retrieve` | Retrieved typed documents mapped into article evidence for the prompt. Document kinds include body, summary, infobox, link hints, image text, and ontology facts according to the active retrieval profile. |
-| `{{related_titles}}` | LanceDB candidates **and** `article_links` | `formatRelatedTitlesForPrompt` | Bulleted titles from retrieved document candidates plus graph-adjacent backlink titles. Evidence inclusion and linkability remain separate. |
-
-### Per-source log fields
-
-When the article-body path runs, `build.article_rag_retrieved` logs the breakdown so each context stream is auditable:
-
-| Log field | Source | Meaning |
-|---|---|---|
-| `rag_chunk_sources` | `retrieveContext` | Count of chunks picked above `reference_min_score`. |
-| `rag_chunk_titles` | `retrieveContext` → `formatRelatedTitlesForPrompt` | Unique titles from RAG chunks appearing in `related_titles`. |
-| `backlink_titles` | `listBacklinks` → `formatRelatedTitlesForPrompt` | Unique titles from `article_links` (and live scan) appearing in `related_titles`. |
-| `incoming_link_hints` | `listIncomingHints` | Count of `article_links` rows that became `{{link_hints}}` entries. |
-| `related_titles_total` | merged | Sum of unique titles after deduping across both sources. |
-
-### Why `article_links` correctness matters beyond the backlinks UI
-
-`article_links` is the substrate for TWO context streams (`{{link_hints}}` AND the backlinks half of `{{related_titles}}`) plus the visible backlinks panel. A missing or stale row degrades:
-
-1. The visible "Referenced by" sidebar.
-2. The hidden-hint canon the LLM gets when generating the target article.
-3. The graph-adjacent titles offered as inspiration alongside RAG chunks.
-
-`extractAllBodyLinks` (in `src/server/referenceList.ts`) is the single chokepoint that keeps the table accurate; it scans BOTH `halu:` and `ref:slug` links at every save and update. `listBacklinks` additionally does a live LIKE scan as a fallback for legacy or out-of-band saves.
-
-## Reference Link Canonical Form
-
-Ref-citation links accept two input forms but always canonicalize to one:
-
-| Input form | Status | Notes |
-|---|---|---|
-| `[text](ref:slug-name)` | **Canonical / preferred** | The slug is shown directly in `{{references_list}}` next to the title so the model can copy it without tracking ordinal numbers. This is what `resolveRefLinks` outputs to stored markdown. |
-| `[text](ref:N)` | Accepted fallback | 1-based index into the reference list. Resolved into `ref:slug` at save time. Listed in `{{references_list}}` as "also reachable as ref:N" so legacy prompts and copy-paste from older articles keep working. |
-
-`formatReferencesForPrompt` renders each line as `- ref:slug → Title  (also reachable as ref:N)`. Prompts (`article.toml`, `article_refresh.toml`, and the `linking` rule category) call out the slug form as the default. The numeric form is kept supported but de-emphasized so the model stops having to do ordinal arithmetic.
+The admin rule picker (Prompts pane) understands `category/*` as a "Select all" toggle per category — turning it off restores whatever explicit selection it replaced (or the full list, if there was none to restore). It does **not** support the `!` exclusion syntax or wildcards mixed with a partial exclusion from the same category; a prompt using `["linking/*", "!linking/min_five_internal_links"]` should be hand-edited in the TOML file rather than through the picker until that's built out.

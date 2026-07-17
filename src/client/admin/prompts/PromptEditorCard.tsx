@@ -68,11 +68,9 @@ const BASE_IMAGE_PRESET: ImagePromptOption = {
 function PromptEditorCardComponent({
   prompt,
   ruleCategories,
-  ruleDefinitions,
 }: {
   prompt: PromptMeta;
   ruleCategories: RuleCategory[];
-  ruleDefinitions: RuleDefinition[];
 }) {
   const [content, setContent] = useState<PromptContent | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -604,12 +602,9 @@ function PromptEditorCardComponent({
                 <FieldLabel>Shared rule sets</FieldLabel>
                 <PromptRulesConfig
                   rules={ruleSpec}
-                  localRules={localRules}
                   categories={ruleCategories}
-                  availableRules={ruleDefinitions}
-                  onChange={(nextRules, nextLocalRules) => {
+                  onChange={(nextRules) => {
                     setRuleSpec(nextRules);
-                    setLocalRules(nextLocalRules);
                     setSaveMsg(null);
                   }}
                 />

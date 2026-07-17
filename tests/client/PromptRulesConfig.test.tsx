@@ -33,54 +33,92 @@ const categories = [
       },
     ],
   },
-  {
-    id: "tone",
-    title: "Tone rules",
-    description: "Voice and phrasing.",
-    order: 20,
-    rules: [
-      {
-        id: "no_fictional_label",
-        category: "tone",
-        tier: 1 as const,
-        text: "Do not label the world as fictional.",
-      },
-    ],
-  },
 ];
-
-const availableRules = categories.flatMap((category) => category.rules);
 
 describe("PromptRulesConfig", () => {
   afterEach(cleanup);
 
-  it("shows human names and adds whole categories without selector syntax", async () => {
+  it("imports a category without enabling any of its rules", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
       <PromptRulesConfig
-        rules={{ categories: ["canon"], rules: ["tone/no_fictional_label"] }}
-        localRules={[]}
+        rules={{ categories: ["canon"] }}
         categories={categories}
-        availableRules={availableRules}
         onChange={onChange}
       />,
     );
 
     expect(screen.getByText("Canon foundations")).toBeInTheDocument();
-    expect(screen.getByText("No fictional label")).toBeInTheDocument();
     expect(screen.queryByText(/canon@/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Choose categories" }));
-    await user.click(screen.getByRole("checkbox", { name: /content policy/i }));
-
-    expect(onChange).toHaveBeenCalledWith(
-      {
-        categories: ["canon", "content_policy"],
-        rules: ["tone/no_fictional_label"],
-      },
-      [],
+    await user.click(
+      screen.getByRole("checkbox", { name: "Import Content policy" }),
     );
+
+    expect(onChange).toHaveBeenCalledWith({
+      categories: ["canon", "content_policy"],
+    });
+  });
+
+  it("shows shadowed rules in a fold and enables an explicit selection", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PromptRulesConfig
+        rules={{ categories: ["canon"] }}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.queryByText("References are gospel")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Expand Canon foundations rules" }),
+    );
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: "References are gospel",
+    });
+    expect(checkbox).toBeEnabled();
+    expect(checkbox.closest("[data-selected]"))?.toHaveAttribute(
+      "data-selected",
+      "false",
+    );
+
+    await user.click(checkbox);
+
+    expect(onChange).toHaveBeenCalledWith({
+      categories: ["canon"],
+      rules: ["canon/references_are_gospel"],
+    });
+  });
+
+  it("removes selected rules when their namespace is removed", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PromptRulesConfig
+        rules={{
+          categories: ["canon", "content_policy"],
+          rules: ["canon/references_are_gospel", "content_policy/preserve_intent"],
+        }}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("checkbox", { name: "Import Canon foundations" }),
+    );
+
+    expect(onChange).toHaveBeenCalledWith({
+      categories: ["content_policy"],
+      rules: ["content_policy/preserve_intent"],
+    });
+    expect(
+      screen.queryByRole("button", { name: "Add prompt-only rule" }),
+    ).not.toBeInTheDocument();
   });
 });

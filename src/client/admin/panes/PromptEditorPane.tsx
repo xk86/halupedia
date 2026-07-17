@@ -212,7 +212,6 @@ function PromptEditorPaneComponent() {
             key={promptId(selectedPrompt)}
             prompt={selectedPrompt}
             ruleCategories={ruleCategories}
-            ruleDefinitions={ruleDefinitions}
           />
         ) : null}
 
@@ -226,7 +225,6 @@ function PromptEditorPaneComponent() {
                 key={promptId(prompt)}
                 prompt={prompt}
                 ruleCategories={ruleCategories}
-                ruleDefinitions={ruleDefinitions}
               />
             ))}
           </div>

@@ -112,7 +112,7 @@ export interface ArticleImagePresetContent {
 const ROOT = process.cwd();
 const PROMPT_DIR = resolve(ROOT, "config", "prompts");
 const SHARED_DIR = resolve(PROMPT_DIR, "shared");
-const ARTICLE_IMAGE_PRESET_DIR = resolve(PROMPT_DIR, "article_image_presets");
+const ARTICLE_IMAGE_PRESET_DIR = resolve(ROOT, "config", "image_presets");
 
 function promptDir(scope: "runnable" | "shared"): string {
   return scope === "shared" ? SHARED_DIR : PROMPT_DIR;
@@ -255,7 +255,7 @@ export function listArticleImagePresetFiles(): ArticleImagePresetContent[] {
       const key = basename(file, ".toml");
       const path = resolve(ARTICLE_IMAGE_PRESET_DIR, file);
       return {
-        ...readTomlPromptContent(path, key, `config/prompts/article_image_presets/${key}.toml`),
+        ...readTomlPromptContent(path, key, `config/image_presets/${key}.toml`),
         label: key,
       };
     });
@@ -266,7 +266,7 @@ export function readArticleImagePresetFile(key: string): ArticleImagePresetConte
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return null;
   return {
-    ...readTomlPromptContent(path, key, `config/prompts/article_image_presets/${key}.toml`),
+    ...readTomlPromptContent(path, key, `config/image_presets/${key}.toml`),
     label: key,
   };
 }

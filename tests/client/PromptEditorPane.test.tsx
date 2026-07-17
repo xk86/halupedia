@@ -34,7 +34,7 @@ const psychedelicEditorialPrompt = {
   key: "psychedelic_editorial",
   system: "psychedelic editorial system",
   user: "psychedelic editorial user",
-  path: "config/prompts/article_image_presets/psychedelic_editorial.toml",
+  path: "config/image_presets/psychedelic_editorial.toml",
 };
 
 describe("PromptEditorPane image presets", () => {
@@ -102,7 +102,7 @@ describe("PromptEditorPane image presets", () => {
             ...psychedelicEditorialPrompt,
             key: "neon",
             system: "neon system",
-            path: "config/prompts/article_image_presets/neon.toml",
+            path: "config/image_presets/neon.toml",
           });
         }
         if (url.endsWith("/revisions")) return jsonResponse({ revisions: [] });
@@ -113,7 +113,7 @@ describe("PromptEditorPane image presets", () => {
               ...psychedelicEditorialPrompt,
               key: "neon",
               system: "neon system",
-              path: "config/prompts/article_image_presets/neon.toml",
+              path: "config/image_presets/neon.toml",
             },
             prompts: [
               { key: "documentary_photo", label: "documentary_photo" },

@@ -1137,7 +1137,7 @@ describe("http", () => {
   test("POST and DELETE /api/admin/article-image-prompts creates and removes a preset", async (t) => {
     const suffix = randomUUID().replace(/-/g, "_");
     const key = `test_${suffix}`;
-    const promptPath = join(process.cwd(), "config", "prompts", "article_image_presets", `${key}.toml`);
+    const promptPath = join(process.cwd(), "config", "image_presets", `${key}.toml`);
     t.after(() => {
       if (existsSync(promptPath)) unlinkSync(promptPath);
     });

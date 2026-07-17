@@ -17,6 +17,12 @@ const categories = [
         tier: 1 as const,
         text: "Treat references as canon.",
       },
+      {
+        id: "vibe_precedence",
+        category: "canon",
+        tier: 1 as const,
+        text: "The vibe wins over a one-off instruction.",
+      },
     ],
   },
   {
@@ -187,7 +193,7 @@ describe("PromptRulesConfig", () => {
     });
   });
 
-  it("select-all disables individual checkboxes, all shown as checked", async () => {
+  it("select-all shows every rule as checked and still editable", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -205,6 +211,101 @@ describe("PromptRulesConfig", () => {
       name: "References are gospel",
     });
     expect(checkbox).toBeChecked();
-    expect(checkbox).toHaveAttribute("aria-disabled", "true");
+    expect(checkbox).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("unchecking a rule under a wildcard writes a '!' exclusion, not a plain removal", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PromptRulesConfig
+        rules={{ categories: ["canon"], rules: ["canon/*"] }}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Expand Canon foundations rules" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "References are gospel" }),
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      categories: ["canon"],
+      rules: ["canon/*", "!canon/references_are_gospel"],
+    });
+  });
+
+  it("re-checking an excluded rule removes its '!' exclusion", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PromptRulesConfig
+        rules={{
+          categories: ["canon"],
+          rules: ["canon/*", "!canon/references_are_gospel"],
+        }}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Expand Canon foundations rules" }),
+    );
+    const checkbox = screen.getByRole("checkbox", {
+      name: "References are gospel",
+    });
+    expect(checkbox).not.toBeChecked();
+
+    await user.click(checkbox);
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      categories: ["canon"],
+      rules: ["canon/*"],
+    });
+  });
+
+  it("turning select-all off with an active exclusion keeps the exclusion (not stale pre-wildcard memory)", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PromptRulesConfig
+        rules={{
+          categories: ["canon"],
+          rules: ["canon/*", "!canon/references_are_gospel"],
+        }}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Expand Canon foundations rules" }),
+    );
+    await user.click(screen.getByRole("checkbox", { name: /Select all/ }));
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      categories: ["canon"],
+      rules: ["canon/vibe_precedence"],
+    });
+  });
+
+  it("badge count subtracts excluded rules from a wildcarded category", () => {
+    const onChange = vi.fn();
+    render(
+      <PromptRulesConfig
+        rules={{
+          categories: ["canon"],
+          rules: ["canon/*", "!canon/references_are_gospel"],
+        }}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByText("1 imported · 1 enabled")).toBeInTheDocument();
   });
 });

@@ -25,6 +25,7 @@ export const PromptRuleCategorySelector = memo(
     category,
     selectedRules,
     wildcard,
+    excludedRefs,
     onRemove,
     onRuleChange,
     onWildcardToggle,
@@ -34,13 +35,16 @@ export const PromptRuleCategorySelector = memo(
     /** Whether this category is selected via "category/*" rather than an
      *  explicit per-rule list. */
     wildcard: boolean;
+    /** Refs excluded from the wildcard via "!category/id" — meaningless when
+     *  `wildcard` is false. */
+    excludedRefs: Set<string>;
     onRemove: () => void;
     onRuleChange: (ref: string, checked: boolean) => void;
     onWildcardToggle: (checked: boolean) => void;
   }) {
     const [open, setOpen] = useState(false);
     const selectedCount = wildcard
-      ? category.rules.length
+      ? category.rules.length - excludedRefs.size
       : category.rules.filter((rule) => selectedRules.has(`${category.id}/${rule.id}`))
           .length;
 
@@ -106,7 +110,9 @@ export const PromptRuleCategorySelector = memo(
               </FieldLabel>
               <FieldDescription>
                 {wildcard
-                  ? "Every rule in this category, including ones added later. Turn off to pick individually."
+                  ? excludedRefs.size > 0
+                    ? `Every rule in this category except ${excludedRefs.size} unchecked below, including ones added later.`
+                    : "Every rule in this category, including ones added later. Uncheck any rule below to exclude it."
                   : "Import every current and future rule in this category as one wildcard entry."}
               </FieldDescription>
             </FieldContent>
@@ -114,7 +120,7 @@ export const PromptRuleCategorySelector = memo(
           <FieldGroup className="grid gap-0 p-1 md:grid-cols-2">
             {category.rules.map((rule) => {
               const ref = `${category.id}/${rule.id}`;
-              const selected = wildcard || selectedRules.has(ref);
+              const selected = wildcard ? !excludedRefs.has(ref) : selectedRules.has(ref);
               const ruleId = `prompt-rule-${category.id}-${rule.id}`;
 
               return (
@@ -130,7 +136,6 @@ export const PromptRuleCategorySelector = memo(
                   <Checkbox
                     id={ruleId}
                     checked={selected}
-                    disabled={wildcard}
                     onCheckedChange={(checked) =>
                       onRuleChange(ref, checked === true)
                     }

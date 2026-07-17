@@ -259,31 +259,48 @@ export function assembleRules(
 }
 
 /**
- * Render already-sorted, already-filtered rules as tier-major Markdown. Within
- * each tier, rules are already grouped by category (sorted by categoryOrder
- * upstream) — each new category group gets a heading naming the category and
- * its one-line description, so the model knows what a group of rules is
- * scoped to before reading the bullets themselves.
+ * Render already-sorted, already-filtered rules as tier-major Markdown. A
+ * legend up front describes every category that appears anywhere in the set
+ * (in first-appearance order), so within each tier section a category only
+ * needs to be named — it becomes a level-3 heading with no description
+ * repeated under it.
  */
 export function formatRulesMarkdown(rules: readonly ResolvedRule[]): string {
+  const legend: string[] = [];
+  const seenCategories = new Set<string>();
+  for (const rule of rules) {
+    if (seenCategories.has(rule.category)) continue;
+    seenCategories.add(rule.category);
+    legend.push(
+      rule.categoryDescription
+        ? `**${rule.categoryTitle}** — ${rule.categoryDescription}`
+        : `**${rule.categoryTitle}**`,
+    );
+  }
+
   const sections: string[] = [];
+  if (legend.length > 0) sections.push(`## Categories\n\n${legend.join("\n\n")}`);
+
   for (const tier of [1, 2, 3, 4] as const) {
     const tierRules = rules.filter((rule) => rule.tier === tier);
     if (tierRules.length === 0) continue;
-    const lines: string[] = [];
+    const groups: string[] = [];
     let lastCategory: string | undefined;
+    let bullets: string[] = [];
+    const flush = () => {
+      if (bullets.length > 0) groups.push(bullets.join("\n"));
+      bullets = [];
+    };
     for (const rule of tierRules) {
       if (rule.category !== lastCategory) {
+        flush();
         lastCategory = rule.category;
-        lines.push(
-          rule.categoryDescription
-            ? `**${rule.categoryTitle}** — ${rule.categoryDescription}`
-            : `**${rule.categoryTitle}**`,
-        );
+        groups.push(`### ${rule.categoryTitle}`);
       }
-      lines.push(formatRuleMarkdown(rule));
+      bullets.push(formatRuleMarkdown(rule));
     }
-    sections.push(`## ${TIER_LABELS[tier]}\n${lines.join("\n")}`);
+    flush();
+    sections.push(`## ${TIER_LABELS[tier]}\n\n${groups.join("\n\n")}`);
   }
   return sections.join("\n\n");
 }

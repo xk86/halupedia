@@ -94,7 +94,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { createRagRuntime, registerRagAdminRoutes, buildEvidenceContext, toPromptSourceArticles, DEFAULT_PROFILES, type RagRuntime } from "./rag";
-import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, setOntologySuggestionsStatus, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, listExtractQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, setOntologySuggestionsStatus, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, listExtractQueue, recoverStaleReviews, recoverStaleExtractions, flushReviewQueue, flushExtractQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -874,6 +874,21 @@ export async function createApp(options: CreateAppOptions = {}) {
       });
   }, 2000);
   ragDrainTimer.unref?.();
+
+  // Recover rows a previous process left stuck at status='processing' — e.g.
+  // a dev server killed with ctrl+c mid-extraction. These queues have no
+  // host/worker column to detect an abandoned claim any other way, so without
+  // this a row sits "running" forever and never gets retried (see
+  // recoverStaleExtractions/recoverStaleReviews). Must run before
+  // startScheduler below claims any new work.
+  const recoveredExtractions = recoverStaleExtractions(db);
+  const recoveredReviews = recoverStaleReviews(db);
+  if (recoveredExtractions > 0 || recoveredReviews > 0) {
+    logger.warn("ontology_queue.recovered_stale", {
+      extractions: recoveredExtractions,
+      reviews: recoveredReviews,
+    });
+  }
 
   // Scheduled ontology-suggestion auto-review: separate from the live
   // generation queue, driven by its own timer rather than user actions. See
@@ -3673,6 +3688,19 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json(generationQueuePayload());
   });
 
+  // Admin escape hatch for a stuck durable queue row (ontology extract/review
+  // — see recoverStaleExtractions/recoverStaleReviews for the automatic
+  // startup path). Marks every active row 'error' rather than deleting it;
+  // anything still ontology-stale is picked back up on the next enqueue tick.
+  // Does not touch the in-memory article-generation queue, which already
+  // clears itself on restart.
+  app.post("/api/admin/generation-queue/flush", (c) => {
+    const extractions = flushExtractQueue(db);
+    const reviews = flushReviewQueue(db);
+    logger.warn("ontology_queue.flushed_by_admin", { extractions, reviews });
+    return c.json({ flushed: { extractions, reviews }, ...generationQueuePayload() });
+  });
+
   // GET /api/admin/workflow-schedules — schedule state + the long-term
   // ontology-review queue, for the Monitoring admin view.
   app.get("/api/admin/workflow-schedules", (c) => {
@@ -6139,7 +6167,18 @@ async function bootstrap() {
 
   let shuttingDown = false;
   const gracefulShutdown = async () => {
-    if (shuttingDown) return;
+    // A second ctrl+c/SIGTERM while `shutdown()` is still draining (e.g. an
+    // in-flight LLM call that never resolves) used to be silently swallowed
+    // by this guard — the process never died, so the only way out was a
+    // SIGKILL, which skips shutdown() entirely and leaves any durable queue
+    // row (ontology_extract_queue/ontology_review_queue) stuck at
+    // status='processing' forever (see recoverStaleExtractions/
+    // recoverStaleReviews, which clean these up on the next boot). Now the
+    // repeat signal forces an immediate exit instead of hanging.
+    if (shuttingDown) {
+      logger.warn("shutdown.forced_exit", { reason: "signal repeated while draining" });
+      process.exit(1);
+    }
     shuttingDown = true;
     logger.info("shutdown.signal_received");
     server.close();

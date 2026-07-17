@@ -139,6 +139,28 @@ export function failReview(db: DatabaseSync, id: number, error: string): void {
   ).run(Date.now(), error, id);
 }
 
+/** Mirrors `recoverStaleExtractions` (see extractQueue.ts) for the review
+ *  queue: rows stuck at 'processing' after an interrupted process are reset
+ *  to 'pending' at startup so they're retried instead of sitting forever. */
+export function recoverStaleReviews(db: DatabaseSync): number {
+  const res = prepared(
+    db,
+    `UPDATE ontology_review_queue SET status = 'pending', started_at = NULL WHERE status = 'processing'`,
+  ).run();
+  return Number(res.changes);
+}
+
+/** Mirrors `flushExtractQueue` (see extractQueue.ts): admin escape hatch to
+ *  force-clear every active row in this queue. */
+export function flushReviewQueue(db: DatabaseSync): number {
+  const res = prepared(
+    db,
+    `UPDATE ontology_review_queue SET status = 'error', finished_at = ?, error = 'Flushed by admin'
+      WHERE status IN ('pending', 'processing')`,
+  ).run(Date.now());
+  return Number(res.changes);
+}
+
 /**
  * Active rows (pending/processing) first, in their real run order — the same
  * `article_rank DESC, id ASC` `claimNextReview` uses, so a "processing" row

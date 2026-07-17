@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, Server } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Card,
   CardAction,
@@ -68,6 +79,28 @@ export function LiveGenerationTracker({
   const { data } = useLlmAdmin();
   const hosts = data?.hosts ?? [];
   const now = useNow(items.length > 0);
+  const [flushConfirmOpen, setFlushConfirmOpen] = useState(false);
+  const [flushing, setFlushing] = useState(false);
+  const [flushMsg, setFlushMsg] = useState<string | null>(null);
+
+  const onFlushQueue = async () => {
+    setFlushing(true);
+    setFlushMsg(null);
+    try {
+      const res = await fetch("/api/admin/generation-queue/flush", {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(`error ${res.status}`);
+      const payload = await res.json();
+      const { extractions, reviews } = payload.flushed ?? {};
+      setFlushMsg(`Flushed ${(extractions ?? 0) + (reviews ?? 0)} stuck job(s).`);
+    } catch (err: any) {
+      setFlushMsg(err?.message || "Flush failed.");
+    } finally {
+      setFlushing(false);
+      setFlushConfirmOpen(false);
+    }
+  };
 
   const activeItems = useMemo(
     () => items.filter((item) => item.state !== "queued"),
@@ -180,10 +213,59 @@ export function LiveGenerationTracker({
               <h3 id="tracker-active" className="m-0 text-xs font-semibold">
                 Active generation
               </h3>
-              <span className="font-mono text-[0.68rem] text-muted-foreground tabular-nums">
-                {waitingClients} waiting clients
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[0.68rem] text-muted-foreground tabular-nums">
+                  {waitingClients} waiting clients
+                </span>
+                <Button
+                  variant="destructive"
+                  size="icon-xs"
+                  title="Flush stuck ontology queue jobs"
+                  aria-label="Flush stuck ontology queue jobs"
+                  onClick={() => setFlushConfirmOpen(true)}
+                >
+                  ⟲
+                </Button>
+              </div>
             </div>
+            {flushMsg ? (
+              <p className="m-0 mb-2 text-[0.68rem] text-muted-foreground">
+                {flushMsg}
+              </p>
+            ) : null}
+            <AlertDialog
+              open={flushConfirmOpen}
+              onOpenChange={(open) => {
+                if (!flushing) setFlushConfirmOpen(open);
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Flush generation queue?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This force-clears every pending/processing row in the
+                    ontology extract and review queues (marks them "error").
+                    Use this to unstick a job left "running" forever by a
+                    killed server process. Anything still stale gets
+                    re-queued automatically on the next scheduler tick. It
+                    does not cancel a live article generation actually in
+                    progress.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={flushing}>
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    disabled={flushing}
+                    onClick={onFlushQueue}
+                  >
+                    {flushing ? "Flushing…" : "Flush queue"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             {activeItems.length ? (
               <ul className="m-0 flex list-none flex-col gap-2 p-0">
                 {activeItems.map((active) => (

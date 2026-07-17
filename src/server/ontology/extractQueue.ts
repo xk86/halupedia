@@ -108,6 +108,37 @@ export function failExtraction(db: DatabaseSync, id: number, error: string): voi
   ).run(Date.now(), error, id);
 }
 
+/**
+ * Recover rows left at status='processing' by a process that died mid-claim
+ * (e.g. a killed dev server) without ever calling `completeExtraction`/
+ * `failExtraction` — otherwise they sit "running" forever with no owning
+ * process, since there's no `host`/`worker_id` column to detect this any
+ * other way. Called once at server startup, before the scheduler starts
+ * claiming new work, so any interrupted extraction is retried automatically.
+ */
+export function recoverStaleExtractions(db: DatabaseSync): number {
+  const res = prepared(
+    db,
+    `UPDATE ontology_extract_queue SET status = 'pending', started_at = NULL WHERE status = 'processing'`,
+  ).run();
+  return Number(res.changes);
+}
+
+/**
+ * Admin escape hatch: force-clear every active (pending/processing) row so a
+ * stuck queue stops showing as "running" in the admin tracker. Rows are
+ * marked 'error' rather than deleted so the history stays intact; any article
+ * that's still ontology-stale gets picked up again on the next enqueue tick.
+ */
+export function flushExtractQueue(db: DatabaseSync): number {
+  const res = prepared(
+    db,
+    `UPDATE ontology_extract_queue SET status = 'error', finished_at = ?, error = 'Flushed by admin'
+      WHERE status IN ('pending', 'processing')`,
+  ).run(Date.now());
+  return Number(res.changes);
+}
+
 /** Active rows (pending/processing) first in run order, then finished rows
  *  most-recently-finished first — mirrors `listReviewQueue`. */
 export function listExtractQueue(db: DatabaseSync, limit = 50): ExtractQueueItem[] {

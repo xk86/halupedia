@@ -352,7 +352,7 @@ export function PipelinesPane({
       {totalRows ? (
         <>
           <Table
-            containerClassName="mt-3 rounded-lg border border-border max-[700px]:overflow-x-hidden"
+            containerClassName="mt-3 rounded-lg border border-border"
             className="w-full table-fixed font-mono text-xs tabular-nums max-[700px]:text-[0.7rem] [&_td]:px-1.5 [&_td]:py-1 [&_th]:h-7 [&_th]:px-1.5"
           >
             <TableHeader>

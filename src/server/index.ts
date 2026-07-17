@@ -5059,6 +5059,11 @@ export async function createApp(options: CreateAppOptions = {}) {
     for (const fact of facts) {
       if (fact.objectSlug && !seenObject.has(fact.objectSlug)) {
         seenObject.add(fact.objectSlug);
+        // TODO: unlike reindexSidebarRag, this doesn't check getArticleByLookup before
+        // enqueueing — object slugs with no backing article (redlinks, stale entities)
+        // get queued as "upsert" and then logged as rag.article_deleted reason="no_source"
+        // when the drainer finds nothing to index. Harmless (no real article is deleted)
+        // but noisy; add the existence guard.
         if (isArticleOntologyStale(db, fact.objectSlug, rag.vocab)) {
           enqueueRagIndexJob(db, {
             articleSlug: fact.objectSlug,

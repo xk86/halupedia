@@ -1344,8 +1344,10 @@ export async function createApp(options: CreateAppOptions = {}) {
       }));
     // Ontology extract/review scheduler queue: these run outside
     // `queueWorkflow` (see `pipeline/scheduler.ts`), so they never reach the
-    // live registry above — surface their pending/processing backlog here
-    // directly so it's visible without switching to Workflow Schedules.
+    // live registry above. Only surface rows that are actively processing —
+    // the "pending" backlog is the *schedule* queue (everything waiting on
+    // the scheduler's own cadence), not the run queue this tracker shows, so
+    // it belongs in Workflow Schedules instead.
     const ontologyQueueRows = (
       workflow: string,
       rows: Array<{
@@ -1357,7 +1359,7 @@ export async function createApp(options: CreateAppOptions = {}) {
       }>,
     ) =>
       rows
-        .filter((row) => row.status === "pending" || row.status === "processing")
+        .filter((row) => row.status === "processing")
         .map((row) => ({
           slug: row.articleSlug,
           title: row.articleTitle,
@@ -1370,10 +1372,8 @@ export async function createApp(options: CreateAppOptions = {}) {
           activeMs: row.startedAt ? Math.max(0, now - row.startedAt) : 0,
           waiting: 0,
           workflow,
-          phase: row.status === "processing" ? "running" : "queued",
-          state: (row.status === "processing" ? "processing" : "queued") as
-            | "queued"
-            | "processing",
+          phase: "running",
+          state: "processing" as const,
           reasoning: undefined,
           views: [],
         }));

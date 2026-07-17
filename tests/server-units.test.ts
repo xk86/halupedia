@@ -3632,6 +3632,28 @@ test("hot-path indexes exist after openDatabase", (t) => {
     plan.some((row) => row.detail.includes("idx_articles_title_nocase")),
     `query plan does not use the index: ${JSON.stringify(plan)}`,
   );
+
+  // enqueueExtractionTasks/enqueueReviewTasks run a correlated NOT EXISTS
+  // subquery against these tables on every scheduler tick, synchronously on
+  // the single shared connection — must be index-served, not a per-row scan.
+  const extractPlan = db
+    .prepare(
+      `EXPLAIN QUERY PLAN SELECT 1 FROM ontology_extract_queue WHERE article_slug = 'x' AND status IN ('pending', 'processing')`,
+    )
+    .all() as Array<{ detail: string }>;
+  assert.ok(
+    extractPlan.some((row) => row.detail.includes("idx_extract_queue_article_status")),
+    `extract queue lookup does not use the index: ${JSON.stringify(extractPlan)}`,
+  );
+  const reviewPlan = db
+    .prepare(
+      `EXPLAIN QUERY PLAN SELECT 1 FROM ontology_review_queue WHERE article_slug = 'x' AND status IN ('pending', 'processing')`,
+    )
+    .all() as Array<{ detail: string }>;
+  assert.ok(
+    reviewPlan.some((row) => row.detail.includes("idx_review_queue_article_status")),
+    `review queue lookup does not use the index: ${JSON.stringify(reviewPlan)}`,
+  );
 });
 
 test("prepared() memoizes statements per connection", (t) => {

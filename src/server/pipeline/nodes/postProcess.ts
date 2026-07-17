@@ -52,6 +52,7 @@ import {
   summaryMarkdownFromArticle,
 } from "../../markdown";
 import { slugify } from "../../slug";
+import { parseJsonLoose } from "../../prompts";
 import { relinkTodaysNewsBriefHeadings } from "../../todaysNews";
 import type { ReferenceEntry } from "../state";
 import type { ReferenceListEntry } from "../../types";
@@ -527,7 +528,10 @@ export const generateInfoboxNode = defineNode({
       );
       const match = raw.match(/\{[\s\S]*\}/);
       if (!match) throw new Error("no JSON in infobox response");
-      const parsed = JSON.parse(match[0]) as InfoboxData;
+      // Infobox values carry TeX (e.g. "\text{SiO}_2"); preserve single-backslash
+      // LaTeX so JSON.parse doesn't eat "\t"/"\n"/etc. as control chars.
+      const parsed = parseJsonLoose(match[0], { preserveLatex: true }) as InfoboxData;
+      if (!parsed) throw new Error("invalid infobox JSON");
       if (!parsed.title || !Array.isArray(parsed.groups))
         throw new Error("invalid infobox shape");
       return { infobox: parsed };

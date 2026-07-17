@@ -109,7 +109,7 @@ import { MaintenanceScheduler } from "./maintenance";
 import { createEncyclopediaPdfExportJobs } from "./encyclopediaPdfExportJobs";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
 import { articleSectionMarkdown, buildHaluLink, extractDisplayTitle, extractInternalLinks, extractTitle, fixSlugVisibleText, LINK_RE, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, renderInlineMarkdown, renderOntologyValueHtml, replaceArticleSection, sectionSlice, spliceProtectedSections, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
-import { getPrompt, renderTemplate } from "./prompts";
+import { getPrompt, renderTemplate, parseJsonLoose } from "./prompts";
 import { formatRagContextForPrompt } from "./retrieval";
 import { isSlugForm, isSlugStyleWikiSegment, legacySlugify, normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToRequestedTitle, wikiSegmentToTitle } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
@@ -5473,8 +5473,10 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!match) return c.json({ error: "no JSON in response" }, 500);
     let parsed: InfoboxData;
     try {
-      parsed = JSON.parse(match[0]) as InfoboxData;
-      if (!parsed.title || !Array.isArray(parsed.groups)) throw new Error("invalid infobox shape");
+      // Infobox values carry TeX (e.g. "\text{SiO}_2"); preserve single-backslash
+      // LaTeX so JSON.parse doesn't eat "\t"/"\n"/etc. as control chars.
+      parsed = parseJsonLoose(match[0], { preserveLatex: true }) as InfoboxData;
+      if (!parsed || !parsed.title || !Array.isArray(parsed.groups)) throw new Error("invalid infobox shape");
     } catch {
       return c.json({ error: "invalid infobox JSON" }, 500);
     }

@@ -25,6 +25,8 @@ import type {
 import { validateOpenAIImageSize } from "./imageAspectRatios";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
 import { resolveConfigTable } from "./configSchema";
+import { loadRuleLibrary, parseRuleExamples } from "./rules/library";
+import { RULE_TIERS, type RuleDef, type RuleSpec, type RuleTier } from "./rules/types";
 
 const ROOT = process.cwd();
 
@@ -33,6 +35,42 @@ function readToml<T>(path: string): T {
   const examplePath = resolve(ROOT, `${path}.example`);
   const raw = readFileSync(existsSync(configPath) ? configPath : examplePath, "utf8");
   return parse(raw) as T;
+}
+
+/** Parse a prompt file's `[[local_rule]]` array-of-tables into `RuleDef[]`,
+ *  validating each entry the same way `config/rules/*.toml` category rules
+ *  are validated (see `rules/library.ts`) — a malformed local rule should
+ *  fail loudly at startup, not silently render as an empty bullet. */
+function parseLocalRules(
+  key: string,
+  entries: Array<{ id?: string; tier?: number; text?: string; overrides?: string[]; examples?: unknown }> | undefined,
+): RuleDef[] | undefined {
+  if (!entries || entries.length === 0) return undefined;
+  return entries.map((entry) => {
+    if (typeof entry.id !== "string" || !entry.id) {
+      throw new Error(`prompt '${key}': local_rule is missing an id`);
+    }
+    if (!RULE_TIERS.includes(entry.tier as RuleTier)) {
+      throw new Error(
+        `prompt '${key}': local_rule '${entry.id}' has an invalid tier (must be one of ${RULE_TIERS.join(", ")})`,
+      );
+    }
+    const text = typeof entry.text === "string" ? entry.text.trim() : "";
+    if (!text) {
+      throw new Error(`prompt '${key}': local_rule '${entry.id}' has empty text`);
+    }
+    const overrides = Array.isArray(entry.overrides)
+      ? entry.overrides.filter((ref): ref is string => typeof ref === "string")
+      : undefined;
+    const examples = parseRuleExamples(entry.examples, `prompt '${key}': local_rule '${entry.id}'`);
+    return {
+      id: entry.id,
+      tier: entry.tier as RuleTier,
+      text,
+      ...(examples ? { examples } : {}),
+      ...(overrides && overrides.length > 0 ? { overrides } : {}),
+    };
+  });
 }
 
 function loadPromptFiles(dir: string, runnable: boolean) {
@@ -50,7 +88,21 @@ function loadPromptFiles(dir: string, runnable: boolean) {
       thinking?: boolean;
       json?: boolean;
       modes?: Record<string, RewriteMode>;
+      rules?: {
+        categories?: string[];
+        rules?: string[];
+      };
+      local_rule?: Array<{ id?: string; tier?: number; text?: string; overrides?: string[]; examples?: unknown }>;
     };
+    const rules: RuleSpec | undefined = raw.rules
+      ? {
+          categories: Array.isArray(raw.rules.categories) ? raw.rules.categories : [],
+          ...(Array.isArray(raw.rules.rules) && raw.rules.rules.length > 0
+            ? { rules: raw.rules.rules }
+            : {}),
+        }
+      : undefined;
+    const localRules = parseLocalRules(key, raw.local_rule);
     prompts[key] = {
       system: raw.system ?? "",
       user: raw.user ?? "",
@@ -64,6 +116,8 @@ function loadPromptFiles(dir: string, runnable: boolean) {
                   : undefined,
             thinking: raw.thinking ?? false,
             json: raw.json ?? false,
+            ...(rules ? { rules } : {}),
+            ...(localRules ? { localRules } : {}),
           }
         : {}),
     };
@@ -78,6 +132,7 @@ function loadPromptConfig(dir: string): PromptConfig {
   const absDir = resolve(ROOT, dir);
   const runnable = loadPromptFiles(absDir, true);
   const shared = loadPromptFiles(resolve(absDir, "shared"), false);
+  const ruleLibrary = loadRuleLibrary(resolve(ROOT, "config", "rules"));
   return {
     prompts: runnable.prompts,
     shared: shared.prompts,
@@ -85,6 +140,7 @@ function loadPromptConfig(dir: string): PromptConfig {
       ...shared.rewriteModes,
       ...runnable.rewriteModes,
     },
+    ruleLibrary,
   };
 }
 

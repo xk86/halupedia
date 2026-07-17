@@ -480,6 +480,15 @@ export function openDatabase(databasePath: string): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS idx_review_queue_status
       ON ontology_review_queue(status, article_rank DESC);
+    -- Backs the NOT EXISTS (article_slug = ? AND status IN (...)) checks in
+    -- enqueueReviewTasks/enqueueExtractionTasks (see extractQueue.ts,
+    -- reviewQueue.ts). Without this, those correlated subqueries fall back to a
+    -- full scan of this table per candidate article -- synchronous work on the
+    -- single shared node:sqlite connection every scheduler tick, which grows
+    -- with corpus/queue size and, being single-threaded, stalls web request
+    -- handling for its duration.
+    CREATE INDEX IF NOT EXISTS idx_review_queue_article_status
+      ON ontology_review_queue(article_slug, status);
 
     -- Long-term ontology-extraction catch-up queue: separate from the review
     -- queue above (review depends on it — an article isn't reviewed until its
@@ -502,6 +511,8 @@ export function openDatabase(databasePath: string): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS idx_extract_queue_status
       ON ontology_extract_queue(status, article_rank DESC);
+    CREATE INDEX IF NOT EXISTS idx_extract_queue_article_status
+      ON ontology_extract_queue(article_slug, status);
 
     -- Records the vocabulary signature an article's ontology was last extracted
     -- under. When the live vocabulary signature differs (a predicate was added
@@ -557,6 +568,12 @@ export function openDatabase(databasePath: string): DatabaseSync {
   }
   if (!hasColumn(db, "article_revisions", "headline_media_caption")) {
     db.exec(`ALTER TABLE article_revisions ADD COLUMN headline_media_caption TEXT`);
+  }
+  // Lifecycle for a suggested ontology fact: 'pending' (awaiting review),
+  // 'discarded' (rejected — a settled, permanent no), or 'human_review'
+  // (auto-review couldn't decide — kept visible, exempted from re-review).
+  if (!hasColumn(db, "ontology_suggestions", "status")) {
+    db.exec(`ALTER TABLE ontology_suggestions ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   // Serves the All Pages listing (WHERE is_disambiguation = 0 ORDER BY title

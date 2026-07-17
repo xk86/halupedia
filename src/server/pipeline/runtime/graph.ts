@@ -182,6 +182,8 @@ export async function runWorkflow<Deps>(
                 promptText: llmCapture?.prompt,
                 cotText: llmCapture?.cot,
                 responseText: llmCapture?.response,
+                ragTrace: (patch as Record<string, unknown> | undefined)?.ragPromptTrace,
+                rulesTrace: (patch as Record<string, unknown> | undefined)?.rulesPromptTrace,
                 llmRole: llmCapture?.role,
                 llmResolvedRole: llmCapture?.resolvedRole,
                 llmConfigKey: llmCapture?.configKey,
@@ -316,6 +318,7 @@ export async function runWorkflow<Deps>(
           cotText: llmCapture?.cot,
           responseText: llmCapture?.response,
           ragTrace: (patch as Record<string, unknown> | undefined)?.ragPromptTrace,
+          rulesTrace: (patch as Record<string, unknown> | undefined)?.rulesPromptTrace,
           llmRole: llmCapture?.role,
           llmResolvedRole: llmCapture?.resolvedRole,
           llmConfigKey: llmCapture?.configKey,
@@ -509,11 +512,18 @@ export async function queueWorkflow<Deps>(
     const previousOnLlmUpdate = depsRecord.onLlmUpdate as
       | ((update: { node: string; reasoning?: string; response?: string }) => void)
       | undefined;
+    const previousOnHostAssigned = depsRecord.onHostAssigned as
+      | ((hostId: string) => void)
+      | undefined;
     const composedDeps = {
       ...depsRecord,
       onLlmUpdate: (update: { node: string; reasoning?: string; response?: string }) => {
         registry.recordLlmUpdate(runId, update);
         previousOnLlmUpdate?.(update);
+      },
+      onHostAssigned: (hostId: string) => {
+        registry.setHost(runId, hostId);
+        previousOnHostAssigned?.(hostId);
       },
     } as Deps;
 
@@ -572,6 +582,9 @@ function wrapLlmDeps<Deps>(
   const onLlmUpdate = typeof d.onLlmUpdate === "function"
     ? d.onLlmUpdate as (update: { workflow?: string; slug?: string; node: string; reasoning?: string; response?: string }) => void
     : undefined;
+  const onHostAssigned = typeof d.onHostAssigned === "function"
+    ? d.onHostAssigned as (hostId: string) => void
+    : undefined;
   const emitLive = (update: { reasoning?: string; response?: string }) => {
     if (!onLlmUpdate || !dispatchContext?.node) return;
     onLlmUpdate({
@@ -603,6 +616,7 @@ function wrapLlmDeps<Deps>(
         emitLive({ reasoning: accumulated });
       },
       dispatchContext,
+      onHostAssigned,
     };
     return args;
   };

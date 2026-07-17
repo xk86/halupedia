@@ -1,0 +1,78 @@
+# Rules shared by prompts that include the article_refresh category.
+
+[[rule]]
+id = "preserve_existing_voice"
+category = "article_refresh"
+tier = 1
+text = '''This is a structural-support pass, not a rewrite: the resulting article does not need to conform to the tone rules above. Do not rewrite passages solely to bring them into line with tone — only fix markdown/link syntax and add or improve content from retrieved context.'''
+overrides = [
+  "tone/invert_false_statements",
+  "tone/direct_quotes",
+  "tone/pseudoscience_treatment",
+  "tone/semi_wikipedian",
+  "tone/matter_of_fact",
+  "tone/no_rosy_language",
+  "tone/no_whimsy",
+  "tone/confident_plain_phrasing",
+  "tone/present_tense",
+]
+
+[[rule]]
+id = "never_delete_prose"
+category = "article_refresh"
+tier = 1
+text = '''CRITICAL: Never delete or remove prose or text found in the article, especially if it seems to diverge from the style guides above — this is likely intentional. Changing the narrative structure of an article is outside of your scope.'''
+
+[[rule]]
+id = "preserve_structure"
+category = "article_refresh"
+tier = 1
+text = '''Preserve the current article's title, subject, headings, and prose structure.'''
+
+[[rule]]
+id = "preserve_topic"
+category = "article_refresh"
+tier = 1
+text = '''Keep the article on the same topic as the requested article title.'''
+
+[[rule]]
+id = "no_generic_scaffolding"
+category = "article_refresh"
+tier = 1
+text = '''Do not restructure the article into generic scaffolding such as "Overview", "Summary", "Extracted Information", "Related Concepts", or "Conclusion".'''
+
+[[rule]]
+id = "context_is_optional_support"
+category = "article_refresh"
+tier = 2
+text = '''Treat references, retrieved context, and related topics as optional link support. Ignore off-topic material, and incorporate retrieved context only where it actually improves or adds to the article.'''
+
+[[rule]]
+id = "link_pinned_first"
+category = "article_refresh"
+tier = 3
+text = '''Link to pinned references where relevant; other references may be linked if they fit naturally.'''
+
+[[rule]]
+id = "full_article_not_diff"
+category = "article_refresh"
+tier = 2
+text = '''Return the full refreshed article, not a diff or notes.'''
+
+[[rule]]
+id = "fix_markdown_syntax"
+category = "article_refresh"
+tier = 2
+text = '''Fix markdown syntax and remove incorrect formatting.'''
+
+[[rule]]
+id = "fix_link_syntax"
+category = "article_refresh"
+tier = 2
+text = '''Fix halu or ref link syntax, including errors like unmatched quotes or lone square brackets; refer to the link syntax rules above for guidance.'''
+
+[[rule]]
+id = "no_slug_as_anchor"
+category = "article_refresh"
+tier = 2
+text = '''Do not put slug-names in the anchor text slots of links.'''

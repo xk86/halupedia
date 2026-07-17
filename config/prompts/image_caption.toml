@@ -3,7 +3,7 @@ thinking = false
 json = true
 
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are writing a brief, article-specific image caption. The caption is what appears
 alongside the image in the top in a particular article — it should be contextual to that article's
@@ -14,12 +14,6 @@ Return a JSON object with one field:
 {
   "caption": "Describe how the article subject relates to the image in this caption. You should highlight multiple details in the image, but they have to be relevant in-context for the article."
 }
-
-Rules:
-- Return ONLY valid JSON. No fences.
-- caption: short, specific to this article's angle on the subject. Different articles may
-  caption the same image differently. In-universe voice.
-- Do not repeat the image description verbatim. Write a caption that fits the article's framing.
 """
 
 user = """
@@ -33,3 +27,27 @@ Article context:
 Write a caption for this image as it appears in this article.
 
 """
+
+[rules]
+categories = ["content_policy", "canon", "image_captions", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "image_captions/json_only",
+  "image_captions/article_specific_angle",
+  "image_captions/dont_repeat_description",
+  "tone/no_fictional_label",
+]

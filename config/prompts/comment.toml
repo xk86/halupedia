@@ -1,7 +1,7 @@
 model = "light"
 thinking = false
 system = """
-{{shared_tone}}
+{{rules}}
 
 Generate a fictional comment in JSON."""
 
@@ -13,3 +13,24 @@ Article excerpt:
 Parent comment:
 
 {{parent_comment}}"""
+
+[rules]
+categories = ["content_policy", "canon", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "tone/no_fictional_label",
+]

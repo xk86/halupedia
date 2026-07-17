@@ -21,15 +21,36 @@ import { createHash } from "node:crypto";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import type { PromptConfig, PromptTemplate } from "../../types";
 import type { RenderedPrompt } from "../state";
+import { assembleRules } from "../../rules/assemble";
+import { buildRulesPromptTrace, type RulesPromptTrace } from "../../rules/trace";
 
 export interface PromptEntry {
   key: string;
-  /** The originating PromptTemplate record (after shared-ref resolution). */
+  /** The originating PromptTemplate record (after shared-ref *and* rules
+   *  resolution — `{{rules}}` is already replaced with assembled text). */
   resolved: PromptTemplate;
+  /** Shared-ref-resolved but *before* `{{rules}}` substitution. Kept around
+   *  so `render()` can recompute the rules block for a prompt whose rule
+   *  selection varies per call (see `RenderRuntimeOptions.extraInclude`)
+   *  without re-running shared-ref resolution. */
+  baseResolved: PromptTemplate;
   /** ChatPromptTemplate; usable directly with LangChain runnables. */
   template: ChatPromptTemplate;
-  /** Content hash of the resolved system+user text (template version id). */
+  /** Content hash of the resolved system+user text *and* the resolved rule
+   *  set (template version id) — see `hashTemplate`. */
   hash: string;
+  /** Set only for prompts that declare `[rules]`/local rules. */
+  rulesTrace?: RulesPromptTrace;
+}
+
+export interface RenderRuntimeOptions {
+  /** Extra internal rule selectors resolved together with the prompt's static
+   *  category/rule selection in one combined `assembleRules` pass — for rules
+   *  that vary per render call (e.g. full vs. partial rewrite scope) rather
+   *  than per prompt. Runs override/dedupe resolution and produces one
+   *  unified `rulesTrace` across the static and per-call rules, instead of
+   *  splicing in a second, untracked block of rule text. */
+  extraInclude?: string[];
 }
 
 export interface PromptRegistry {
@@ -42,6 +63,7 @@ export interface PromptRegistry {
   render(
     key: string,
     variables: Record<string, unknown>,
+    runtimeOptions?: RenderRuntimeOptions,
   ): RenderedPrompt;
 }
 
@@ -53,8 +75,37 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
   const entries = new Map<string, PromptEntry>();
 
   for (const [key, prompt] of Object.entries(config.prompts)) {
-    const resolved = resolveSharedRefs(prompt, config);
-    const hash = hashTemplate(resolved);
+    const baseResolved: PromptTemplate = {
+      system: prompt.system,
+      user: prompt.user,
+      model: prompt.model,
+      thinking: prompt.thinking,
+      json: prompt.json,
+    };
+    let resolved = baseResolved;
+
+    // Most prompts' `[rules]`/local rules don't vary by render-time
+    // variables, so this default assembly is resolved once here rather than
+    // per-render. A prompt whose rule selection *does* vary per call (e.g.
+    // full vs. partial rewrite scope) passes `extraInclude` to `render()`,
+    // which recomputes from `baseResolved` instead of reusing this.
+    let rulesTrace: RulesPromptTrace | undefined;
+    let rulesHash: string | undefined;
+    if (prompt.rules || prompt.localRules) {
+      const assembled = assembleRules(config.ruleLibrary, prompt.rules ?? { categories: [] }, {
+        localRules: prompt.localRules,
+        promptKey: key,
+      });
+      resolved = {
+        ...resolved,
+        system: substituteRules(resolved.system, assembled.text),
+        user: substituteRules(resolved.user, assembled.text),
+      };
+      rulesTrace = buildRulesPromptTrace(assembled, key);
+      rulesHash = assembled.hash;
+    }
+
+    const hash = hashTemplate(resolved, rulesHash);
     // LangChain expects `{var}` not `{{var}}`. We adopt a thin pre-conversion:
     // any `{{name}}` becomes `{name}` (LC syntax) and any literal `{`/`}` is
     // escaped. This keeps the existing TOML format unchanged.
@@ -64,7 +115,7 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
       ["system", lcSystem],
       ["user", lcUser],
     ]);
-    entries.set(key, { key, resolved, template, hash });
+    entries.set(key, { key, resolved, baseResolved, template, hash, rulesTrace });
   }
 
   return {
@@ -78,32 +129,64 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
       }
       return entry;
     },
-    render(key, variables) {
+    render(key, variables, runtimeOptions) {
       const entry = entries.get(key);
       if (!entry) {
         throw new Error(`prompt registry: unknown key '${key}'`);
       }
+
+      let resolved = entry.resolved;
+      let rulesTrace = entry.rulesTrace;
+      let templateHash = entry.hash;
+      if (runtimeOptions?.extraInclude?.length) {
+        const prompt = config.prompts[key];
+        // extraInclude selectors are an internal mechanism, not authored in
+        // the prompt's own TOML, so they aren't limited to the categories the
+        // prompt statically imports — auto-import whichever categories they
+        // reference (a prompt's own `rules` selectors still enforce the
+        // static import gate).
+        const extraCategories = runtimeOptions.extraInclude.map(
+          (ref) => ref.replace(/^!/, "").split("/")[0]!,
+        );
+        const spec = {
+          categories: [...new Set([...(prompt?.rules?.categories ?? []), ...extraCategories])],
+          rules: [...(prompt?.rules?.rules ?? []), ...runtimeOptions.extraInclude],
+        };
+        const assembled = assembleRules(config.ruleLibrary, spec, {
+          localRules: prompt?.localRules,
+          promptKey: key,
+        });
+        resolved = {
+          ...entry.baseResolved,
+          system: substituteRules(entry.baseResolved.system, assembled.text),
+          user: substituteRules(entry.baseResolved.user, assembled.text),
+        };
+        rulesTrace = buildRulesPromptTrace(assembled, key);
+        templateHash = hashTemplate(resolved, assembled.hash);
+      }
+
       // Use a plain string-interpolation path so we keep the existing
       // `{{var}}` semantics (missing → empty string) instead of LC's stricter
       // behavior. The ChatPromptTemplate above is exposed for callers that
       // want to use LC runnables directly; `render` is the boring path that
       // matches today's `renderTemplate` from prompts.ts.
-      const system = interpolate(entry.resolved.system, variables);
-      const user = interpolate(entry.resolved.user, variables);
+      const system = interpolate(resolved.system, variables);
+      const user = interpolate(resolved.user, variables);
       const renderedHash = createHash("sha256")
         .update(`${system}\n---\n${user}`)
         .digest("hex")
         .slice(0, 16);
       return {
         key,
-        templateHash: entry.hash,
-        role: entry.resolved.model === "light" ? "light" : "heavy",
+        templateHash,
+        role: resolved.model === "light" ? "light" : "heavy",
         system,
         user,
         renderedHash,
         variables: variables as Record<string, unknown>,
-        thinking: entry.resolved.thinking ?? false,
-        json: entry.resolved.json ?? false,
+        thinking: resolved.thinking ?? false,
+        json: resolved.json ?? false,
+        rulesTrace,
       };
     },
   };
@@ -112,6 +195,14 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const TEMPLATE_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+const RULES_PLACEHOLDER_RE = /\{\{\s*rules\s*\}\}/g;
+
+/** Replace the `{{rules}}` placeholder with the assembled rule text. Static —
+ *  resolved once at registry-build time, unlike `{{var}}` template vars which
+ *  are resolved per-render. */
+function substituteRules(template: string, rulesText: string): string {
+  return template.replace(RULES_PLACEHOLDER_RE, rulesText);
+}
 
 function interpolate(
   template: string,
@@ -124,31 +215,17 @@ function interpolate(
   });
 }
 
-function resolveSharedRefs(
-  prompt: PromptTemplate,
-  config: PromptConfig,
-  depth = 0,
-): PromptTemplate {
-  if (depth > 4) return prompt;
-  const next: PromptTemplate = {
-    system: substituteShared(prompt.system, config),
-    user: substituteShared(prompt.user, config),
-    model: prompt.model,
-    thinking: prompt.thinking,
-    json: prompt.json,
-  };
-  if (next.system === prompt.system && next.user === prompt.user) return next;
-  return resolveSharedRefs(next, config, depth + 1);
-}
-
-function substituteShared(text: string, config: PromptConfig): string {
-  return text.replace(TEMPLATE_RE, (match, ref: string) => {
-    const shared = config.shared[ref];
-    return shared ? shared.system : match;
-  });
-}
-
-function hashTemplate(prompt: PromptTemplate): string {
+/**
+ * `rulesHash` (the assembled rule set's own hash, see `assembleRules`) is
+ * folded in alongside the static system/user text so that editing a rule in
+ * `config/rules/*.toml` — which changes `prompt.system` only *after*
+ * `{{rules}}` substitution, i.e. already reflected in `prompt.system` here —
+ * is still visible as drift even though the *source* prompt file on disk
+ * didn't change. Passing it explicitly (rather than relying on it already
+ * being baked into `prompt.system`) keeps this hash meaningful even if a
+ * future caller hashes the pre-substitution template.
+ */
+function hashTemplate(prompt: PromptTemplate, rulesHash?: string): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
@@ -157,6 +234,7 @@ function hashTemplate(prompt: PromptTemplate): string {
         model: prompt.model ?? "heavy",
         thinking: prompt.thinking ?? false,
         json: prompt.json ?? false,
+        rulesHash,
       }),
     )
     .digest("hex")

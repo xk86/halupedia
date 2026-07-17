@@ -48,7 +48,7 @@ import {
 } from "../src/server/markdown";
 import { formatLogLine } from "../src/server/logger";
 import { formatIncomingHintsForPrompt } from "../src/server/linkHints";
-import { getPrompt, getSharedPrompt, parseJsonLoose, stripJsonFences } from "../src/server/prompts";
+import { getPrompt, parseJsonLoose, stripJsonFences } from "../src/server/prompts";
 import { replaceTomlTripleQuoted } from "../src/server/promptEditor";
 import { parse as parseToml } from "smol-toml";
 import {
@@ -879,27 +879,32 @@ test("loadConfig populates a dedicated light LLM config section", () => {
 
 test("loadConfig resolves prompt manifest file references", () => {
   const { prompts } = loadConfig();
-  
+
   // Verify article prompt is loaded
   assert.ok(prompts.prompts.article);
   assert.ok(prompts.prompts.article.system);
   assert.ok(prompts.prompts.article.user);
-  
-  assert.ok(prompts.shared.shared_article_rules);
-  assert.ok(prompts.shared.shared_article_rules.system);
-  assert.equal(prompts.shared.shared_article_rules.model, undefined);
-  assert.equal(prompts.shared.shared_article_rules.thinking, undefined);
-  assert.equal(prompts.prompts.shared_article_rules, undefined);
-  assert.equal(prompts.prompts.linking_guide, undefined);
 
+  // shared_rewrite_modes.toml is the one file remaining under config/prompts/
+  // shared/ — its [modes.*] tables feed rewriteModes, not a {{shared_x}}
+  // template include.
+  assert.ok(prompts.rewriteModes.aggressive);
+  assert.equal(prompts.prompts.shared_rewrite_modes, undefined);
+
+  // article's tone/formatting/linking/etc. rules now come from the rule
+  // library (config/rules/*.toml) via {{rules}}, not a {{shared_article_rules}}
+  // template include — verify the placeholder resolved and rule text landed.
   const articlePrompt = getPrompt(prompts, "article");
-  assert.match(articlePrompt.system, /shared_article_rules|formatting|article/i);
+  assert.match(articlePrompt.system, /Tier 1 — Never break/);
   assert.equal(articlePrompt.model, "heavy");
   assert.equal(articlePrompt.thinking, true);
-  assert.doesNotMatch(articlePrompt.system, /\{\{shared_article_rules\}\}/);
+  assert.doesNotMatch(articlePrompt.system, /\{\{rules\}\}/);
 
-  const linkingGuide = getSharedPrompt(prompts, "linking_guide");
-  assert.match(linkingGuide.system, /Shared linking rules/);
+  // link_suggestion now draws its linking constraints from the rules library
+  // (config/rules/link_selection.toml) instead of the old shared/linking_guide.toml
+  // + getSharedPrompt concatenation.
+  const linkSuggestionPrompt = getPrompt(prompts, "link_suggestion");
+  assert.match(linkSuggestionPrompt.system, /description for a new entry/i);
 });
 
 test("summarizeRetrievedSource returns truncated chunk content directly", () => {
@@ -3626,6 +3631,28 @@ test("hot-path indexes exist after openDatabase", (t) => {
   assert.ok(
     plan.some((row) => row.detail.includes("idx_articles_title_nocase")),
     `query plan does not use the index: ${JSON.stringify(plan)}`,
+  );
+
+  // enqueueExtractionTasks/enqueueReviewTasks run a correlated NOT EXISTS
+  // subquery against these tables on every scheduler tick, synchronously on
+  // the single shared connection — must be index-served, not a per-row scan.
+  const extractPlan = db
+    .prepare(
+      `EXPLAIN QUERY PLAN SELECT 1 FROM ontology_extract_queue WHERE article_slug = 'x' AND status IN ('pending', 'processing')`,
+    )
+    .all() as Array<{ detail: string }>;
+  assert.ok(
+    extractPlan.some((row) => row.detail.includes("idx_extract_queue_article_status")),
+    `extract queue lookup does not use the index: ${JSON.stringify(extractPlan)}`,
+  );
+  const reviewPlan = db
+    .prepare(
+      `EXPLAIN QUERY PLAN SELECT 1 FROM ontology_review_queue WHERE article_slug = 'x' AND status IN ('pending', 'processing')`,
+    )
+    .all() as Array<{ detail: string }>;
+  assert.ok(
+    reviewPlan.some((row) => row.detail.includes("idx_review_queue_article_status")),
+    `review queue lookup does not use the index: ${JSON.stringify(reviewPlan)}`,
   );
 });
 

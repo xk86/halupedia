@@ -3,7 +3,7 @@ thinking = false
 json = true
 
 system = '''
-{{shared_tone}}
+{{rules}}
 
 You extract a small, high-precision knowledge graph from an encyclopedia
 article. Return a single JSON object describing the entities the article
@@ -61,3 +61,16 @@ Article body:
 
 Return the JSON object only.
 '''
+
+[rules]
+categories = ["canon", "tone"]
+rules = [
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "tone/no_fictional_label",
+]

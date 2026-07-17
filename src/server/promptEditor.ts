@@ -2,6 +2,43 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { basename, resolve } from "node:path";
 import { parse } from "smol-toml";
 import { getPromptUsage } from "./promptUsage";
+import { removeTomlTableKey, replaceTomlArrayTables, setTomlTableValue } from "./tomlEdit";
+import type { RuleDef, RuleSpec, RuleTier } from "./rules/types";
+import { parseRuleExamples } from "./rules/library";
+
+function parseRulesField(raw: Record<string, unknown>): RuleSpec | undefined {
+  const r = raw.rules as { categories?: unknown; rules?: unknown } | undefined;
+  if (!r || !Array.isArray(r.categories)) return undefined;
+  const categories = r.categories.filter((v): v is string => typeof v === "string");
+  const rules = Array.isArray(r.rules)
+    ? r.rules.filter((v): v is string => typeof v === "string")
+    : [];
+  return {
+    categories,
+    ...(rules.length > 0 ? { rules } : {}),
+  };
+}
+
+function parseLocalRulesField(raw: Record<string, unknown>): RuleDef[] | undefined {
+  const entries = raw.local_rule as
+    | Array<{ id?: unknown; tier?: unknown; text?: unknown; overrides?: unknown; examples?: unknown }>
+    | undefined;
+  if (!Array.isArray(entries) || entries.length === 0) return undefined;
+  return entries
+    .filter((e) => typeof e.id === "string" && typeof e.tier === "number" && typeof e.text === "string")
+    .map((e) => {
+      const examples = parseRuleExamples(e.examples, `local_rule '${String(e.id)}'`);
+      return {
+        id: e.id as string,
+        tier: e.tier as RuleTier,
+        text: (e.text as string).trim(),
+        ...(examples ? { examples } : {}),
+        ...(Array.isArray(e.overrides)
+          ? { overrides: e.overrides.filter((v): v is string => typeof v === "string") }
+          : {}),
+      };
+    });
+}
 
 // Matches a `key = """…"""` OR `key = '''…'''` multiline string assignment so a
 // re-save can replace either quoting style in place.
@@ -54,6 +91,8 @@ export interface PromptFileContent extends PromptFileMeta {
   system: string;
   user: string;
   path: string;
+  rules?: RuleSpec;
+  localRules?: RuleDef[];
 }
 
 export interface ArticleImagePresetContent {
@@ -73,7 +112,7 @@ export interface ArticleImagePresetContent {
 const ROOT = process.cwd();
 const PROMPT_DIR = resolve(ROOT, "config", "prompts");
 const SHARED_DIR = resolve(PROMPT_DIR, "shared");
-const ARTICLE_IMAGE_PRESET_DIR = resolve(PROMPT_DIR, "article_image_presets");
+const ARTICLE_IMAGE_PRESET_DIR = resolve(ROOT, "config", "image_presets");
 
 function promptDir(scope: "runnable" | "shared"): string {
   return scope === "shared" ? SHARED_DIR : PROMPT_DIR;
@@ -131,6 +170,8 @@ export function readPromptFile(
     json: typeof raw.json === "boolean" ? raw.json : undefined,
     hasModes: typeof raw.modes === "object" && raw.modes !== null,
     path: `config/prompts${scope === "shared" ? "/shared" : ""}/${key}.toml`,
+    rules: parseRulesField(raw),
+    localRules: parseLocalRulesField(raw),
   };
 }
 
@@ -139,6 +180,8 @@ export function writePromptFile(
   key: string,
   system: string,
   user: string,
+  rules?: RuleSpec,
+  localRules?: RuleDef[],
 ): { error: string } | null {
   if (!safeKey(key)) return { error: "invalid key" };
   const dir = promptDir(scope);
@@ -148,8 +191,38 @@ export function writePromptFile(
   let source = readFileSync(path, "utf8");
   source = replaceTomlTripleQuoted(source, "system", system);
   source = replaceTomlTripleQuoted(source, "user", user);
+  if (rules) {
+    source = setTomlTableValue(source, "rules", "categories", rules.categories ?? []);
+    source = rules.rules?.length
+      ? setTomlTableValue(source, "rules", "rules", rules.rules)
+      : removeTomlTableKey(source, "rules", "rules");
+  }
+  if (localRules) {
+    source = replaceTomlArrayTables(source, "local_rule", localRules.map(renderLocalRuleToml));
+  }
   writeFileSync(path, source);
   return null;
+}
+
+function renderLocalRuleToml(rule: RuleDef): string {
+  const lines = [
+    "[[local_rule]]",
+    `id = ${JSON.stringify(rule.id)}`,
+    `tier = ${rule.tier}`,
+    `text = ${tomlMultilineValue(rule.text)}`,
+  ];
+  if (rule.overrides?.length) {
+    lines.push(`overrides = [${rule.overrides.map((ref) => JSON.stringify(ref)).join(", ")}]`);
+  }
+  for (const example of rule.examples ?? []) {
+    lines.push(
+      "",
+      "[[local_rule.examples]]",
+      `description = ${JSON.stringify(example.description)}`,
+      `text = ${tomlMultilineValue(example.text)}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 function readTomlPromptContent(path: string, key: string, displayPath: string): Omit<ArticleImagePresetContent, "label"> {
@@ -182,7 +255,7 @@ export function listArticleImagePresetFiles(): ArticleImagePresetContent[] {
       const key = basename(file, ".toml");
       const path = resolve(ARTICLE_IMAGE_PRESET_DIR, file);
       return {
-        ...readTomlPromptContent(path, key, `config/prompts/article_image_presets/${key}.toml`),
+        ...readTomlPromptContent(path, key, `config/image_presets/${key}.toml`),
         label: key,
       };
     });
@@ -193,7 +266,7 @@ export function readArticleImagePresetFile(key: string): ArticleImagePresetConte
   const path = resolve(ARTICLE_IMAGE_PRESET_DIR, `${key}.toml`);
   if (!existsSync(path)) return null;
   return {
-    ...readTomlPromptContent(path, key, `config/prompts/article_image_presets/${key}.toml`),
+    ...readTomlPromptContent(path, key, `config/image_presets/${key}.toml`),
     label: key,
   };
 }

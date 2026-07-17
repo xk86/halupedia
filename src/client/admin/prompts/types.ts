@@ -9,10 +9,47 @@ export interface PromptMeta {
   hasModes: boolean;
 }
 
+export interface RuleSpec {
+  /** Imported namespaces. Categories do not enable rules by themselves. */
+  categories: string[];
+  /** Explicitly enabled rules from imported namespaces. */
+  rules?: string[];
+}
+
+export interface RuleDefinition {
+  id: string;
+  category?: string;
+  tier: 1 | 2 | 3 | 4;
+  text: string;
+  overrides?: string[];
+  examples?: RuleExample[];
+}
+
+export interface RuleExample {
+  description: string;
+  text: string;
+}
+
+export interface RuleCategory {
+  id: string;
+  title: string;
+  description: string;
+  order: number;
+  rules: RuleDefinition[];
+}
+
 export interface PromptContent extends PromptMeta {
   system: string;
   user: string;
   path: string;
+  rules?: RuleSpec;
+  localRules?: RuleDefinition[];
+  rulesPreview?: string;
+}
+
+export interface RuleLibraryPayload {
+  categories: RuleCategory[];
+  rules: RuleDefinition[];
 }
 
 export interface PromptList {

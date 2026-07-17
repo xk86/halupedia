@@ -1,3 +1,5 @@
+import type { RuleDef, RuleLibrary, RuleSpec } from "./rules/types";
+
 export interface ServerConfig {
   host: string;
   port: number;
@@ -478,6 +480,14 @@ export interface PromptTemplate {
   thinking?: boolean;
   /** Request JSON-mode output from the LLM for this prompt. */
   json?: boolean;
+  /** Imported shared rule namespaces and the explicit rules selected from
+   *  them. When present, a
+   *  `{{rules}}` placeholder in `system`/`user` is replaced by the assembled
+   *  rule text. See `src/server/rules/`. */
+  rules?: RuleSpec;
+  /** Rules declared inline in this prompt's own TOML (`[[local_rule]]`) —
+   *  never selectable from another prompt, merged in alongside `rules`. */
+  localRules?: RuleDef[];
 }
 
 export interface RewriteMode {
@@ -489,6 +499,7 @@ export interface PromptConfig {
   prompts: Record<string, PromptTemplate>;
   shared: Record<string, PromptTemplate>;
   rewriteModes: Record<string, RewriteMode>;
+  ruleLibrary: RuleLibrary;
 }
 
 export interface SeeAlsoCandidate {

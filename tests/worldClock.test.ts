@@ -279,12 +279,12 @@ test("today's news prompt includes date-matched ongoing world-state lore", async
     assert.ok(news);
     assert.equal(news.generatorVersion, "1");
     assert.ok(news.headlines[0].slug);
-    assert.match(capturedSystemPrompt, /Universal placement rule/);
-    assert.match(capturedSystemPrompt, /Reference Link Shorthand/);
+    assert.match(capturedSystemPrompt, /embedded inside a sentence as part of the flowing prose/);
+    assert.match(capturedSystemPrompt, /To cite a reference from "Available references"/);
     assert.doesNotMatch(
       capturedSystemPrompt,
       /All returned text must be a description for a new entry/,
-      "the selection-only linking guide must not replace the article link-format guide",
+      "the selection-only link_selection rules must not replace the article link-format (linking) rules",
     );
     assert.match(capturedUserPrompt, /Caldera Night/);
     assert.match(capturedUserPrompt, /Why included: date match/);

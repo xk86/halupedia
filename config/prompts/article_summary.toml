@@ -1,21 +1,10 @@
 model = "light"
 thinking = true
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are generating only a concise summary for an existing article.
-
-Constraints:
-- Return one paragraph only.
-- Return plain Markdown text only, with no heading, no bullets, no links, and no quotation marks.
-- The summary must describe the article as a whole, not just restate the opening sentence or first paragraph.
-- Prefer 1 to 3 sentences and keep the total to about a paragraph.
-- Mention the central subject and the article's most distinguishing details.
-- If `Summary feedback code` is `too_similar_to_lead`, the previous attempt tracked the article opening too closely and must be rewritten with different wording and sentence structure.
-- Never refer to articles as "satirical", "pseudo-scientific", etc- take everything at face value and write your summary plainly and neutrally.
-- Do not be self-referential or refer to articles as "articles" or "the text"- if you're describing Concept, you write the summary by describing the concept in brief.
-- Do not introduce or frame your summary- it should be as dense as possible.
-- For list articles and other data-heavy articles, Just say it is a list of what it is, and some short key takeaways; never frame things as a narrator."""
+"""
 
 user = """
 Requested article title:
@@ -35,3 +24,42 @@ Summary feedback code:
 {{summary_feedback}}
 
 Return only the summary paragraph."""
+
+[rules]
+categories = ["content_policy", "canon", "article_summaries", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "article_summaries/one_paragraph_only",
+  "article_summaries/plain_markdown_no_structure",
+  "article_summaries/describe_whole_article",
+  "article_summaries/length_guidance",
+  "article_summaries/mention_subject_and_details",
+  "article_summaries/retry_feedback_handling",
+  "article_summaries/not_self_referential",
+  "article_summaries/no_intro_framing",
+  "article_summaries/list_article_summary_style",
+  "tone/never_hedge",
+  "tone/no_lampshading",
+  "tone/no_fictional_label",
+  "tone/no_questioning",
+  "tone/never_uncertain",
+  "tone/no_speculative_words",
+  "tone/no_meta_notes",
+  "tone/authoritative_tone",
+  "tone/present_tense",
+  "tone/matter_of_fact",
+]

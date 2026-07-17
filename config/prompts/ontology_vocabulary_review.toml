@@ -3,7 +3,7 @@ thinking = false
 json = true
 
 system = """
-{{shared_tone}}
+{{rules}}
 
 You maintain the predicate vocabulary of a small typed knowledge graph
 extracted from an encyclopedia's articles. You are given the current
@@ -62,3 +62,16 @@ Infobox labels that never mapped to a predicate (kept as literal attributes):
 
 Return the JSON object only.
 """
+
+[rules]
+categories = ["canon", "tone"]
+rules = [
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "tone/no_fictional_label",
+]

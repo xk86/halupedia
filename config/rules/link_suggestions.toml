@@ -1,0 +1,43 @@
+# Rules shared by prompts that include the link_suggestions category.
+
+[[rule]]
+id = "json_with_slug_and_description"
+category = "link_suggestions"
+tier = 1
+text = "Return JSON only. Return an object with keys `slug` and `description`."
+
+[[rule]]
+id = "slug_format"
+category = "link_suggestions"
+tier = 2
+text = "`slug` must be a kebab-case URL slug for the target article (lowercase, words separated by hyphens, no spaces or special characters)."
+
+[[rule]]
+id = "description_one_sentence"
+category = "link_suggestions"
+tier = 2
+text = "`description` must be one sentence and must not contain Markdown."
+
+[[rule]]
+id = "slug_not_source_page"
+category = "link_suggestions"
+tier = 1
+text = "`slug` must not match the requested/source page."
+
+[[rule]]
+id = "infer_from_context"
+category = "link_suggestions"
+tier = 2
+text = "Use the selected text, the source page title, the local excerpt, and any retrieved context to infer the best internal topic."
+
+[[rule]]
+id = "short_text_verbatim_example"
+category = "link_suggestions"
+tier = 3
+text = '''If the text is short, it's probably to be used more-or-less verbatim. Example: highlight for "ot dog eating competition" probably maps to "hot-dog-eating-competition", and "2004 Foo Bar" should be a specific link verbatim, not a link to 2004 or Foo Bar.'''
+
+[[rule]]
+id = "prefer_close_slug_match"
+category = "link_suggestions"
+tier = 3
+text = "Prefer a slug that matches the selected phrase closely unless the canonical form should obviously be singular or normalized."

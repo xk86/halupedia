@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -9,6 +10,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Select,
   SelectContent,
@@ -20,7 +26,13 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { PromptEditorCard } from "../prompts/PromptEditorCard";
-import type { PromptList, PromptMeta } from "../prompts/types";
+import { RulesLibraryEditor } from "../prompts/RulesLibraryEditor";
+import type {
+  PromptList,
+  PromptMeta,
+  RuleCategory,
+  RuleDefinition,
+} from "../prompts/types";
 
 type PromptViewMode = "single" | "all";
 
@@ -43,6 +55,23 @@ function PromptEditorPaneComponent() {
   const [listError, setListError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<PromptViewMode>("single");
+  const [ruleCategories, setRuleCategories] = useState<RuleCategory[]>([]);
+  const [ruleDefinitions, setRuleDefinitions] = useState<RuleDefinition[]>([]);
+
+  useEffect(() => {
+    fetch("/api/admin/rules")
+      .then((res) => (res.ok ? res.json() : { categories: [] }))
+      .then((data) => {
+        setRuleCategories(
+          Array.isArray(data.categories) ? data.categories : [],
+        );
+        setRuleDefinitions(Array.isArray(data.rules) ? data.rules : []);
+      })
+      .catch(() => {
+        setRuleCategories([]);
+        setRuleDefinitions([]);
+      });
+  }, []);
 
   const loadList = useCallback(async () => {
     setListError(null);
@@ -113,6 +142,31 @@ function PromptEditorPaneComponent() {
       <CardContent className="flex min-w-0 flex-col gap-4">
         {listError ? <FieldError>{listError}</FieldError> : null}
 
+        <Collapsible>
+          <CollapsibleTrigger
+            className={buttonVariants({
+              variant: "secondary",
+              className: "w-full justify-between",
+            })}
+          >
+            Shared rule library
+            <Badge variant="secondary">
+              {ruleDefinitions.length} rules · {ruleCategories.length}{" "}
+              categories
+            </Badge>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-3">
+            <RulesLibraryEditor
+              categories={ruleCategories}
+              rules={ruleDefinitions}
+              onSaved={(categories, rules) => {
+                setRuleCategories(categories);
+                setRuleDefinitions(rules);
+              }}
+            />
+          </CollapsibleContent>
+        </Collapsible>
+
         {viewMode === "single" ? (
           <Field>
             <FieldLabel htmlFor="prompt-selector">Prompt</FieldLabel>
@@ -157,6 +211,7 @@ function PromptEditorPaneComponent() {
           <PromptEditorCard
             key={promptId(selectedPrompt)}
             prompt={selectedPrompt}
+            ruleCategories={ruleCategories}
           />
         ) : null}
 
@@ -166,7 +221,11 @@ function PromptEditorPaneComponent() {
             data-testid="all-prompt-editors"
           >
             {prompts.map((prompt) => (
-              <PromptEditorCard key={promptId(prompt)} prompt={prompt} />
+              <PromptEditorCard
+                key={promptId(prompt)}
+                prompt={prompt}
+                ruleCategories={ruleCategories}
+              />
             ))}
           </div>
         ) : null}

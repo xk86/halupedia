@@ -346,11 +346,13 @@ export const renderRewritePromptNode = defineNode({
         : "";
     // Scope-specific constraints: fragment-return rules only appear for
     // partial edits — including them on whole-article rewrites primed the
-    // model to sometimes return a fragment. Text lives in TOML (shared/
-    // rewrite_scope_*.toml); code only selects which one applies.
-    const scopeRules =
-      deps.runtime.prompts.shared[isPartial ? "rewrite_scope_partial" : "rewrite_scope_full"]
-        ?.system ?? "";
+    // model to sometimes return a fragment. Rules live in
+    // config/rules/output_contract.toml; which pair applies is chosen here
+    // and passed as extraInclude so it's resolved in the same assembleRules
+    // pass as the prompt's static rules (one rulesTrace, override-aware).
+    const scopeInclude = isPartial
+      ? ["output_contract/partial_scope_input", "output_contract/partial_scope_output"]
+      : ["output_contract/full_article_input", "output_contract/full_article_output"];
 
     const linkHints = formatIncomingHintsForPrompt(hints, slug, deps.runtime.app.rag.prompt_link_hints_max);
     const referencesPromptText = formatReferencesForPromptText(
@@ -380,26 +382,29 @@ export const renderRewritePromptNode = defineNode({
       retrievedContext?.sourceArticles ?? [],
     );
 
-    const rendered = deps.prompts.render(promptKey, {
-      slug,
-      requested_title: title,
-      current_article: currentArticle,
-      selected_text: selectedMarkdown ?? "",
-      article_vibe: vibe,
-      ...(isQuickEdit ? { edit_instructions: instructions } : {}),
-      rewrite_mode: modePrompt,
-      rewrite_scope_rules: scopeRules.trim(),
-      link_hints: linkHints,
-      references_list: formatReferencesForPrompt(refs),
-      references_prompt_text: referencesPromptText,
-      recent_edit_history: recentEditHistory?.trim()
-        ? `Recent edit history, oldest to newest:\n${recentEditHistory}`
-        : "",
-      rag_context: ragContext || "(none)",
-      related_titles: relatedTitles,
-      article_excerpt: selectedMarkdown?.slice(0, 2000) ?? "",
-      parent_comment: "",
-    });
+    const rendered = deps.prompts.render(
+      promptKey,
+      {
+        slug,
+        requested_title: title,
+        current_article: currentArticle,
+        selected_text: selectedMarkdown ?? "",
+        article_vibe: vibe,
+        ...(isQuickEdit ? { edit_instructions: instructions } : {}),
+        rewrite_mode: modePrompt,
+        link_hints: linkHints,
+        references_list: formatReferencesForPrompt(refs),
+        references_prompt_text: referencesPromptText,
+        recent_edit_history: recentEditHistory?.trim()
+          ? `Recent edit history, oldest to newest:\n${recentEditHistory}`
+          : "",
+        rag_context: ragContext || "(none)",
+        related_titles: relatedTitles,
+        article_excerpt: selectedMarkdown?.slice(0, 2000) ?? "",
+        parent_comment: "",
+      },
+      { extraInclude: scopeInclude },
+    );
     return {
       renderedPrompt: rendered,
       ragPromptTrace: buildRagPromptTrace({

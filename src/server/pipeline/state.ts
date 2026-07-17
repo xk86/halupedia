@@ -194,6 +194,37 @@ export const RagPromptTraceSchema = z.object({
 });
 export type RagPromptTrace = z.infer<typeof RagPromptTraceSchema>;
 
+/**
+ * The exact rule set assembled into a render node's prompt — which rules
+ * (library, prompt-local, or per-article vibe) were included, which were
+ * dropped by another rule's `overrides`, any mutual-override conflicts, and
+ * a hash of the resolved set. Mirrors `RagPromptTraceSchema`: captured
+ * verbatim by the render node so the admin trace shows exactly what the
+ * model received, not a reconstruction from the current rule library (which
+ * may have since changed).
+ */
+export const RulesPromptTraceSchema = z.object({
+  promptKey: z.string(),
+  included: z.array(
+    z.object({
+      ref: z.string(),
+      tier: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+      category: z.string(),
+      source: z.enum(["library", "local", "runtime"]),
+    }),
+  ),
+  dropped: z.array(z.object({ ref: z.string(), supersededBy: z.string() })),
+  conflicts: z.array(z.object({ a: z.string(), b: z.string() })),
+  tierCounts: z.object({
+    1: z.number(),
+    2: z.number(),
+    3: z.number(),
+    4: z.number(),
+  }),
+  hash: z.string(),
+});
+export type RulesPromptTrace = z.infer<typeof RulesPromptTraceSchema>;
+
 /** A rendered prompt — kept in state so trace can show exactly what was sent. */
 export const RenderedPromptSchema = z.object({
   /** Registry key, e.g. "article", "article_summary". */
@@ -210,6 +241,9 @@ export const RenderedPromptSchema = z.object({
   variables: z.record(z.string(), z.unknown()),
   thinking: z.boolean(),
   json: z.boolean(),
+  /** Set only for prompts that declare `[rules]`/local rules; a render node
+   *  copies this into its own `rulesPromptTrace` patch field. */
+  rulesTrace: RulesPromptTraceSchema.optional(),
 });
 export type RenderedPrompt = z.infer<typeof RenderedPromptSchema>;
 
@@ -284,6 +318,8 @@ export const PipelineStateSchema = z.object({
   retrievedContext: RetrievedContextSchema.optional(),
   /** Exact RAG values placed into the prompt (for the admin trace). */
   ragPromptTrace: RagPromptTraceSchema.optional(),
+  /** Exact rule set assembled into the prompt (for the admin trace). */
+  rulesPromptTrace: RulesPromptTraceSchema.optional(),
 
   // references / see-also (sidecar, never in body markdown) ──────────────────
   references: z.array(ReferenceEntrySchema).optional(),

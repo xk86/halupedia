@@ -64,6 +64,7 @@ interface GenerationQueueItem {
   title: string;
   seq: number;
   runId?: string;
+  hostId?: string;
   queuedAt: number;
   startedAt?: number;
   queuedMs?: number;
@@ -155,6 +156,7 @@ function AdminContent({ onNavigate, onNavigateHome }: Props) {
           slug: item.slug,
           title: item.title,
           runId: item.runId,
+          hostId: item.hostId,
           workflow: item.workflow,
           phase: item.phase,
           state: item.state,

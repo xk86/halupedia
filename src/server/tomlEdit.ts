@@ -116,3 +116,30 @@ export function addTomlTable(
   const sep = source.length > 0 && !source.endsWith("\n") ? eol + eol : eol;
   return `${source}${sep}${block.join(eol)}${eol}`;
 }
+
+/** Replace every array-of-tables block for `tablePath`, including nested
+ * child tables such as `[[rule.examples]]`, and append the rendered blocks.
+ * Content outside those blocks is preserved byte-for-byte apart from the
+ * blank-line join at the replacement boundary. */
+export function replaceTomlArrayTables(
+  source: string,
+  tablePath: string,
+  renderedBlocks: readonly string[],
+): string {
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const lines = source.split(/\r?\n/);
+  const header = new RegExp(`^\\s*\\[\\[\\s*${escapeRegExp(tablePath)}(?:\\.|\\s*\\]\\])`);
+  const anyHeader = /^\s*\[\[?[^#]/;
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length;) {
+    if (!header.test(lines[i])) {
+      kept.push(lines[i++]);
+      continue;
+    }
+    i++;
+    while (i < lines.length && (!anyHeader.test(lines[i]) || header.test(lines[i]))) i++;
+  }
+  const prefix = kept.join(eol).trimEnd();
+  if (renderedBlocks.length === 0) return prefix ? `${prefix}${eol}` : "";
+  return `${prefix}${prefix ? eol + eol : ""}${renderedBlocks.join(eol + eol)}${eol}`;
+}

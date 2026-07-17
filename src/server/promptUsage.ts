@@ -111,38 +111,10 @@ const RUNNABLE_PROMPT_USAGE: Record<string, PromptUsage> = {
 };
 
 const SHARED_PROMPT_USAGE: Record<string, PromptUsage> = {
-  linking_guide: {
-    description:
-      "Shared constraints for choosing compact, canonical internal-link targets.",
-    usedBy: ["article.link_suggestion"],
-  },
-  rewrite_scope_full: {
-    description: "Shared output contract for full-article rewrites.",
-    usedBy: ["article.rewrite"],
-  },
-  rewrite_scope_partial: {
-    description: "Shared output contract for section and selection rewrites.",
-    usedBy: ["article.rewrite"],
-  },
-  shared_article_rules: {
-    description:
-      "Shared article tone, structure, reference, and linking rules.",
-    usedBy: ["article.generate", "article.refresh", "article.rewrite"],
-  },
-  shared_link_format: {
-    description:
-      "Shared formatting and placement rules for halu: and ref: links.",
-    usedBy: ["article.generate", "article.refresh", "article.rewrite", "homepage.refresh"],
-  },
   shared_rewrite_modes: {
     description:
       "Shared instruction fragments for subtle, aggressive, and quick rewrite modes.",
     usedBy: ["article.refresh", "article.rewrite"],
-  },
-  shared_tone: {
-    description:
-      "Base tone and content policy included by most model-facing prompts.",
-    usedBy: ["shared prompt include"],
   },
 };
 

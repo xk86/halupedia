@@ -1,20 +1,10 @@
 model = "light"
 thinking = false
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are generating See Also suggestions for a wiki article.
-
-Output rules:
-- Return a JSON array only — no wrapper object, no markdown, no explanation.
-- Each element is an object with exactly two keys: "slug" and "hint".
-- "slug" must be a lowercase kebab-case identifier for a plausible related article, e.g. "salt-river-syndicate" or "upper-great-lakes-geology".
-- "hint" must be a single short sentence describing what that article covers.
-- Generate between 3 and 7 suggestions.
-- Suggest topics thematically related to the article but not already covered by it.
-- Do not include the article itself as a suggestion.
-- Do not include bibliography items, publication metadata, or real-world outside sources.
-- Suggest only articles that do not yet exist — these are seed ideas for future writing, not links to current content."""
+"""
 
 user = """
 Current article title: {{requested_title}}
@@ -23,3 +13,33 @@ Article summary:
 {{article_summary}}
 
 Return a JSON array of {slug, hint} objects only."""
+
+[rules]
+categories = ["content_policy", "canon", "related_articles", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "related_articles/json_array_only",
+  "related_articles/slug_and_hint_keys",
+  "related_articles/slug_format",
+  "related_articles/hint_is_one_sentence",
+  "related_articles/suggestion_count",
+  "related_articles/thematically_related_not_covered",
+  "related_articles/no_self_suggestion",
+  "related_articles/no_bibliography_or_real_sources",
+  "related_articles/only_nonexistent_articles",
+  "tone/no_fictional_label",
+]

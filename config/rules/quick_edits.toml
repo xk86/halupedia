@@ -1,0 +1,7 @@
+# Rules shared by prompts that include the quick_edits category.
+
+[[rule]]
+id = "apply_edit_directly"
+category = "quick_edits"
+tier = 1
+text = '''Apply the one-off edit instruction directly instead of narrating the change.'''

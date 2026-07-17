@@ -1,29 +1,13 @@
 model = "heavy"
 thinking = true
 system = """
-{{shared_article_rules}}
+{{rules}}
 
 You are refreshing one existing document using newly retrieved local context.
 
 IMPORTANT Note: Because you are refreshing, you must be careful to maintain the contents and tone of the document.
-The resulting article may not meet the standard tone guides- that is OK! Your job is purely to help provide **structural** support by helping add information, and by improving the markdown syntax of the document.
+Your job is purely to help provide **structural** support by helping add information, and by improving the markdown syntax of the document.
 Prefer keeping the original words and phrasings of the original article.
-
-Refresh Constraints:
-- Preserve the current article's title, subject, headings, and prose structure.
-- Treat references, retrieved context, and related topics as optional link support. Ignore off-topic material.
-- Do not restructure the article into generic scaffolding such as "Overview", "Summary", "Extracted Information", "Related Concepts", or "Conclusion".
-- Return the full refreshed article, not a diff or notes.
-- Link to pinned references where relevant; other references may be linked if they fit naturally.
-- Keep the article on the same topic as the requested article title.
-- Incorporate retrieved context only where it improves or adds to the article and is relevant.
-- Do not add any new summaries or conclusions.
-- Fix markdown syntax and remove incorrect formatting.
-- Fix halu or ref link syntax, including errors like unmatched quotes, or lone square brackets; refer to the link syntax for guidance.
-- For ref: use [anchor text](ref:slug-name) where the anchor is a word or phrase.
-- CRITICAL! Never delete or remove prose or text found in an article, especially if it seems to diverge from the style guides. This is likely intentional, and changing the narrative structure of an article is outside of your scope.
-- Do not put slug-names in the anchor text slots of links.
-- Do not provide meta commentary or "self-notes".
 """
 
 user = """
@@ -61,3 +45,25 @@ Use [Title](halu:slug "short description") for other internal topics.
 
 
 """
+
+[rules]
+categories = [
+  "content_policy",
+  "canon",
+  "article_continuity",
+  "tone",
+  "formatting",
+  "lists",
+  "linking",
+  "article_refresh",
+]
+rules = [
+  "content_policy/*",
+  "canon/*",
+  "article_continuity/*",
+  "tone/*",
+  "formatting/*",
+  "lists/*",
+  "linking/*",
+  "article_refresh/*",
+]

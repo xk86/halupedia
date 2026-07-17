@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parse } from "smol-toml";
 
-import { setTomlTableValue, removeTomlTableKey, addTomlTable, tomlRender } from "../src/server/tomlEdit";
+import { setTomlTableValue, removeTomlTableKey, addTomlTable, replaceTomlArrayTables, tomlRender } from "../src/server/tomlEdit";
 
 const SAMPLE = `# Gemma models require temperature of 1
 [llm.host.cat-desktop]
@@ -84,4 +84,16 @@ test("addTomlTable appends a host block, preserving the rest", () => {
   // original host + comments intact
   assert.equal(parsed.llm.host["cat-desktop"].pref, 0);
   assert.match(next, /#model = "gemma3:4b-it-qat"/);
+});
+
+test("replaceTomlArrayTables replaces parent and nested child blocks", () => {
+  const source = `title = "kept"\n\n[[local_rule]]\nid = "old"\n\n[[local_rule.examples]]\ndescription = "old"\ntext = "old"\n\n[other]\nenabled = true\n`;
+  const next = replaceTomlArrayTables(source, "local_rule", [
+    `[[local_rule]]\nid = "new"\ntier = 2\ntext = "new"`,
+  ]);
+  const parsed = parse(next) as any;
+  assert.equal(parsed.title, "kept");
+  assert.equal(parsed.other.enabled, true);
+  assert.deepEqual(parsed.local_rule, [{ id: "new", tier: 2, text: "new" }]);
+  assert.doesNotMatch(next, /description = "old"/);
 });

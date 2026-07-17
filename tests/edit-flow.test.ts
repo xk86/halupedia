@@ -78,7 +78,15 @@ class RewriteLlmClient implements LlmRouter {
   }
 
   private isArticleOp(system: string, user: string): boolean {
-    return system.includes("Rewrite") || system.includes("Refresh") || user.includes("---body");
+    // "Current article:" is structural template text shared by the
+    // article_refresh/article_rewrite/article_quick_edit user prompts —
+    // stable regardless of rule-library wording, unlike a literal
+    // "Rewrite"/"Refresh" match against prose that now lives in config/rules.
+    return (
+      system.includes("Rewrite") ||
+      user.includes("Current article:") ||
+      user.includes("---body")
+    );
   }
 
   async chat(_r: "heavy" | "light", system: string, user: string): Promise<string> {
@@ -299,7 +307,7 @@ test("rewrite prompt scope rules match the edit scope", async (t) => {
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ instructions: "test" }),
   });
-  const fullCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Constraints"));
+  const fullCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
   assert.ok(fullCall, "full rewrite should reach the LLM");
   assert.match(fullCall!.system, /Return the full rewritten article/);
   assert.doesNotMatch(fullCall!.system, /only that rewritten section or fragment/);
@@ -310,7 +318,7 @@ test("rewrite prompt scope rules match the edit scope", async (t) => {
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ sectionId: "notes", instructions: "test" }),
   });
-  const partialCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Constraints"));
+  const partialCall = llm.chatCalls.find((c) => c.system.includes("Rewrite Mode"));
   assert.ok(partialCall, "section rewrite should reach the LLM");
   assert.match(partialCall!.system, /only that rewritten section or fragment/);
   assert.doesNotMatch(partialCall!.system, /Return the full rewritten article/);
@@ -544,9 +552,13 @@ test("vibe-only rewrite does not expose its revision marker as an edit instructi
   const rewriteCall = llm.chatCalls.find((call) => call.system.includes("Rewrite"));
   assert.ok(rewriteCall);
   assert.doesNotMatch(rewriteCall.system, /rewrite-to-vibe/);
+  // Case-sensitive with the trailing colon: article_quick_edit.toml's own
+  // "One-off edit instruction:" heading, not canon/vibe_precedence's lowercase
+  // "...a one-off edit instruction conflicts with the vibe..." prose, which
+  // (correctly) is now shared by both prompts via the canon rule category.
   assert.doesNotMatch(
     rewriteCall.system,
-    /One-off edit instruction|Quick Edit Rewrite Mode/i,
+    /One-off edit instruction:|Quick Edit Rewrite Mode/,
   );
   assert.match(
     rewriteCall.system,

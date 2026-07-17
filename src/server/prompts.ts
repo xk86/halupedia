@@ -1,46 +1,53 @@
 import { jsonrepair } from "jsonrepair";
 import type { PromptConfig } from "./types";
+import type { Logger } from "./logger";
+import { assembleRules } from "./rules/assemble";
+import { buildRulesPromptTrace, type RulesPromptTrace } from "./rules/trace";
 
 const TEMPLATE_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+const RULES_PLACEHOLDER_RE = /\{\{\s*rules\s*\}\}/g;
 
-export function getPrompt(config: PromptConfig, key: string) {
+/**
+ * Non-pipeline call sites (e.g. `generateArticleSummary` in index.ts) don't
+ * go through a workflow node, so they have no `pipeline_nodes` trace row to
+ * attach a `rulesPromptTrace` to. Passing `logger` gets the assembled rule
+ * set logged through the same `Logger` every other LLM call already uses
+ * (see `llm.chat_request` in llm.ts) — the trace-DB path is for pipeline
+ * callers, which get `rulesTrace` on the return value instead (see
+ * `registry.ts`'s `render()` for the pipeline equivalent of this function).
+ */
+export function getPrompt(config: PromptConfig, key: string, logger?: Logger) {
   const prompt = config.prompts[key];
   if (!prompt) {
     throw new Error(`missing prompt template: ${key}`);
   }
+
+  let rulesText = "";
+  let rulesTrace: RulesPromptTrace | undefined;
+  if (prompt.rules || prompt.localRules) {
+    const assembled = assembleRules(config.ruleLibrary, prompt.rules ?? { categories: [] }, {
+      localRules: prompt.localRules,
+      promptKey: key,
+    });
+    rulesText = assembled.text;
+    rulesTrace = buildRulesPromptTrace(assembled, key);
+    logger?.info("rules.assembled", {
+      prompt: key,
+      included: assembled.included.length,
+      dropped: assembled.dropped.length,
+      conflicts: assembled.conflicts.length,
+      hash: assembled.hash,
+    });
+  }
+
   return {
-    system: resolveSharedRefs(prompt.system, config),
-    user: resolveSharedRefs(prompt.user, config),
+    system: prompt.system.replace(RULES_PLACEHOLDER_RE, rulesText),
+    user: prompt.user.replace(RULES_PLACEHOLDER_RE, rulesText),
     model: prompt.model ?? "heavy",
     thinking: prompt.thinking ?? false,
     json: prompt.json ?? false,
+    rulesTrace,
   };
-}
-
-export function getSharedPrompt(config: PromptConfig, key: string) {
-  const prompt = config.shared[key];
-  if (!prompt) {
-    throw new Error(`missing shared prompt template: ${key}`);
-  }
-  return {
-    system: resolveSharedRefs(prompt.system, config),
-    user: resolveSharedRefs(prompt.user, config),
-  };
-}
-
-function resolveSharedRefs(
-  template: string,
-  config: PromptConfig,
-  depth = 0,
-): string {
-  if (depth > 4) return template;
-  const resolved = template.replace(TEMPLATE_RE, (match, ref: string) => {
-    const shared = config.shared[ref];
-    return shared ? shared.system : match;
-  });
-  return resolved !== template
-    ? resolveSharedRefs(resolved, config, depth + 1)
-    : resolved;
 }
 
 export function renderTemplate(

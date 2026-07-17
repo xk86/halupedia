@@ -3,7 +3,7 @@ thinking = false
 json = true
 
 system = """
-{{shared_tone}}
+{{rules}}
 
 You are generating a structured infobox for an encyclopedia article. Return a single JSON object with this shape:
 
@@ -19,19 +19,6 @@ You are generating a structured infobox for an encyclopedia article. Return a si
     }
   ]
 }
-
-Rules:
-- Return ONLY valid JSON. No markdown fences, no explanation.
-- Include 2–5 groups, each with 2–6 rows of the most relevant factual fields.
-- Values should be concise (under 60 characters each).
-- Match the in-universe tone of the article — treat all subjects as real.
-- Do not include a field if the article doesn't actually establish it.
-- Omit "subtitle" if the category is obvious from the title.
-- The "label" on a group can be an empty string if no heading is needed.
-- When a value refers to another article that exists in the encyclopedia, write it as a
-  ref-link: [Visible Name](ref:slug-of-article). Use the article's slugified title as the
-  slug (lowercase, hyphens). Only link to articles that are actually mentioned in the body.
-- Values may use inline markdown: *italic*, **bold**, and ref-links. No block markdown.
 """
 
 user = """
@@ -47,3 +34,32 @@ Known encyclopedia articles (for ref-link slugs only — derive all facts from t
 {{instructions}}
 Generate the infobox JSON for this article.
 """
+
+[rules]
+categories = ["content_policy", "canon", "infoboxes", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "infoboxes/json_only",
+  "infoboxes/group_and_row_counts",
+  "infoboxes/concise_values",
+  "infoboxes/omit_unestablished_fields",
+  "infoboxes/omit_subtitle_if_obvious",
+  "infoboxes/empty_group_label_ok",
+  "infoboxes/ref_link_format",
+  "infoboxes/inline_markdown_only",
+  "tone/no_fictional_label",
+]

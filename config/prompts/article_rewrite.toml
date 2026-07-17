@@ -1,7 +1,7 @@
 model = "heavy"
 thinking = true
 system = """
-{{shared_article_rules}}
+{{rules}}
 
 Incoming canonical references that may link back to this article:
 
@@ -9,46 +9,6 @@ Incoming canonical references that may link back to this article:
 
 Rewrite Mode:
 {{rewrite_mode}}
-
-Rewrite Constraints:
-{{rewrite_scope_rules}}
-- Remove and replace material incompatible with the article vibe directly instead of narrating the change.
-- Treat the document you respond with as if it has always existed in its final revised form.
-- Do not emit meta-references or self-references.
-- Carefully heed the article vibe.
-- When rewriting subject matter, terminology, setting, or factual framing, rewrite affected passages as native parts of the document without referring to whatever they may be replacing.
-- When the vibe requires removing concepts or text, do not preserve continuity with removed concepts.
-- Current article content is editable source material, not canon. Consistency with removed material is unnecessary.
-- Do not hedge changes with phrases like:
-  "unlike prior accounts",
-  "formerly believed",
-  "rather than",
-  "not merely",
-  "reframed as",
-  "previously",
-  or similar transitional language.
-
-# Truncated examples of article-vibe conformance.
-## Example 1
-- Article vibe: "Sentence A is important"
-- Source text: "Sentence A says words." 
-### Good/Positive Example
-- Rewritten: "Sentence A says important words."
-- Why it's good: straightforward, simple edit.
-### Bad/Negative Example 
-- Rewritten: "Unlike prior accounts which stated that sentence A only stated words, sentence A says important words" 
-- Why it's bad: hedging the edit, lampshading past version, far too long
-
-(... denotes that the article continues in that edit style)
-## Example 2
-- Source text: "The **automobile**, or **car**, is a motor vehicle with wheels...."
-- Article vibe: "This article is about a type of fish"
-### Good/Positive Example
-- Rewritten: "The **automobile**, or **car**, is a species of saltwater fish found in subtropical regions...."
-- Why it's good: Follows user request in the same style as the original without acknowledging an edit was made.
-### Bad/Negative Example
-- Rewritten: "The **automobile**, or **car**, while previously believed to be a type of motor vehicle, is actually now understood to be a species of freshwater fish..."
-- Why it's bad: Lampshading the fact that an edit was made ("while previously..."); hedging against saying it's a fish by introducing framing text; unnecessary length that breaks the tone of the site.
 
 Article vibe — the canonical, human-authored source of truth for this article.
 Treat it as gospel. Your task is to bring the article into conformance with this
@@ -96,3 +56,27 @@ at the requested magnitude.
 Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics.
 """
+
+[rules]
+categories = [
+  "content_policy",
+  "canon",
+  "article_continuity",
+  "tone",
+  "formatting",
+  "lists",
+  "linking",
+  "revision",
+  "article_rewrites",
+]
+rules = [
+  "content_policy/*",
+  "canon/*",
+  "article_continuity/*",
+  "tone/*",
+  "formatting/*",
+  "lists/*",
+  "linking/*",
+  "revision/*",
+  "article_rewrites/*",
+]

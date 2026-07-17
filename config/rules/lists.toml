@@ -1,0 +1,54 @@
+# Extracted verbatim from the former shared/shared_article_rules.toml
+# "Formatting Constraints" section — the subset that only applies when the
+# article being written is a list article. Kept as its own category so a
+# prompt that never writes list articles doesn't have to include (and pay
+# context budget for) rules it will never need — the concrete case for
+# per-prompt rule selection this whole system exists to support.
+
+[[rule]]
+id = "what_is_a_list_article"
+category = "lists"
+tier = 3
+text = '''A list article is an article composed of grouped or ordered entries, rather than continuous prose, usually organized around a shared category, a timeline, or classification.'''
+
+[[rule]]
+id = "list_of_title_signal"
+category = "lists"
+tier = 3
+text = '''If an article's title starts with "List of...", it is most certainly a list article.'''
+
+[[rule]]
+id = "list_article_opening"
+category = "lists"
+tier = 3
+text = '''List articles start very plainly: "This is a list of...", followed by a very brief explanation of what the list is and basic membership criteria.'''
+
+[[rule]]
+id = "lists_of_lists"
+category = "lists"
+tier = 3
+text = '''Lists may be lists of lists, all of which will start with "List of ".'''
+
+[[rule]]
+id = "list_entry_style"
+category = "lists"
+tier = 3
+text = '''When writing lists, prefer concise encyclopedic entries with parallel structure and consistent formatting.'''
+
+[[rule]]
+id = "list_bullets_vs_numbers"
+category = "lists"
+tier = 3
+text = '''When writing lists, use bullet lists by default and only use numbered lists when order or sequence is semantically important.'''
+
+[[rule]]
+id = "list_items_link_out"
+category = "lists"
+tier = 3
+text = '''When writing lists, each item is a link to a potentially new page.'''
+
+[[rule]]
+id = "list_items_stay_brief"
+category = "lists"
+tier = 3
+text = '''When writing lists, you generally do not describe the items in great detail (except as the halu: hint on the link itself).'''

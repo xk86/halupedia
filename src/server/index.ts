@@ -14,6 +14,9 @@ import { Hono, type Context } from "hono";
 import { loadConfig } from "./config";
 import { appConfigAdminPayload, updateAppConfigToml } from "./appConfigAdmin";
 import { createArticleImagePresetFile, deleteArticleImagePresetFile, listArticleImagePresetFiles, listPromptFiles, readArticleImagePresetFile, readPromptFile, writeArticleImagePresetFile, writePromptFile } from "./promptEditor";
+import { assembleRules } from "./rules/assemble";
+import { readRuleAdminState, writeRuleAdminState } from "./rules/admin";
+import type { CategoryDef, RuleDef, RuleSpec } from "./rules/types";
 import { listArticleImageAspectRatios, normalizeArticleImageAspectRatioKey, resolveArticleImageAspectRatio } from "./imageAspectRatios";
 import {
   deleteArticleBySlug,
@@ -91,7 +94,7 @@ import {
 } from "./db";
 import { openMediaDatabase, getMediaById, getMediaBytesById, updateMediaDescription, updateMediaGenerationMetadata, updateMediaId, listMedia, listMediaRevisions } from "./mediaDb";
 import { createRagRuntime, registerRagAdminRoutes, buildEvidenceContext, toPromptSourceArticles, DEFAULT_PROFILES, type RagRuntime } from "./rag";
-import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, deleteOntologySuggestions, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, listExtractQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
+import { ensureArticleOntologyFresh, isArticleOntologyStale, listArticleEntityFacts, getArticleEntityId, updateArticleEntityType, addCuratedFact, deleteCuratedFact, suppressFact, updateFact, getVocabularyReviewStats, sanitizePredicateAddition, sanitizePredicateRemoval, appendPredicates, removePredicates, setOntologySuggestionsStatus, listOntologySuggestions, getOntologyTypeSuggestion, deleteOntologyTypeSuggestion, listReviewQueue, listExtractQueue, normalizeLabel, buildOntologyGraphPayload, type ArticleOntologyFact, type PredicateAdditionProposal } from "./ontology";
 import { makeVersionedCache } from "./responseCache";
 import { applyReferenceOnlyEdit, hasReferenceEditFields, persistBlacklistForEdit } from "./referenceEdits";
 import { ingestImageFromUrl, ingestImageFromBuffer } from "./media";
@@ -106,7 +109,7 @@ import { MaintenanceScheduler } from "./maintenance";
 import { createEncyclopediaPdfExportJobs } from "./encyclopediaPdfExportJobs";
 import { OPTIONAL_OLLAMA_PARAMETER_KEYS, type OptionalOllamaParameterKey } from "../ollamaOptions";
 import { articleSectionMarkdown, buildHaluLink, extractDisplayTitle, extractInternalLinks, extractTitle, fixSlugVisibleText, LINK_RE, listArticleSections, markdownToPlainText, normalizeMarkdown, renderMarkdown, renderInlineMarkdown, renderOntologyValueHtml, replaceArticleSection, sectionSlice, spliceProtectedSections, stripFootnoteArtifacts, stripSelfLinks, stripTopLevelSections, summaryMarkdownFromArticle } from "./markdown";
-import { getPrompt, getSharedPrompt, renderTemplate } from "./prompts";
+import { getPrompt, renderTemplate } from "./prompts";
 import { formatRagContextForPrompt } from "./retrieval";
 import { isSlugForm, isSlugStyleWikiSegment, legacySlugify, normalizeCanonicalTitle, slugToTitle, slugify, titleToWikiSegment, wikiSegmentToRequestedTitle, wikiSegmentToTitle } from "./slug";
 import { normalizeSummaryMarkdown, summaryLooksLikeLeadCopy } from "./summary";
@@ -483,8 +486,8 @@ function formatRecentEditHistoryForPrompt(revisions: ReturnType<typeof listArtic
     .join("\n");
 }
 
-async function generateArticleSummary(llm: LlmRouter, promptConfig: ReturnType<typeof loadConfig>["prompts"], requestedTitle: string, articleMarkdown: string): Promise<string> {
-  const prompt = getPrompt(promptConfig, "article_summary");
+async function generateArticleSummary(llm: LlmRouter, promptConfig: ReturnType<typeof loadConfig>["prompts"], requestedTitle: string, articleMarkdown: string, logger?: Logger): Promise<string> {
+  const prompt = getPrompt(promptConfig, "article_summary", logger);
   const role = prompt.model ?? "heavy";
   const currentArticle = stripTopLevelSections(articleMarkdown, ["References", "See also"]).slice(0, 12000);
   let previousSummary = "(none)";
@@ -558,12 +561,6 @@ async function ensureHomepageCache(deps: PipelineDeps): Promise<HomepagePayload>
   return payload as HomepagePayload;
 }
 
-function buildLinkedPromptSystem(promptConfig: ReturnType<typeof loadConfig>["prompts"], key: string): string {
-  const guide = getSharedPrompt(promptConfig, "linking_guide");
-  const prompt = getPrompt(promptConfig, key);
-  return `${guide.system.trim()}\n\n${prompt.system.trim()}`;
-}
-
 function stripSelectionDecorators(text: string): string {
   return normalizeSelectionText(text)
     .replace(/\s*\([^)]*\)\s*/g, " ")
@@ -615,7 +612,7 @@ async function generateLinkSuggestion(llm: LlmRouter, promptConfig: ReturnType<t
   const role = prompt.model ?? "heavy";
   const raw = await llm.chat(
     role,
-    buildLinkedPromptSystem(promptConfig, "link_suggestion"),
+    prompt.system,
     renderTemplate(prompt.user, {
       slug: slugify(requestedTitle),
       requested_title: requestedTitle,
@@ -1304,6 +1301,7 @@ export async function createApp(options: CreateAppOptions = {}) {
           title: entry.title,
           seq: entry.seq,
           runId: registryEntry?.runId,
+          hostId: registryEntry?.hostId,
           queuedAt: entry.queuedAt,
           startedAt: entry.startedAt,
           queuedMs: Math.max(0, (entry.startedAt ?? now) - entry.queuedAt),
@@ -1330,6 +1328,7 @@ export async function createApp(options: CreateAppOptions = {}) {
         title: entry.title ?? entry.slug ?? entry.workflow,
         seq: -1,
         runId: entry.runId,
+        hostId: entry.hostId,
         queuedAt: entry.queuedAt,
         startedAt: entry.startedAt,
         queuedMs: entry.queuedMs,
@@ -1343,11 +1342,54 @@ export async function createApp(options: CreateAppOptions = {}) {
         parentRunId: entry.parentRunId,
         origin: entry.origin,
       }));
+    // Ontology extract/review scheduler queue: these run outside
+    // `queueWorkflow` (see `pipeline/scheduler.ts`), so they never reach the
+    // live registry above — surface their pending/processing backlog here
+    // directly so it's visible without switching to Workflow Schedules.
+    const ontologyQueueRows = (
+      workflow: string,
+      rows: Array<{
+        articleSlug: string;
+        articleTitle: string;
+        status: string;
+        enqueuedAt: number;
+        startedAt: number | null;
+      }>,
+    ) =>
+      rows
+        .filter((row) => row.status === "pending" || row.status === "processing")
+        .map((row) => ({
+          slug: row.articleSlug,
+          title: row.articleTitle,
+          seq: -1,
+          runId: undefined,
+          hostId: undefined,
+          queuedAt: row.enqueuedAt,
+          startedAt: row.startedAt ?? undefined,
+          queuedMs: Math.max(0, (row.startedAt ?? now) - row.enqueuedAt),
+          activeMs: row.startedAt ? Math.max(0, now - row.startedAt) : 0,
+          waiting: 0,
+          workflow,
+          phase: row.status === "processing" ? "running" : "queued",
+          state: (row.status === "processing" ? "processing" : "queued") as
+            | "queued"
+            | "processing",
+          reasoning: undefined,
+          views: [],
+        }));
+    const ontologyExtracting = ontologyQueueRows(
+      "ontology.auto_extract",
+      listExtractQueue(db, 50),
+    );
+    const ontologyReviewing = ontologyQueueRows(
+      "ontology.auto_review",
+      listReviewQueue(db, 50),
+    );
     return {
       maxInFlight: articleGenerationLimit(),
       active: activeArticleGenerations,
       queued: articleGenerationWaiters.length,
-      items: [...generating, ...updating],
+      items: [...generating, ...updating, ...ontologyExtracting, ...ontologyReviewing],
     };
   }
 
@@ -1372,7 +1414,7 @@ export async function createApp(options: CreateAppOptions = {}) {
     trackGeneration(
       (async () => {
         indexArticleNow(slug);
-        const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, title, markdown).catch(() => summaryMarkdownFromArticle(markdown));
+        const summaryMarkdown = await generateArticleSummary(llm, runtime.prompts, title, markdown, logger).catch(() => summaryMarkdownFromArticle(markdown));
         updateArticleSummary(db, slug, summaryMarkdown, {
           updateRevisionGeneratedAt: generatedAt,
         });
@@ -4361,6 +4403,61 @@ export async function createApp(options: CreateAppOptions = {}) {
     return c.json(listPromptFiles());
   });
 
+  app.get("/api/admin/rules", (c) => {
+    const categories = [...runtime.prompts.ruleLibrary.categories.values()]
+      .sort((a, b) => a.order - b.order)
+      .map((cat) => ({
+        id: cat.id,
+        title: cat.title,
+        description: cat.description,
+        order: cat.order,
+        rules: cat.rules,
+      }));
+    return c.json({ categories, rules: [...runtime.prompts.ruleLibrary.rulesByRef.values()].map(({ ref: _ref, categoryTitle: _title, categoryDescription: _description, categoryOrder: _order, source: _source, sequence: _sequence, ...rule }) => rule) });
+  });
+
+  app.put("/api/admin/rules/library", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      categories?: unknown;
+      rules?: unknown;
+    };
+    if (!Array.isArray(body.categories) || !Array.isArray(body.rules)) {
+      return c.json({ error: "categories and rules must be arrays" }, 400);
+    }
+    try {
+      writeRuleAdminState({
+        categories: body.categories as CategoryDef[],
+        rules: body.rules as RuleDef[],
+      });
+      await reloadRuntime();
+      return c.json({ ok: true, ...readRuleAdminState() });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "invalid rule library" }, 400);
+    }
+  });
+
+  app.post("/api/admin/rules/preview", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      categories?: unknown;
+      rules?: unknown;
+    };
+    if (!Array.isArray(body.categories)) {
+      return c.json({ error: "categories must be an array of category names" }, 400);
+    }
+    const spec: RuleSpec = {
+      categories: body.categories.filter((v): v is string => typeof v === "string"),
+      ...(Array.isArray(body.rules) && body.rules.length > 0
+        ? { rules: body.rules.filter((v): v is string => typeof v === "string") }
+        : {}),
+    };
+    try {
+      const assembled = assembleRules(runtime.prompts.ruleLibrary, spec);
+      return c.json({ text: assembled.text, tierCounts: assembled.tierCounts });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "invalid selector" }, 400);
+    }
+  });
+
   app.get("/api/admin/article-image-prompts", (c) => {
     return c.json({ prompts: listArticleImagePromptOptions() });
   });
@@ -4479,7 +4576,14 @@ export async function createApp(options: CreateAppOptions = {}) {
     if (!meta) return c.json({ error: "prompt not found" }, 404);
     // DB is authoritative for content; TOML file provides metadata (model, thinking, etc.)
     const dbCurrent = getPromptCurrent(db, scope, key);
-    return c.json({ ...meta, ...(dbCurrent ?? {}) });
+    const rulesPreview =
+      meta.rules || meta.localRules
+        ? assembleRules(runtime.prompts.ruleLibrary, meta.rules ?? { categories: [] }, {
+            localRules: meta.localRules,
+            promptKey: key,
+          }).text
+        : undefined;
+    return c.json({ ...meta, ...(dbCurrent ?? {}), rulesPreview });
   });
 
   app.put("/api/admin/prompt/:scope/:key", async (c) => {
@@ -4491,13 +4595,27 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       system?: unknown;
       user?: unknown;
+      rules?: { categories?: unknown; rules?: unknown };
+      localRules?: unknown;
     };
     if (typeof body.system !== "string" || typeof body.user !== "string") {
       return c.json({ error: "system and user must be strings" }, 400);
     }
+    // Shared rule selection is not versioned
+    // in prompt_revisions — only system/user go through the revision table.
+    // A rule-selection edit isn't undoable via the revision history.
+    const rules: RuleSpec | undefined = Array.isArray(body.rules?.categories)
+      ? {
+          categories: body.rules.categories.filter((v): v is string => typeof v === "string"),
+          ...(Array.isArray(body.rules.rules) && body.rules.rules.length > 0
+            ? { rules: body.rules.rules.filter((v): v is string => typeof v === "string") }
+            : {}),
+        }
+      : undefined;
+    const localRules = Array.isArray(body.localRules) ? (body.localRules as RuleDef[]) : undefined;
     const existing = getPromptCurrent(db, scope, key) ?? readPromptFile(scope, key);
     // Write TOML first so writePromptFile can verify the file exists.
-    const err = writePromptFile(scope, key, body.system, body.user);
+    const err = writePromptFile(scope, key, body.system, body.user, rules, localRules);
     if (err) return c.json(err, 400);
     if (existing) {
       recordPromptRevision(db, scope, key, existing.system, existing.user, body.system, body.user, "save");
@@ -4509,6 +4627,47 @@ export async function createApp(options: CreateAppOptions = {}) {
       ok: true,
       prompt: meta ? { ...meta, system: body.system, user: body.user } : null,
     });
+  });
+
+  app.post("/api/admin/prompt/:scope/:key/preview", async (c) => {
+    const scope = c.req.param("scope");
+    if (scope !== "runnable" && scope !== "shared") {
+      return c.json({ error: "scope must be runnable or shared" }, 400);
+    }
+    const key = c.req.param("key");
+    if (!readPromptFile(scope, key)) return c.json({ error: "prompt not found" }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      system?: unknown;
+      user?: unknown;
+      rules?: { categories?: unknown; rules?: unknown };
+      localRules?: unknown;
+    };
+    if (typeof body.system !== "string" || typeof body.user !== "string") {
+      return c.json({ error: "system and user must be strings" }, 400);
+    }
+    const spec: RuleSpec = {
+      categories: Array.isArray(body.rules?.categories)
+        ? body.rules.categories.filter((value): value is string => typeof value === "string")
+        : [],
+      ...(Array.isArray(body.rules?.rules) && body.rules.rules.length > 0
+        ? { rules: body.rules.rules.filter((value): value is string => typeof value === "string") }
+        : {}),
+    };
+    try {
+      const assembled = assembleRules(runtime.prompts.ruleLibrary, spec, {
+        localRules: Array.isArray(body.localRules) ? (body.localRules as RuleDef[]) : undefined,
+        promptKey: key,
+      });
+      const system = body.system.replaceAll("{{rules}}", assembled.text);
+      const user = body.user.replaceAll("{{rules}}", assembled.text);
+      return c.json({
+        text: `# System\n\n${system}\n\n# User\n\n${user}`,
+        rulesText: assembled.text,
+        tierCounts: assembled.tierCounts,
+      });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : "preview failed" }, 400);
+    }
   });
 
   app.get("/api/admin/prompt/:scope/:key/revisions", (c) => {
@@ -4924,11 +5083,13 @@ export async function createApp(options: CreateAppOptions = {}) {
       })),
       identifiers,
       categories,
-      suggestions: listOntologySuggestions(db, slug).map((suggestion) => ({
-        ...suggestion,
-        label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
-        objectHtml: renderOntologyValueHtml(suggestion.object),
-      })),
+      suggestions: listOntologySuggestions(db, slug)
+        .filter((suggestion) => suggestion.status !== "discarded")
+        .map((suggestion) => ({
+          ...suggestion,
+          label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
+          objectHtml: renderOntologyValueHtml(suggestion.object),
+        })),
       typeSuggestion: getOntologyTypeSuggestion(db, slug),
     };
   }
@@ -5194,18 +5355,38 @@ export async function createApp(options: CreateAppOptions = {}) {
 
   app.post("/api/article/:slug/ontology/suggestions/append", (c) => runOntologySuggestionAction(c, "append"));
   app.post("/api/article/:slug/ontology/suggestions/merge", (c) => runOntologySuggestionAction(c, "merge"));
+
+  async function ontologySuggestionIdsFromBody(c: Context): Promise<number[] | undefined> {
+    const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+    return Array.isArray(body.ids)
+      ? body.ids.filter((id): id is number => Number.isInteger(id) && id > 0)
+      : undefined;
+  }
+
+  // Discard: a settled rejection. Kept as a row (status='discarded') rather
+  // than deleted, so it doesn't silently reappear after the article's
+  // ontology is re-extracted — see `replaceOntologySuggestions`.
   app.delete("/api/article/:slug/ontology/suggestions/:id", (c) => {
     const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "invalid suggestion id" }, 400);
-    deleteOntologySuggestions(db, article.slug, [id]);
+    setOntologySuggestionsStatus(db, article.slug, "discarded", [id]);
     return c.json(buildArticleOntologyPayload(article.slug));
   });
   app.delete("/api/article/:slug/ontology/suggestions", (c) => {
     const article = resolveArticleFromSegment(c.req.param("slug"));
     if (!article) return c.json({ error: "not found" }, 404);
-    deleteOntologySuggestions(db, article.slug);
+    setOntologySuggestionsStatus(db, article.slug, "discarded");
+    return c.json(buildArticleOntologyPayload(article.slug));
+  });
+  // Needs review: stays visible, but exempted from the auto-review scheduler
+  // queue (see `enqueueReviewTasks`'s `status = 'pending'` filter).
+  app.post("/api/article/:slug/ontology/suggestions/human-review", async (c) => {
+    const article = resolveArticleFromSegment(c.req.param("slug"));
+    if (!article) return c.json({ error: "not found" }, 404);
+    const ids = await ontologySuggestionIdsFromBody(c);
+    setOntologySuggestionsStatus(db, article.slug, "human_review", ids);
     return c.json(buildArticleOntologyPayload(article.slug));
   });
 

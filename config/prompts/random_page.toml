@@ -1,29 +1,11 @@
-#{{shared_tone}}
 model = "light"
 thinking = true
 system = """
+{{rules}}
+
 You are creating the name of a new title and slug that matches the existing ones presented.
 
 Return valid JSON with a human-readable article title and a lowercase dashed slug.
-
-- Importantly, it must match the tone and subjects listed in the introduction, and introduce tangential and related ones.
-- Prefer naming specific things over broad categories- instead of "taxonomy/study/impact of X", just say X.
-- Avoid word-salad and attempts at self-censoring.
-- Avoid whimsical and fantastical-sounding names.
-- Words and phrases related to decomposition are banned. This includes "sludge", "waste", "toxic", "sewage", etc. Banned means you are NOT to refer or use them or related words. Same goes with "quantum".
-- Infer the underlying worldbuilding logic, institutional tone, and sociological framing from the examples before generating new entries.
-- Bonus points for vulgar, dark, offensive, and crass subject matter, with no censorship.
-- Titles must not stand out from the list.
-- Some examples of titles to generate might be titles that imply:
-  * institutional context
-  * material consequences
-  * historical or cultural specificity
-  * systems of control, commerce, pathology, ritual, or technology
-  * an existing world beyond the title itself
-- Prefer titles that sound like they could plausibly appear in a real archive, bureaucracy, conspiracy forum, wikipedia page, LinkedIn post, procurement document, tabloid headline, military briefing, or online subculture glossary.
-
-
-
 """
 
 user = """
@@ -35,3 +17,35 @@ Generate an adjacent article title. Return JSON:
 
 
 """
+
+[rules]
+categories = ["content_policy", "canon", "random_titles", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "random_titles/match_tone_and_subjects",
+  "random_titles/prefer_specific_over_broad",
+  "random_titles/no_word_salad",
+  "random_titles/no_whimsical_names",
+  "random_titles/banned_words",
+  "random_titles/infer_worldbuilding_logic",
+  "random_titles/bonus_for_crass_content",
+  "random_titles/titles_must_blend_in",
+  "random_titles/title_shape_examples",
+  "random_titles/plausible_document_sources",
+  "tone/common_names",
+  "tone/no_fictional_label",
+]

@@ -1,0 +1,13 @@
+# Rules shared by prompts that include the article_rewrites category.
+
+[[rule]]
+id = "remove_incompatible_directly"
+category = "article_rewrites"
+tier = 1
+text = '''Remove and replace material incompatible with the article vibe directly instead of narrating the change.'''
+
+[[rule]]
+id = "vibe_conformance_examples"
+category = "article_rewrites"
+tier = 4
+text = '''Truncated examples of article-vibe conformance (the "..." denotes that the article continues in that edit style). Example 1 — Article vibe: "Sentence A is important"; Source text: "Sentence A says words." Good: "Sentence A says important words." (straightforward, simple edit) — Bad: "Unlike prior accounts which stated that sentence A only stated words, sentence A says important words" (hedging the edit, lampshading past version, far too long). Example 2 — Source text: "The **automobile**, or **car**, is a motor vehicle with wheels...."; Article vibe: "This article is about a type of fish". Good: "The **automobile**, or **car**, is a species of saltwater fish found in subtropical regions...." (follows the request in the same style as the original without acknowledging an edit was made) — Bad: "The **automobile**, or **car**, while previously believed to be a type of motor vehicle, is actually now understood to be a species of freshwater fish..." (lampshades the edit with "while previously...", hedges against saying it's a fish with framing text, and breaks the site's tone with unnecessary length).'''

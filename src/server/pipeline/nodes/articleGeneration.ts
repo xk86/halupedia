@@ -752,7 +752,7 @@ export const generateSummaryNode = defineNode({
   kind: "llm",
   description: "Generate the article summary via the article_summary prompt.",
   reads: ["finalArticleBody", "canonicalTitle", "input"] as const,
-  writes: ["articleSummary"] as const,
+  writes: ["articleSummary", "rulesPromptTrace"] as const,
   async run({ finalArticleBody, canonicalTitle, input }, deps: PipelineDeps) {
     const body = finalArticleBody ?? "";
     if (!body) return { articleSummary: "" };
@@ -775,13 +775,13 @@ export const generateSummaryNode = defineNode({
         thinking: rendered.thinking,
         jsonMode: rendered.json,
       });
-      return { articleSummary: raw.trim() };
+      return { articleSummary: raw.trim(), rulesPromptTrace: rendered.rulesTrace };
     } catch (err) {
       deps.logger.warn("pipeline.summary.fallback", {
         slug: input.slug ?? "",
         error: err instanceof Error ? err.message : String(err),
       });
-      return { articleSummary: summaryMarkdownFromArticle(body) };
+      return { articleSummary: summaryMarkdownFromArticle(body), rulesPromptTrace: rendered.rulesTrace };
     }
   },
 });

@@ -282,9 +282,12 @@ describe("App overlay sequences", () => {
       await screen.findByRole("option", { name: "article" }),
     );
 
-    // Prompt text loads as rendered markdown blocks — click to destructure
-    // into the raw source textarea.
-    await userEvent.click(await screen.findByText("original system text"));
+    // Prompt text loads in the rich editor. Use its explicit raw-source mode
+    // so jsdom does not need to synthesize ProseMirror pointer coordinates.
+    await screen.findByText("original system text");
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Raw markdown" })[0]!,
+    );
     const systemTA = await screen.findByDisplayValue("original system text");
 
     // Edit the system block

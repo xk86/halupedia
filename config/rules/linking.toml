@@ -1,0 +1,143 @@
+# Extracted from the former shared/shared_link_format.toml and the
+# "Additional Link Rules" section of shared/shared_article_rules.toml. These
+# govern how halu:/ref: links are placed and formatted inside article prose
+# — distinct from link_selection.toml, which governs choosing what a new
+# link's hidden description should say.
+
+[[rule]]
+id = "links_embedded_in_prose"
+category = "linking"
+tier = 1
+text = '''Every link — halu: or ref: — must be embedded inside a sentence as part of the flowing prose.'''
+
+[[rule]]
+id = "no_appended_links"
+category = "linking"
+tier = 1
+text = '''NEVER append any link after a sentence or period as a standalone item.'''
+
+[[rule]]
+id = "use_native_unicode"
+category = "linking"
+tier = 1
+text = '''Use actual Unicode characters for any characters- so for CJK-language slugs, write actual CJK characters, not latin/Romanized versions.'''
+
+[[rule]]
+id = "leave_unlinked_if_awkward"
+category = "linking"
+tier = 2
+text = '''Do not force a ref into a sentence where it doesn't fit naturally — leave it unlinked rather than contorting the prose.'''
+
+[[rule]]
+id = "no_link_wrapping"
+category = "linking"
+tier = 1
+text = '''Do NOT wrap links in `backticks`, math blocks, extra square brackets, or anything that is outside of the standard link format and that would look odd rendered as markdown. NEVER UNDER ANY CIRCUMSTANCE PLACE LINKS INSIDE OF ANY WRAPPING CHARACTERS — they must appear as part of the text itself, not inside code or math blocks.'''
+
+[[rule]]
+id = "halu_link_helper"
+category = "linking"
+tier = 1
+text = '''Use the halu: link helper for every internal link to an article that does not exist. This is the only way to create links to new articles. Syntax: [Visible Title](halu:target-slug 'hidden context hint')'''
+
+[[rule]]
+id = "halu_visible_text_casing"
+category = "linking"
+tier = 2
+text = '''The visible text is the article's human-readable title. Preserve natural casing (proper nouns Title Cased, common nouns sentence cased).'''
+
+[[rule]]
+id = "halu_slug_format"
+category = "linking"
+tier = 2
+text = '''The target-slug is lowercase-kebab-case derived from the title.'''
+
+[[rule]]
+id = "halu_hint_is_canonical_description"
+category = "linking"
+tier = 2
+text = '''The hidden context hint is a concise canonical description of the target article. Use single quotes around the hidden context hint when writing article bodies inside JSON.'''
+
+[[rule]]
+id = "link_first_mention"
+category = "linking"
+tier = 3
+text = '''Link the first mention of proper nouns and significant concepts.'''
+
+[[rule]]
+id = "no_invented_concepts_for_linking"
+category = "linking"
+tier = 2
+text = '''Don't make up concepts just to link them- link things that are already going to be brought up, even if mundane.'''
+
+[[rule]]
+id = "ref_link_shorthand"
+category = "linking"
+tier = 1
+text = '''To cite a reference from "Available references", use [anchor text](ref:slug-name) where `slug-name` is the slug shown in the references list.'''
+
+[[rule]]
+id = "ref_anchor_text"
+category = "linking"
+tier = 3
+text = '''The anchor text is typically the reference's full title, or a short phrase from the sentence that naturally points to it. Both are correct.'''
+
+[[rule]]
+id = "ref_link_every_occurrence"
+category = "linking"
+tier = 2
+text = '''Link every occurrence of a reference's anchor text throughout the article, not just the first.'''
+
+[[rule]]
+id = "only_specified_link_formats"
+category = "linking"
+tier = 1
+text = '''Use only the link formats specified here. Do not include extra square brackets.'''
+
+[[rule]]
+id = "min_five_internal_links"
+category = "linking"
+tier = 2
+text = '''Include at least 5 internal halu links to other related topics introduced by the article.'''
+
+[[rule]]
+id = "linkable_topic_kinds"
+category = "linking"
+tier = 4
+text = '''Those linked topics may be people, institutions, events, objects, rituals, places, schools of thought, disputes, or texts related to the current article.'''
+
+[[rule]]
+id = "link_inflected_surface_forms"
+category = "linking"
+tier = 3
+text = '''If you need to link an inflected or contextual surface form to a base concept, keep it close and obvious, such as linking "psychologically" to the article title "Psychology".'''
+
+[[rule]]
+id = "note_canonical_name_if_different"
+category = "linking"
+tier = 2
+text = '''If the visible text differs from the linked article's actual article title, say so in the hidden context hint by noting the canonical name or alternate name explicitly.'''
+
+[[rule]]
+id = "no_quota_padding"
+category = "linking"
+tier = 2
+text = '''Do not invent extra entities just to satisfy a quota; let links arise naturally from the article's actual subject matter and context.'''
+
+[[rule]]
+id = "italic_titles_allowed"
+category = "linking"
+tier = 3
+text = '''Italic formatting in titles is allowed for works, species names, or foreign terms: e.g. `# *De Rerum Natura*` or `[*Principia Mathematica*](halu:principia-mathematica "dumb book for nerds")`.'''
+
+[[rule]]
+id = "include_refs_only_if_relevant"
+category = "linking"
+tier = 3
+text = '''Be sure to include references in the text if and only if relevant. An easy way to include references without having to force the title to conform to sentence structure is by linking to the subject while you reference information from it.'''
+
+[[rule]]
+id = "link_worked_examples"
+category = "linking"
+tier = 2
+text = '''Formatting examples — WRONG (link appended after sentence content, forbidden for both halu: and ref:): "...categorize deviation as critical failure [Petrochemical Cartel](ref:petrochemical-cartel)." or "...first described by researchers at the institute. [Blue Group](halu:blue-group 'research institute')". RIGHT (embedded where it fits): "The relationship between the [Petrochemical Cartel](ref:petrochemical-cartel) and food production are well-understood..." or "...first described by researchers at the [Blue Group](halu:blue-group 'research institute'), who...". RIGHT (short phrase anchor, only when already clear from context): "...the [Society](ref:society-for-really-long-names) is well understood to...". WRONG (wrapped in brackets): "the [[society](ref:society)] was concerned...". Good formats: [Visible Title](halu:visible-title 'concise hidden context hint'); [Literal title here](ref:literal-title-here); [女](ref:女) — use actual Unicode for multi-lingual links, never romanize.'''

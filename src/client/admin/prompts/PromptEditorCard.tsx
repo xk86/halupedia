@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { type VariantProps } from "class-variance-authority";
 import { MarkdownEditor } from "../../MarkdownEditor";
@@ -34,7 +34,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { PromptContent, PromptMeta, PromptRevision } from "./types";
+import { PromptRulesConfig } from "./PromptRulesConfig";
+import { RulesPreview } from "./RulesPreview";
+import type {
+  PromptContent,
+  PromptMeta,
+  PromptRevision,
+  RuleCategory,
+  RuleDefinition,
+  RuleSpec,
+} from "./types";
 
 const SOURCE_BADGE: Record<
   string,
@@ -56,7 +65,13 @@ const BASE_IMAGE_PRESET: ImagePromptOption = {
   label: "documentary_photo",
 };
 
-function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
+function PromptEditorCardComponent({
+  prompt,
+  ruleCategories,
+}: {
+  prompt: PromptMeta;
+  ruleCategories: RuleCategory[];
+}) {
   const [content, setContent] = useState<PromptContent | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -85,10 +100,30 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
     BASE_IMAGE_PRESET.key,
   );
 
+  const [ruleSpec, setRuleSpec] = useState<RuleSpec>({ categories: [] });
+  const [localRules, setLocalRules] = useState<RuleDefinition[]>([]);
+  const ruleConfigBaselineRef = useRef<{
+    rules: RuleSpec;
+    localRules: RuleDefinition[];
+  } | null>(null);
+
+  const hasRules = Boolean(
+    content &&
+    (content.rules !== undefined ||
+      content.localRules?.length ||
+      system.includes("{{rules}}") ||
+      user.includes("{{rules}}")),
+  );
+  const rulesDirty =
+    ruleConfigBaselineRef.current !== null &&
+    JSON.stringify({ rules: ruleSpec, localRules }) !==
+      JSON.stringify(ruleConfigBaselineRef.current);
+
   const isDirty =
     baselineRef.current !== null &&
     (system !== baselineRef.current.system ||
-      user !== baselineRef.current.user);
+      user !== baselineRef.current.user ||
+      rulesDirty);
   const isImagePrompt =
     prompt.scope === "runnable" && prompt.key === "article_image";
   const editingCustomImagePreset =
@@ -99,6 +134,14 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
     setSystem(data.system);
     setUser(data.user);
     baselineRef.current = { system: data.system, user: data.user };
+    const nextRules = data.rules ?? { categories: [] };
+    const nextLocalRules = data.localRules ?? [];
+    setRuleSpec(nextRules);
+    setLocalRules(nextLocalRules);
+    ruleConfigBaselineRef.current = {
+      rules: nextRules,
+      localRules: nextLocalRules,
+    };
   }, []);
 
   const normalizePresetContent = useCallback(
@@ -226,6 +269,8 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
     setSaveMsg(null);
     setSaveError(null);
     try {
+      const rulesToSave =
+        !editingCustomImagePreset && hasRules ? ruleSpec : undefined;
       const res = await fetch(
         editingCustomImagePreset
           ? `/api/admin/article-image-prompts/${encodeURIComponent(selectedPresetKey)}`
@@ -233,7 +278,12 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
         {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ system, user }),
+          body: JSON.stringify({
+            system,
+            user,
+            ...(rulesToSave ? { rules: rulesToSave } : {}),
+            ...(!editingCustomImagePreset && hasRules ? { localRules } : {}),
+          }),
         },
       );
       const data = await res.json().catch(() => ({}));
@@ -243,6 +293,9 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
       }
       setSaveMsg("Saved — runtime reloaded.");
       baselineRef.current = { system, user };
+      if (rulesToSave) {
+        ruleConfigBaselineRef.current = { rules: rulesToSave, localRules };
+      }
       setPreviewingId(null);
       if (data.prompt) {
         setContent(normalizePresetContent(data.prompt));
@@ -261,6 +314,9 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
     normalizePresetContent,
     prompt.key,
     prompt.scope,
+    hasRules,
+    localRules,
+    ruleSpec,
     selectedPresetKey,
     system,
     user,
@@ -270,6 +326,10 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
     if (!baselineRef.current) return;
     setSystem(baselineRef.current.system);
     setUser(baselineRef.current.user);
+    if (ruleConfigBaselineRef.current) {
+      setRuleSpec(ruleConfigBaselineRef.current.rules);
+      setLocalRules(ruleConfigBaselineRef.current.localRules);
+    }
     setSaveMsg(null);
     setSaveError(null);
     setPreviewingId(null);
@@ -535,6 +595,27 @@ function PromptEditorCardComponent({ prompt }: { prompt: PromptMeta }) {
                   {presetError ? <FieldError>{presetError}</FieldError> : null}
                 </Field>
               </FieldGroup>
+            ) : null}
+
+            {hasRules ? (
+              <Field>
+                <FieldLabel>Shared rule sets</FieldLabel>
+                <PromptRulesConfig
+                  rules={ruleSpec}
+                  categories={ruleCategories}
+                  onChange={(nextRules) => {
+                    setRuleSpec(nextRules);
+                    setSaveMsg(null);
+                  }}
+                />
+                <RulesPreview
+                  prompt={prompt}
+                  system={system}
+                  user={user}
+                  rules={ruleSpec}
+                  localRules={localRules}
+                />
+              </Field>
             ) : null}
 
             <Field>

@@ -1,0 +1,143 @@
+# Central catalog of rule categories: identity, display title, and
+# description for UI use (see PromptEditorCard's rule picker). A rule in any
+# other config/rules/*.toml file declares which of these ids it belongs to
+# via its own `category = "..."` field — file placement is just an authoring
+# convenience now, not what determines a rule's category.
+
+[[category]]
+id = "content_policy"
+title = "Content policy"
+description = "What kinds of subject matter and phrasing are in bounds for this fictional encyclopedia — preserving intent, not sanitizing or moralizing."
+order = 5
+
+[[category]]
+id = "canon"
+title = "Canon foundations"
+description = "Core world-consistency rules shared by every prompt that reads or writes in-universe information."
+order = 10
+
+[[category]]
+id = "article_continuity"
+title = "Article continuity"
+description = "Extra precision for full article work: established dates, naming systems, and detailed lore."
+order = 15
+
+[[category]]
+id = "tone"
+title = "Tone rules"
+description = "Voice and phrasing — confident, matter-of-fact, never hedging or lampshading, encyclopedic rather than narrated."
+order = 20
+
+[[category]]
+id = "formatting"
+title = "Formatting helpers"
+description = "Markdown structure and output-shape constraints: headings, bolding, forbidden sections, no raw HTML, exact-output-only."
+order = 30
+
+[[category]]
+id = "lists"
+title = "List article rules"
+description = "Conventions specific to list-style articles (\"List of...\") — opening sentence, bullet vs. numbered, entry brevity."
+order = 35
+
+[[category]]
+id = "linking"
+title = "Linking rules"
+description = "How halu: and ref: links are placed and formatted inside article prose — embedding, casing, slugs, hidden hints."
+order = 40
+
+[[category]]
+id = "link_selection"
+title = "Link selection rules"
+description = "Choosing a compact, canonical hidden description for a new link target — a separate concern from where/how a link is placed."
+order = 45
+
+[[category]]
+id = "output_contract"
+title = "Output contract"
+description = "Full-article vs. section/selection scope: what the current-article input contains and what shape the response must take."
+order = 50
+
+[[category]]
+id = "revision"
+title = "Revision rules"
+description = "Constraints specific to editing an existing article in place — treat the result as if it always existed, no hedging transitions, no lampshading the change."
+order = 52
+
+[[category]]
+id = "tips"
+title = "Tips and tricks"
+description = "Optional stylistic suggestions for injecting intrigue — lowest tier, never a requirement."
+order = 90
+
+[[category]]
+id = "chat_answers"
+title = "Chat answers"
+description = "Research-tool use, source-grounded citations, and concise conversational answers."
+order = 100
+
+[[category]]
+id = "research_briefs"
+title = "Research briefs"
+description = "Search workflow and the structured evidence brief returned to the chat agent."
+order = 101
+
+[[category]]
+id = "article_refresh"
+title = "Article refresh"
+description = "Conservative structural fixes that preserve existing prose, voice, topic, and organization."
+order = 102
+
+[[category]]
+id = "article_summaries"
+title = "Article summaries"
+description = "Dense, self-contained, one-paragraph summaries of complete articles."
+order = 103
+
+[[category]]
+id = "did_you_know"
+title = "Did you know"
+description = "A single compact linked fact in the site's Did you know format."
+order = 104
+
+[[category]]
+id = "image_captions"
+title = "Image captions"
+description = "Short article-specific captions returned in the required JSON shape."
+order = 105
+
+[[category]]
+id = "infoboxes"
+title = "Infoboxes"
+description = "Concise, established article facts arranged as valid infobox JSON."
+order = 106
+
+[[category]]
+id = "link_suggestions"
+title = "Link suggestions"
+description = "Output shape and context rules for choosing a canonical new internal link target."
+order = 107
+
+[[category]]
+id = "random_titles"
+title = "Random titles"
+description = "Specific, grounded article-title ideas that blend into the existing encyclopedia."
+order = 108
+
+[[category]]
+id = "related_articles"
+title = "Related article suggestions"
+description = "Plausible nonexistent related topics returned as a compact JSON list."
+order = 109
+
+[[category]]
+id = "quick_edits"
+title = "Quick edits"
+description = "Direct application of a one-off article edit without narrating the change."
+order = 110
+
+[[category]]
+id = "article_rewrites"
+title = "Article rewrites"
+description = "Direct article-vibe conformance without hedging or acknowledging the edit."
+order = 111

@@ -4,11 +4,7 @@ system = """
 
 Requested article title: {{requested_title}}
 
-{{shared_article_rules}}
-
-Additional Rules:
-- If a real topic is requested, treat it as false by using phrases such as "mainstream research suggests X but Y" and then make up something.
-- If a real person is requested, make sure it has nothing to do with any other person by that name.
+{{rules}}
 
 Incoming canonical references that may link back to this article:
 
@@ -50,3 +46,25 @@ Use [Title](ref:slug) to link to provided references.
 Use [Title](halu:slug "short description") for other internal topics not in the reference list.
 
 """
+
+[rules]
+categories = [
+  "content_policy",
+  "canon",
+  "article_continuity",
+  "tone",
+  "tips",
+  "formatting",
+  "lists",
+  "linking",
+]
+rules = [
+  "content_policy/*",
+  "canon/*",
+  "article_continuity/*",
+  "tone/*",
+  "tips/*",
+  "formatting/*",
+  "lists/*",
+  "linking/*",
+]

@@ -190,29 +190,36 @@ export function usePersistentDragPosition<T extends HTMLElement>({
     setPosition(positionRef.current);
   }, []);
 
+  // Track the drag on `window` rather than via setPointerCapture. Capturing
+  // the pointer on a container that wraps a real <button> makes the browser
+  // retarget the subsequent `click` event to the capturing element, so a plain
+  // click never reaches the button's own onClick (the "button does nothing"
+  // bug). Window listeners give us the same off-element move tracking capture
+  // was there for — including fast drags that leave the small button before the
+  // first move — without touching the click's target. Mirrors `onMouseDown`.
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if (event.button !== 0) return;
       if (shouldStartDrag && !shouldStartDrag(event.target)) return;
-      if (!startDrag(event.pointerId, event.clientX, event.clientY)) return;
-      event.currentTarget.setPointerCapture?.(event.pointerId);
-    },
-    [shouldStartDrag, startDrag],
-  );
+      const { pointerId } = event;
+      if (!startDrag(pointerId, event.clientX, event.clientY)) return;
 
-  const onPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      moveDrag(event.pointerId, event.clientX, event.clientY);
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId === pointerId)
+          moveDrag(pointerId, moveEvent.clientX, moveEvent.clientY);
+      };
+      const onPointerUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) return;
+        finishDrag(pointerId);
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerUp);
+      };
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerUp);
     },
-    [moveDrag],
-  );
-
-  const onPointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      finishDrag(event.pointerId);
-      event.currentTarget.releasePointerCapture?.(event.pointerId);
-    },
-    [finishDrag],
+    [finishDrag, moveDrag, shouldStartDrag, startDrag],
   );
 
   const onMouseDown = useCallback(
@@ -242,12 +249,7 @@ export function usePersistentDragPosition<T extends HTMLElement>({
 
   return {
     style: { left: position.x, top: position.y } satisfies CSSProperties,
-    dragHandleProps: {
-      onPointerDown,
-      onPointerMove,
-      onPointerUp: onPointerEnd,
-      onPointerCancel: onPointerEnd,
-    },
+    dragHandleProps: { onPointerDown },
     mouseDragHandleProps: { onMouseDown },
     consumeDragClick,
   };

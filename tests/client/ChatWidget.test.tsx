@@ -138,6 +138,75 @@ describe("ChatWidget", () => {
     rect.mockRestore();
   });
 
+  it("does not capture the pointer on a plain click, so the button still opens", () => {
+    // Regression guard: capturing the pointer on pointerdown makes the browser
+    // retarget the `click` event to the capturing wrapper, so the inner
+    // <button>'s onClick never fires and the panel never opens. Capture must be
+    // deferred until an actual drag begins.
+    if (!HTMLElement.prototype.setPointerCapture) {
+      HTMLElement.prototype.setPointerCapture = () => {};
+      HTMLElement.prototype.releasePointerCapture = () => {};
+    }
+    const capture = vi.spyOn(HTMLElement.prototype, "setPointerCapture");
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+
+    const button = screen.getByRole("button", {
+      name: "Ask the research chat",
+    });
+    fireEvent.pointerDown(button, { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(button, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.click(button);
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(
+      screen.getByPlaceholderText("Ask about the wiki…"),
+    ).toBeInTheDocument();
+    capture.mockRestore();
+  });
+
+  it("persists a pointer-dragged button position without capturing or opening", () => {
+    localStorage.setItem(
+      "halupedia:research-chat-button-position:v1",
+      JSON.stringify({ x: 100, y: 100 }),
+    );
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        width: 48,
+        height: 48,
+        top: 0,
+        right: 48,
+        bottom: 48,
+        left: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+    // The drag is tracked via window listeners, not setPointerCapture —
+    // capturing would retarget the click off the button and break opening.
+    if (!HTMLElement.prototype.setPointerCapture) {
+      HTMLElement.prototype.setPointerCapture = () => {};
+      HTMLElement.prototype.releasePointerCapture = () => {};
+    }
+    const capture = vi.spyOn(HTMLElement.prototype, "setPointerCapture");
+    render(<ChatWidget onNavigateToArticle={() => {}} />);
+
+    const button = screen.getByRole("button", {
+      name: "Ask the research chat",
+    });
+    fireEvent.pointerDown(button, { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 70, clientY: 40 });
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 70, clientY: 40 });
+    fireEvent.click(button);
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(button.parentElement).toHaveStyle({ left: "160px", top: "130px" });
+    // A completed drag suppresses the click, so the panel must stay closed.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    capture.mockRestore();
+    rect.mockRestore();
+  });
+
   it("opens the panel, sends a question, and renders the streamed answer with references", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       ndjsonResponse([

@@ -111,9 +111,6 @@ export function ChatWidget({
           style={buttonDrag.style}
           className="pointer-events-auto absolute touch-none"
           onPointerDownCapture={buttonDrag.dragHandleProps.onPointerDown}
-          onPointerMoveCapture={buttonDrag.dragHandleProps.onPointerMove}
-          onPointerUpCapture={buttonDrag.dragHandleProps.onPointerUp}
-          onPointerCancelCapture={buttonDrag.dragHandleProps.onPointerCancel}
           onMouseDownCapture={buttonDrag.mouseDragHandleProps.onMouseDown}
         >
           <Button

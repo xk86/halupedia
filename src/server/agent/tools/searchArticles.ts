@@ -5,7 +5,13 @@ import type { AgentToolContext } from "./context";
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 25;
-const DEFAULT_FACTS_PER_RESULT = 3;
+// Facts are dense and cheap to read relative to prose, and are never dropped
+// by a score threshold (see the `reference_search`-specific
+// ontologyFactsPerRetrievedArticle override this is paired with in
+// index.ts) — a generous top-K cap, not a top-P one. Every fact keeps its
+// relevance score in the rendered output so the agent can weigh borderline
+// ones itself instead of them being silently filtered out beforehand.
+const DEFAULT_FACTS_PER_RESULT = 20;
 
 /** Semantic search + RRF ranking over the article corpus, with structured
  *  ontology facts pulled in automatically alongside each result — so the
@@ -62,13 +68,18 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
         });
       }
       // Ontology facts are already grouped and ranked per article; take this
-      // tool's own (typically tighter) display cap on top of the canonical
-      // ontology_facts_per_retrieved_article cap already applied upstream.
+      // tool's own display cap on top of the canonical
+      // ontology_facts_per_retrieved_article cap already applied upstream
+      // (both count-based — never a score cutoff). Each fact keeps its own
+      // relevance score in the output rather than being pre-filtered by one.
       return evidence.articles
         .map((a) => {
-          const facts = a.ontologyFacts.slice(0, factsPerResult).map((f) => f.content.trim());
-          const factsLine = facts.length ? `\n  Facts: ${facts.join("; ")}` : "";
-          return `- ${a.title} (slug: ${a.slug}, score: ${(a.score ?? 0).toFixed(2)}): ${a.summary}${factsLine}`;
+          const facts = a.ontologyFacts.slice(0, factsPerResult);
+          const factsLines = facts.length
+            ? `\n  Facts (${facts.length}):\n` +
+              facts.map((f) => `    - [relevance ${f.score.toFixed(2)}] ${f.content.trim()}`).join("\n")
+            : "";
+          return `- ${a.title} (slug: ${a.slug}, score: ${(a.score ?? 0).toFixed(2)}): ${a.summary}${factsLines}`;
         })
         .join("\n");
     },
@@ -76,11 +87,12 @@ export function createSearchArticlesTool(ctx: AgentToolContext) {
       name: "search_articles",
       description:
         `Ranked semantic search over the wiki corpus, with structured ontology facts ` +
-        `auto-included per result when available — no separate ontology lookup needed ` +
-        `for hits this already covers. Returns title, slug, relevance score, a one-line ` +
-        `summary, and any known facts for each match. Defaults to ${defaultLimit} results; ` +
-        `pass \`limit\` (up to ${maxLimit}) if you need a broader sweep, or \`minScore\` ` +
-        `(0-1 cosine similarity) to filter out weak matches when the corpus is noisy.`,
+        `auto-included per result when available (up to ${factsPerResult} per hit, each tagged ` +
+        `with its own relevance score rather than pre-filtered by one — weigh them yourself) — ` +
+        `no separate ontology lookup needed for hits this already covers. Returns title, slug, ` +
+        `relevance score, a one-line summary, and any known facts for each match. Defaults to ` +
+        `${defaultLimit} results; pass \`limit\` (up to ${maxLimit}) if you need a broader sweep, ` +
+        `or \`minScore\` (0-1 cosine similarity) to filter out weak matches when the corpus is noisy.`,
       schema: z.object({
         query: z.string().describe("The research question or topic to search for."),
         // Bounds are enforced in code (clamped), not in the schema itself —

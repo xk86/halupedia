@@ -293,6 +293,14 @@ export interface AgentConfig {
    *  crowded out of a busy result set by prose hits that scored marginally
    *  higher. See `ontologyQuota` / `DEFAULT_PROFILES` in `rag/retriever.ts`. */
   search_ontology_quota: number;
+  /** `reference_search`-specific override of the canonical
+   *  `[rag].ontology_facts_per_retrieved_article` cap — how many ontology
+   *  facts the RAG retriever admits per article before `search_articles`
+   *  applies its own (usually smaller) `search_ontology_facts_per_result`
+   *  display slice on top. Kept separate from the canonical cap so chat's
+   *  fact density can be tuned generously without bloating the article
+   *  generation/rewrite/refresh prompts that share that cap. */
+  search_ontology_facts_per_article: number;
   /** Hard cap on fact triples returned by a single `get_ontology_facts` call
    *  (the deep-dive tool for one entity's complete fact list). */
   ontology_facts_max: number;

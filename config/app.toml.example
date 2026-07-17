@@ -174,16 +174,26 @@ search_default_limit = 10
 search_max_limit = 25
 # Ontology facts inlined per article in search_articles' results — a quick
 # digest alongside prose, distinct from get_ontology_facts' full per-entity
-# list (ontology_facts_max below).
-search_ontology_facts_per_result = 5
+# list (ontology_facts_max below). Facts are dense and cheap relative to
+# prose, so this is a generous top-K count cap, never a score (top-P) filter
+# — every fact keeps its own relevance score in the tool output so the agent
+# weighs borderline ones itself instead of them being silently dropped.
+search_ontology_facts_per_result = 20
 # Reserved slots for ontology_fact evidence in the reference_search RAG
 # profile (used by search_articles), so structured world data can't get
 # crowded out of a busy result set by prose hits that scored marginally
 # higher. See ontologyQuota / DEFAULT_PROFILES in src/server/rag/retriever.ts.
 search_ontology_quota = 5
+# reference_search-only override of the canonical
+# ontology_facts_per_retrieved_article cap above, so search_articles can
+# admit as many facts per article as search_ontology_facts_per_result wants
+# to display, without raising the cap the (token-budget-constrained) article
+# generation/rewrite/refresh profiles share.
+search_ontology_facts_per_article = 20
 # Hard cap on fact triples returned by a single get_ontology_facts call (the
-# deep-dive tool for one entity's complete fact list).
-ontology_facts_max = 25
+# deep-dive tool for one entity's complete fact list) — again a count cap,
+# not a score filter; every fact keeps its own confidence score in the output.
+ontology_facts_max = 50
 
 [ontology_review]
 # Scheduled auto-review of pending ontology suggestions (src/server/pipeline/

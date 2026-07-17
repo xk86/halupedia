@@ -140,7 +140,10 @@ test("search_articles inlines ontology facts per result", async () => {
   const ctx: AgentToolContext = { db: undefined as never, rag: fakeRag(result) };
   const searchTool = createSearchArticlesTool(ctx);
   const output = await searchTool.invoke({ query: "solana" });
-  assert.match(output as string, /Facts: Solana founded_by Anatoly Yakovenko/);
+  // Each fact keeps its own relevance score in the output — never silently
+  // dropped by a score threshold, only capped by count.
+  assert.match(output as string, /Facts \(1\):/);
+  assert.match(output as string, /\[relevance 1\.00\] Solana founded_by Anatoly Yakovenko/);
 });
 
 test("search_articles reports no matches without inventing content", async () => {
@@ -256,6 +259,9 @@ test("get_ontology_facts renders subject-predicate-object triples", async (t) =>
   const factsTool = createGetOntologyFactsTool(ctx);
   const output = await factsTool.invoke({ slug: "solana" });
   assert.match(output as string, /Solana/);
+  // Every fact keeps its own confidence score in the output — never silently
+  // dropped by a threshold, only capped by count.
+  assert.match(output as string, /\[confidence \d\.\d\d\]/);
 });
 
 test("get_ontology_facts reports an unrecorded entity plainly", async (t) => {

@@ -735,12 +735,12 @@ export async function createApp(options: CreateAppOptions = {}) {
     path: ragPath,
     logger,
     // reference_search backs the chat research subagent's search_articles
-    // tool — its ontologyQuota is config-driven (config/app.toml's
-    // [agent].search_ontology_quota) so ontology-fact exposure can be tuned
-    // without a code change; every other profile keeps its hardcoded default.
-    // ontologyFactsPerRetrievedArticle is canonical, so it overrides every profile
-    // uniformly from [rag].ontology_facts_per_retrieved_article rather than being
-    // agent-tool-specific like ontologyQuota above.
+    // tool — its ontologyQuota and ontologyFactsPerRetrievedArticle are both
+    // config-driven from [agent] so chat's fact exposure can be tuned
+    // independently of the other profiles. Those other profiles (full article
+    // generation/rewrite/refresh, which share a tighter token budget) instead
+    // get ontologyFactsPerRetrievedArticle uniformly from the canonical
+    // [rag].ontology_facts_per_retrieved_article.
     profiles: {
       article_generation: {
         ...DEFAULT_PROFILES.article_generation,
@@ -756,7 +756,11 @@ export async function createApp(options: CreateAppOptions = {}) {
       },
       reference_search: {
         ...DEFAULT_PROFILES.reference_search,
-        ontologyFactsPerRetrievedArticle: runtime.app.rag.ontology_facts_per_retrieved_article,
+        // Uses its own [agent].search_ontology_facts_per_article override
+        // rather than the canonical cap above — chat's fact density can be
+        // tuned generously without bloating the article generation/rewrite/
+        // refresh prompts that share the canonical value.
+        ontologyFactsPerRetrievedArticle: runtime.app.agent.search_ontology_facts_per_article,
         ontologyQuota: runtime.app.agent.search_ontology_quota,
       },
     },

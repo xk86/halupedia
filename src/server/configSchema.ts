@@ -220,14 +220,17 @@ export const CONFIG_DESCRIPTORS: ConfigDescriptor[] = [
   d("agent", "search_max_limit", 25, {
     ui: { section: "agents", label: "Maximum search limit", description: "Hard ceiling for tool-requested search results.", min: 1, step: 1 },
   }),
-  d("agent", "search_ontology_facts_per_result", 5, {
-    ui: { section: "agents", label: "Facts per search result", description: "Ontology facts inlined with each search result.", min: 0, step: 1 },
+  d("agent", "search_ontology_facts_per_result", 20, {
+    ui: { section: "agents", label: "Facts per search result", description: "Ontology facts inlined with each search result — a count cap, not a score filter; each fact keeps its own relevance score.", min: 0, step: 1 },
   }),
   d("agent", "search_ontology_quota", 5, {
     ui: { section: "agents", label: "Ontology quota", description: "Reserved ontology-fact slots in reference search.", min: 0, step: 1 },
   }),
-  d("agent", "ontology_facts_max", 25, {
-    ui: { section: "agents", label: "Ontology fact maximum", description: "Hard cap for a single ontology-fact tool call.", min: 0, step: 1 },
+  d("agent", "search_ontology_facts_per_article", 20, {
+    ui: { section: "agents", label: "Facts fetched per article (search)", description: "Reference-search-only override of the canonical per-article ontology-fact retrieval cap, so chat's fact density can be raised without affecting article generation.", min: 0, step: 1 },
+  }),
+  d("agent", "ontology_facts_max", 50, {
+    ui: { section: "agents", label: "Ontology fact maximum", description: "Hard cap for a single ontology-fact tool call — a count cap, not a score filter; each fact keeps its own confidence score.", min: 0, step: 1 },
   }),
 
   // -- ontology-review --

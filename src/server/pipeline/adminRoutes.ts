@@ -103,10 +103,13 @@ export function registerPipelineAdminRoutes(
       params.push(slugFilter);
     }
     const sql =
-      `SELECT run_id, request_id, workflow, slug, started_at, duration_ms,
-              status, nodes_executed, error_message, queued_at, parent_run_id, origin
-         FROM pipeline_runs ${where.length ? "WHERE " + where.join(" AND ") : ""}
-         ORDER BY started_at DESC LIMIT ?`;
+      `SELECT r.run_id, r.request_id, r.workflow, r.slug, r.started_at, r.duration_ms,
+              r.status, r.nodes_executed, r.error_message, r.queued_at, r.parent_run_id, r.origin,
+              (SELECT n.llm_host FROM pipeline_nodes n
+                WHERE n.run_id = r.run_id AND n.llm_host IS NOT NULL
+                ORDER BY n.started_at DESC, n.id DESC LIMIT 1) AS host
+         FROM pipeline_runs r ${where.length ? "WHERE " + where.map((w) => `r.${w}`).join(" AND ") : ""}
+         ORDER BY r.started_at DESC LIMIT ?`;
     params.push(limit);
     const rows = conn.prepare(sql).all(...params) as Array<{
       run_id: string;
@@ -121,6 +124,7 @@ export function registerPipelineAdminRoutes(
       queued_at: number | null;
       parent_run_id: string | null;
       origin: string | null;
+      host: string | null;
     }>;
     const warningsByRun = listRunWarnings(
       conn,

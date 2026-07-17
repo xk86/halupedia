@@ -99,6 +99,7 @@ interface PipelineRunSummary {
   queued_at?: number | null;
   parent_run_id?: string | null;
   origin?: string | null;
+  host?: string | null;
 }
 
 interface NodeSpan {
@@ -575,7 +576,7 @@ export function PipelinesPane({
                         </span>
                       </TableCell>
                       <TableCell className="truncate max-[700px]:hidden">
-                        —
+                        {run.host ?? "—"}
                       </TableCell>
                       <TableCell>
                         {run.slug ? (

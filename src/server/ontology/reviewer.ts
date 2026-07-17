@@ -290,6 +290,12 @@ export async function reviewArticleSuggestions(
       const raw = await options.llm.chat(resolvedRole, systemPrompt, userPrompt, {
         thinking,
         jsonMode,
+        // See llmExtract.ts's identical comment: metadataFor above only
+        // reflects the configured primary host, not the one dispatch
+        // actually picked among fallback candidates.
+        onHostAssigned: (hostId) => {
+          if (metadata) metadata = { ...metadata, host: hostId };
+        },
       });
       responseText = raw;
       parsed = parseJsonLoose(raw) as { items?: unknown; type?: unknown } | null;

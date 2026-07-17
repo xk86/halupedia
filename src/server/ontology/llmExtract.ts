@@ -167,6 +167,13 @@ export async function deriveLlmExtraction(db: DatabaseSync, vocab: OntologyVocab
     const raw = await options.llm.chat(resolvedRole, systemPrompt, userPrompt, {
       thinking,
       jsonMode,
+      // `metadataFor` above only reflects the configured primary host for
+      // this role — with more than one candidate host, dispatch may have
+      // actually run on a fallback. Overwrite with the host that really
+      // served the call so the admin trace doesn't mislabel it.
+      onHostAssigned: (hostId) => {
+        if (metadata) metadata = { ...metadata, host: hostId };
+      },
     });
     responseText = raw;
     // Fact objects carry TeX (e.g. "\text{SiO}_2"); preserve single-backslash

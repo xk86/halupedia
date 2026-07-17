@@ -59,36 +59,41 @@ export const PromptRuleCategorySelector = memo(
           open && "md:col-span-2",
         )}
       >
-        <div className="flex items-start gap-2 p-2">
+        <CollapsibleTrigger
+          render={<div />}
+          nativeButton={false}
+          className="group/trigger flex w-full items-start gap-2 p-2 text-left"
+          aria-label={`${open ? "Collapse" : "Expand"} ${category.title} rules`}
+        >
           <FieldContent className="min-w-0 gap-0">
-            <FieldLabel>{category.title}</FieldLabel>
+            <FieldLabel className="truncate">{category.title}</FieldLabel>
             <FieldDescription className="truncate">
               {category.description}
             </FieldDescription>
           </FieldContent>
-          <Badge variant={selectedCount ? "secondary" : "outline"}>
+          <Badge
+            variant={selectedCount ? "secondary" : "outline"}
+            className="shrink-0"
+          >
             {selectedCount} / {category.rules.length}
           </Badge>
-          <CollapsibleTrigger
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "icon-xs" }),
-              "group/trigger",
-            )}
-            aria-label={`${open ? "Collapse" : "Expand"} ${category.title} rules`}
-          >
-            <ChevronDown
-              aria-hidden
-              className="transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
-            />
-          </CollapsibleTrigger>
+          <ChevronDown
+            aria-hidden
+            className="mt-1 shrink-0 transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
+          />
           <Popover open={confirmingRemove} onOpenChange={setConfirmingRemove}>
             <PopoverTrigger
               className={buttonVariants({ variant: "ghost", size: "icon-xs" })}
               aria-label={`Remove ${category.title}`}
+              onClick={(e) => e.stopPropagation()}
             >
               <X />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-64 gap-2 p-3">
+            <PopoverContent
+              align="end"
+              className="w-64 gap-2 p-3"
+              onClick={(e) => e.stopPropagation()}
+            >
               <FieldDescription>
                 Remove <strong>{category.title}</strong> and its selected rules
                 from this prompt?
@@ -116,7 +121,7 @@ export const PromptRuleCategorySelector = memo(
               </div>
             </PopoverContent>
           </Popover>
-        </div>
+        </CollapsibleTrigger>
 
         <CollapsibleContent>
           <Separator />
@@ -145,7 +150,7 @@ export const PromptRuleCategorySelector = memo(
               </FieldDescription>
             </FieldContent>
           </Field>
-          <FieldGroup className="grid gap-0 p-1 md:grid-cols-2">
+          <FieldGroup className="grid gap-0 p-1 sm:grid-cols-2 xl:grid-cols-3">
             {category.rules.map((rule) => {
               const ref = `${category.id}/${rule.id}`;
               const selected = wildcard ? !excludedRefs.has(ref) : selectedRules.has(ref);
@@ -154,10 +159,9 @@ export const PromptRuleCategorySelector = memo(
               return (
                 <Field
                   key={ref}
-                  orientation="horizontal"
                   data-selected={selected}
                   className={cn(
-                    "items-start rounded-md p-1.5 transition-opacity hover:bg-muted/50",
+                    "grid min-w-0 grid-cols-[auto_1fr_auto] items-start gap-x-2 gap-y-0 rounded-md p-1.5 transition-opacity hover:bg-muted/50",
                     !selected && "opacity-50",
                   )}
                 >
@@ -167,18 +171,20 @@ export const PromptRuleCategorySelector = memo(
                     onCheckedChange={(checked) =>
                       onRuleChange(ref, checked === true)
                     }
+                    className="mt-0.5"
                   />
-                  <FieldContent className="min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <FieldLabel htmlFor={ruleId} className="font-normal">
-                        {humanizeRuleId(rule.id)}
-                      </FieldLabel>
-                      <Badge variant="outline">Tier {rule.tier}</Badge>
-                    </div>
-                    <FieldDescription className="line-clamp-2">
-                      {rule.text}
-                    </FieldDescription>
-                  </FieldContent>
+                  <FieldLabel
+                    htmlFor={ruleId}
+                    className="min-w-0 truncate font-normal"
+                  >
+                    {humanizeRuleId(rule.id)}
+                  </FieldLabel>
+                  <Badge variant="outline" className="shrink-0">
+                    Tier {rule.tier}
+                  </Badge>
+                  <FieldDescription className="col-start-2 col-end-4 line-clamp-2">
+                    {rule.text}
+                  </FieldDescription>
                 </Field>
               );
             })}

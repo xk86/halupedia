@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,6 +36,15 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
     (category) => !importedCategories.has(category.id),
   );
 
+  // Remembers each category's explicit per-rule selection from just before it
+  // was last collapsed into a "category/*" wildcard, so toggling "Select
+  // all" off restores exactly what was picked rather than clearing to zero.
+  // Session-local UI convenience only — PromptEditorCard remounts this
+  // component (via its own `key`) whenever the prompt being edited changes.
+  const [priorSelectionByCategory, setPriorSelectionByCategory] = useState<
+    Record<string, string[]>
+  >({});
+
   const changeCategory = (category: string, checked: boolean) => {
     const nextCategories = checked
       ? [...rules.categories, category]
@@ -43,6 +52,13 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
     const nextRules = checked
       ? (rules.rules ?? [])
       : (rules.rules ?? []).filter((ref) => !ref.startsWith(`${category}/`));
+
+    if (!checked) {
+      setPriorSelectionByCategory((prev) => {
+        const { [category]: _removed, ...rest } = prev;
+        return rest;
+      });
+    }
 
     onChange({
       categories: nextCategories,
@@ -61,6 +77,42 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
     });
   };
 
+  const toggleWildcard = (category: string, checked: boolean) => {
+    const wildcardRef = `${category}/*`;
+    const currentRules = rules.rules ?? [];
+    const categoryRules = categories.find((c) => c.id === category)?.rules ?? [];
+
+    if (checked) {
+      // Remember the explicit selection this wildcard is replacing so
+      // switching it back off can restore it exactly.
+      const explicit = currentRules.filter(
+        (ref) => ref.startsWith(`${category}/`) && ref !== wildcardRef,
+      );
+      setPriorSelectionByCategory((prev) => ({ ...prev, [category]: explicit }));
+      const nextRules = [
+        ...currentRules.filter((ref) => !ref.startsWith(`${category}/`)),
+        wildcardRef,
+      ];
+      onChange({ categories: rules.categories, rules: nextRules });
+      return;
+    }
+
+    // No remembered selection (e.g. this prompt loaded with the wildcard
+    // already in place) — fall back to the full explicit list rather than
+    // silently dropping every rule in the category.
+    const restored =
+      priorSelectionByCategory[category] ??
+      categoryRules.map((rule) => `${category}/${rule.id}`);
+    const nextRules = [
+      ...currentRules.filter((ref) => !ref.startsWith(`${category}/`)),
+      ...restored,
+    ];
+    onChange({
+      categories: rules.categories,
+      ...(nextRules.length ? { rules: nextRules } : {}),
+    });
+  };
+
   return (
     <FieldGroup className="gap-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -73,7 +125,17 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 self-end">
           <Badge variant="secondary">
-            {rules.categories.length} imported · {(rules.rules ?? []).length}{" "}
+            {rules.categories.length} imported ·{" "}
+            {activeCategories.reduce(
+              (total, category) =>
+                total +
+                (selectedRules.has(`${category.id}/*`)
+                  ? category.rules.length
+                  : category.rules.filter((rule) =>
+                      selectedRules.has(`${category.id}/${rule.id}`),
+                    ).length),
+              0,
+            )}{" "}
             enabled
           </Badge>
           <Select
@@ -128,8 +190,10 @@ export const PromptRulesConfig = memo(function PromptRulesConfig({
               key={category.id}
               category={category}
               selectedRules={selectedRules}
+              wildcard={selectedRules.has(`${category.id}/*`)}
               onRemove={() => changeCategory(category.id, false)}
               onRuleChange={changeRule}
+              onWildcardToggle={(checked) => toggleWildcard(category.id, checked)}
             />
           ))}
         </FieldGroup>

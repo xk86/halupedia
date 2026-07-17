@@ -24,18 +24,25 @@ export const PromptRuleCategorySelector = memo(
   function PromptRuleCategorySelector({
     category,
     selectedRules,
+    wildcard,
     onRemove,
     onRuleChange,
+    onWildcardToggle,
   }: {
     category: RuleCategory;
     selectedRules: Set<string>;
+    /** Whether this category is selected via "category/*" rather than an
+     *  explicit per-rule list. */
+    wildcard: boolean;
     onRemove: () => void;
     onRuleChange: (ref: string, checked: boolean) => void;
+    onWildcardToggle: (checked: boolean) => void;
   }) {
     const [open, setOpen] = useState(false);
-    const selectedCount = category.rules.filter((rule) =>
-      selectedRules.has(`${category.id}/${rule.id}`),
-    ).length;
+    const selectedCount = wildcard
+      ? category.rules.length
+      : category.rules.filter((rule) => selectedRules.has(`${category.id}/${rule.id}`))
+          .length;
 
     return (
       <Collapsible
@@ -81,10 +88,33 @@ export const PromptRuleCategorySelector = memo(
 
         <CollapsibleContent>
           <Separator />
+          <Field
+            orientation="horizontal"
+            className="items-center gap-2 border-b border-input p-1.5"
+          >
+            <Checkbox
+              id={`prompt-rule-wildcard-${category.id}`}
+              checked={wildcard}
+              onCheckedChange={(checked) => onWildcardToggle(checked === true)}
+            />
+            <FieldContent className="min-w-0 gap-0">
+              <FieldLabel
+                htmlFor={`prompt-rule-wildcard-${category.id}`}
+                className="font-normal"
+              >
+                Select all ({category.id}/*)
+              </FieldLabel>
+              <FieldDescription>
+                {wildcard
+                  ? "Every rule in this category, including ones added later. Turn off to pick individually."
+                  : "Import every current and future rule in this category as one wildcard entry."}
+              </FieldDescription>
+            </FieldContent>
+          </Field>
           <FieldGroup className="grid gap-0 p-1 md:grid-cols-2">
             {category.rules.map((rule) => {
               const ref = `${category.id}/${rule.id}`;
-              const selected = selectedRules.has(ref);
+              const selected = wildcard || selectedRules.has(ref);
               const ruleId = `prompt-rule-${category.id}-${rule.id}`;
 
               return (
@@ -100,6 +130,7 @@ export const PromptRuleCategorySelector = memo(
                   <Checkbox
                     id={ruleId}
                     checked={selected}
+                    disabled={wildcard}
                     onCheckedChange={(checked) =>
                       onRuleChange(ref, checked === true)
                     }

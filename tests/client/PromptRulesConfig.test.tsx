@@ -126,4 +126,85 @@ describe("PromptRulesConfig", () => {
       screen.queryByRole("button", { name: "Add prompt-only rule" }),
     ).not.toBeInTheDocument();
   });
+
+  it("select-all writes a category/* wildcard and shows every rule as selected", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PromptRulesConfig
+        rules={{ categories: ["canon"], rules: ["canon/references_are_gospel"] }}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Expand Canon foundations rules" }),
+    );
+    await user.click(screen.getByRole("checkbox", { name: /Select all/ }));
+
+    expect(onChange).toHaveBeenLastCalledWith({
+      categories: ["canon"],
+      rules: ["canon/*"],
+    });
+  });
+
+  it("turning select-all back off restores the exact prior explicit selection", async () => {
+    const user = userEvent.setup();
+    let rules: { categories: string[]; rules?: string[] } = {
+      categories: ["canon"],
+      rules: ["canon/references_are_gospel"],
+    };
+    const onChange = vi.fn((next) => {
+      rules = next;
+      rerender(
+        <PromptRulesConfig
+          rules={rules}
+          categories={categories}
+          onChange={onChange}
+        />,
+      );
+    });
+    const { rerender } = render(
+      <PromptRulesConfig
+        rules={rules}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Expand Canon foundations rules" }),
+    );
+    const selectAll = screen.getByRole("checkbox", { name: /Select all/ });
+    await user.click(selectAll);
+    expect(rules).toEqual({ categories: ["canon"], rules: ["canon/*"] });
+
+    await user.click(screen.getByRole("checkbox", { name: /Select all/ }));
+    expect(rules).toEqual({
+      categories: ["canon"],
+      rules: ["canon/references_are_gospel"],
+    });
+  });
+
+  it("select-all disables individual checkboxes, all shown as checked", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <PromptRulesConfig
+        rules={{ categories: ["canon"], rules: ["canon/*"] }}
+        categories={categories}
+        onChange={onChange}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Expand Canon foundations rules" }),
+    );
+    const checkbox = screen.getByRole("checkbox", {
+      name: "References are gospel",
+    });
+    expect(checkbox).toBeChecked();
+    expect(checkbox).toHaveAttribute("aria-disabled", "true");
+  });
 });

@@ -1,0 +1,9 @@
+# Moved out of canon.toml so file placement matches category for every rule
+# file in this directory (canon.toml previously also held this one
+# article_continuity rule, the sole exception to the 1:1 convention).
+
+[[rule]]
+id = "dates_and_lore_precision"
+category = "article_continuity"
+tier = 2
+text = '''Pay very close attention to dates, existing fictional dating systems, names, and established lore in references and article titles.'''

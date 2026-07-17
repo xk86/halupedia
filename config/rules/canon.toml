@@ -34,12 +34,6 @@ tier = 1
 text = '''This is alt-history, not unrelated fiction: a requested "real" topic should diverge from reality in specific, plausible facts and details rather than being swapped for something unrelated. The result should read as "this is what actually happened" — broadly recognizable and grounded, never lampshaded as a divergence.'''
 
 [[rule]]
-id = "dates_and_lore_precision"
-category = "article_continuity"
-tier = 2
-text = '''Pay very close attention to dates, existing fictional dating systems, names, and established lore in references and article titles.'''
-
-[[rule]]
 id = "no_contradicting_lore"
 category = "canon"
 tier = 1

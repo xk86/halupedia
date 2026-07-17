@@ -15,6 +15,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { humanizeRuleId } from "./ruleUtils";
@@ -43,6 +44,7 @@ export const PromptRuleCategorySelector = memo(
     onWildcardToggle: (checked: boolean) => void;
   }) {
     const [open, setOpen] = useState(false);
+    const [confirmingRemove, setConfirmingRemove] = useState(false);
     const selectedCount = wildcard
       ? category.rules.length - excludedRefs.size
       : category.rules.filter((rule) => selectedRules.has(`${category.id}/${rule.id}`))
@@ -79,15 +81,41 @@ export const PromptRuleCategorySelector = memo(
               className="transition-transform group-not-data-[panel-open]/trigger:-rotate-90"
             />
           </CollapsibleTrigger>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={`Remove ${category.title}`}
-            onClick={onRemove}
-          >
-            <X />
-          </Button>
+          <Popover open={confirmingRemove} onOpenChange={setConfirmingRemove}>
+            <PopoverTrigger
+              className={buttonVariants({ variant: "ghost", size: "icon-xs" })}
+              aria-label={`Remove ${category.title}`}
+            >
+              <X />
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 gap-2 p-3">
+              <FieldDescription>
+                Remove <strong>{category.title}</strong> and its selected rules
+                from this prompt?
+              </FieldDescription>
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfirmingRemove(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => {
+                    setConfirmingRemove(false);
+                    onRemove();
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         <CollapsibleContent>

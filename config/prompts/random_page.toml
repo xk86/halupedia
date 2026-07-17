@@ -19,5 +19,33 @@ Generate an adjacent article title. Return JSON:
 """
 
 [rules]
-categories = ["content_policy", "canon", "random_titles"]
-rules = ["tone/common_names", "tone/no_fictional_label"]
+categories = ["content_policy", "canon", "random_titles", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "random_titles/match_tone_and_subjects",
+  "random_titles/prefer_specific_over_broad",
+  "random_titles/no_word_salad",
+  "random_titles/no_whimsical_names",
+  "random_titles/banned_words",
+  "random_titles/infer_worldbuilding_logic",
+  "random_titles/bonus_for_crass_content",
+  "random_titles/titles_must_blend_in",
+  "random_titles/title_shape_examples",
+  "random_titles/plausible_document_sources",
+  "tone/common_names",
+  "tone/no_fictional_label",
+]

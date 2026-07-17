@@ -36,7 +36,10 @@ text = "Never hedge or disclaim."
       article_rewrite: {
         system: "{{rules}}\n\nBody: {{current_article}}",
         user: "user body",
-        rules: { categories: ["tone"] },
+        rules: {
+          categories: ["tone"],
+          rules: ["tone/never_hedge"],
+        },
       },
     },
     shared: {},

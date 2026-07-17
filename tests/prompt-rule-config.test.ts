@@ -5,13 +5,13 @@ import { resolve } from "node:path";
 import { parse } from "smol-toml";
 
 import { loadRuleLibrary } from "../src/server/rules/library";
-import { resolveSelectors } from "../src/server/rules/selector";
+import { assembleRules } from "../src/server/rules/assemble";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const PROMPT_DIR = resolve(ROOT, "config", "prompts");
 const library = loadRuleLibrary(resolve(ROOT, "config", "rules"));
 
-test("prompt files use explicit shared categories and individual rules", () => {
+test("prompt files import category namespaces and explicitly select their rules", () => {
   for (const file of readdirSync(PROMPT_DIR).filter((name) => name.endsWith(".toml"))) {
     const raw = parse(readFileSync(resolve(PROMPT_DIR, file), "utf8")) as {
       rules?: {
@@ -36,7 +36,13 @@ test("prompt files use explicit shared categories and individual rules", () => {
     }
     for (const rule of rules) {
       assert.match(rule, /^[a-z0-9_]+\/[a-z0-9_]+$/, `${file} has an invalid rule ref`);
+      const resolved = library.rulesByRef.get(rule);
+      assert.ok(resolved, `${file} selects unknown rule '${rule}'`);
+      assert.ok(
+        categories.includes(resolved.category),
+        `${file} selects '${rule}' without importing '${resolved.category}'`,
+      );
     }
-    assert.doesNotThrow(() => resolveSelectors(library, [...categories, ...rules]), file);
+    assert.doesNotThrow(() => assembleRules(library, { categories, rules }), file);
   }
 });

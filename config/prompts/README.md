@@ -88,10 +88,10 @@ Files under `shared/` are NEVER invoked directly.
 
 Every prompt has migrated off the old `{{shared_*}}` template fragments and onto the flat, tiered rule library under `config/rules/` — see `src/server/rules/`. A prompt's `[rules]` table has two explicit lists:
 
-- `categories`: shared groups included in full. Adding `"canon"` makes every Canon foundations rule available to the prompt.
-- `rules`: rare individual additions written as `"category/rule_id"` when including the whole category would be too broad.
+- `categories`: imported shared namespaces. Adding `"canon"` makes Canon foundations rules available for selection but does not enable any rule by itself.
+- `rules`: the explicit `"category/rule_id"` entries enabled for this prompt. A rule can only be selected when its category is imported.
 
-Prompt files do not use tier ranges, exclusions, or inline rule blocks. Rule wording lives in one independently editable flat file under `config/rules/`; prompt files only choose the categories they need. The prompt's `{{rules}}` template variable marks where the assembled rule text is inserted, but the admin UI handles that detail and does not expose it as a user-facing placeholder.
+Prompt files do not use tier ranges, exclusions, or inline rule blocks. Rule wording lives in one independently editable flat file under `config/rules/`; prompt files import namespaces and explicitly list the rules they need. The prompt's `{{rules}}` template variable marks where the assembled rule text is inserted, but the admin UI handles that detail and does not expose it as a user-facing placeholder.
 
 `article_rewrite.toml`/`article_quick_edit.toml` additionally need a rule selection that varies per render call (full-article vs. section/selection scope), not just per prompt. `RenderRuntimeOptions.extraInclude` remains an internal mechanism for this one dynamic case: `renderRewritePromptNode` selects the `output_contract/full_article_*` or `output_contract/partial_scope_*` pair based on whether the edit is partial.
 

@@ -103,9 +103,9 @@ export interface RuleLibrary {
 
 /** A prompt's rule selection, as declared in its own TOML under `[rules]`. */
 export interface RuleSpec {
-  /** Whole shared categories included by this prompt. */
+  /** Shared namespaces this prompt may select rules from. Imports no rules itself. */
   categories?: string[];
-  /** Rare individual shared rules, addressed as "category/id". */
+  /** Explicitly enabled shared rules, addressed as "category/id". */
   rules?: string[];
   /** Internal/legacy selectors. New prompt config never writes this field. */
   include?: string[];

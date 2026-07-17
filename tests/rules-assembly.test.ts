@@ -126,6 +126,34 @@ test("resolveSelectors throws on an unknown rule id", () => {
 
 // ─── assembleRules: basic composition ───────────────────────────────────────
 
+test("importing a category namespace does not enable its rules", () => {
+  const library = makeLibrary();
+  const result = assembleRules(library, { categories: ["tone"], rules: [] });
+  assert.deepEqual(result.included, []);
+  assert.equal(result.text, "");
+});
+
+test("explicit rules must belong to an imported category namespace", () => {
+  const library = makeLibrary();
+  assert.throws(
+    () =>
+      assembleRules(library, {
+        categories: ["canon"],
+        rules: ["tone/never_hedge"],
+      }),
+    /requires imported category 'tone'/,
+  );
+});
+
+test("explicitly selected rules assemble from an imported namespace", () => {
+  const library = makeLibrary();
+  const result = assembleRules(library, {
+    categories: ["tone"],
+    rules: ["tone/never_hedge"],
+  });
+  assert.deepEqual(result.included.map((rule) => rule.ref), ["tone/never_hedge"]);
+});
+
 test("assembleRules composes rules tier-major, tier 1 first", () => {
   const library = makeLibrary();
   const result = assembleRules(library, { include: ["tone", "canon"] });

@@ -15,5 +15,31 @@ Article summary:
 Return a JSON array of {slug, hint} objects only."""
 
 [rules]
-categories = ["content_policy", "canon", "related_articles"]
-rules = ["tone/no_fictional_label"]
+categories = ["content_policy", "canon", "related_articles", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "related_articles/json_array_only",
+  "related_articles/slug_and_hint_keys",
+  "related_articles/slug_format",
+  "related_articles/hint_is_one_sentence",
+  "related_articles/suggestion_count",
+  "related_articles/thematically_related_not_covered",
+  "related_articles/no_self_suggestion",
+  "related_articles/no_bibliography_or_real_sources",
+  "related_articles/only_nonexistent_articles",
+  "tone/no_fictional_label",
+]

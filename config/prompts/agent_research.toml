@@ -20,5 +20,29 @@ user = """
 """
 
 [rules]
-categories = ["content_policy", "canon", "research_briefs"]
-rules = ["tone/no_fictional_label", "tone/never_uncertain"]
+categories = ["content_policy", "canon", "research_briefs", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "research_briefs/must_search_first",
+  "research_briefs/use_question_as_query",
+  "research_briefs/follow_up_tools",
+  "research_briefs/no_duplicate_tool_calls",
+  "research_briefs/stop_when_confident",
+  "research_briefs/return_structured_brief",
+  "tone/no_fictional_label",
+  "tone/never_uncertain",
+]

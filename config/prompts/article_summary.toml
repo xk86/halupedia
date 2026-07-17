@@ -26,8 +26,32 @@ Summary feedback code:
 Return only the summary paragraph."""
 
 [rules]
-categories = ["content_policy", "canon", "article_summaries"]
+categories = ["content_policy", "canon", "article_summaries", "tone"]
 rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "article_summaries/one_paragraph_only",
+  "article_summaries/plain_markdown_no_structure",
+  "article_summaries/describe_whole_article",
+  "article_summaries/length_guidance",
+  "article_summaries/mention_subject_and_details",
+  "article_summaries/retry_feedback_handling",
+  "article_summaries/not_self_referential",
+  "article_summaries/no_intro_framing",
+  "article_summaries/list_article_summary_style",
   "tone/never_hedge",
   "tone/no_lampshading",
   "tone/no_fictional_label",

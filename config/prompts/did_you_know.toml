@@ -18,5 +18,38 @@ Article:
 Return only the fact."""
 
 [rules]
-categories = ["content_policy", "canon", "did_you_know"]
-rules = ["tone/no_fictional_label", "tone/present_tense", "tone/matter_of_fact", "tone/never_uncertain"]
+categories = ["content_policy", "canon", "did_you_know", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "did_you_know/one_fact_only",
+  "did_you_know/complete_did_you_know",
+  "did_you_know/no_literal_prefix",
+  "did_you_know/start_with_that",
+  "did_you_know/end_with_question_mark",
+  "did_you_know/link_as_subject",
+  "did_you_know/worked_examples",
+  "did_you_know/preserve_link_exactly",
+  "did_you_know/surprising_detail",
+  "did_you_know/specific_over_vague",
+  "did_you_know/length_limit",
+  "did_you_know/no_extra_output",
+  "did_you_know/single_link_only",
+  "tone/no_fictional_label",
+  "tone/present_tense",
+  "tone/matter_of_fact",
+  "tone/never_uncertain",
+]

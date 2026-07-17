@@ -480,8 +480,8 @@ export interface PromptTemplate {
   thinking?: boolean;
   /** Request JSON-mode output from the LLM for this prompt. */
   json?: boolean;
-  /** Shared rule categories and optional individual rules this prompt draws
-   *  from `config/rules/`. When present, a
+  /** Imported shared rule namespaces and the explicit rules selected from
+   *  them. When present, a
    *  `{{rules}}` placeholder in `system`/`user` is replaced by the assembled
    *  rule text. See `src/server/rules/`. */
   rules?: RuleSpec;

@@ -13,5 +13,31 @@ user = """
 """
 
 [rules]
-categories = ["content_policy", "canon", "chat_answers"]
-rules = ["tone/no_fictional_label", "tone/no_lampshading", "tone/never_uncertain", "tone/no_meta_notes"]
+categories = ["content_policy", "canon", "chat_answers", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "chat_answers/call_research_tool",
+  "chat_answers/repeat_research_if_needed",
+  "chat_answers/synthesize_from_brief_only",
+  "chat_answers/cite_as_real_links",
+  "chat_answers/say_when_nothing_found",
+  "chat_answers/concise_conversational",
+  "tone/no_fictional_label",
+  "tone/no_lampshading",
+  "tone/never_uncertain",
+  "tone/no_meta_notes",
+]

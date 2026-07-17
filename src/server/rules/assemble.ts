@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { resolveSelectors } from "./selector";
+import { resolveSelectors, RuleSelectorError } from "./selector";
 import { TIER_LABELS } from "./types";
 import type {
   AssembledRuleEntry,
@@ -60,8 +60,9 @@ function qualifyRuntimeRule(
 }
 
 /**
- * Assemble one prompt's rule set: resolve its shared categories and individual
- * rules, then apply any legacy exclusions
+ * Assemble one prompt's rule set. `categories` imports namespaces but does not
+ * select their rules; every authored shared rule must be explicitly listed in
+ * `rules`. Internal/legacy selectors remain available through `include`.
  * against the static library, merge in local and runtime (vibe) rules, drop
  * any rule superseded by another included rule's `overrides`, then sort
  * tier-major (tier 1 first) and render as Markdown.
@@ -78,11 +79,23 @@ export function assembleRules(
   options: AssembleOptions = {},
 ): AssembledRules {
   const resolved = new Map<string, ResolvedRule>();
-  for (const rule of resolveSelectors(library, [
-    ...(spec.categories ?? []),
-    ...(spec.rules ?? []),
-    ...(spec.include ?? []),
-  ])) {
+  const importedCategories = new Set(spec.categories ?? []);
+  for (const category of importedCategories) {
+    if (!library.categories.has(category)) {
+      throw new RuleSelectorError(`unknown imported rule category '${category}'`);
+    }
+  }
+  for (const ref of spec.rules ?? []) {
+    const rule = library.rulesByRef.get(ref);
+    if (!rule) throw new RuleSelectorError(`unknown selected rule '${ref}'`);
+    if (!importedCategories.has(rule.category)) {
+      throw new RuleSelectorError(
+        `selected rule '${ref}' requires imported category '${rule.category}'`,
+      );
+    }
+    resolved.set(rule.ref, rule);
+  }
+  for (const rule of resolveSelectors(library, spec.include ?? [])) {
     resolved.set(rule.ref, rule);
   }
 

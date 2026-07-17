@@ -36,5 +36,30 @@ Generate the infobox JSON for this article.
 """
 
 [rules]
-categories = ["content_policy", "canon", "infoboxes"]
-rules = ["tone/no_fictional_label"]
+categories = ["content_policy", "canon", "infoboxes", "tone"]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "infoboxes/json_only",
+  "infoboxes/group_and_row_counts",
+  "infoboxes/concise_values",
+  "infoboxes/omit_unestablished_fields",
+  "infoboxes/omit_subtitle_if_obvious",
+  "infoboxes/empty_group_label_ok",
+  "infoboxes/ref_link_format",
+  "infoboxes/inline_markdown_only",
+  "tone/no_fictional_label",
+]

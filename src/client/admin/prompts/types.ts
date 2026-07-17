@@ -10,7 +10,9 @@ export interface PromptMeta {
 }
 
 export interface RuleSpec {
+  /** Imported namespaces. Categories do not enable rules by themselves. */
   categories: string[];
+  /** Explicitly enabled rules from imported namespaces. */
   rules?: string[];
 }
 

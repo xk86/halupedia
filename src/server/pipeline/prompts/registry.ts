@@ -142,8 +142,8 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
         const prompt = config.prompts[key];
         const spec = {
           categories: prompt?.rules?.categories ?? [],
-          rules: [
-            ...(prompt?.rules?.rules ?? []),
+          rules: prompt?.rules?.rules ?? [],
+          include: [
             ...(prompt?.rules?.include ?? []),
             ...runtimeOptions.extraInclude,
           ],

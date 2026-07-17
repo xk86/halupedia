@@ -30,5 +30,41 @@ Existing related article titles:
 Return JSON only."""
 
 [rules]
-categories = ["content_policy", "canon", "link_selection", "link_suggestions"]
-rules = ["tone/no_fictional_label"]
+categories = [
+  "content_policy",
+  "canon",
+  "link_selection",
+  "link_suggestions",
+  "tone",
+]
+rules = [
+  "content_policy/preserve_intent",
+  "content_policy/no_sanitizing",
+  "content_policy/legitimate_fiction",
+  "content_policy/maximal_compliance",
+  "content_policy/editing_priorities",
+  "content_policy/assume_creative_purpose",
+  "content_policy/no_flinching",
+  "content_policy/uncensored_output",
+  "canon/references_ontologically_true",
+  "canon/references_are_gospel",
+  "canon/in_universe_facts",
+  "canon/precedence_order",
+  "canon/no_real_world_alignment",
+  "canon/no_contradicting_lore",
+  "canon/vibe_precedence",
+  "link_selection/description_for_new_entry",
+  "link_selection/prefer_concrete_entities",
+  "link_selection/avoid_oversized_spans",
+  "link_selection/prefer_short_descriptions",
+  "link_selection/normalize_to_canonical_form",
+  "link_selection/no_bibliography_data",
+  "link_suggestions/json_with_slug_and_description",
+  "link_suggestions/slug_format",
+  "link_suggestions/description_one_sentence",
+  "link_suggestions/slug_not_source_page",
+  "link_suggestions/infer_from_context",
+  "link_suggestions/short_text_verbatim_example",
+  "link_suggestions/prefer_close_slug_match",
+  "tone/no_fictional_label",
+]

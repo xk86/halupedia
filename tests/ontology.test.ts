@@ -823,6 +823,38 @@ test("curated/pinned relations survive re-extraction", (t) => {
   );
 });
 
+test("reclassifying an article's subject on re-extraction updates its entity row instead of duplicating it", (t) => {
+  const db = makeDb(t);
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
+  const originalId = getArticleEntityId(db, "solana");
+  assert.ok(originalId !== null);
+
+  // Simulate the admin applying a suggested type change away from what the
+  // deterministic classifier currently computes for this infobox.
+  assert.ok(updateArticleEntityType(db, "solana", "concept"));
+  assert.equal(getArticleEntityId(db, "solana"), originalId, "type change updates the same row");
+
+  // Re-extraction recomputes the deterministic type from the (unchanged)
+  // infobox subtitle, which no longer matches "concept" — this must land on
+  // the same entity row, not INSERT a second one for the same article.
+  indexArticleOntology(db, {
+    slug: "solana",
+    title: "Solana",
+    infobox: INFOBOX,
+    vocab,
+  });
+  const rows = prepared(db, `SELECT id, entity_type FROM entities WHERE article_slug = ?`).all(
+    "solana",
+  ) as Array<{ id: number; entity_type: string }>;
+  assert.equal(rows.length, 1, "exactly one entity row remains for the article");
+  assert.equal(rows[0].id, originalId, "the surviving row is the original one, not a new duplicate");
+});
+
 test("ontology_fact documents are compact and provenance-tagged", (t) => {
   const db = makeDb(t);
   indexArticleOntology(db, {

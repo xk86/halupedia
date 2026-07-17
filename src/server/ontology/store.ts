@@ -81,7 +81,21 @@ export function findEntityId(db: DatabaseSync, name: string, type: string): numb
 
 export function upsertEntity(db: DatabaseSync, entity: ExtractedEntity): number {
   const now = Date.now();
-  let id = findEntityId(db, entity.name, entity.type);
+  // An entity that owns an article has that article_slug as its true identity —
+  // there must be exactly one row per article. Look it up by article_slug first
+  // so a reclassification (e.g. the infobox subtitle changes what type this
+  // article's subject now falls under) updates that one row in place instead of
+  // falling through to the (canonical_name, entity_type) lookup below, which
+  // would miss it (old type, no longer matching) and INSERT a second, orphaned
+  // row for the same article — a duplicate that silently absorbs future writes.
+  let id = entity.articleSlug
+    ? ((
+        prepared(db, `SELECT id FROM entities WHERE article_slug = ? LIMIT 1`).get(
+          entity.articleSlug,
+        ) as { id: number } | undefined
+      )?.id ?? null)
+    : null;
+  if (id === null) id = findEntityId(db, entity.name, entity.type);
   if (id === null) {
     const res = prepared(
       db,
@@ -91,15 +105,32 @@ export function upsertEntity(db: DatabaseSync, entity: ExtractedEntity): number 
     ).run(entity.name, entity.type, entity.articleSlug ?? null, entity.description ?? "", now, now);
     id = Number(res.lastInsertRowid);
   } else {
+    // Changing (canonical_name, entity_type) on the existing row could collide
+    // with another, unrelated entity that already holds that pair (the table's
+    // UNIQUE constraint) — fold that row into this one first, same as a manual
+    // type-suggestion apply does, so the UPDATE below never fails.
+    const conflict = prepared(
+      db,
+      `SELECT id FROM entities WHERE canonical_name = ? AND entity_type = ? AND id <> ? LIMIT 1`,
+    ).get(entity.name, entity.type, id) as { id: number } | undefined;
+    if (conflict) {
+      prepared(db, `UPDATE OR IGNORE entity_relations SET subject_entity_id = ? WHERE subject_entity_id = ?`).run(id, conflict.id);
+      prepared(db, `UPDATE OR IGNORE entity_relations SET object_entity_id = ? WHERE object_entity_id = ?`).run(id, conflict.id);
+      prepared(db, `DELETE FROM entities WHERE id = ?`).run(conflict.id);
+    }
     // Fill in article ownership / description if newly known; never blank them.
+    // Also re-affirm the (possibly changed) name/type on the existing row so a
+    // reclassification lands here rather than spawning a duplicate.
     prepared(
       db,
       `UPDATE entities
-       SET article_slug = COALESCE(?, article_slug),
+       SET canonical_name = ?,
+           entity_type = ?,
+           article_slug = COALESCE(?, article_slug),
            description = CASE WHEN ? <> '' THEN ? ELSE description END,
            updated_at = ?
        WHERE id = ?`,
-    ).run(entity.articleSlug ?? null, entity.description ?? "", entity.description ?? "", now, id);
+    ).run(entity.name, entity.type, entity.articleSlug ?? null, entity.description ?? "", entity.description ?? "", now, id);
   }
   for (const alias of entity.aliases ?? []) {
     if (!alias || alias === entity.name) continue;

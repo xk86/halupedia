@@ -28,6 +28,10 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { toWikiSegment } from "../../wikiPath";
+import {
+  renderInlineMarkdown,
+  renderOntologyValueHtml,
+} from "../../../server/markdown";
 
 // Maps a schedule id to the app-config path its interval lives at, so the
 // interval can be edited inline here instead of only via the Config tab.
@@ -333,6 +337,44 @@ function IntervalEditor({
   );
 }
 
+/** One expanded review assertion: a verdict badge + label + the (possibly
+ *  link-bearing) object on the first line, and the model's supporting reason
+ *  wrapped underneath. Object/reason are rendered through the shared ontology
+ *  markdown pipeline so `ref:`/`halu:` links resolve to wiki anchors, and both
+ *  wrap instead of truncating so nothing clips on narrow screens. */
+function ReviewDetailLine({
+  verdict,
+  label,
+  objectHtml,
+  reason,
+}: {
+  verdict: "pass" | "fail";
+  label: string;
+  objectHtml: string;
+  reason: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <Badge variant={verdict === "pass" ? "secondary" : "destructive"}>
+          {verdict}
+        </Badge>
+        <span className="font-medium text-muted-foreground">{label}:</span>
+        <span
+          className="min-w-0 break-words [&_a]:text-[var(--link)] [&_a]:underline"
+          dangerouslySetInnerHTML={{ __html: objectHtml }}
+        />
+      </div>
+      {reason ? (
+        <span
+          className="break-words text-muted-foreground [&_a]:text-[var(--link)] [&_a]:underline"
+          dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(reason) }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function QueueItemRow({
   item,
   runAtMs,
@@ -440,53 +482,25 @@ function QueueItemRow({
           <TableCell colSpan={4} className="p-0">
             <Collapsible open={open} onOpenChange={setOpen}>
               <CollapsibleContent>
-                <div className="flex flex-col gap-1 bg-muted/30 px-3 py-2 text-xs">
+                <div className="flex flex-col gap-1.5 bg-muted/30 px-3 py-2 text-xs">
                   {detail!.items.map((result) => (
-                    <div
+                    <ReviewDetailLine
                       key={result.id}
-                      className="flex flex-wrap items-baseline gap-2"
-                    >
-                      <Badge
-                        variant={
-                          result.verdict === "pass"
-                            ? "secondary"
-                            : "destructive"
-                        }
-                      >
-                        {result.verdict}
-                      </Badge>
-                      <span className="font-medium text-muted-foreground">
-                        {result.label}:
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {result.object}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {result.reason}
-                      </span>
-                    </div>
+                      verdict={result.verdict}
+                      label={result.label}
+                      objectHtml={renderOntologyValueHtml(result.object)}
+                      reason={result.reason}
+                    />
                   ))}
                   {detail!.type ? (
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <Badge
-                        variant={
-                          detail!.type.verdict === "pass"
-                            ? "secondary"
-                            : "destructive"
-                        }
-                      >
-                        {detail!.type.verdict}
-                      </Badge>
-                      <span className="font-medium text-muted-foreground">
-                        type:
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        → {detail!.type.suggestedType}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {detail!.type.reason}
-                      </span>
-                    </div>
+                    <ReviewDetailLine
+                      verdict={detail!.type.verdict}
+                      label="type"
+                      objectHtml={`→ ${renderOntologyValueHtml(
+                        detail!.type.suggestedType,
+                      )}`}
+                      reason={detail!.type.reason}
+                    />
                   ) : null}
                 </div>
               </CollapsibleContent>

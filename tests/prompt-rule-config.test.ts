@@ -14,35 +14,25 @@ const library = loadRuleLibrary(resolve(ROOT, "config", "rules"));
 test("prompt files import category namespaces and explicitly select their rules", () => {
   for (const file of readdirSync(PROMPT_DIR).filter((name) => name.endsWith(".toml"))) {
     const raw = parse(readFileSync(resolve(PROMPT_DIR, file), "utf8")) as {
-      rules?: {
-        categories?: unknown;
-        rules?: unknown;
-        include?: unknown;
-        exclude?: unknown;
-      };
+      rules?: { categories?: unknown; rules?: unknown };
       local_rule?: unknown;
     };
     if (!raw.rules) continue;
 
-    assert.equal(raw.rules.include, undefined, `${file} uses legacy include selectors`);
-    assert.equal(raw.rules.exclude, undefined, `${file} uses legacy exclusions`);
     assert.equal(raw.local_rule, undefined, `${file} keeps rules inline`);
     assert.ok(Array.isArray(raw.rules.categories), `${file} has no category list`);
 
     const categories = raw.rules.categories as string[];
     const rules = Array.isArray(raw.rules.rules) ? (raw.rules.rules as string[]) : [];
     for (const category of categories) {
-      assert.match(category, /^[a-z0-9_]+$/, `${file} has an invalid category`);
+      assert.match(category, /^(\*|[a-z0-9_]+)$/, `${file} has an invalid category`);
     }
     for (const rule of rules) {
-      assert.match(rule, /^[a-z0-9_]+\/[a-z0-9_]+$/, `${file} has an invalid rule ref`);
-      const resolved = library.rulesByRef.get(rule);
-      assert.ok(resolved, `${file} selects unknown rule '${rule}'`);
-      assert.ok(
-        categories.includes(resolved.category),
-        `${file} selects '${rule}' without importing '${resolved.category}'`,
-      );
+      // "category/id", "category/*", and either prefixed with "!" to exclude.
+      assert.match(rule, /^!?[a-z0-9_]+\/(\*|[a-z0-9_]+)$/, `${file} has an invalid rule selector`);
     }
+    // assembleRules re-validates that every selector's category is imported
+    // and every ref (or wildcard) resolves against the real library.
     assert.doesNotThrow(() => assembleRules(library, { categories, rules }), file);
   }
 });

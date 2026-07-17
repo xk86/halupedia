@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { resolveSelectors, RuleSelectorError } from "./selector";
+import { RuleSelectorError } from "./selector";
 import { TIER_LABELS } from "./types";
 import type {
   AssembledRuleEntry,
@@ -62,10 +62,9 @@ function qualifyRuntimeRule(
 /**
  * Assemble one prompt's rule set. `categories` imports namespaces but does not
  * select their rules; every authored shared rule must be explicitly listed in
- * `rules`. Internal/legacy selectors remain available through `include`.
- * against the static library, merge in local and runtime (vibe) rules, drop
- * any rule superseded by another included rule's `overrides`, then sort
- * tier-major (tier 1 first) and render as Markdown.
+ * `rules`, resolved against the static library. Merge in local and runtime
+ * (vibe) rules, drop any rule superseded by another included rule's
+ * `overrides`, then sort tier-major (tier 1 first) and render as Markdown.
  *
  * Override resolution is a single pass over the combined set — it is not
  * transitive. A rule can only drop a rule that is directly named in its own
@@ -95,9 +94,6 @@ export function assembleRules(
     }
     resolved.set(rule.ref, rule);
   }
-  for (const rule of resolveSelectors(library, spec.include ?? [])) {
-    resolved.set(rule.ref, rule);
-  }
 
   let sequence = 100_000;
   for (const rule of options.localRules ?? []) {
@@ -120,12 +116,6 @@ export function assembleRules(
       sequence: sequence++,
     });
     resolved.set(qualified.ref, qualified);
-  }
-
-  if (spec.exclude && spec.exclude.length > 0) {
-    for (const rule of resolveSelectors(library, spec.exclude)) {
-      resolved.delete(rule.ref);
-    }
   }
 
   const dropSet = new Map<string, string>();

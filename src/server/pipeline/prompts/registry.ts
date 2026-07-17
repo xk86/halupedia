@@ -142,12 +142,7 @@ export function buildPromptRegistry(config: PromptConfig): PromptRegistry {
         const prompt = config.prompts[key];
         const spec = {
           categories: prompt?.rules?.categories ?? [],
-          rules: prompt?.rules?.rules ?? [],
-          include: [
-            ...(prompt?.rules?.include ?? []),
-            ...runtimeOptions.extraInclude,
-          ],
-          exclude: prompt?.rules?.exclude,
+          rules: [...(prompt?.rules?.rules ?? []), ...runtimeOptions.extraInclude],
         };
         const assembled = assembleRules(config.ruleLibrary, spec, {
           localRules: prompt?.localRules,

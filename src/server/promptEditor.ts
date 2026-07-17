@@ -7,30 +7,15 @@ import type { RuleDef, RuleSpec, RuleTier } from "./rules/types";
 import { parseRuleExamples } from "./rules/library";
 
 function parseRulesField(raw: Record<string, unknown>): RuleSpec | undefined {
-  const r = raw.rules as {
-    categories?: unknown;
-    rules?: unknown;
-    include?: unknown;
-    exclude?: unknown;
-  } | undefined;
-  if (!r) return undefined;
-  const legacyInclude = Array.isArray(r.include)
-    ? r.include.filter((v): v is string => typeof v === "string")
-    : [];
-  const categories = Array.isArray(r.categories)
-    ? r.categories.filter((v): v is string => typeof v === "string")
-    : legacyInclude.filter((value) => !value.includes("/") && !value.includes("@"));
+  const r = raw.rules as { categories?: unknown; rules?: unknown } | undefined;
+  if (!r || !Array.isArray(r.categories)) return undefined;
+  const categories = r.categories.filter((v): v is string => typeof v === "string");
   const rules = Array.isArray(r.rules)
     ? r.rules.filter((v): v is string => typeof v === "string")
-    : legacyInclude.filter((value) => value.includes("/") || value.includes("@"));
-  if (!Array.isArray(r.categories) && !Array.isArray(r.include)) return undefined;
-  const exclude = Array.isArray(r.exclude)
-    ? r.exclude.filter((v): v is string => typeof v === "string")
-    : undefined;
+    : [];
   return {
     categories,
     ...(rules.length > 0 ? { rules } : {}),
-    ...(exclude && exclude.length > 0 ? { exclude } : {}),
   };
 }
 
@@ -207,18 +192,10 @@ export function writePromptFile(
   source = replaceTomlTripleQuoted(source, "system", system);
   source = replaceTomlTripleQuoted(source, "user", user);
   if (rules) {
-    const categories = rules.categories ?? (rules.include ?? []).filter(
-      (value) => !value.includes("/") && !value.includes("@"),
-    );
-    const individualRules = rules.rules ?? (rules.include ?? []).filter(
-      (value) => value.includes("/") || value.includes("@"),
-    );
-    source = setTomlTableValue(source, "rules", "categories", categories);
-    source = individualRules.length
-      ? setTomlTableValue(source, "rules", "rules", individualRules)
+    source = setTomlTableValue(source, "rules", "categories", rules.categories ?? []);
+    source = rules.rules?.length
+      ? setTomlTableValue(source, "rules", "rules", rules.rules)
       : removeTomlTableKey(source, "rules", "rules");
-    source = removeTomlTableKey(source, "rules", "include");
-    source = removeTomlTableKey(source, "rules", "exclude");
   }
   if (localRules) {
     source = replaceTomlArrayTables(source, "local_rule", localRules.map(renderLocalRuleToml));

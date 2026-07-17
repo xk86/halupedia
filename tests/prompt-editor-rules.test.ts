@@ -19,7 +19,7 @@ test("readPromptFile parses rules and local_rule; writePromptFile round-trips a 
   t.after(cleanup);
   writeFileSync(
     TEST_PATH,
-    `system = """{{rules}}"""\nuser = """u"""\n\n[rules]\ninclude = ["tone"]\n\n[[local_rule]]\nid = "x"\ntier = 2\ntext = "Do the thing."\n`,
+    `system = """{{rules}}"""\nuser = """u"""\n\n[rules]\ncategories = ["tone"]\n\n[[local_rule]]\nid = "x"\ntier = 2\ntext = "Do the thing."\n`,
   );
 
   const before = readPromptFile("runnable", TEST_KEY);
@@ -41,24 +41,17 @@ test("readPromptFile parses rules and local_rule; writePromptFile round-trips a 
   assert.deepEqual(after?.localRules, [{ id: "x", tier: 2, text: "Do the thing." }]);
 });
 
-test("writePromptFile migrates legacy selectors to category and rule lists", (t) => {
+test("readPromptFile ignores a [rules] table in the old include/exclude shape", (t) => {
   t.after(cleanup);
   writeFileSync(
     TEST_PATH,
     `system = """s"""\nuser = """u"""\n\n[rules]\ninclude = ["tone"]\nexclude = ["tone/no_whimsy"]\n`,
   );
 
-  const err = writePromptFile("runnable", TEST_KEY, "s", "u", {
-    categories: ["tone"],
-    rules: ["formatting/no_raw_html"],
-  });
-  assert.equal(err, null);
-
-  const after = readPromptFile("runnable", TEST_KEY);
-  assert.deepEqual(after?.rules, {
-    categories: ["tone"],
-    rules: ["formatting/no_raw_html"],
-  });
+  // No `categories` array means this isn't recognized as a rules table at
+  // all anymore — the old include/exclude shape has no migration path.
+  const before = readPromptFile("runnable", TEST_KEY);
+  assert.equal(before?.rules, undefined);
 });
 
 test("writePromptFile replaces local rules and structured examples", (t) => {

@@ -107,10 +107,6 @@ export interface RuleSpec {
   categories?: string[];
   /** Explicitly enabled shared rules, addressed as "category/id". */
   rules?: string[];
-  /** Internal/legacy selectors. New prompt config never writes this field. */
-  include?: string[];
-  /** Legacy selector exclusions. Read for compatibility; never written by the editor. */
-  exclude?: string[];
 }
 
 export interface DroppedRule {

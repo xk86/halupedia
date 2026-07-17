@@ -91,33 +91,14 @@ function loadPromptFiles(dir: string, runnable: boolean) {
       rules?: {
         categories?: string[];
         rules?: string[];
-        include?: string[];
-        exclude?: string[];
       };
       local_rule?: Array<{ id?: string; tier?: number; text?: string; overrides?: string[]; examples?: unknown }>;
     };
     const rules: RuleSpec | undefined = raw.rules
       ? {
-          categories: Array.isArray(raw.rules.categories)
-            ? raw.rules.categories
-            : (raw.rules.include ?? []).filter(
-                (value) => !value.includes("/") && !value.includes("@"),
-              ),
-          ...((Array.isArray(raw.rules.rules)
-            ? raw.rules.rules
-            : (raw.rules.include ?? []).filter(
-                (value) => value.includes("/") || value.includes("@"),
-              )).length > 0
-            ? {
-                rules: Array.isArray(raw.rules.rules)
-                  ? raw.rules.rules
-                  : (raw.rules.include ?? []).filter(
-                      (value) => value.includes("/") || value.includes("@"),
-                    ),
-              }
-            : {}),
-          ...(Array.isArray(raw.rules.exclude) && raw.rules.exclude.length > 0
-            ? { exclude: raw.rules.exclude }
+          categories: Array.isArray(raw.rules.categories) ? raw.rules.categories : [],
+          ...(Array.isArray(raw.rules.rules) && raw.rules.rules.length > 0
+            ? { rules: raw.rules.rules }
             : {}),
         }
       : undefined;

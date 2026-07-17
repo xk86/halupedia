@@ -59,6 +59,9 @@ text = "Do not use footnotes."
   return buildRuleLibrary(CATS, rules);
 }
 
+// selector.ts is retained for now (unused by assembleRules as of the
+// include/exclude removal) but still independently tested here.
+
 // ─── selector parsing ───────────────────────────────────────────────────────
 
 test("parseSelector parses a bare category selector", () => {
@@ -156,7 +159,16 @@ test("explicitly selected rules assemble from an imported namespace", () => {
 
 test("assembleRules composes rules tier-major, tier 1 first", () => {
   const library = makeLibrary();
-  const result = assembleRules(library, { include: ["tone", "canon"] });
+  const result = assembleRules(library, {
+    categories: ["tone", "canon"],
+    rules: [
+      "tone/never_hedge",
+      "tone/confident",
+      "tone/no_whimsy",
+      "canon/references_are_gospel",
+      "canon/vibe_wins",
+    ],
+  });
   const tierOneIdx = result.text.indexOf("Tier 1");
   const tierTwoIdx = result.text.indexOf("Tier 2");
   const tierThreeIdx = result.text.indexOf("Tier 3");
@@ -177,7 +189,10 @@ text = "Use direct prose."
 description = "When revising a hedge"
 text = "The council approved the measure."
 `);
-  const result = assembleRules(buildRuleLibrary(CATS, rules), { include: ["tone"] });
+  const result = assembleRules(buildRuleLibrary(CATS, rules), {
+    categories: ["tone"],
+    rules: ["tone/worked"],
+  });
   assert.match(result.text, /- Use direct prose\.\n  > \*\*Example — When revising a hedge\*\*/);
   assert.match(result.text, /  > The council approved the measure\./);
 });
@@ -187,7 +202,16 @@ test("assembleRules sorts within a tier by category order", () => {
   // formatting (order 30) and canon (order 10) both have tier-2 or tier-1
   // rules; canon's tier-1 rule should render before tone's tier-1 rule
   // since canon.order (10) < tone.order (20).
-  const result = assembleRules(library, { include: ["tone", "canon"] });
+  const result = assembleRules(library, {
+    categories: ["tone", "canon"],
+    rules: [
+      "tone/never_hedge",
+      "tone/confident",
+      "tone/no_whimsy",
+      "canon/references_are_gospel",
+      "canon/vibe_wins",
+    ],
+  });
   const canonIdx = result.text.indexOf("gospel");
   const toneIdx = result.text.indexOf("Never hedge");
   assert.ok(canonIdx < toneIdx);
@@ -195,35 +219,26 @@ test("assembleRules sorts within a tier by category order", () => {
 
 test("assembleRules omits tiers with no included rules", () => {
   const library = makeLibrary();
-  const result = assembleRules(library, { include: ["tone@3"] });
+  const result = assembleRules(library, { categories: ["tone"], rules: ["tone/no_whimsy"] });
   assert.doesNotMatch(result.text, /Tier 1/);
   assert.doesNotMatch(result.text, /Tier 2/);
   assert.match(result.text, /Tier 3/);
 });
 
-test("assembleRules exclude removes a specific rule from a wide include", () => {
-  const library = makeLibrary();
-  const result = assembleRules(library, {
-    include: ["tone"],
-    exclude: ["tone/no_whimsy"],
-  });
-  assert.doesNotMatch(result.text, /whimsical/);
-  assert.match(result.text, /Never hedge/);
-  assert.equal(result.included.length, 2);
-});
-
-test("assembleRules exclude is a no-op when the rule wasn't included", () => {
-  const library = makeLibrary();
-  const result = assembleRules(library, {
-    include: ["tone@1"],
-    exclude: ["canon/vibe_wins"],
-  });
-  assert.equal(result.included.length, 1);
-});
-
 test("assembleRules reports per-tier counts", () => {
   const library = makeLibrary();
-  const result = assembleRules(library, { include: ["tone", "canon", "formatting"] });
+  const result = assembleRules(library, {
+    categories: ["tone", "canon", "formatting"],
+    rules: [
+      "tone/never_hedge",
+      "tone/confident",
+      "tone/no_whimsy",
+      "canon/references_are_gospel",
+      "canon/vibe_wins",
+      "formatting/single_h1",
+      "formatting/no_footnotes",
+    ],
+  });
   assert.deepEqual(result.tierCounts, { 1: 3, 2: 3, 3: 1, 4: 0 });
 });
 
@@ -233,7 +248,7 @@ test("assembleRules merges local rules under a synthetic category", () => {
   const library = makeLibrary();
   const result = assembleRules(
     library,
-    { include: ["tone@1"] },
+    { categories: ["tone"], rules: ["tone/never_hedge"] },
     {
       promptKey: "article_summary",
       localRules: [{ id: "similarity_feedback", tier: 2, text: "Rewrite if too similar to lead." }],
@@ -248,12 +263,12 @@ test("assembleRules namespaces local rules per prompt so ids can't collide", () 
   const library = makeLibrary();
   const a = assembleRules(
     library,
-    { include: [] },
+    { categories: [], rules: [] },
     { promptKey: "a", localRules: [{ id: "x", tier: 1, text: "A's rule." }] },
   );
   const b = assembleRules(
     library,
-    { include: [] },
+    { categories: [], rules: [] },
     { promptKey: "b", localRules: [{ id: "x", tier: 1, text: "B's rule." }] },
   );
   assert.equal(a.included[0]?.ref, "local/a__x");
@@ -264,7 +279,7 @@ test("assembleRules merges runtime (vibe) rules under a synthetic category", () 
   const library = makeLibrary();
   const result = assembleRules(
     library,
-    { include: ["tone@1"] },
+    { categories: ["tone"], rules: ["tone/never_hedge"] },
     { runtimeRules: [{ id: "custom_setting", tier: 2, text: "The Soviet Union still exists." }] },
   );
   assert.match(result.text, /The Soviet Union still exists\./);
@@ -276,7 +291,7 @@ test("assembleRules allows a runtime rule to override a library default", () => 
   const library = makeLibrary();
   const result = assembleRules(
     library,
-    { include: ["tone"] },
+    { categories: ["tone"], rules: ["tone/never_hedge", "tone/confident", "tone/no_whimsy"] },
     {
       runtimeRules: [
         {
@@ -313,7 +328,10 @@ text = "Stronger rule."
 overrides = ["tone/base"]
 `);
   const library = buildRuleLibrary(CATS, rules);
-  const result = assembleRules(library, { include: ["tone"] });
+  const result = assembleRules(library, {
+    categories: ["tone"],
+    rules: ["tone/base", "tone/stronger"],
+  });
   assert.deepEqual(result.included.map((r) => r.ref), ["tone/stronger"]);
   assert.deepEqual(result.dropped, [{ ref: "tone/base", supersededBy: "tone/stronger" }]);
 });
@@ -335,7 +353,7 @@ text = "B wins."
 overrides = ["tone/a"]
 `);
   const library = buildRuleLibrary(CATS, rules);
-  const result = assembleRules(library, { include: ["tone"] });
+  const result = assembleRules(library, { categories: ["tone"], rules: ["tone/a", "tone/b"] });
   assert.deepEqual(result.included.map((r) => r.ref).sort(), ["tone/a", "tone/b"]);
   assert.equal(result.dropped.length, 0);
   assert.equal(result.conflicts.length, 1);
@@ -359,7 +377,7 @@ overrides = ["tone/base"]
 `);
   const library = buildRuleLibrary(CATS, rules);
   // Only "base" selected — "stronger" (and its override) never enters the set.
-  const result = assembleRules(library, { include: ["tone/base"] });
+  const result = assembleRules(library, { categories: ["tone"], rules: ["tone/base"] });
   assert.deepEqual(result.included.map((r) => r.ref), ["tone/base"]);
   assert.equal(result.dropped.length, 0);
 });
@@ -368,17 +386,38 @@ overrides = ["tone/base"]
 
 test("assembleRules hash is stable for the same resolved set and changes when content changes", () => {
   const library = makeLibrary();
-  const a = assembleRules(library, { include: ["tone@1"] });
-  const b = assembleRules(library, { include: ["tone@1"] });
+  const a = assembleRules(library, { categories: ["tone"], rules: ["tone/never_hedge"] });
+  const b = assembleRules(library, { categories: ["tone"], rules: ["tone/never_hedge"] });
   assert.equal(a.hash, b.hash);
 
-  const c = assembleRules(library, { include: ["tone@1", "canon@1"] });
+  const c = assembleRules(library, {
+    categories: ["tone", "canon"],
+    rules: ["tone/never_hedge", "canon/references_are_gospel", "canon/vibe_wins"],
+  });
   assert.notEqual(a.hash, c.hash);
 });
 
-test("assembleRules hash is independent of include-list order (same resolved set)", () => {
+test("assembleRules hash is independent of rules-list order (same resolved set)", () => {
   const library = makeLibrary();
-  const a = assembleRules(library, { include: ["tone", "canon"] });
-  const b = assembleRules(library, { include: ["canon", "tone"] });
+  const a = assembleRules(library, {
+    categories: ["tone", "canon"],
+    rules: [
+      "tone/never_hedge",
+      "tone/confident",
+      "tone/no_whimsy",
+      "canon/references_are_gospel",
+      "canon/vibe_wins",
+    ],
+  });
+  const b = assembleRules(library, {
+    categories: ["canon", "tone"],
+    rules: [
+      "canon/references_are_gospel",
+      "canon/vibe_wins",
+      "tone/never_hedge",
+      "tone/confident",
+      "tone/no_whimsy",
+    ],
+  });
   assert.equal(a.hash, b.hash);
 });

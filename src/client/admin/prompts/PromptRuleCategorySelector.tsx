@@ -21,6 +21,16 @@ import { cn } from "@/lib/utils";
 import { humanizeRuleId } from "./ruleUtils";
 import type { RuleCategory } from "./types";
 
+/** Tier 1 is "never break" (most severe) down to tier 4 "suggested" (least
+ *  severe) — map that onto the existing badge variants rather than inventing
+ *  new colors. */
+const TIER_BADGE_VARIANT = {
+  1: "destructive",
+  2: "warn",
+  3: "secondary",
+  4: "outline",
+} as const;
+
 export const PromptRuleCategorySelector = memo(
   function PromptRuleCategorySelector({
     category,
@@ -179,7 +189,7 @@ export const PromptRuleCategorySelector = memo(
                   >
                     {humanizeRuleId(rule.id)}
                   </FieldLabel>
-                  <Badge variant="outline" className="shrink-0">
+                  <Badge variant={TIER_BADGE_VARIANT[rule.tier]} className="shrink-0">
                     Tier {rule.tier}
                   </Badge>
                   <FieldDescription className="col-start-2 col-end-4 line-clamp-2">

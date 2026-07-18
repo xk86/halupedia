@@ -15,7 +15,7 @@ import { loadConfig } from "./config";
 import { appConfigAdminPayload, updateAppConfigToml } from "./appConfigAdmin";
 import { createArticleImagePresetFile, deleteArticleImagePresetFile, listArticleImagePresetFiles, listPromptFiles, readArticleImagePresetFile, readPromptFile, writeArticleImagePresetFile, writePromptFile } from "./promptEditor";
 import { assembleRules } from "./rules/assemble";
-import { readRuleAdminState, writeRuleAdminState } from "./rules/admin";
+import { readRuleAdminState, writeRuleAdminState, type RuleRefRename } from "./rules/admin";
 import type { CategoryDef, RuleDef, RuleSpec } from "./rules/types";
 import { listArticleImageAspectRatios, normalizeArticleImageAspectRatioKey, resolveArticleImageAspectRatio } from "./imageAspectRatios";
 import {
@@ -4452,15 +4452,19 @@ export async function createApp(options: CreateAppOptions = {}) {
     const body = (await c.req.json().catch(() => ({}))) as {
       categories?: unknown;
       rules?: unknown;
+      renames?: unknown;
     };
     if (!Array.isArray(body.categories) || !Array.isArray(body.rules)) {
       return c.json({ error: "categories and rules must be arrays" }, 400);
     }
     try {
-      writeRuleAdminState({
-        categories: body.categories as CategoryDef[],
-        rules: body.rules as RuleDef[],
-      });
+      writeRuleAdminState(
+        {
+          categories: body.categories as CategoryDef[],
+          rules: body.rules as RuleDef[],
+        },
+        Array.isArray(body.renames) ? body.renames as RuleRefRename[] : [],
+      );
       await reloadRuntime();
       return c.json({ ok: true, ...readRuleAdminState() });
     } catch (err) {

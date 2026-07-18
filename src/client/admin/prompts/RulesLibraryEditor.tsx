@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const ruleRefRenames = useRef(new Map<string, string>());
   const [selectedCategory, setSelectedCategory] = useState(
     categories[0]?.id ?? "",
   );
@@ -56,7 +57,19 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
         ? current
         : (categories[0]?.id ?? ""),
     );
+    ruleRefRenames.current.clear();
   }, [categories, rules]);
+
+  const recordRuleRefRename = (from: string, to: string) => {
+    let chained = false;
+    for (const [original, current] of ruleRefRenames.current) {
+      if (current !== from) continue;
+      chained = true;
+      if (original === to) ruleRefRenames.current.delete(original);
+      else ruleRefRenames.current.set(original, to);
+    }
+    if (!chained && from !== to) ruleRefRenames.current.set(from, to);
+  };
 
   const visibleRules = useMemo(
     () => draftRules.filter((rule) => rule.category === selectedCategory),
@@ -76,6 +89,7 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
             ({ rules: _rules, ...category }) => category,
           ),
           rules: draftRules,
+          renames: [...ruleRefRenames.current].map(([from, to]) => ({ from, to })),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -86,6 +100,7 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
       );
       setDraftCategories(nextCategories);
       setDraftRules(data.rules ?? []);
+      ruleRefRenames.current.clear();
       onSaved(nextCategories, data.rules ?? []);
       setMessage("Rule library saved — runtime reloaded.");
     } catch (reason) {
@@ -173,13 +188,28 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
                   rule={rule}
                   categories={draftCategories}
                   availableRules={draftRules}
-                  onChange={(next) =>
-                    setDraftRules((current) =>
-                      current.map((item, itemIndex) =>
-                        itemIndex === index ? next : item,
-                      ),
-                    )
-                  }
+                  onChange={(next) => {
+                    const from = rule.category && rule.id
+                      ? `${rule.category}/${rule.id}`
+                      : null;
+                    const to = next.category && next.id
+                      ? `${next.category}/${next.id}`
+                      : null;
+                    if (from && to && from !== to) recordRuleRefRename(from, to);
+                    setDraftRules((current) => {
+                      return current.map((item, itemIndex) => {
+                        const updated = itemIndex === index ? next : item;
+                        return from && to && updated.overrides?.includes(from)
+                          ? {
+                              ...updated,
+                              overrides: updated.overrides.map((ref) =>
+                                ref === from ? to : ref,
+                              ),
+                            }
+                          : updated;
+                      });
+                    });
+                  }}
                   onDelete={() =>
                     setDraftRules((current) =>
                       current.filter((_, itemIndex) => itemIndex !== index),
@@ -256,6 +286,7 @@ export const RulesLibraryEditor = memo(function RulesLibraryEditor({
           onClick={() => {
             setDraftCategories(categories);
             setDraftRules(rules);
+            ruleRefRenames.current.clear();
             setError(null);
           }}
         >

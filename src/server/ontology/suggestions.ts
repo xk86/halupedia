@@ -11,6 +11,7 @@ import type { ExtractionResult } from "./types";
 
 export interface OntologyTypeSuggestion {
   suggestedType: string;
+  status: OntologySuggestionStatus;
   createdAt: number;
 }
 
@@ -36,14 +37,28 @@ export function replaceOntologyTypeSuggestion(
     prepared(db, `DELETE FROM ontology_type_suggestions WHERE article_slug = ?`).run(slug);
     return;
   }
+  // A suggestion a human or auto-review already settled (discarded/human_review)
+  // must survive re-extraction the same way a settled fact does (see
+  // replaceOntologySuggestions above) — otherwise it silently resets to
+  // 'pending' and gets re-reviewed forever. Only reset to 'pending' when the
+  // freshly extracted type actually differs from whatever was last stored.
+  const existing = prepared(
+    db,
+    `SELECT suggested_type AS suggestedType, status FROM ontology_type_suggestions WHERE article_slug = ?`,
+  ).get(slug) as { suggestedType: string; status: OntologySuggestionStatus } | undefined;
+  const nextStatus: OntologySuggestionStatus =
+    existing && existing.status !== "pending" && existing.suggestedType === suggestedType
+      ? existing.status
+      : "pending";
   prepared(
     db,
-    `INSERT INTO ontology_type_suggestions (article_slug, suggested_type, created_at)
-     VALUES (?, ?, ?)
+    `INSERT INTO ontology_type_suggestions (article_slug, suggested_type, status, created_at)
+     VALUES (?, ?, ?, ?)
      ON CONFLICT(article_slug) DO UPDATE SET
        suggested_type = excluded.suggested_type,
+       status = excluded.status,
        created_at = excluded.created_at`,
-  ).run(slug, suggestedType, Date.now());
+  ).run(slug, suggestedType, nextStatus, Date.now());
 }
 
 export function getOntologyTypeSuggestion(
@@ -52,10 +67,25 @@ export function getOntologyTypeSuggestion(
 ): OntologyTypeSuggestion | null {
   const row = prepared(
     db,
-    `SELECT suggested_type AS suggestedType, created_at AS createdAt
+    `SELECT suggested_type AS suggestedType, status, created_at AS createdAt
      FROM ontology_type_suggestions WHERE article_slug = ?`,
   ).get(slug) as OntologyTypeSuggestion | undefined;
   return row ?? null;
+}
+
+/** Sets the (single, per-article) type suggestion's status without deleting
+ *  the row — the type-change analog of `setOntologySuggestionsStatus`, used
+ *  by the reviewer to settle a failed review instead of leaving the row
+ *  'pending' forever (which re-queued the article for review on every pass). */
+export function setOntologyTypeSuggestionStatus(
+  db: DatabaseSync,
+  slug: string,
+  status: OntologySuggestionStatus,
+): void {
+  prepared(
+    db,
+    `UPDATE ontology_type_suggestions SET status = ? WHERE article_slug = ?`,
+  ).run(status, slug);
 }
 
 export function deleteOntologyTypeSuggestion(db: DatabaseSync, slug: string): void {
@@ -260,18 +290,25 @@ export function listPendingOntologySuggestionsByArticle(
     `SELECT t.article_slug AS articleSlug,
             COALESCE(a.title, t.article_slug) AS articleTitle,
             t.suggested_type AS suggestedType,
+            t.status,
             t.created_at AS createdAt
        FROM ontology_type_suggestions t
-       LEFT JOIN articles a ON a.slug = t.article_slug`,
+       LEFT JOIN articles a ON a.slug = t.article_slug
+      WHERE t.status != 'discarded'`,
   ).all() as Array<{
     articleSlug: string;
     articleTitle: string;
     suggestedType: string;
+    status: OntologySuggestionStatus;
     createdAt: number;
   }>;
   for (const row of typeRows) {
     const group = groupFor(row.articleSlug, row.articleTitle);
-    group.typeSuggestion = { suggestedType: row.suggestedType, createdAt: row.createdAt };
+    group.typeSuggestion = {
+      suggestedType: row.suggestedType,
+      status: row.status,
+      createdAt: row.createdAt,
+    };
   }
 
   return [...groups.values()];

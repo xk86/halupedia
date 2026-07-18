@@ -63,7 +63,7 @@ export function enqueueReviewTasks(db: DatabaseSync, vocabSignature: string, bat
        LEFT JOIN article_ontology_state s ON s.article_slug = a.slug
       WHERE (
         EXISTS (SELECT 1 FROM ontology_suggestions sg WHERE sg.article_slug = a.slug AND sg.status = 'pending')
-        OR EXISTS (SELECT 1 FROM ontology_type_suggestions t WHERE t.article_slug = a.slug)
+        OR EXISTS (SELECT 1 FROM ontology_type_suggestions t WHERE t.article_slug = a.slug AND t.status = 'pending')
       )
       AND s.signature IS NOT NULL AND s.signature = ?
       AND NOT EXISTS (

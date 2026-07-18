@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   ListPlusIcon,
   PlayIcon,
   RefreshCwIcon,
@@ -265,15 +266,35 @@ function QueueSectionHeader({
   note,
   total,
   pending,
+  collapsed,
+  onToggleCollapsed,
+  onRunAll,
+  runAllBusy,
+  runAllDisabled,
 }: {
   title: string;
   note?: string;
   total: number;
   pending: number;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  onRunAll: () => void;
+  /** True only while this section's own run-all is in flight — drives the label. */
+  runAllBusy: boolean;
+  /** True while this or any other run-all is in flight, or there's nothing to run. */
+  runAllDisabled: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 items-baseline gap-2">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
+        </Button>
         <h3 className="m-0 text-sm font-medium">{title}</h3>
         {note ? (
           <span className="truncate text-xs text-muted-foreground">{note}</span>
@@ -284,6 +305,15 @@ function QueueSectionHeader({
         <Badge variant={pending > 0 ? "default" : "secondary"}>
           {pending} open
         </Badge>
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={runAllDisabled}
+          onClick={onRunAll}
+        >
+          <StepForwardIcon data-icon="inline-start" />
+          {runAllBusy ? "Running…" : "Run all"}
+        </Button>
       </div>
     </div>
   );
@@ -585,6 +615,8 @@ export function WorkflowSchedulePane({
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [extractCollapsed, setExtractCollapsed] = useState(false);
+  const [reviewCollapsed, setReviewCollapsed] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -691,6 +723,21 @@ export function WorkflowSchedulePane({
     [load],
   );
 
+  // Fires `run-now` for a schedule id `count` times in sequence and reloads.
+  // Bounded by the count observed when the button was clicked — new work
+  // enqueued mid-run isn't swept up, so this can't turn into a runaway loop.
+  const runScheduleTimes = useCallback(
+    async (scheduleId: string, count: number) => {
+      for (let i = 0; i < count; i++) {
+        await fetchJson(
+          `/api/admin/workflow-schedules/${encodeURIComponent(scheduleId)}/run-now`,
+          { method: "POST" },
+        );
+      }
+    },
+    [],
+  );
+
   const [runningAll, setRunningAll] = useState(false);
   const runAllQueued = useCallback(async () => {
     const extractCount =
@@ -705,26 +752,10 @@ export function WorkflowSchedulePane({
     setRunningAll(true);
     setError(null);
     try {
-      // Bounded by the counts observed when the button was clicked — new work
-      // enqueued mid-run isn't swept up, so this can't turn into a runaway loop.
       // Extraction drains first: review depends on it, so draining review
       // first would just leave articles skipped until the next pass.
-      for (let i = 0; i < extractCount; i++) {
-        await fetchJson(
-          "/api/admin/workflow-schedules/ontology_extract.run/run-now",
-          {
-            method: "POST",
-          },
-        );
-      }
-      for (let i = 0; i < reviewCount; i++) {
-        await fetchJson(
-          "/api/admin/workflow-schedules/ontology_review.run/run-now",
-          {
-            method: "POST",
-          },
-        );
-      }
+      await runScheduleTimes("ontology_extract.run", extractCount);
+      await runScheduleTimes("ontology_review.run", reviewCount);
       await load();
     } catch (cause) {
       setError(
@@ -735,7 +766,53 @@ export function WorkflowSchedulePane({
     } finally {
       setRunningAll(false);
     }
-  }, [data, load]);
+  }, [data, load, runScheduleTimes]);
+
+  const [runningExtract, setRunningExtract] = useState(false);
+  const runAllExtractQueue = useCallback(async () => {
+    const count =
+      data?.extractQueue.filter(
+        (item) => item.status === "pending" || item.status === "processing",
+      ).length ?? 0;
+    if (count === 0) return;
+    setRunningExtract(true);
+    setError(null);
+    try {
+      await runScheduleTimes("ontology_extract.run", count);
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "failed to run all queued extractions",
+      );
+    } finally {
+      setRunningExtract(false);
+    }
+  }, [data, load, runScheduleTimes]);
+
+  const [runningReview, setRunningReview] = useState(false);
+  const runAllReviewQueue = useCallback(async () => {
+    const count =
+      data?.queue.filter(
+        (item) => item.status === "pending" || item.status === "processing",
+      ).length ?? 0;
+    if (count === 0) return;
+    setRunningReview(true);
+    setError(null);
+    try {
+      await runScheduleTimes("ontology_review.run", count);
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "failed to run all queued reviews",
+      );
+    } finally {
+      setRunningReview(false);
+    }
+  }, [data, load, runScheduleTimes]);
 
   const pendingCount =
     data?.queue.filter(
@@ -825,6 +902,8 @@ export function WorkflowSchedulePane({
             disabled={
               (extractPendingCount === 0 && pendingCount === 0) ||
               runningAll ||
+              runningExtract ||
+              runningReview ||
               busyId !== null
             }
             onClick={() => void runAllQueued()}
@@ -936,43 +1015,55 @@ export function WorkflowSchedulePane({
               note="runs before review"
               total={data.extractQueue.length}
               pending={extractPendingCount}
+              collapsed={extractCollapsed}
+              onToggleCollapsed={() => setExtractCollapsed((v) => !v)}
+              onRunAll={() => void runAllExtractQueue()}
+              runAllBusy={runningExtract}
+              runAllDisabled={
+                extractPendingCount === 0 ||
+                runningExtract ||
+                runningReview ||
+                runningAll
+              }
             />
-            {data.extractQueue.length > 0 ? (
-              <Table
-                containerClassName="rounded-lg border border-border"
-                className="min-w-[42rem] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:h-7 [&_th]:px-2"
-              >
-                <colgroup>
-                  <col className="w-[34%]" />
-                  <col className="w-[15%]" />
-                  <col className="w-[30%]" />
-                  <col className="w-[21%]" />
-                </colgroup>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Article</TableHead>
-                    <TableHead>State</TableHead>
-                    <TableHead>Timing</TableHead>
-                    <TableHead>Outcome</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {extractQueueWithRunAt.map(({ item, runAtMs }, index) => (
-                    <ExtractQueueItemRow
-                      key={item.id}
-                      item={item}
-                      runAtMs={runAtMs}
-                      onNavigate={onNavigate}
-                      dividerAbove={index > 0 && index === extractPendingCount}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <p className="m-0 text-sm text-muted-foreground italic">
-                Extraction queue is empty.
-              </p>
-            )}
+            {!extractCollapsed ? (
+              data.extractQueue.length > 0 ? (
+                <Table
+                  containerClassName="rounded-lg border border-border"
+                  className="min-w-[42rem] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:h-7 [&_th]:px-2"
+                >
+                  <colgroup>
+                    <col className="w-[34%]" />
+                    <col className="w-[15%]" />
+                    <col className="w-[30%]" />
+                    <col className="w-[21%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Article</TableHead>
+                      <TableHead>State</TableHead>
+                      <TableHead>Timing</TableHead>
+                      <TableHead>Outcome</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {extractQueueWithRunAt.map(({ item, runAtMs }, index) => (
+                      <ExtractQueueItemRow
+                        key={item.id}
+                        item={item}
+                        runAtMs={runAtMs}
+                        onNavigate={onNavigate}
+                        dividerAbove={index > 0 && index === extractPendingCount}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="m-0 text-sm text-muted-foreground italic">
+                  Extraction queue is empty.
+                </p>
+              )
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -980,43 +1071,55 @@ export function WorkflowSchedulePane({
               title="Review queue"
               total={data.queue.length}
               pending={pendingCount}
+              collapsed={reviewCollapsed}
+              onToggleCollapsed={() => setReviewCollapsed((v) => !v)}
+              onRunAll={() => void runAllReviewQueue()}
+              runAllBusy={runningReview}
+              runAllDisabled={
+                pendingCount === 0 ||
+                runningExtract ||
+                runningReview ||
+                runningAll
+              }
             />
-            {data.queue.length > 0 ? (
-              <Table
-                containerClassName="rounded-lg border border-border"
-                className="min-w-[42rem] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:h-7 [&_th]:px-2"
-              >
-                <colgroup>
-                  <col className="w-[34%]" />
-                  <col className="w-[15%]" />
-                  <col className="w-[30%]" />
-                  <col className="w-[21%]" />
-                </colgroup>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Article</TableHead>
-                    <TableHead>State</TableHead>
-                    <TableHead>Timing</TableHead>
-                    <TableHead>Outcome</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {queueWithRunAt.map(({ item, runAtMs }, index) => (
-                    <QueueItemRow
-                      key={item.id}
-                      item={item}
-                      runAtMs={runAtMs}
-                      onNavigate={onNavigate}
-                      dividerAbove={index > 0 && index === pendingCount}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <p className="m-0 text-sm text-muted-foreground italic">
-                Review queue is empty.
-              </p>
-            )}
+            {!reviewCollapsed ? (
+              data.queue.length > 0 ? (
+                <Table
+                  containerClassName="rounded-lg border border-border"
+                  className="min-w-[42rem] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:h-7 [&_th]:px-2"
+                >
+                  <colgroup>
+                    <col className="w-[34%]" />
+                    <col className="w-[15%]" />
+                    <col className="w-[30%]" />
+                    <col className="w-[21%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Article</TableHead>
+                      <TableHead>State</TableHead>
+                      <TableHead>Timing</TableHead>
+                      <TableHead>Outcome</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {queueWithRunAt.map(({ item, runAtMs }, index) => (
+                      <QueueItemRow
+                        key={item.id}
+                        item={item}
+                        runAtMs={runAtMs}
+                        onNavigate={onNavigate}
+                        dividerAbove={index > 0 && index === pendingCount}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="m-0 text-sm text-muted-foreground italic">
+                  Review queue is empty.
+                </p>
+              )
+            ) : null}
           </div>
         </div>
       )}

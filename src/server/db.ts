@@ -440,11 +440,14 @@ export function openDatabase(databasePath: string): DatabaseSync {
 
     -- Suggested entity-type change for an article's subject entity, derived from
     -- LLM extraction disagreeing with the currently stored type (e.g. "thing"
-    -- -> "person"). One pending suggestion per article; applying or dismissing
-    -- clears the row.
+    -- -> "person"). One suggestion per article; applying it deletes the row.
+    -- A review failure settles into 'discarded' or 'human_review' (see
+    -- ontology_suggestions.status above for the same lifecycle) instead of
+    -- clearing the row, so it isn't endlessly re-reviewed.
     CREATE TABLE IF NOT EXISTS ontology_type_suggestions (
       article_slug TEXT PRIMARY KEY,
       suggested_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
       created_at INTEGER NOT NULL
     );
 
@@ -574,6 +577,13 @@ export function openDatabase(databasePath: string): DatabaseSync {
   // (auto-review couldn't decide — kept visible, exempted from re-review).
   if (!hasColumn(db, "ontology_suggestions", "status")) {
     db.exec(`ALTER TABLE ontology_suggestions ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
+  }
+  // Same lifecycle as ontology_suggestions.status above, for the (single,
+  // per-article) suggested entity-type change: a review failure must settle
+  // into 'discarded' or 'human_review' rather than staying 'pending' forever,
+  // or auto-review re-fails and re-logs the same row on every pass.
+  if (!hasColumn(db, "ontology_type_suggestions", "status")) {
+    db.exec(`ALTER TABLE ontology_type_suggestions ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_articles_canonical_slug ON articles(canonical_slug)`);
   // Serves the All Pages listing (WHERE is_disambiguation = 0 ORDER BY title

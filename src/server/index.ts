@@ -5131,7 +5131,10 @@ export async function createApp(options: CreateAppOptions = {}) {
           label: rag.vocab.predicates.get(suggestion.predicate)?.label ?? suggestion.predicate.replace(/_/g, " "),
           objectHtml: renderOntologyValueHtml(suggestion.object),
         })),
-      typeSuggestion: getOntologyTypeSuggestion(db, slug),
+      typeSuggestion: (() => {
+        const suggestion = getOntologyTypeSuggestion(db, slug);
+        return suggestion && suggestion.status !== "discarded" ? suggestion : null;
+      })(),
     };
   }
 

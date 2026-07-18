@@ -34,6 +34,7 @@ import {
 import {
   deleteOntologyTypeSuggestion,
   getOntologyTypeSuggestion,
+  setOntologyTypeSuggestionStatus,
 } from "./suggestions";
 import { listArticleEntityFacts, updateArticleEntityType } from "./store";
 import type { OntologyVocabulary } from "./vocabulary";
@@ -194,7 +195,11 @@ export async function reviewArticleSuggestions(
   const suggestions = listOntologySuggestions(db, slug).filter(
     (suggestion) => suggestion.status === "pending",
   );
-  const typeSuggestion = getOntologyTypeSuggestion(db, slug);
+  // A discarded or human_review type suggestion is already settled — like the
+  // `pending`-only filter on facts above, it must not be re-evaluated (and
+  // re-failed) on every pass just because the row is still there.
+  const typeSuggestionRow = getOntologyTypeSuggestion(db, slug);
+  const typeSuggestion = typeSuggestionRow?.status === "pending" ? typeSuggestionRow : null;
   const { entity } = listArticleEntityFacts(db, slug);
   const currentType = entity?.entityType ?? "thing";
   const articleTitle = entity?.canonicalName ?? slug;
@@ -396,6 +401,17 @@ export async function reviewArticleSuggestions(
   if (typeResult?.verdict === "pass") {
     updateArticleEntityType(db, slug, typeResult.suggestedType);
     deleteOntologyTypeSuggestion(db, slug);
+  } else if (typeResult?.verdict === "fail") {
+    // Mirror the fact handling above: a failure is never left `pending` —
+    // that left the suggestion to be silently re-reviewed (and re-failed)
+    // every single pass, forever. Settle it the same way: a deterministic
+    // fail (bad vocab, no-op type) is discarded outright; an LLM judgment
+    // call is kept visible for a human to decide.
+    setOntologyTypeSuggestionStatus(
+      db,
+      slug,
+      typeResult.source === "deterministic" ? "discarded" : "human_review",
+    );
   }
 
   for (const item of items) {

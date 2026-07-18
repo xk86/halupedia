@@ -589,7 +589,7 @@ test("reviewArticleSuggestions merges passing items, keeps failing ones queued, 
   assert.equal(getOntologyTypeSuggestion(db, "subject"), null, "the applied type suggestion is cleared");
 });
 
-test("reviewArticleSuggestions leaves a failing type change in place", async (t) => {
+test("reviewArticleSuggestions settles an LLM-judged failing type change to human_review, not left pending", async (t) => {
   const db = makeDb(t);
   makeArticle(db, "subject", "Subject", Date.now());
   prepared(
@@ -607,5 +607,40 @@ test("reviewArticleSuggestions leaves a failing type change in place", async (t)
 
   assert.equal(result.verdict, "fail");
   assert.equal(listArticleEntityFacts(db, "subject").entity?.entityType, "thing", "type unchanged on a failing verdict");
-  assert.ok(getOntologyTypeSuggestion(db, "subject"), "the suggestion survives for manual review");
+  const suggestion = getOntologyTypeSuggestion(db, "subject");
+  assert.ok(suggestion, "the suggestion survives for manual review");
+  assert.equal(suggestion?.status, "human_review", "an LLM judgment-call failure is settled, not left pending");
+});
+
+test("reviewArticleSuggestions discards a deterministically failing type change (matches current type) instead of leaving it pending forever", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "subject", "Subject", Date.now());
+  prepared(
+    db,
+    `INSERT INTO ontology_type_suggestions (article_slug, suggested_type, created_at) VALUES (?, ?, ?)`,
+  ).run("subject", "thing", Date.now());
+
+  const result = await reviewArticleSuggestions(db, "subject", {
+    llm: stubLlm(JSON.stringify({ items: [] })),
+    prompts: REVIEW_PROMPTS,
+    vocab,
+    keyMaxWords: 6,
+  });
+
+  assert.equal(result.type?.verdict, "fail");
+  assert.equal(result.type?.reason, "matches the current type");
+  const suggestion = getOntologyTypeSuggestion(db, "subject");
+  assert.equal(suggestion?.status, "discarded", "a deterministic fail is settled as discarded");
+
+  // The reviewer settling the row is what stops enqueueReviewTasks from
+  // treating this article as still having review work — regression coverage
+  // for the infinite re-review loop this fixes.
+  const vocabSignature = "test-signature";
+  prepared(
+    db,
+    `INSERT INTO article_ontology_state (article_slug, signature, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(article_slug) DO UPDATE SET signature = excluded.signature`,
+  ).run("subject", vocabSignature, Date.now());
+  const queued = enqueueReviewTasks(db, vocabSignature, 10);
+  assert.equal(queued, 0, "a settled type suggestion must not re-queue the article for review");
 });

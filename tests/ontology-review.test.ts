@@ -644,3 +644,52 @@ test("reviewArticleSuggestions discards a deterministically failing type change 
   const queued = enqueueReviewTasks(db, vocabSignature, 10);
   assert.equal(queued, 0, "a settled type suggestion must not re-queue the article for review");
 });
+
+test("a review pass on an article whose entity row is gone must settle its suggestions instead of re-queueing forever", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "letter-j", "Letter J", Date.now());
+  insertSuggestion(db, "letter-j", "Letter J", "related_to", "Alphabet");
+  // The article's owning entity has disappeared (e.g. a rag delete job ran
+  // deleteArticleOntology, or an entity-merge deleted the row) while
+  // article_ontology_state still records a current signature — so nothing
+  // re-extracts it and the entity never comes back.
+  prepared(db, `DELETE FROM entities WHERE article_slug = ?`).run("letter-j");
+
+  const reply = JSON.stringify({ items: [{ index: 1, verdict: "pass", reason: "stated in text" }], type: null });
+  const result = await reviewArticleSuggestions(db, "letter-j", {
+    llm: stubLlm(reply),
+    prompts: REVIEW_PROMPTS,
+    vocab,
+    keyMaxWords: 6,
+  });
+  assert.equal(result.items[0]?.verdict, "pass");
+
+  // Whatever the verdict, the review must move the suggestion out of
+  // 'pending' — a pass that silently applies nothing leaves the article
+  // eligible for review again on the very next scheduler tick, which is the
+  // infinite loop this covers.
+  const stillPending = listOntologySuggestions(db, "letter-j").filter((s) => s.status === "pending");
+  assert.equal(stillPending.length, 0, "no suggestion may survive a completed review as 'pending'");
+
+  const queued = enqueueReviewTasks(db, vocab.signature, 10);
+  assert.equal(queued, 0, "the article must not be re-enqueued for review after a completed pass");
+});
+
+test("a review pass with no owning entity does not report success", async (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "letter-j", "Letter J", Date.now());
+  insertSuggestion(db, "letter-j", "Letter J", "related_to", "Alphabet");
+  prepared(db, `DELETE FROM entities WHERE article_slug = ?`).run("letter-j");
+
+  const reply = JSON.stringify({ items: [{ index: 1, verdict: "pass", reason: "stated in text" }], type: null });
+  const result = await reviewArticleSuggestions(db, "letter-j", {
+    llm: stubLlm(reply),
+    prompts: REVIEW_PROMPTS,
+    vocab,
+    keyMaxWords: 6,
+  });
+
+  // A "pass" recorded on the queue row while nothing was actually merged is
+  // what makes the loop invisible in the admin Monitoring tab.
+  assert.notEqual(result.verdict, "pass", "an unapplicable review must not be recorded as a clean pass");
+});

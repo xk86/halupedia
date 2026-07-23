@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { openDatabase, prepared, saveArticle, setArticleInfobox, type InfoboxData } from "../src/server/db";
 import { buildOntologyFactDocuments, buildOntologyGraphPayload, deleteArticleOntology, ensureArticleOntologyFresh, getArticleOntologySignature, isArticleOntologyStale, addCuratedFact, applyOntologySuggestions, deleteCuratedFact, getArticleEntityId, updateArticleEntityType, deriveLlmExtraction, emptyExtraction, extractDeterministic, inferRelations, indexArticleOntology, listArticleEntityFacts, loadOntologyVocabulary, mergeExtractions, mergeOntologyExtractions, listOntologySuggestions, resolveArticleSlugByName, validateLlmExtraction } from "../src/server/ontology";
 import { sanitizeFactText } from "../src/server/ontology/extract";
+import { replaceOntologySuggestions } from "../src/server/ontology/suggestions";
 import type { ArticleRecord, PromptConfig } from "../src/server/types";
 import type { LlmRouter } from "../src/server/llm";
 import { extractOntologyNode } from "../src/server/pipeline/nodes/postProcess";
@@ -1214,4 +1215,45 @@ test("extractOntologyNode: calls the LLM only when ontology_llm_extraction is on
   assert.equal(calls, 1, "LLM called once when the flag is on");
   assert.equal(onPatch.ontologyExtraction?.llmEnabled, true);
   assert.equal(onPatch.ontologyExtraction?.llmReason, "first_extraction");
+});
+
+test("an is_a-shaped relation from the raw model output never becomes a fact suggestion", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "halu-isa-suggestion-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const db = openDatabase(join(root, "test.db"));
+  saveArticle(
+    db,
+    {
+      slug: "letter-j",
+      canonicalSlug: "letter-j",
+      title: "Letter J",
+      markdown: "# Letter J\n\nBody.",
+      html: "",
+      summaryMarkdown: "",
+      plain_text: "Body.",
+      generated_at: Date.now(),
+    } as unknown as ArticleRecord,
+    [],
+    [],
+    {},
+  );
+  indexArticleOntology(db, { slug: "letter-j", title: "Letter J", infobox: null, vocab });
+
+  // `replaceOntologySuggestions` stores the *raw* model relations, so its
+  // is_a guard sees whatever string the model wrote. A light model writes the
+  // predicate's human label, or its own casing, at least as often as the
+  // canonical `is_a` — and every one of those spellings means "the subject's
+  // type", which is the type-suggestion channel's job, not a fact suggestion.
+  const raw = {
+    relations: [
+      { subject: "Letter J", predicate: "is a", object: "letter" },
+      { subject: "Letter J", predicate: "IS_A", object: "letter" },
+      { subject: "Letter J", predicate: "is_a", object: "letter" },
+      { subject: "Letter J", predicate: "founded_by", object: "Someone" },
+    ],
+  };
+  replaceOntologySuggestions(db, "letter-j", raw, emptyExtraction());
+
+  const predicates = listOntologySuggestions(db, "letter-j").map((s) => s.predicate);
+  assert.deepEqual(predicates, ["founded_by"], "no spelling of is_a survives as a fact suggestion");
 });

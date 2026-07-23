@@ -12,7 +12,7 @@ import { buildOntologyFactDocuments } from "./documents";
 import { extractDeterministic, mergeExtractions, mergeOntologyExtractions } from "./extract";
 import { inferRelations } from "./infer";
 import { deriveLlmExtraction, type OntologyLlmOptions } from "./llmExtract";
-import { getArticleOntologySignature, reconcileArticleOntology, setArticleOntologySignature } from "./store";
+import { getArticleEntityId, getArticleOntologySignature, reconcileArticleOntology, setArticleOntologySignature } from "./store";
 import { emptyExtraction, type ExtractionResult } from "./types";
 import type { OntologyVocabulary } from "./vocabulary";
 
@@ -58,10 +58,20 @@ export function indexArticleOntology(db: DatabaseSync, args: IndexArticleOntolog
   return merged;
 }
 
-/** True when an article was never extracted or was extracted under a vocabulary
- *  whose extraction-shaping signature has since changed. */
+/** True when an article was never extracted, was extracted under a vocabulary
+ *  whose extraction-shaping signature has since changed, or has lost the entity
+ *  row its whole ontology hangs off.
+ *
+ *  That last case looks fresh by signature alone but is really empty: the
+ *  article renders no ontology box, and any pending suggestion can never be
+ *  merged (there is no subject entity to attach it to). Treating it as stale is
+ *  what gets the entity rebuilt instead of leaving the article stuck. */
 export function isArticleOntologyStale(db: DatabaseSync, slug: string, vocab: OntologyVocabulary): boolean {
-  return getArticleOntologySignature(db, slug) !== vocab.signature;
+  if (getArticleOntologySignature(db, slug) !== vocab.signature) return true;
+  // Only meaningful for a slug that actually has an article — object slugs of
+  // relations are checked through here too, and a redlink has no entity by
+  // definition (and nothing to re-extract from).
+  return getArticle(db, slug) !== null && getArticleEntityId(db, slug) === null;
 }
 
 /**

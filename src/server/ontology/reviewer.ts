@@ -385,6 +385,27 @@ export async function reviewArticleSuggestions(
   const passedIds = items.filter((item) => item.verdict === "pass").map((item) => item.id);
   if (passedIds.length > 0) {
     applyOntologySuggestions(db, slug, "merge", passedIds);
+    // A merge can decline to apply anything — most often because the article
+    // has no owning entity row, so there is nothing to hang the fact on. The
+    // suggestion then stays `pending`, `enqueueReviewTasks` re-selects the
+    // article on the next tick, and it is reviewed (and passed, and not
+    // applied) forever. Nothing may leave this function still `pending`:
+    // settle whatever survived for a human and report it as a failure rather
+    // than logging a clean pass that changed nothing.
+    const unapplied = new Set(
+      listOntologySuggestions(db, slug)
+        .filter((s) => s.status === "pending" && passedIds.includes(s.id))
+        .map((s) => s.id),
+    );
+    if (unapplied.size > 0) {
+      setOntologySuggestionsStatus(db, slug, "human_review", [...unapplied]);
+      for (const item of items) {
+        if (!unapplied.has(item.id)) continue;
+        item.verdict = "fail";
+        item.reason = "passed review but could not be applied (no ontology entity for this article)";
+      }
+      options.logger?.warn?.("ontology.review_unapplied", { slug, count: unapplied.size });
+    }
   }
   const discardedIds = items
     .filter((item) => item.verdict === "fail" && item.source === "deterministic")

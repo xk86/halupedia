@@ -16,6 +16,8 @@ import {
   listReviewQueue,
   reviewArticleSuggestions,
   enqueueExtractionTasks,
+  isArticleOntologyStale,
+  ensureArticleOntologyFresh,
   claimNextExtraction,
   countActiveExtractions,
 } from "../src/server/ontology";
@@ -662,7 +664,10 @@ test("a review pass on an article whose entity row is gone must settle its sugge
     vocab,
     keyMaxWords: 6,
   });
-  assert.equal(result.items[0]?.verdict, "pass");
+  // The model passed the item, but nothing could be merged, so it is reported
+  // as a failure rather than as a pass that silently changed nothing.
+  assert.equal(result.items[0]?.verdict, "fail");
+  assert.match(result.items[0]?.reason ?? "", /could not be applied/);
 
   // Whatever the verdict, the review must move the suggestion out of
   // 'pending' — a pass that silently applies nothing leaves the article
@@ -692,4 +697,23 @@ test("a review pass with no owning entity does not report success", async (t) =>
   // A "pass" recorded on the queue row while nothing was actually merged is
   // what makes the loop invisible in the admin Monitoring tab.
   assert.notEqual(result.verdict, "pass", "an unapplicable review must not be recorded as a clean pass");
+});
+
+test("an article that lost its entity row counts as stale, so the next pass rebuilds it", (t) => {
+  const db = makeDb(t);
+  makeArticle(db, "letter-j", "Letter J", Date.now());
+  assert.equal(isArticleOntologyStale(db, "letter-j", vocab), false);
+
+  // The signature still says "extracted under the current vocabulary", but the
+  // entity the whole ontology hangs off is gone — the article renders no
+  // ontology box and nothing can be merged into it.
+  prepared(db, `DELETE FROM entities WHERE article_slug = ?`).run("letter-j");
+  assert.equal(isArticleOntologyStale(db, "letter-j", vocab), true, "a missing entity row is staleness");
+
+  assert.equal(ensureArticleOntologyFresh(db, "letter-j", vocab), true, "re-extraction runs");
+  assert.ok(listArticleEntityFacts(db, "letter-j").entity, "the entity is back");
+
+  // A redlink (no article at all) must not be reported stale — nothing exists
+  // to re-extract, and the article-ontology endpoint checks object slugs here.
+  assert.equal(isArticleOntologyStale(db, "no-such-article", vocab), true, "never-extracted is still stale");
 });

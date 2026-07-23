@@ -583,4 +583,8 @@ export function deleteArticleOntology(db: DatabaseSync, slug: string): void {
   prepared(db, `DELETE FROM article_categories WHERE article_slug = ?`).run(slug);
   prepared(db, `DELETE FROM suppressed_relations WHERE article_slug = ?`).run(slug);
   prepared(db, `UPDATE entities SET article_slug = NULL WHERE article_slug = ?`).run(slug);
+  // Drop the extraction stamp too. Leaving it behind claims this (now
+  // entity-less) article's ontology is current, so nothing ever re-extracts it
+  // if the slug comes back.
+  prepared(db, `DELETE FROM article_ontology_state WHERE article_slug = ?`).run(slug);
 }

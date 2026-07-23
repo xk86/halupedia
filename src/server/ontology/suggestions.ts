@@ -120,6 +120,20 @@ function text(value: unknown): string {
   return "";
 }
 
+/**
+ * True for any spelling of the `is_a` predicate. These relations are never
+ * fact suggestions: "X is_a Y" states the subject's *type*, which is the
+ * type-suggestion channel's job (`replaceOntologyTypeSuggestion` below, fed by
+ * the validated extraction). The suggestions written here come from the raw
+ * model output, so the predicate is whatever the model typed — "is a" and
+ * "IS_A" are at least as common as the canonical name, and an exact-match
+ * guard let those through to be reviewed as facts forever (the value they
+ * carry, e.g. "letter", is usually not even a valid entity type).
+ */
+function isIsAPredicate(predicate: string): boolean {
+  return /^is[\s_-]?a$/i.test(predicate.trim());
+}
+
 export function replaceOntologySuggestions(
   db: DatabaseSync,
   slug: string,
@@ -185,7 +199,7 @@ export function replaceOntologySuggestions(
       !relation.subject ||
       !relation.predicate ||
       !relation.object ||
-      relation.predicate === "is_a"
+      isIsAPredicate(relation.predicate)
     )
       continue;
     const key = `${relation.subject}\0${relation.predicate}\0${relation.object}`;
